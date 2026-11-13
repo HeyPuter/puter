@@ -28,6 +28,7 @@ import {
     runWithConcurrencyLimit,
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
+import { entryNamesMatch } from '../../util/entryNames.js';
 import { escapeLike } from '../../util/sqlLike.js';
 import {
     keysetPage,
@@ -71,6 +72,13 @@ const DESCENDANT_SORT_EXPRESSIONS = {
 } as const;
 
 type DescendantSortField = keyof typeof DESCENDANT_SORT_EXPRESSIONS;
+
+/** One level of a resolved path, home first. */
+interface LineageRow {
+    id: number;
+    uuid: string;
+    path: string | null;
+}
 
 // One directory's children sort by bare name; otherwise as above. Anything
 // unrecognised sorts by name.
@@ -799,11 +807,30 @@ export class FSEntryStore extends PuterStore {
                 return entries;
             },
         );
+        const requested = new Set(normalizedPaths);
+        const otherSpellings: FSEntry[] = [];
         for (const chunkEntries of chunkResults) {
             for (const entry of chunkEntries) {
                 entriesByPath.set(entry.path, entry);
+                if (!requested.has(entry.path)) otherSpellings.push(entry);
             }
         }
+        // The same name in another case or normalization form is the entry
+        // asked for, as in `getEntryByPath`. The walk below compares `name`,
+        // whose collation keeps NFC and NFD apart.
+        const claimed = new Set<FSEntry>();
+        for (const path of normalizedPaths) {
+            if (entriesByPath.has(path)) continue;
+            const same = otherSpellings
+                .filter((entry) => entryNamesMatch(entry.path, path))
+                .sort((x, y) => x.id - y.id);
+            if (same.length === 0) continue;
+            entriesByPath.set(path, same[0]!);
+            for (const entry of same) claimed.add(entry);
+        }
+        // A row left over, returned under a spelling nobody asked for: what it
+        // stands for may exist only on the primary so far.
+        const otherSpelling = otherSpellings.length > claimed.size;
 
         // Per-path lineage fallback for entries the bulk SELECT missed —
         // legacy rows with a NULL `path` column (see #resolveEntryByPathLineage).
@@ -819,7 +846,10 @@ export class FSEntryStore extends PuterStore {
             LINEAGE_LOOKUP_CONCURRENCY,
             async (path) => ({
                 path,
-                entry: await this.#resolveEntryByPathLineage(path),
+                entry: await this.#resolveEntryByPathLineage(path, {
+                    foldedNames: options.foldedNames,
+                    primary: useTryHardRead && otherSpelling,
+                }),
             }),
         );
         for (const result of lineageResults) {
@@ -1117,6 +1147,19 @@ export class FSEntryStore extends PuterStore {
                     }`,
                 );
             }
+            // Or the unique key holds a name the collation folds onto this one.
+            if (
+                await this.getEntryByPath(normalizedPath, {
+                    useTryHardRead: true,
+                    foldedNames: true,
+                })
+            ) {
+                throw new HttpError(
+                    409,
+                    `An entry whose name conflicts with \`${dirName}\` already exists`,
+                    { legacyCode: 'conflict' },
+                );
+            }
             // INSERT IGNORE silently dropped the row (typical cause:
             // FK violation on parent_id/user_id — e.g. the user namespace
             // doesn't exist). The path is unreachable from the client's
@@ -1189,10 +1232,24 @@ export class FSEntryStore extends PuterStore {
             [normalizedPath],
         )) as unknown as FSEntryRow[];
         const row = rows[0];
+        let pathMatch: FSEntry | null = null;
         if (row) {
+            // Cached under its own path, never the requested one.
             const entry = this.#mapFSEntryRow(row);
             await this.#writeEntryToCache(entry);
-            return entry;
+            if (entryNamesMatch(entry.path, normalizedPath)) return entry;
+            // Another spelling: a different entry, or this one with a stale
+            // `path`. The walk below compares names and heals the path. A
+            // name in another folder doesn't take this one.
+            if (
+                options.foldedNames &&
+                entryNamesMatch(
+                    pathPosix.dirname(entry.path),
+                    pathPosix.dirname(normalizedPath),
+                )
+            ) {
+                pathMatch = entry;
+            }
         }
 
         // Fallback for legacy rows whose `path` column was never populated
@@ -1200,19 +1257,30 @@ export class FSEntryStore extends PuterStore {
         // `convert_path_to_fsentry` lineage walk: split the path into
         // segments, anchor at `parent_uid IS NULL` matching the first
         // segment, then walk down via `parent_uid` chains. Backfills the
-        // `path` column only where it is empty, so subsequent calls take
+        // `path` column on every resolved row so subsequent calls take
         // the fast `WHERE path = ?` branch above.
-        if (options.lineage === false) return null;
-        return this.#resolveEntryByPathLineage(normalizedPath);
+        if (options.lineage === false) return pathMatch;
+        // With `foldedNames`, a row only the path collation matches still
+        // holds the name when no row's `name` matches.
+        return (
+            (await this.#resolveEntryByPathLineage(normalizedPath, {
+                foldedNames: options.foldedNames,
+            })) ?? pathMatch
+        );
     }
 
     /**
      * Recursive-CTE lineage resolver. Returns the entry at `path`, or null if
      * any segment is unresolvable. On success, backfills the `path` column on
-     * every row in the lineage that has none.
+     * every row in the lineage whose stored path differs. `primary` reads
+     * there, for rows a replica may not have yet.
      */
     async #resolveEntryByPathLineage(
         normalizedPath: string,
+        {
+            foldedNames = false,
+            primary = false,
+        }: { foldedNames?: boolean; primary?: boolean } = {},
     ): Promise<FSEntry | null> {
         if (normalizedPath === '/') return null;
         const segments = normalizedPath.split('/').filter(Boolean);
@@ -1232,49 +1300,116 @@ export class FSEntryStore extends PuterStore {
               segments(depth, name) AS (
                 ${segmentRows}
               ),
-              lineage(id, uuid, parent_uid, name, depth) AS (
-                SELECT f.id, f.uuid, f.parent_uid, f.name, 1
+              lineage(id, uuid, parent_uid, name, path, depth) AS (
+                SELECT f.id, f.uuid, f.parent_uid, f.name, f.path, 1
                 FROM fsentries f
                 INNER JOIN segments s ON s.depth = 1
                 WHERE f.parent_uid IS NULL AND f.name = s.name
 
                 UNION ALL
 
-                SELECT f.id, f.uuid, f.parent_uid, f.name, l.depth + 1
+                SELECT f.id, f.uuid, f.parent_uid, f.name, f.path, l.depth + 1
                 FROM fsentries f
                 INNER JOIN lineage l ON f.parent_uid = l.uuid
                 INNER JOIN segments s ON s.depth = l.depth + 1
                 WHERE f.name = s.name
               )
-            SELECT id, uuid, parent_uid, name, depth FROM lineage ORDER BY depth ASC, id ASC
+            SELECT id, uuid, parent_uid, name, path, depth FROM lineage ORDER BY depth ASC, id ASC
         `;
 
-        const rows = (await this.clients.db.read(sql, segments)) as {
+        const rows = (
+            primary
+                ? await this.clients.db.pread(sql, segments)
+                : await this.clients.db.read(sql, segments)
+        ) as {
             id: number | string;
             uuid: string;
             parent_uid: string | null;
             name: string;
+            path: string | null;
             depth: number | string;
         }[];
 
-        // The lowest-id target, then its own parents: each row is the parent of the next.
-        const rowAt = new Map(rows.map((r) => [`${r.depth}:${r.uuid}`, r]));
-        const target = rows.find((r) => Number(r.depth) === segments.length);
-        if (!target) return null;
-        const walkedNames: string[] = [];
-        let row: typeof target | undefined = target;
-        for (let depth = segments.length; row; depth--) {
-            walkedNames.unshift(row.name);
-            row = rowAt.get(`${depth - 1}:${row.parent_uid}`);
+        // Walk down from the home row through children of the row picked one
+        // level up: the exact spelling first, then one `entryNamesMatch`
+        // accepts, then (only with `foldedNames`) the lowest id the collation
+        // matched.
+        const lineage: LineageRow[] = [];
+        const storedNames: string[] = [];
+        let parentUuid: string | null = null;
+        let foldedFolder = false;
+        for (let depth = 1; depth <= segments.length; depth++) {
+            const segment = segments[depth - 1]!;
+            const candidates = rows.filter(
+                (r) =>
+                    Number(r.depth) === depth &&
+                    (depth === 1 || r.parent_uid === parentUuid),
+            );
+            const picked =
+                candidates.find((r) => r.name === segment) ??
+                candidates.find((r) => entryNamesMatch(r.name, segment)) ??
+                (foldedNames ? candidates[0] : undefined);
+            if (!picked) return null;
+            if (
+                depth < segments.length &&
+                !entryNamesMatch(picked.name, segment)
+            ) {
+                foldedFolder = true;
+            }
+            lineage.push({
+                id: Number(picked.id),
+                uuid: picked.uuid,
+                path: picked.path,
+            });
+            storedNames[depth - 1] = picked.name;
+            parentUuid = picked.uuid;
         }
-        const walkedPath = `/${walkedNames.join('/')}`;
+        // A folder named otherwise is another folder, unless the request
+        // spells the parent the way its stored path does.
+        const parentRow = lineage.at(-2);
+        if (
+            foldedFolder &&
+            !(
+                parentRow?.path &&
+                entryNamesMatch(
+                    parentRow.path,
+                    pathPosix.dirname(normalizedPath),
+                )
+            )
+        ) {
+            return null;
+        }
 
         // The stored names, not the caller's spelling: a collation can match
         // a segment to a name spelled differently, and this runs before any
         // access check.
-        const lineage = await this.#primaryLineageOf(target.uuid);
-        if (lineage?.path !== walkedPath) return null;
-        await this.#backfillLineagePaths(lineage.byDepth, lineage.segments);
+        const walkedPath = this.#lineagePath(storedNames, storedNames.length);
+        const target = lineage[lineage.length - 1]!;
+        const stale = lineage.some(
+            (row, index) =>
+                row.path !== this.#lineagePath(storedNames, index + 1),
+        );
+        if (!stale) {
+            const entry = await this.getEntryByUuid(target.uuid);
+            if (entry || !primary) return entry;
+            // A replica may not have the row yet.
+            const fresh = await this.getEntryByUuidFromPrimary(target.uuid);
+            if (fresh) await this.#writeEntryToCache(fresh);
+            return fresh;
+        }
+
+        // A replica's chain can lag a rename or an earlier heal, so the paths
+        // written and the entry returned come from the primary's.
+        const chain = primary
+            ? { rows: lineage, names: storedNames }
+            : await this.#primaryLineageOf(target.uuid);
+        if (
+            !chain ||
+            this.#lineagePath(chain.names, chain.names.length) !== walkedPath
+        ) {
+            return null;
+        }
+        await this.#backfillLineagePaths(chain.rows, chain.names);
 
         const entry = await this.getEntryByUuidFromPrimary(target.uuid);
         // A row that has since moved is not the entry at this path.
@@ -1283,47 +1418,59 @@ export class FSEntryStore extends PuterStore {
         return entry;
     }
 
+    #lineagePath(names: string[], depth: number): string {
+        return '/' + names.slice(0, depth).join('/');
+    }
+
+    /**
+     * Writes each row's `path` from the stored names where it differs byte for
+     * byte (the collation can call two spellings equal), and drops the cache
+     * keys of the rows it changed.
+     */
     async #backfillLineagePaths(
-        byDepth: Map<number, { id: number; uuid: string }>,
-        segments: string[],
+        lineage: LineageRow[],
+        names: string[],
     ): Promise<void> {
-        const depths = segments.map((_, i) => i + 1);
-        const filled = await runWithConcurrencyLimit(
-            depths,
+        const stale = lineage.flatMap((row, index) => {
+            const expected = this.#lineagePath(names, index + 1);
+            return row.path === expected ? [] : [{ row, expected }];
+        });
+        const written = await runWithConcurrencyLimit(
+            stale,
             DEFAULT_DB_CHUNK_CONCURRENCY,
-            async (depth) => {
-                const row = byDepth.get(depth);
-                if (!row) return null;
-                const expected = '/' + segments.slice(0, depth).join('/');
+            async ({ row, expected }) => {
+                // Matching the path read keeps a concurrent move's path.
                 const result = await this.clients.db.write(
-                    `UPDATE fsentries SET path = ?
-                     WHERE id = ? AND path IS NULL`,
-                    [expected, row.id],
+                    row.path === null
+                        ? 'UPDATE fsentries SET path = ? WHERE id = ? AND path IS NULL'
+                        : 'UPDATE fsentries SET path = ? WHERE id = ? AND path = ?',
+                    row.path === null
+                        ? [expected, row.id]
+                        : [expected, row.id, row.path],
                 );
-                if (this.#affectedRows(result) === 0) return null;
-                return { id: row.id, uuid: row.uuid, path: expected };
+                if (this.#affectedRows(result) === 0) return [];
+                const keys = { id: row.id, uuid: row.uuid, path: expected };
+                return row.path ? [keys, { ...keys, path: row.path }] : [keys];
             },
         );
-        const changed = filled.filter((row) => row !== null);
+        const changed = written.flat();
         if (changed.length > 0) await this.#invalidateEntriesCache(changed);
     }
 
-    /** Fills empty paths on the primary's chain; its row, or null if broken. */
+    /** Heals the primary's chain to `targetUuid`; its row, or null if broken. */
     async #healEntryPathByLineageUp(
         targetUuid: string,
     ): Promise<FSEntry | null> {
-        const lineage = await this.#primaryLineageOf(targetUuid);
-        if (!lineage) return null;
-        await this.#backfillLineagePaths(lineage.byDepth, lineage.segments);
+        const chain = await this.#primaryLineageOf(targetUuid);
+        if (!chain) return null;
+        await this.#backfillLineagePaths(chain.rows, chain.names);
         return this.getEntryByUuidFromPrimary(targetUuid);
     }
 
     /** The primary's chain from the home row to `uuid`; null if broken. */
-    async #primaryLineageOf(uuid: string): Promise<{
-        path: string;
-        segments: string[];
-        byDepth: Map<number, { id: number; uuid: string }>;
-    } | null> {
+    async #primaryLineageOf(
+        uuid: string,
+    ): Promise<{ rows: LineageRow[]; names: string[] } | null> {
         const sql = `
             WITH RECURSIVE
               ancestors(id, uuid, parent_uid, name, path, depth) AS (
@@ -1358,21 +1505,17 @@ export class FSEntryStore extends PuterStore {
         const root = rows[rows.length - 1];
         if (root.parent_uid !== null) return null;
 
-        // Reverse to root → target order so segments[0] is the home name
-        // and segments[N-1] is the target name. Then map into the
-        // (depth → row) shape `#backfillLineagePaths` expects (depth=1 is
-        // home, depth=N is target).
+        // Reverse to root → target order, the order `#backfillLineagePaths`
+        // expects.
         const ordered = [...rows].reverse();
-        const segments = ordered.map((r) => r.name);
-        const byDepth = new Map<number, { id: number; uuid: string }>();
-        for (let i = 0; i < ordered.length; i++) {
-            if (ordered[i].path !== null) continue;
-            byDepth.set(i + 1, {
-                id: Number(ordered[i].id),
-                uuid: ordered[i].uuid,
-            });
-        }
-        return { path: `/${segments.join('/')}`, segments, byDepth };
+        return {
+            rows: ordered.map((r) => ({
+                id: Number(r.id),
+                uuid: r.uuid,
+                path: r.path,
+            })),
+            names: ordered.map((r) => r.name),
+        };
     }
 
     /**
@@ -3876,12 +4019,15 @@ export class FSEntryStore extends PuterStore {
 
     // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`,
     // and drops their cached copies. Used by move/rename when a directory is
-    // relocated. Pass `newUserId` when the subtree also changes hands.
+    // relocated. Pass `newUserId` when the subtree also changes hands, and
+    // `movedUuid`, the relocated directory, so a sibling whose path LIKE can't
+    // tell from `oldPrefix` keeps its own subtree.
     async updatePathPrefixForUser(
         userId: number,
         oldPrefix: string,
         newPrefix: string,
         newUserId?: number,
+        movedUuid?: string,
     ): Promise<number> {
         const normalizedOld = this.#normalizePath(oldPrefix);
         const normalizedNew = this.#normalizePath(newPrefix);
@@ -3916,28 +4062,85 @@ export class FSEntryStore extends PuterStore {
             rootPaths: [normalizedOld, normalizedNew],
             primary: true,
         });
-        for (const patterns of groups) {
-            const result = await this.clients.db.write(
-                `UPDATE fsentries
-                 SET path = ${rewrittenPath},
-                     ${reowning ? 'user_id = ?,' : ''}
-                     modified = ?
-                 WHERE ${this.#pathLikeAny(patterns)}`,
-                [
-                    normalizedNew,
-                    oldPrefixLen + 1,
-                    ...(reowning ? [newUserId] : []),
-                    now,
-                    ...patterns,
-                ],
+        const setClause = `path = ${rewrittenPath}, ${reowning ? 'user_id = ?, ' : ''}modified = ?`;
+        const setParams = [
+            normalizedNew,
+            oldPrefixLen + 1,
+            ...(reowning ? [newUserId] : []),
+            now,
+        ];
+        if (movedUuid && (await this.#hasPathTwin(normalizedOld, movedUuid))) {
+            affected = await this.#rebaseByParentLinks(
+                movedUuid,
+                likePattern,
+                setClause,
+                setParams,
             );
-            affected += this.#affectedRows(result);
+        } else {
+            for (const patterns of groups) {
+                const result = await this.clients.db.write(
+                    `UPDATE fsentries
+                     SET ${setClause}
+                     WHERE ${this.#pathLikeAny(patterns)}`,
+                    [...setParams, ...patterns],
+                );
+                affected += this.#affectedRows(result);
+            }
         }
         await this.#invalidateRebasedSubtree(
             normalizedOld,
             normalizedNew,
             groups,
         );
+        return affected;
+    }
+
+    // Whether a row other than `uuid` sits at a path LIKE matches to `path`:
+    // LIKE compares under the path collation (ASCII case on SQLite), so a
+    // prefix pattern for one of them also covers the other's subtree.
+    async #hasPathTwin(path: string, uuid: string): Promise<boolean> {
+        const rows = (await this.clients.db.pread(
+            "SELECT uuid FROM fsentries WHERE path LIKE ? ESCAPE '!' AND uuid <> ? LIMIT 1",
+            [this.#escapeLikePattern(path), uuid],
+        )) as unknown[];
+        return rows.length > 0;
+    }
+
+    // The prefix rewrite for a directory with a path twin: level by level down
+    // the parent links from `rootUuid`, which only its own subtree hangs from.
+    async #rebaseByParentLinks(
+        rootUuid: string,
+        likePattern: string,
+        setClause: string,
+        setParams: unknown[],
+    ): Promise<number> {
+        let affected = 0;
+        const seen = new Set([rootUuid]);
+        let parents = [rootUuid];
+        while (parents.length > 0) {
+            const next: string[] = [];
+            for (const chunk of this.#chunk(parents, BULK_QUERY_CHUNK_SIZE)) {
+                const marks = chunk.map(() => '?').join(', ');
+                const dirs = (await this.clients.db.pread(
+                    `SELECT uuid FROM fsentries
+                     WHERE parent_uid IN (${marks}) AND is_dir = ${this.clients.db.booleanLiteral(true)}`,
+                    chunk,
+                )) as Array<{ uuid: string }>;
+                const result = await this.clients.db.write(
+                    `UPDATE fsentries
+                     SET ${setClause}
+                     WHERE parent_uid IN (${marks}) AND path LIKE ? ESCAPE '!'`,
+                    [...setParams, ...chunk, likePattern],
+                );
+                affected += this.#affectedRows(result);
+                for (const { uuid } of dirs) {
+                    if (seen.has(uuid)) continue;
+                    seen.add(uuid);
+                    next.push(uuid);
+                }
+            }
+            parents = next;
+        }
         return affected;
     }
 

@@ -10,7 +10,7 @@ Your notifications always reach your app live while it's open. This permission d
 
 It asks for the `'pushNotifications'` resource of [`puter.perms.request()`](/Perms/request/#push-notifications). To ask in the same prompt as other access, such as `'backgroundEvents'` for an [events handler](/Events/handlers/), pass both to [`puter.perms.request()`](/Perms/request/#batching) instead.
 
-Inside the Puter desktop the prompt is a dialog. On a website it opens in a popup on the Puter origin, so call it from a user gesture such as a click. If the user already allowed it, it resolves `true` without asking.
+Inside the Puter desktop the prompt is a dialog. On a website it opens in a popup on the Puter origin, so call it from a user gesture such as a click. If the user already allowed it, it resolves `true` without asking. Inside the desktop, pushes allowed only through [`enable()`](/Notifications/enable/) on your website don't count, since those reach only your website, so the dialog asks. On a website they do count, so it resolves `true` without asking; [`enablePush()`](/Notifications/enablePush/) then asks for Puter's permission in its popup.
 
 When the user allows it, Puter also turns its own pushes on in the browser they answered in, unless they're on there already or the browser blocks them. Pushes through Puter show with your app's name and icon, and a tap opens your app inside the Puter desktop. A website that wants pushes on its own domain calls [`enable()`](/Notifications/enable/) instead, which allows pushes from your app without this prompt. [Where a push goes](/Notifications/push/#where-a-push-goes) has the rule.
 

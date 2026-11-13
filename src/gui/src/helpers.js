@@ -3636,7 +3636,16 @@ window.handle_same_name_exists = async ({
             parent_uuid,
         });
         if ( alert_resp === 'replace' ) {
-            await action({ overwrite: true });
+            try {
+                await action({ overwrite: true });
+            } catch ( err ) {
+                console.error(err);
+                await UIAlert({
+                    message: err?.message ?? 'Upload failed.',
+                    parent_uuid,
+                });
+                return false;
+            }
             return true;
         }
         return false;

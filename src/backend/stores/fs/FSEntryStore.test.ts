@@ -858,13 +858,24 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         const folder = (await store.getEntryByPath(
             `${user.home}/Documents/gone`,
         ))!;
+        const desktop = (await store.getEntryByPath(`${user.home}/Desktop`))!;
         await blankPath(folder.uuid);
 
-        const spy = await lagReplicaFor(folder.uuid);
-        await server.clients.db.write(
-            'UPDATE fsentries SET path = ? WHERE uuid = ?',
-            [`${user.home}/Desktop/gone`, folder.uuid],
-        );
+        const moved = `${user.home}/Desktop/gone`;
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const spy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                const rows = await originalRead.call(db, sql, params);
+                if (sql.includes('segments(depth, name)')) {
+                    await db.write(
+                        'UPDATE fsentries SET path = ?, parent_uid = ?, parent_id = ? WHERE uuid = ?',
+                        [moved, desktop.uuid, desktop.id, folder.uuid],
+                    );
+                }
+                return rows;
+            });
         try {
             await expect(
                 store.getEntryByPath(`${user.home}/Documents/gone`),
@@ -872,6 +883,7 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         } finally {
             spy.mockRestore();
         }
+        await expect(pathOf(folder.uuid)).resolves.toBe(moved);
         await expect(
             server.clients.redis.get(`prodfsv2:fsentry:uuid:${folder.uuid}`),
         ).resolves.toBeNull();
@@ -1071,8 +1083,14 @@ describe('FSEntryStore legacy NULL-path healing', () => {
                 ),
             );
         try {
+            // The folder spelled as asked is the one walked, and it has no x.txt.
             await expect(
                 store.getEntryByPath(`${user.home}/Notes/x.txt`),
+            ).resolves.toBeNull();
+            await expect(pathOf(file.uuid)).resolves.toBeNull();
+
+            await expect(
+                store.getEntryByPath(`${user.home}/notes/x.txt`),
             ).resolves.toMatchObject({
                 uuid: file.uuid,
                 path: `${user.home}/notes/x.txt`,
@@ -4319,6 +4337,21 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
             });
     };
 
+    it('reads nothing at a name only the collation matches', async () => {
+        const user = await makeUser();
+        await store.getEntryByPath(`${user.home}/Desktop`);
+        await server.clients.redis.flushall?.();
+
+        const spy = matchNamesLeniently('Deßktop', 'Desktop');
+        try {
+            await expect(
+                store.getEntryByPath(`${user.home}/Deßktop`),
+            ).resolves.toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
     it('writes the stored path, not the requested spelling', async () => {
         const user = await makeUser();
         const desktop = (await store.getEntryByPath(`${user.home}/Desktop`))!;
@@ -4326,7 +4359,10 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
 
         const spy = matchNamesLeniently('Deßktop', 'Desktop');
         try {
-            const resolved = await store.getEntryByPath(`${user.home}/Deßktop`);
+            const resolved = await store.getEntryByPath(
+                `${user.home}/Deßktop`,
+                { foldedNames: true },
+            );
             expect(resolved?.uuid).toBe(desktop.uuid);
             expect(resolved?.path).toBe(`${user.home}/Desktop`);
         } finally {
@@ -4344,7 +4380,9 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
 
         const spy = matchNamesLeniently('Deßktop', 'Desktop');
         try {
-            await store.getEntryByPath(`${user.home}/Deßktop`);
+            await store.getEntryByPath(`${user.home}/Deßktop`, {
+                foldedNames: true,
+            });
         } finally {
             spy.mockRestore();
         }

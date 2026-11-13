@@ -41,12 +41,16 @@ const makeModule = ({
     requestPermission = () => false,
     stat = denied,
     appsGet = async () => ({ uid: 'app-target' }),
+    desktopAnswersPush = false,
 } = {}) => ({
     puter: {
         APIOrigin: 'https://api.test',
         appID: SELF_UID,
         auth: { whoami: vi.fn(async () => ({ ...whoami })) },
-        ui: { requestPermission: vi.fn(requestPermission) },
+        ui: {
+            requestPermission: vi.fn(requestPermission),
+            desktopAnswersPush_: () => desktopAnswersPush,
+        },
         fs: { stat: vi.fn(stat) },
         apps: { get: vi.fn(appsGet) },
     },
@@ -220,6 +224,46 @@ describe('perms request(resource, details)', () => {
             permissions: ['notifications:push'],
         });
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    it('leaves a held push grant to a desktop that answers push itself', async () => {
+        routes({ held: { 'notifications:push': true } });
+        const mod = makeModule({ desktopAnswersPush: true, requestPermission: () => true });
+
+        expect(await request.call(mod, 'pushNotifications')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'notifications:push',
+        });
+        expect(await request.call(mod, 'notifications:push')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledTimes(2);
+        expect(await check.call(mod, 'pushNotifications')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledTimes(2);
+    });
+
+    it('settles a held push grant without a prompt on a website, or in a desktop that doesn`t answer push', async () => {
+        routes({ held: { 'notifications:push': true } });
+        const mod = makeModule();
+
+        expect(await request.call(mod, 'pushNotifications')).toBe(true);
+        expect(await request.call(mod, 'notifications:push')).toBe(true);
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    it('asks only for what is missing beside a held push grant, unless the desktop answers push', async () => {
+        routes({ held: { 'notifications:push': true } });
+        const batch = [{ resource: 'pushNotifications' }, { resource: 'backgroundEvents' }];
+
+        const mod = makeModule({ requestPermission: () => false });
+        expect(await request.call(mod, batch)).toEqual([true, false]);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'events:background',
+        });
+
+        const inDesktop = makeModule({ desktopAnswersPush: true, requestPermission: () => true });
+        expect(await request.call(inDesktop, batch)).toEqual([true, true]);
+        expect(inDesktop.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permissions: ['notifications:push', 'events:background'],
+        });
     });
 
     it('asks to share a region of the app\'s own data, named by its prefix', async () => {
