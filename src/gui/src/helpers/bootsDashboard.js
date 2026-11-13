@@ -20,7 +20,8 @@
 /**
  * Whether a page load boots the dashboard instead of the desktop. The root
  * path and `/app/<name>` boot the dashboard unless the page is a popup, which
- * the desktop still handles; `/dashboard` always does.
+ * the desktop still handles; `/dashboard` always does. The server matches
+ * these routes case-insensitively, so this does too.
  *
  * @param {Object} location
  * @param {string} location.pathname
@@ -28,8 +29,8 @@
  * @returns {boolean}
  */
 export function bootsDashboard ({ pathname, embeddedInPopup }) {
-    if ( pathname === '/dashboard' || pathname === '/dashboard/' ) return true;
-    const isAppLanding = /^\/app\/[^/]+\/?$/.test(pathname);
+    if ( /^\/dashboard\/?$/i.test(pathname) ) return true;
+    const isAppLanding = /^\/app\/[^/]+\/?$/i.test(pathname);
     if ( pathname !== '/' && !isAppLanding ) return false;
     return !embeddedInPopup;
 }

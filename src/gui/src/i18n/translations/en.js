@@ -962,7 +962,6 @@ const en = {
         'enable_push_not_now': 'Not now',
         'enable_push_footnote': 'You can turn them off anytime in Settings.',
 
-
         // Auth token
         auth_token: 'Auth Token',
         token_copied: 'Token copied',

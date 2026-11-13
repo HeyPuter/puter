@@ -1131,19 +1131,38 @@ test.describe('grant-user-app permission length', () => {
     });
 });
 
+/**
+ * A top-level request-permission page posts its answer to itself. Resolves
+ * with that answer, or with null if a prompt shows up first.
+ */
+async function answerWithoutPrompt (page, url) {
+    await page.addInitScript(() => {
+        window.addEventListener('message', (event) => {
+            if ( event.data?.msg === 'permissionGranted' ) window.__permissionAnswer = event.data;
+        });
+    });
+    await page.goto(url);
+    const settled = await page.waitForFunction(
+        () => window.__permissionAnswer ?? (document.querySelector('dialog.perm-dialog') ? 'prompted' : undefined),
+        null,
+        { timeout: 60_000 },
+    );
+    const answer = await settled.jsonValue();
+    return answer === 'prompted' ? null : answer;
+}
+
 test.describe('request-permission action hardening', () => {
     test('an app_uid in the URL never produces a prompt on its own', async ({ page }) => {
         // The uid identifies who receives the grant, so it must come from the
         // requesting origin — never from the link. A link carrying only a uid
         // would otherwise prompt for an unnamed requester and grant to an app
         // the dialog never showed the user.
-        await page.goto(
+        const answer = await answerWithoutPrompt(
+            page,
             `/action/request-permission?permission=${encodeURIComponent(UNHELD_PERMISSION)}` +
                 '&app_uid=app-00000000-0000-4000-8000-000000000000',
         );
-        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
-        // Give the post-auth action a chance to run before asserting absence.
-        await page.locator('.desktop').waitFor({ timeout: 60_000 });
+        expect(answer?.granted).toBe(false);
         await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
     });
 
@@ -1274,12 +1293,12 @@ test.describe('request-permission action hardening', () => {
         // (the referrer, or the opener's reply to the `requestOrigin`
         // handshake). Believing the query string would let a bare link raise a
         // consent prompt in any app's name and commit the user's grant to it.
-        await page.goto(
+        const answer = await answerWithoutPrompt(
+            page,
             `/action/request-permission?permission=${encodeURIComponent(UNHELD_PERMISSION)}` +
                 `&origin=${encodeURIComponent('https://not-the-requester.example/')}`,
         );
-        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
-        await page.locator('.desktop').waitFor({ timeout: 60_000 });
+        expect(answer?.granted).toBe(false);
         await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
     });
 

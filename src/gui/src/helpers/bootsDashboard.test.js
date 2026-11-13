@@ -33,6 +33,13 @@ describe('bootsDashboard', () => {
         expect(boots('/app/editor')).toBe(true);
     });
 
+    it('matches the paths in any letter case, as the server routes them', () => {
+        expect(boots('/Dashboard')).toBe(true);
+        expect(boots('/App/editor')).toBe(true);
+        expect(boots('/APP/Editor/')).toBe(true);
+        expect(boots('/App/editor', { embeddedInPopup: true })).toBe(false);
+    });
+
     it('boots the desktop on action pages', () => {
         expect(boots('/action/sign-in')).toBe(false);
     });
