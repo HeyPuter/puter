@@ -218,6 +218,8 @@ export const KLING_VIDEO_GENERATION_MODELS: IVideoModel[] = [
 // https://kling.ai/document-api/api/video and the capability map
 // https://kling.ai/document-api/guides/capability-map/video.
 export const KLING_VIDEO_SPECS: Record<string, KlingVideoSpec> = {
+    // Kling 4 takes 26,000 English characters but 11,000 non-English ones,
+    // and enforces the lower limit itself.
     'kling-4.0-flash': {
         textPath: '/text-to-video/kling-4.0-flash',
         imagePath: '/image-to-video/kling-4.0-flash',

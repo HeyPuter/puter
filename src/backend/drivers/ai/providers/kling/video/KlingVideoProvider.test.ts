@@ -37,6 +37,7 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { translateProviderError } from '../../../../../controllers/drivers/DriverController.js';
 import { Context } from '../../../../../core/context.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
@@ -822,6 +823,29 @@ describe('Kling 4 generation', () => {
             expect(fetchSpy).not.toHaveBeenCalled();
         },
     );
+
+    it("leaves Kling 4's lower non-English prompt limit to Kling", async () => {
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse(
+                {
+                    code: 1201,
+                    message:
+                        'prompt is too long: at most 26000 English characters or 11000 non-English characters',
+                },
+                400,
+            ),
+        );
+        const failure = await generate({
+            model: 'kling-4.0',
+            prompt: '海'.repeat(12_000),
+        }).catch((e) => e);
+        expect(sentBody().prompt).toHaveLength(12_000);
+        expect(translateProviderError(failure)).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
 
     it.each(['kling-4.0', 'kling-4.0-flash'])(
         'omits the unsupported audio switch on %s when audio is disabled',

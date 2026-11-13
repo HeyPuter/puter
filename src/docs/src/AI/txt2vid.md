@@ -315,7 +315,7 @@ A clip is shortened to fit the balance, as described in [Cost and clip length](#
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | Video model to use, from the table above (full id or alias) |
-| `prompt` | `String` | Up to 26,000 characters on Kling 4.0 and 4.0 Flash, 3,072 on the Kling 3.0 models, 2,500 on the others and on Kling 3.0 Turbo with `input_reference` |
+| `prompt` | `String` | Up to 26,000 characters in English or 11,000 in other languages on Kling 4.0 and 4.0 Flash, 3,072 characters on the Kling 3.0 models, 2,500 on the others and on Kling 3.0 Turbo with `input_reference` |
 | `seconds` | `Number` | Clip length, from the table above. Any other value falls back to `5`. Ignored with `inputVideo` |
 | `size` | `String` | Resolution tier: `'720p'`, `'1080p'` or `'4k'` (case-insensitive), or `'WIDTHxHEIGHT'`. The `resolution` option is an alias |
 | `width` | `Number` | Optional. Only the ratio of `width` to `height` is used, to pick the aspect ratio: `16:9`, `9:16` or `1:1`. Any other ratio gives `16:9`. A clip from `input_reference` or `inputVideo` takes the image's or video's shape |
@@ -326,6 +326,8 @@ A clip is shortened to fit the balance, as described in [Cost and clip length](#
 | `reference_images` | `Array<String \| Blob>` | Images the model uses as subject, style or scene references, same formats. Kling O1 doesn't take them with `last_frame` |
 
 An option the model lacks, or a combination it doesn't support, is rejected with `bad_request` before any credits are spent. Clips carry no watermark. Kling returns a hosted URL that stays available for 30 days.
+
+On Kling 4.0 and 4.0 Flash, a prompt that mixes English with another language is within the limit when its English characters divided by 26,000 plus its other characters divided by 11,000 come to 1 or less. A prompt over 26,000 characters fails with `bad_request`. Kling rejects a shorter prompt that is over the limit for its language with `upstream_bad_request`. Neither is charged.
 
 Kling 3.0 Omni and Kling O1 edit a video passed as `inputVideo`. The video must be MP4 or QuickTime, up to 200 MiB for a Puter file, and 3 to 15.5 seconds long on Kling 3.0 Omni or 3 to 10 seconds on Kling O1. Kling doesn't take a `data:` URI. It fetches a URL itself, and gets a Puter file as a link that works for 19 minutes, which it fetches when the job starts. A video Kling can't decode fails with `upstream_bad_request` and isn't charged. Up to 4 `reference_images` can go with the video.
 
