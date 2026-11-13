@@ -520,7 +520,7 @@ describe("NotificationService — 'notif.written'", () => {
         const user = await makeUser();
         const uid = uuidv4();
         const appUid = `app-${uuidv4()}`;
-        await server.stores.notification.insert({
+        await server.stores.notification.create({
             userId: user.id,
             value: { title: 'one', type: 'share.received' },
             uid,
