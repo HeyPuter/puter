@@ -7,7 +7,7 @@
   "src/backend/controllers/wisp/WispController.ts | TS2345": 1,
   "src/backend/core/http/__typecheck__.ts | TS2578": 1,
   "src/backend/core/http/middleware/errorHandler.ts | TS2345": 1,
-  "src/backend/drivers/integrationTestUtil.ts | TS7011": 1,
+  "src/backend/drivers/ai/shared/integrationTestUtil.ts | TS7011": 1,
   "src/backend/services/apps/AppPermissionService.ts | TS2345": 2,
   "src/backend/services/broadcast/BroadcastService.ts | TS2345": 2,
   "src/backend/services/homepage/PuterHomepageService.ts | TS2345": 1,

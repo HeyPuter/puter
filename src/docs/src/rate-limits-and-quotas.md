@@ -62,6 +62,8 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | Requests per 10 s   | 200  | 30   | 20        |
 | Concurrent requests | 20   | 3    | 2         |
 
+A chat completion counts as a concurrent request until the model finishes it, even if your app disconnects first, because the model keeps generating and the completion is still billed. That's at most 10 minutes after the disconnect.
+
 | Input                                          | Limit            |
 | ---------------------------------------------- | ---------------- |
 | Text for `txt2speech()`                        | 3,000 characters |
@@ -79,7 +81,9 @@ The standard chat timeout is 10 minutes for a response to start, or to finish if
 
 GPT-6.1 Terra has a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
 
-A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
+Gemini 4 Carbon and Gemini 4 Hydrogen accept text and images within a shared 1,048,576-token window and generate up to 65,536 tokens, including thinking.
+
+A `gemini-4-argon` or `gemini-4-carbon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
 Text-to-speech calls to ElevenLabs, xAI, Speechify, Kling and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
 
@@ -207,7 +211,7 @@ A longer prompt, a larger image or video, or input over the token limit fails wi
 
 The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
 
-Kling video models take a prompt of up to 3,072 characters (Kling 3.0 models) or 2,500 (the others, and Kling 3.0 Turbo with `input_reference`). Kling 3.0 Omni and Kling O1 take a source video (`inputVideo`) as a URL or as a Puter file of up to 200 MiB, which fails with `413 input_too_large` above that. Kling fetches either one itself. A Puter file is passed as a link that works for 19 minutes. The source must be an MP4 or QuickTime video of 3 to 15.5 seconds (10 on Kling O1). Kling rejects a source outside its limits, or one it can't decode, with `upstream_bad_request`, and the request isn't charged. An edit holds the price of a 16-second clip (10 on Kling O1). Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
+Kling 4.0 and 4.0 Flash accept a prompt of up to 26,000 characters in English or 11,000 in other languages, and generate 3 to 30 seconds or 3 to 20 seconds respectively. A prompt that mixes English with another language is within the limit when its English characters divided by 26,000 plus its other characters divided by 11,000 come to 1 or less. A prompt over 26,000 characters fails with `bad_request`, and Kling rejects a shorter prompt that is over the limit for its language with `upstream_bad_request`. Neither is charged. Kling 4.0 supports 720p and 1080p, and Flash supports 720p. Other Kling video models take a prompt of up to 3,072 characters (Kling 3.0 models) or 2,500 (the others, and Kling 3.0 Turbo with `input_reference`). Kling 3.0 Omni and Kling O1 take a source video (`inputVideo`) as a URL or as a Puter file of up to 200 MiB, which fails with `413 input_too_large` above that. Kling fetches either one itself. A Puter file is passed as a link that works for 19 minutes. The source must be an MP4 or QuickTime video of 3 to 15.5 seconds (10 on Kling O1). Kling rejects a source outside its limits, or one it can't decode, with `upstream_bad_request`, and the request isn't charged. An edit holds the price of a 16-second clip (10 on Kling O1). Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
 
 MiniMax video models take a prompt of up to 7,000 characters (H3 models) or 2,000 (Hailuo models), and up to 5 images as frames and references together (2 on H3 Max and Hailuo 02, 1 on Hailuo 2.3 and 2.3 Fast). Hailuo 2.3 Fast requires a first-frame image. Hailuo 02 supports first and last frames together at `768p` or `1080p`, and a first frame alone at `512p`. MiniMax fetches an image URL itself, and a Puter file is sent inline. Each call to MiniMax times out after 60 seconds, and a job is polled every 5 seconds.
 

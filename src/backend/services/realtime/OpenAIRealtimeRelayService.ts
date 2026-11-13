@@ -30,12 +30,12 @@ import {
     acquireConcurrent,
     checkRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
-import { SPEECH_TO_TEXT_COSTS } from '../../drivers/ai-speech2txt/costs.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
-} from '../../drivers/util/aiCostFactor.js';
-import { readProviderKey } from '../../drivers/util/providerRegistry.js';
+} from '../../util/aiCostFactor.js';
+import { OPENAI_GPT_TRANSCRIBE_UCENTS_PER_SECOND } from '../../util/aiPrices.js';
+import { readProviderKey } from '../../util/aiProviderKey.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { kv } from '../../util/kvSingleton.js';
@@ -121,7 +121,7 @@ const TRANSCRIPTION_TOKEN_PRICES: Record<
 /** Micro-cents per second for input transcription billed by duration. */
 const TRANSCRIPTION_SECOND_PRICES: Record<string, number> = {
     'whisper-1': 10_000,
-    'gpt-transcribe': SPEECH_TO_TEXT_COSTS['openai:gpt-transcribe:second'],
+    'gpt-transcribe': OPENAI_GPT_TRANSCRIBE_UCENTS_PER_SECOND,
 };
 
 /** The `usage` on `conversation.item.input_audio_transcription.completed`. */
@@ -1123,15 +1123,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     identity?.type === 'app-under-user'
                         ? identity.session
                         : undefined;
-                if (
-                    !(
-                        sessionUids?.has(sessionUid ?? '') ||
-                        sessionUids?.has(parentUid ?? '') ||
-                        (tokenUid &&
-                            identity?.type === 'access-token' &&
-                            identity.token_uid === tokenUid)
-                    )
-                )
+                if (!(
+                    sessionUids?.has(sessionUid ?? '') ||
+                    sessionUids?.has(parentUid ?? '') ||
+                    (tokenUid &&
+                        identity?.type === 'access-token' &&
+                        identity.token_uid === tokenUid)
+                ))
                     return;
                 if (token) {
                     kv.del(realtimeAuthKey(token));

@@ -13,6 +13,7 @@ import { runWithContext } from './core/context';
 import { PuterServer } from './server';
 import { IConfig } from './types';
 import { puterClients } from './clients';
+import type { EventClient } from './clients/event/EventClient';
 import {
     PostgresDatabaseClient,
     type PostgresPool,
@@ -524,4 +525,21 @@ export const lagReadReplica = async (
             if (frozenDir) rmSync(frozenDir, { recursive: true, force: true });
         },
     };
+};
+
+/** Runs `fn` with every AI driver's cost factor hooked to `factor`. */
+export const withAiCostFactorHook = async <T>(
+    events: EventClient,
+    factor: number,
+    fn: () => Promise<T>,
+): Promise<T> => {
+    const hook = (_key: string, event: { factor: number }) => {
+        event.factor = factor;
+    };
+    events.on('ai.cost.factor.*', hook);
+    try {
+        return await fn();
+    } finally {
+        events.off('ai.cost.factor.*', hook);
+    }
 };

@@ -1312,7 +1312,8 @@ export class PuterServer {
         // 2b'. Concurrent in-flight limiting. Same auth-ordering reason
         // (user key + bySubscription resolution needs req.actor); installed
         // after rateLimitGate so a rate-rejection short-circuits before
-        // we acquire a concurrency slot. Slot is released on res finish/close.
+        // we acquire a concurrency slot. The slot is released once the response
+        // is done and any work the handler kept it for has settled.
         if (opts.concurrent) {
             mwChain.push(
                 concurrencyGate(opts.concurrent) as unknown as RequestHandler,

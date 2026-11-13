@@ -1,0 +1,167 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import type { IChatModel } from '../../../interfaces/chat/types.js';
+
+export const MOONSHOT_MODELS: IChatModel[] = [
+    // -- Kimi K3.1 Pro ------------------------------------------------
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k3.1-pro',
+        id: 'kimi-k3.1-pro',
+        name: 'Kimi K3.1 Pro',
+        aliases: ['moonshotai/kimi-k3.1-pro', 'moonshot/kimi-k3.1-pro'],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'kimi-k3.1-pro-highspeed' },
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200, // $2.00 per 1M
+            completion_tokens: 1000, // $10.00 per 1M
+            cached_tokens: 20, // $0.20 per 1M
+            cache_write_tokens: 200, // $2.00 per 1M
+        },
+        context: 1_048_576,
+        max_tokens: 1_048_576,
+        tool_call: true,
+        release_date: '2026-10-24',
+    },
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k3.1-pro-highspeed',
+        id: 'kimi-k3.1-pro-highspeed',
+        name: 'Kimi K3.1 Pro Highspeed',
+        aliases: [
+            'moonshotai/kimi-k3.1-pro-highspeed',
+            'moonshot/kimi-k3.1-pro-highspeed',
+        ],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 400, // $4.00 per 1M
+            completion_tokens: 2000, // $20.00 per 1M
+            cached_tokens: 20, // $0.20 per 1M
+            cache_write_tokens: 400, // $4.00 per 1M
+        },
+        context: 1_048_576,
+        max_tokens: 1_048_576,
+        tool_call: true,
+        release_date: '2026-10-24',
+    },
+
+    // -- Flagship ----------------------------------------------------
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k3',
+        id: 'kimi-k3',
+        name: 'Kimi K3',
+        aliases: ['moonshotai/kimi-k3', 'moonshot/kimi-k3'],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'kimi-k3-highspeed' },
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 300, // $3.00 per 1M
+            completion_tokens: 1500, // $15.00 per 1M
+            cached_tokens: 30, // $0.30 per 1M
+            cache_write_tokens: 300, // $3.00 per 1M
+        },
+        context: 1_048_576,
+        max_tokens: 1_048_576,
+        tool_call: true,
+    },
+
+    // -- Kimi K2.6 --------------------------------------------------
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k2.6',
+        id: 'kimi-k2.6',
+        name: 'Kimi K2.6',
+        aliases: [
+            'moonshotai/kimi-k2.6',
+            'moonshot/kimi-k2.6',
+            'kimi-k26',
+            'kimi',
+        ],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'kimi-k2.6-highspeed' },
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 95, // $0.95 per 1M
+            completion_tokens: 400, // $4.00 per 1M
+            cached_tokens: 16, // $0.16 per 1M
+        },
+        context: 262_144,
+        max_tokens: 262_144,
+        tool_call: true,
+        knowledge: '2025-01',
+    },
+
+    // -- Kimi K2.7 Code ---------------------------------------------
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k2.7-code',
+        id: 'kimi-k2.7-code',
+        name: 'Kimi K2.7 Code',
+        aliases: ['moonshotai/kimi-k2.7-code', 'moonshot/kimi-k2.7-code'],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'kimi-k2.7-code-highspeed' },
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 95,
+            completion_tokens: 400,
+            cached_tokens: 19,
+        },
+        context: 262_144,
+        max_tokens: 262_144,
+        tool_call: true,
+        release_date: '2026-06-12',
+    },
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k2.7-code-highspeed',
+        id: 'kimi-k2.7-code-highspeed',
+        name: 'Kimi K2.7 Code Highspeed',
+        aliases: [
+            'moonshotai/kimi-k2.7-code-highspeed',
+            'moonshot/kimi-k2.7-code-highspeed',
+        ],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 190,
+            completion_tokens: 800,
+            cached_tokens: 38,
+        },
+        context: 262_144,
+        max_tokens: 262_144,
+        tool_call: true,
+        release_date: '2026-06-12',
+    },
+];
