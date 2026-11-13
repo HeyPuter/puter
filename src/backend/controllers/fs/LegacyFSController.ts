@@ -1322,7 +1322,7 @@ export class LegacyFSController extends PuterController {
         if (options.realMime) {
             res.setHeader(
                 'Content-Type',
-                contentTypeFromMime(entry.name) as string,
+                contentTypeFromMime(entry.name) || 'application/octet-stream',
             );
         } else {
             res.setHeader('Content-Type', 'application/octet-stream');

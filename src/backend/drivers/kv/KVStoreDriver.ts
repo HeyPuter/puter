@@ -42,7 +42,10 @@ import {
     type KVUsage,
 } from '../../stores/systemKv/SystemKVStore.js';
 import { KV_SHARE_HANDLE_WIDTHS } from '../../stores/events/columnWidths.js';
-import { assertActorHasCredits } from '../../services/metering/enforcement.js';
+import {
+    actorHasCredits,
+    assertActorHasCredits,
+} from '../../services/metering/enforcement.js';
 import { isKvHandleId } from '../../services/events/subjects.js';
 import {
     KV_HANDLE_KEY_MAX_BYTES,
@@ -263,7 +266,7 @@ const relativizeError = (
  * `list` is here for the step before that: deleting a key means knowing it
  * exists, and `flush` — the only alternative — takes everything. It is gated
  * again inside the method for the forms that return values, which are a read
- * like any other.
+ * like any other. `remove` withholds the value it would return instead.
  */
 const CREDIT_UNGATED_KV_METHODS = new Set(['del', 'remove', 'flush', 'list']);
 
@@ -1227,6 +1230,16 @@ export class KVStoreDriver extends PuterDriver {
             !(await this.services.permission.check(
                 opts.actor!,
                 appDataPermission(opts.namespaceAppUuid, 'kv', 'get'),
+            ))
+        ) {
+            return null;
+        }
+        // Nor does an account out of credits, whose other reads are refused.
+        if (
+            !(await actorHasCredits(
+                this.services.metering,
+                opts.actor,
+                this.config,
             ))
         ) {
             return null;
