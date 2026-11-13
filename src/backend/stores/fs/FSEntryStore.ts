@@ -148,7 +148,7 @@ const BULK_QUERY_CHUNK_SIZE = 200;
 const SUBTREE_PATTERNS_PER_STATEMENT = 500;
 const SUBTREE_PATTERNS_MAX = 5000;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
-// Two replica batcher flushes' worth of lineage lookups in flight.
+// Two read batcher flushes' worth of lineage lookups or heals in flight.
 const LINEAGE_LOOKUP_CONCURRENCY = 10;
 // Deepest ancestor walk; a chain that doesn't end by then counts as broken.
 const LINEAGE_MAX_DEPTH = 512;
@@ -1519,32 +1519,25 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * Heal in place: for every entry in `entries` whose `path` column is NULL
-     * (legacy rows that pre-date the path-cache write), run the lineage-up
-     * resolver and replace the slot with the healed entry. Heals run in
-     * parallel — typical workloads have zero such rows so the loop is a no-op;
-     * rare bursts (a freshly migrated account) only pay one recursive-CTE
-     * round-trip per row instead of N sequential.
-     *
-     * Mutates the array in place.
+     * Replaces each path-less entry (a row older than the `path` column) with
+     * its healed row, a bounded number of heals at a time. Mutates `entries`.
      */
     async #healEntriesWithMissingPathsInPlace(
         entries: FSEntry[],
     ): Promise<void> {
-        const healJobs: Promise<void>[] = [];
-        for (let index = 0; index < entries.length; index++) {
-            if (entries[index].path) continue;
-            const slot = index;
-            healJobs.push(
-                this.#healEntryPathByLineageUp(entries[slot].uuid).then(
-                    (healed) => {
-                        if (healed) entries[slot] = healed;
-                    },
-                ),
-            );
-        }
-        if (healJobs.length === 0) return;
-        await Promise.all(healJobs);
+        const slots = entries.flatMap((entry, index) =>
+            entry.path ? [] : [index],
+        );
+        await runWithConcurrencyLimit(
+            slots,
+            LINEAGE_LOOKUP_CONCURRENCY,
+            async (slot) => {
+                const healed = await this.#healEntryPathByLineageUp(
+                    entries[slot]!.uuid,
+                );
+                if (healed) entries[slot] = healed;
+            },
+        );
     }
 
     async getEntriesByPaths(paths: string[]): Promise<Map<string, FSEntry>> {

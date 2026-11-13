@@ -889,6 +889,50 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         ).resolves.toBeNull();
     });
 
+    it('heals the path-less children of a listing a few at a time', async () => {
+        const user = await makeUser();
+        const dir = `${user.home}/Documents/many`;
+        for (let i = 0; i < 25; i++) {
+            await createFile(user, `${dir}/f-${i}.txt`);
+        }
+        const folder = (await store.getEntryByPath(dir))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = NULL WHERE parent_uid = ?',
+            [folder.uuid],
+        );
+        await server.clients.redis.flushall?.();
+
+        const db = server.clients.db;
+        const originalPread = (Object.getPrototypeOf(db) as typeof db).pread;
+        const stats = { inFlight: 0, peak: 0 };
+        const spy = vi
+            .spyOn(db, 'pread')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (!sql.includes('ancestors(')) {
+                    return originalPread.call(db, sql, params);
+                }
+                stats.inFlight++;
+                stats.peak = Math.max(stats.peak, stats.inFlight);
+                try {
+                    await new Promise((resolve) => setTimeout(resolve, 5));
+                    return await originalPread.call(db, sql, params);
+                } finally {
+                    stats.inFlight--;
+                }
+            });
+        let children: FSEntry[];
+        try {
+            children = await store.listChildren(folder.uuid);
+        } finally {
+            spy.mockRestore();
+        }
+        expect(children.map((child) => child.path).sort()).toEqual(
+            Array.from({ length: 25 }, (_, i) => `${dir}/f-${i}.txt`).sort(),
+        );
+        expect(stats.peak).toBeGreaterThan(1);
+        expect(stats.peak).toBeLessThanOrEqual(10);
+    });
+
     it('invalidates only the rows a heal fills, under the path it wrote', async () => {
         const user = await makeUser();
         const file = await createFile(user, `${user.home}/Documents/fill.txt`);
