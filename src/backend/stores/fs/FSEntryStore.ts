@@ -148,8 +148,10 @@ const BULK_QUERY_CHUNK_SIZE = 200;
 const SUBTREE_PATTERNS_PER_STATEMENT = 500;
 const SUBTREE_PATTERNS_MAX = 5000;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
-// Two replica batcher flushes' worth of lineage lookups in flight.
+// Two read batcher flushes' worth of lineage lookups or heals in flight.
 const LINEAGE_LOOKUP_CONCURRENCY = 10;
+// Deepest ancestor walk; a chain that doesn't end by then counts as broken.
+const LINEAGE_MAX_DEPTH = 512;
 // Cache refreshes after a batched update; each is a cache read and write.
 const ENTRY_PATCH_CONCURRENCY = 32;
 // Thumbnail text one batched UPDATE carries; inline data URLs run to
@@ -412,6 +414,7 @@ export class FSEntryStore extends PuterStore {
     }
 
     async #writeEntryToCache(entry: FSEntry): Promise<void> {
+        if (!entry.path) return;
         try {
             const serialized = JSON.stringify(entry);
             await Promise.all(
@@ -434,6 +437,7 @@ export class FSEntryStore extends PuterStore {
         try {
             const pipeline = this.clients.redis.pipeline();
             for (const entry of entries) {
+                if (!entry.path) continue;
                 const serialized = JSON.stringify(entry);
                 for (const cacheKey of this.#entryCacheKeys(entry)) {
                     pipeline.setex(
@@ -1379,72 +1383,94 @@ export class FSEntryStore extends PuterStore {
         // The stored names, not the caller's spelling: a collation can match
         // a segment to a name spelled differently, and this runs before any
         // access check.
-        const healed = await this.#backfillLineagePaths(lineage, storedNames);
-
+        const walkedPath = this.#lineagePath(storedNames, storedNames.length);
         const target = lineage[lineage.length - 1]!;
-        if (!healed.has(target.uuid)) {
+        const stale = lineage.some(
+            (row, index) =>
+                row.path !== this.#lineagePath(storedNames, index + 1),
+        );
+        if (!stale) {
             const entry = await this.getEntryByUuid(target.uuid);
             if (entry || !primary) return entry;
+            // A replica may not have the row yet.
+            const fresh = await this.getEntryByUuidFromPrimary(target.uuid);
+            if (fresh) await this.#writeEntryToCache(fresh);
+            return fresh;
         }
-        // A replica may not have the new path yet.
+
+        // A replica's chain can lag a rename or an earlier heal, so the paths
+        // written and the entry returned come from the primary's.
+        const chain = primary
+            ? { rows: lineage, names: storedNames }
+            : await this.#primaryLineageOf(target.uuid);
+        if (
+            !chain ||
+            this.#lineagePath(chain.names, chain.names.length) !== walkedPath
+        ) {
+            return null;
+        }
+        await this.#backfillLineagePaths(chain.rows, chain.names);
+
         const entry = await this.getEntryByUuidFromPrimary(target.uuid);
-        if (entry) await this.#writeEntryToCache(entry);
+        // A row that has since moved is not the entry at this path.
+        if (entry?.path !== walkedPath) return null;
+        await this.#writeEntryToCache(entry);
         return entry;
+    }
+
+    #lineagePath(names: string[], depth: number): string {
+        return '/' + names.slice(0, depth).join('/');
     }
 
     /**
      * Writes each row's `path` from the stored names where it differs byte for
-     * byte (the collation can call two spellings equal). Returns the healed
-     * uuids.
+     * byte (the collation can call two spellings equal), and drops the cache
+     * keys of the rows it changed.
      */
     async #backfillLineagePaths(
         lineage: LineageRow[],
         names: string[],
-    ): Promise<Set<string>> {
-        const healed = new Set<string>();
-        const stale: Array<Pick<FSEntry, 'id' | 'uuid' | 'path'>> = [];
-        for (const [index, row] of lineage.entries()) {
-            const expected = '/' + names.slice(0, index + 1).join('/');
-            if (row.path === expected) continue;
-            // Matching the path read keeps a concurrent move's path.
-            await this.clients.db.write(
-                row.path === null
-                    ? 'UPDATE fsentries SET path = ? WHERE id = ? AND path IS NULL'
-                    : 'UPDATE fsentries SET path = ? WHERE id = ? AND path = ?',
-                row.path === null
-                    ? [expected, row.id]
-                    : [expected, row.id, row.path],
-            );
-            healed.add(row.uuid);
-            stale.push({ id: row.id, uuid: row.uuid, path: expected });
-            if (row.path) stale.push({ ...stale.at(-1)!, path: row.path });
-        }
-        if (stale.length > 0) await this.#invalidateEntriesCache(stale);
-        return healed;
+    ): Promise<void> {
+        const stale = lineage.flatMap((row, index) => {
+            const expected = this.#lineagePath(names, index + 1);
+            return row.path === expected ? [] : [{ row, expected }];
+        });
+        const written = await runWithConcurrencyLimit(
+            stale,
+            DEFAULT_DB_CHUNK_CONCURRENCY,
+            async ({ row, expected }) => {
+                // Matching the path read keeps a concurrent move's path.
+                const result = await this.clients.db.write(
+                    row.path === null
+                        ? 'UPDATE fsentries SET path = ? WHERE id = ? AND path IS NULL'
+                        : 'UPDATE fsentries SET path = ? WHERE id = ? AND path = ?',
+                    row.path === null
+                        ? [expected, row.id]
+                        : [expected, row.id, row.path],
+                );
+                if (this.#affectedRows(result) === 0) return [];
+                const keys = { id: row.id, uuid: row.uuid, path: expected };
+                return row.path ? [keys, { ...keys, path: row.path }] : [keys];
+            },
+        );
+        const changed = written.flat();
+        if (changed.length > 0) await this.#invalidateEntriesCache(changed);
     }
 
-    /**
-     * Upward-walk variant of the lineage resolver. Used by uuid/id lookups
-     * where we already have the row but its `path` column is NULL — same legacy
-     * state the path-based resolver heals from the other direction.
-     *
-     * Walks `parent_uid` chains from the entry up to the home row (`parent_uid
-     * IS NULL`), then reuses `#backfillLineagePaths` to write the correct
-     * `path` on every ancestor + the entry itself. Returns the re-fetched
-     * target entry so the caller doesn't need a second query.
-     *
-     * Returns null if the chain is broken (an intermediate `parent_uid` doesn't
-     * resolve to a row) — those rows are unrecoverable from this direction and
-     * the caller should fall back to whatever degraded behaviour it had
-     * before.
-     *
-     * Same security posture as `#resolveEntryByPathLineage`: this method only
-     * resolves + heals data, it does not authorize access. Callers still gate
-     * via ACL on the returned entry.
-     */
+    /** Heals the primary's chain to `targetUuid`; its row, or null if broken. */
     async #healEntryPathByLineageUp(
         targetUuid: string,
     ): Promise<FSEntry | null> {
+        const chain = await this.#primaryLineageOf(targetUuid);
+        if (!chain) return null;
+        await this.#backfillLineagePaths(chain.rows, chain.names);
+        return this.getEntryByUuidFromPrimary(targetUuid);
+    }
+
+    /** The primary's chain from the home row to `uuid`; null if broken. */
+    async #primaryLineageOf(
+        uuid: string,
+    ): Promise<{ rows: LineageRow[]; names: string[] } | null> {
         const sql = `
             WITH RECURSIVE
               ancestors(id, uuid, parent_uid, name, path, depth) AS (
@@ -1457,12 +1483,13 @@ export class FSEntryStore extends PuterStore {
                 SELECT f.id, f.uuid, f.parent_uid, f.name, f.path, a.depth + 1
                 FROM fsentries f
                 INNER JOIN ancestors a ON f.uuid = a.parent_uid
+                WHERE a.depth < ${LINEAGE_MAX_DEPTH}
               )
             SELECT id, uuid, parent_uid, name, path, depth
             FROM ancestors
             ORDER BY depth ASC
         `;
-        const rows = (await this.clients.db.read(sql, [targetUuid])) as Array<{
+        const rows = (await this.clients.db.pread(sql, [uuid])) as Array<{
             id: number | string;
             uuid: string;
             parent_uid: string | null;
@@ -1481,52 +1508,36 @@ export class FSEntryStore extends PuterStore {
         // Reverse to root → target order, the order `#backfillLineagePaths`
         // expects.
         const ordered = [...rows].reverse();
-        await this.#backfillLineagePaths(
-            ordered.map((r) => ({
+        return {
+            rows: ordered.map((r) => ({
                 id: Number(r.id),
                 uuid: r.uuid,
                 path: r.path,
             })),
-            ordered.map((r) => r.name),
-        );
-
-        // Re-fetch the target so the caller gets an entry with the now
-        // populated `path` column (and the full column projection).
-        const refreshed = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
-            [targetUuid],
-        )) as unknown as FSEntryRow[];
-        if (!refreshed[0]) return null;
-        return this.#mapFSEntryRow(refreshed[0]);
+            names: ordered.map((r) => r.name),
+        };
     }
 
     /**
-     * Heal in place: for every entry in `entries` whose `path` column is NULL
-     * (legacy rows that pre-date the path-cache write), run the lineage-up
-     * resolver and replace the slot with the healed entry. Heals run in
-     * parallel — typical workloads have zero such rows so the loop is a no-op;
-     * rare bursts (a freshly migrated account) only pay one recursive-CTE
-     * round-trip per row instead of N sequential.
-     *
-     * Mutates the array in place.
+     * Replaces each path-less entry (a row older than the `path` column) with
+     * its healed row, a bounded number of heals at a time. Mutates `entries`.
      */
     async #healEntriesWithMissingPathsInPlace(
         entries: FSEntry[],
     ): Promise<void> {
-        const healJobs: Promise<void>[] = [];
-        for (let index = 0; index < entries.length; index++) {
-            if (entries[index].path) continue;
-            const slot = index;
-            healJobs.push(
-                this.#healEntryPathByLineageUp(entries[slot].uuid).then(
-                    (healed) => {
-                        if (healed) entries[slot] = healed;
-                    },
-                ),
-            );
-        }
-        if (healJobs.length === 0) return;
-        await Promise.all(healJobs);
+        const slots = entries.flatMap((entry, index) =>
+            entry.path ? [] : [index],
+        );
+        await runWithConcurrencyLimit(
+            slots,
+            LINEAGE_LOOKUP_CONCURRENCY,
+            async (slot) => {
+                const healed = await this.#healEntryPathByLineageUp(
+                    entries[slot]!.uuid,
+                );
+                if (healed) entries[slot] = healed;
+            },
+        );
     }
 
     async getEntriesByPaths(paths: string[]): Promise<Map<string, FSEntry>> {
@@ -1633,7 +1644,7 @@ export class FSEntryStore extends PuterStore {
         // serve their own cached copy of the pre-patch row until its TTL.
         await this.publishCacheKeys({
             keys: this.#entryCacheKeys(entry),
-            serializedData: JSON.stringify(entry),
+            serializedData: entry.path ? JSON.stringify(entry) : undefined,
             ttlSeconds: ENTRY_CACHE_TTL_SECONDS,
             broadcast: this.#takeBroadcastBudget(1) > 0,
         });

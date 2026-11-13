@@ -179,6 +179,7 @@ export class ACLService extends PuterService {
         mode: AclMode,
     ): Promise<boolean> {
         if (isSystemActor(actor)) return true;
+        if (typeof resource?.path !== 'string') return false;
 
         if (resource.path === '/') {
             return (PUBLIC_READ_MODES as AclMode[]).includes(mode);

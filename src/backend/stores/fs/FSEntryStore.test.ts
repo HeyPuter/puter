@@ -783,6 +783,393 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         });
     });
 
+    /** Serves `uuid`'s row from before the backfill to every replica read. */
+    const lagReplicaFor = async (uuid: string) => {
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const primary = vi
+            .spyOn(db, 'pread')
+            .mockImplementation(async (sql: string, params?: unknown[]) =>
+                originalRead.call(db, sql, params),
+            );
+        const [stale] = (await originalRead.call(
+            db,
+            `SELECT * FROM fsentries WHERE uuid = ?`,
+            [uuid],
+        )) as Array<Record<string, unknown>>;
+        const replica = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                const rows = (await originalRead.call(db, sql, params)) as
+                    unknown[] | undefined;
+                if (!Array.isArray(rows)) return rows;
+                return rows.map((row) => {
+                    const r = row as Record<string, unknown>;
+                    if (r.uuid !== uuid) return row;
+                    const lagged = { ...r };
+                    for (const key of Object.keys(r)) {
+                        if (key in stale) lagged[key] = stale[key];
+                    }
+                    return lagged;
+                });
+            });
+        return {
+            mockRestore: () => {
+                replica.mockRestore();
+                primary.mockRestore();
+            },
+        };
+    };
+
+    it.each([
+        ['path', (folder: FSEntry) => store.getEntryByPath(folder.path)],
+        ['uuid', (folder: FSEntry) => store.getEntryByUuid(folder.uuid)],
+    ])(
+        'gives an entry healed by %s its written path while the replica lags',
+        async (_route, lookup) => {
+            const user = await makeUser();
+            await createFile(user, `${user.home}/Documents/lagged/keep.txt`);
+            const folder = (await store.getEntryByPath(
+                `${user.home}/Documents/lagged`,
+            ))!;
+            await blankPath(folder.uuid);
+
+            const spy = await lagReplicaFor(folder.uuid);
+            await server.clients.db.write(
+                'UPDATE fsentries SET layout = ? WHERE uuid = ?',
+                ['list', folder.uuid],
+            );
+            try {
+                await expect(lookup(folder)).resolves.toMatchObject({
+                    uuid: folder.uuid,
+                    path: folder.path,
+                    layout: 'list',
+                });
+            } finally {
+                spy.mockRestore();
+            }
+            await expect(pathOf(folder.uuid)).resolves.toBe(folder.path);
+        },
+    );
+
+    it('misses a path whose row has moved by the time it is healed', async () => {
+        const user = await makeUser();
+        await createFile(user, `${user.home}/Documents/gone/keep.txt`);
+        const folder = (await store.getEntryByPath(
+            `${user.home}/Documents/gone`,
+        ))!;
+        const desktop = (await store.getEntryByPath(`${user.home}/Desktop`))!;
+        await blankPath(folder.uuid);
+
+        const moved = `${user.home}/Desktop/gone`;
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const spy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                const rows = await originalRead.call(db, sql, params);
+                if (sql.includes('segments(depth, name)')) {
+                    await db.write(
+                        'UPDATE fsentries SET path = ?, parent_uid = ?, parent_id = ? WHERE uuid = ?',
+                        [moved, desktop.uuid, desktop.id, folder.uuid],
+                    );
+                }
+                return rows;
+            });
+        try {
+            await expect(
+                store.getEntryByPath(`${user.home}/Documents/gone`),
+            ).resolves.toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
+        await expect(pathOf(folder.uuid)).resolves.toBe(moved);
+        await expect(
+            server.clients.redis.get(`prodfsv2:fsentry:uuid:${folder.uuid}`),
+        ).resolves.toBeNull();
+    });
+
+    it('heals a stored path the parent chain no longer spells, from the primary', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/kept.txt`);
+        await blankPath(file.uuid);
+
+        // The replica still has no path; the primary has one its names don't spell.
+        const lag = await lagReplicaFor(file.uuid);
+        const stale = `${user.home}/Documents/other.txt`;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE uuid = ?',
+            [stale, file.uuid],
+        );
+        try {
+            await expect(
+                store.getEntryByPath(file.path),
+            ).resolves.toMatchObject({ uuid: file.uuid, path: file.path });
+        } finally {
+            lag.mockRestore();
+        }
+        await expect(pathOf(file.uuid)).resolves.toBe(file.path);
+        await expect(store.getEntryByPath(stale)).resolves.toBeNull();
+    });
+
+    it('heals the path-less children of a listing a few at a time', async () => {
+        const user = await makeUser();
+        const dir = `${user.home}/Documents/many`;
+        for (let i = 0; i < 25; i++) {
+            await createFile(user, `${dir}/f-${i}.txt`);
+        }
+        const folder = (await store.getEntryByPath(dir))!;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = NULL WHERE parent_uid = ?',
+            [folder.uuid],
+        );
+        await server.clients.redis.flushall?.();
+
+        const db = server.clients.db;
+        const originalPread = (Object.getPrototypeOf(db) as typeof db).pread;
+        const stats = { inFlight: 0, peak: 0 };
+        const spy = vi
+            .spyOn(db, 'pread')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (!sql.includes('ancestors(')) {
+                    return originalPread.call(db, sql, params);
+                }
+                stats.inFlight++;
+                stats.peak = Math.max(stats.peak, stats.inFlight);
+                try {
+                    await new Promise((resolve) => setTimeout(resolve, 5));
+                    return await originalPread.call(db, sql, params);
+                } finally {
+                    stats.inFlight--;
+                }
+            });
+        let children: FSEntry[];
+        try {
+            children = await store.listChildren(folder.uuid);
+        } finally {
+            spy.mockRestore();
+        }
+        expect(children.map((child) => child.path).sort()).toEqual(
+            Array.from({ length: 25 }, (_, i) => `${dir}/f-${i}.txt`).sort(),
+        );
+        expect(stats.peak).toBeGreaterThan(1);
+        expect(stats.peak).toBeLessThanOrEqual(10);
+    });
+
+    it('invalidates only the rows a heal fills, under the path it wrote', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/fill.txt`);
+        await blankPath(file.uuid);
+
+        const lag = await lagReplicaFor(file.uuid);
+        const publish = vi.spyOn(
+            store as unknown as {
+                publishCacheKeys: (p: { keys: string[] }) => Promise<void>;
+            },
+            'publishCacheKeys',
+        );
+        try {
+            await store.getEntryByPath(file.path);
+            expect(
+                publish.mock.calls.flatMap(([params]) => params.keys),
+            ).toEqual(entryCacheKeys(file));
+        } finally {
+            publish.mockRestore();
+            lag.mockRestore();
+        }
+    });
+
+    it('updates only the rows whose path is empty', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/one.txt`);
+        await blankPath(file.uuid);
+
+        const write = vi.spyOn(server.clients.db, 'write');
+        try {
+            await expect(
+                store.getEntryByUuid(file.uuid),
+            ).resolves.toMatchObject({ path: file.path });
+            expect(
+                write.mock.calls.filter(([sql]) =>
+                    String(sql).includes('UPDATE fsentries SET path'),
+                ),
+            ).toHaveLength(1);
+        } finally {
+            write.mockRestore();
+        }
+    });
+
+    it('stops walking a parent chain that loops back on itself', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/loop.txt`);
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = NULL, parent_uid = uuid WHERE uuid = ?',
+            [file.uuid],
+        );
+        await server.clients.redis.flushall?.();
+
+        // A cap well past the store's own keeps an unbounded walk from hanging the run.
+        const db = server.clients.db;
+        const originalPread = (Object.getPrototypeOf(db) as typeof db).pread;
+        const walked: number[] = [];
+        const spy = vi
+            .spyOn(db, 'pread')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (!sql.includes('ancestors(')) {
+                    return originalPread.call(db, sql, params);
+                }
+                const rows = await originalPread.call(
+                    db,
+                    sql.replace(
+                        'ON f.uuid = a.parent_uid',
+                        'ON f.uuid = a.parent_uid AND a.depth < 10000',
+                    ),
+                    params,
+                );
+                walked.push(rows.length);
+                return rows;
+            });
+        try {
+            await expect(
+                store.getEntryByUuid(file.uuid),
+            ).resolves.toMatchObject({ uuid: file.uuid, path: null });
+        } finally {
+            spy.mockRestore();
+        }
+        expect(walked.length).toBeGreaterThan(0);
+        expect(Math.max(...walked)).toBeLessThan(10000);
+        await expect(pathOf(file.uuid)).resolves.toBeNull();
+    });
+
+    describe('when an ancestor is renamed while the heal runs', () => {
+        const setup = async () => {
+            const user = await makeUser();
+            const file = await createFile(
+                user,
+                `${user.home}/Documents/old/x.txt`,
+            );
+            const folder = (await store.getEntryByPath(
+                `${user.home}/Documents/old`,
+            ))!;
+            await blankPath(file.uuid);
+            const rename = () =>
+                server.clients.db.write(
+                    'UPDATE fsentries SET name = ?, path = ? WHERE uuid = ?',
+                    ['new', `${user.home}/Documents/new`, folder.uuid],
+                );
+            return { user, file, folder, rename };
+        };
+
+        it('misses the old path and writes nothing', async () => {
+            const { user, file, rename } = await setup();
+            const db = server.clients.db;
+            const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+            const spy = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql: string, params?: unknown[]) => {
+                    const rows = await originalRead.call(db, sql, params);
+                    if (sql.includes('segments(depth, name)')) {
+                        await rename();
+                    }
+                    return rows;
+                });
+            try {
+                await expect(
+                    store.getEntryByPath(`${user.home}/Documents/old/x.txt`),
+                ).resolves.toBeNull();
+            } finally {
+                spy.mockRestore();
+            }
+            await expect(pathOf(file.uuid)).resolves.toBeNull();
+        });
+
+        it('gives a row healed by uuid its current path', async () => {
+            const { user, file, folder, rename } = await setup();
+            const lag = await lagReplicaFor(folder.uuid);
+            await rename();
+            try {
+                await expect(
+                    store.getEntryByUuid(file.uuid),
+                ).resolves.toMatchObject({
+                    path: `${user.home}/Documents/new/x.txt`,
+                });
+            } finally {
+                lag.mockRestore();
+            }
+            await expect(pathOf(file.uuid)).resolves.toBe(
+                `${user.home}/Documents/new/x.txt`,
+            );
+        });
+    });
+
+    it('keeps a path written by a move that lands before the heal', async () => {
+        const user = await makeUser();
+        const file = await createFile(
+            user,
+            `${user.home}/Documents/before.txt`,
+        );
+        await blankPath(file.uuid);
+
+        const spy = await lagReplicaFor(file.uuid);
+        const moved = `${user.home}/Documents/after.txt`;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE uuid = ?',
+            [moved, 'after.txt', file.uuid],
+        );
+        try {
+            await expect(
+                store.getEntryByUuid(file.uuid),
+            ).resolves.toMatchObject({ path: moved });
+        } finally {
+            spy.mockRestore();
+        }
+        await expect(pathOf(file.uuid)).resolves.toBe(moved);
+    });
+
+    it('heals a path in which each row is the parent of the next', async () => {
+        const user = await makeUser();
+        await createFile(user, `${user.home}/Notes/a.txt`);
+        const file = await createFile(user, `${user.home}/notes/x.txt`);
+        await blankPath(file.uuid);
+
+        // Names match case-insensitively here, as under MySQL's collation.
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const spy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) =>
+                originalRead.call(
+                    db,
+                    sql.includes('segments(depth, name)')
+                        ? sql.replaceAll(
+                              'f.name = s.name',
+                              'f.name = s.name COLLATE NOCASE',
+                          )
+                        : sql,
+                    params,
+                ),
+            );
+        try {
+            // The folder spelled as asked is the one walked, and it has no x.txt.
+            await expect(
+                store.getEntryByPath(`${user.home}/Notes/x.txt`),
+            ).resolves.toBeNull();
+            await expect(pathOf(file.uuid)).resolves.toBeNull();
+
+            await expect(
+                store.getEntryByPath(`${user.home}/notes/x.txt`),
+            ).resolves.toMatchObject({
+                uuid: file.uuid,
+                path: `${user.home}/notes/x.txt`,
+            });
+        } finally {
+            spy.mockRestore();
+        }
+        await expect(pathOf(file.uuid)).resolves.toBe(
+            `${user.home}/notes/x.txt`,
+        );
+    });
+
     it('leaves an entry alone when its ancestor chain is broken', async () => {
         const user = await makeUser();
         const orphan = await createFile(
@@ -799,6 +1186,22 @@ describe('FSEntryStore legacy NULL-path healing', () => {
             uuid: orphan.uuid,
             path: null,
         });
+        await expect(
+            server.clients.redis.get(`prodfsv2:fsentry:uuid:${orphan.uuid}`),
+        ).resolves.toBeNull();
+
+        const listed = await store.listChildren('does-not-exist');
+        expect(
+            listed.find((entry) => entry.uuid === orphan.uuid),
+        ).toMatchObject({ path: null });
+        await expect(
+            server.clients.redis.get(`prodfsv2:fsentry:uuid:${orphan.uuid}`),
+        ).resolves.toBeNull();
+
+        await store.updateEntryThumbnailByUuid(orphan.uuid, 'thumb');
+        await expect(
+            server.clients.redis.get(`prodfsv2:fsentry:uuid:${orphan.uuid}`),
+        ).resolves.toBeNull();
     });
 
     it('heals path-less rows surfaced by a batched id lookup and by search', async () => {

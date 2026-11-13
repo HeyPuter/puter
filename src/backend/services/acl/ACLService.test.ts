@@ -2080,6 +2080,28 @@ describe('ACLService filesystem descriptors and refusals', () => {
         });
     });
 
+    it('answers an entry with no path as absent', async () => {
+        const { service } = withChains();
+        const pathless = null as unknown as string;
+
+        await expect(
+            service.check(
+                issuerActor,
+                { path: pathless, resolveAncestors: async () => [] },
+                'see',
+            ),
+        ).resolves.toBe(false);
+        await expect(
+            refusedWith(() =>
+                service.assertFsAccess(issuerActor, pathless, 'list'),
+            ),
+        ).resolves.toEqual({
+            status: 404,
+            message: 'Subject does not exist',
+            legacyCode: 'subject_does_not_exist',
+        });
+    });
+
     it('lets a create through on write to the parent or to the target', async () => {
         const { service, services } = withChains();
         grant(services, [['/victim/shared', 'write']]);
