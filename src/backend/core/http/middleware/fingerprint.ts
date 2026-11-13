@@ -33,6 +33,20 @@ const DEVICE_FINGERPRINT_SHAPE = /^[A-Za-z0-9._-]{8,128}$/;
 /** Header the GUI may send the device fingerprint on for non-signup requests. */
 const DEVICE_FINGERPRINT_HEADER = 'x-puter-device-fingerprint';
 
+/** JA3 / JA4-style values; anything else is dropped. */
+const TLS_FINGERPRINT_SHAPE = /^[A-Za-z0-9_]{10,64}$/;
+
+function readTlsFingerprint(
+    req: { headers?: Record<string, unknown> },
+    header: string | undefined,
+): string | undefined {
+    if (!header) return undefined;
+    const value = req.headers?.[header];
+    return typeof value === 'string' && TLS_FINGERPRINT_SHAPE.test(value)
+        ? value
+        : undefined;
+}
+
 function readDeviceFingerprint(req: {
     body?: unknown;
     headers?: Record<string, unknown>;
@@ -65,15 +79,22 @@ function readDeviceFingerprint(req: {
  *   and spoofable, but stable per real device across IP rotation. The rate
  *   limiter's 'fingerprint' strategy appends it to the network hash so each
  *   device behind a shared network gets its own bucket.
+ * - `req.tlsFingerprint` — set only when `tlsFingerprintHeader` is configured and
+ *   the request carries a well-shaped value in that header. It names the
+ *   client's TLS stack, so every client on the same build shares it.
  *
  * Install AFTER the body parsers (so the body fingerprint is readable) and
  * before `requestContext` (so the snapshot into ALS already carries them).
  * Never rejects — a missing/invalid device fingerprint is simply absent.
  */
-export const createFingerprintMiddleware = (): RequestHandler => {
+export const createFingerprintMiddleware = (
+    opts: { tlsFingerprintHeader?: string } = {},
+): RequestHandler => {
+    const tlsHeader = opts.tlsFingerprintHeader?.toLowerCase();
     return (req, _res, next) => {
         req.networkFingerprint = computeNetworkFingerprint(req);
         req.deviceFingerprint = readDeviceFingerprint(req);
+        req.tlsFingerprint = readTlsFingerprint(req, tlsHeader);
         next();
     };
 };

@@ -625,7 +625,11 @@ export class PuterServer {
         // `req.deviceFingerprint` (client-supplied, from body/header). Runs
         // AFTER body parsing so the body fingerprint is readable, and before
         // the ALS context so the snapshot carries them.
-        this.#app.use(createFingerprintMiddleware());
+        this.#app.use(
+            createFingerprintMiddleware({
+                tlsFingerprintHeader: this.#config.tlsFingerprintHeader,
+            }),
+        );
 
         // -- Per-request ALS context ---------------------------------
         // Runs AFTER auth probe so `req.actor` is already populated when
