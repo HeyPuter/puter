@@ -4,9 +4,11 @@ description: List the key-value shares you made with other users, including ones
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Lists the shares you made with [`puter.kv.share()`](/KV/share/), a page at a time.
+
 <div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
-Lists the shares you made with [`puter.kv.share()`](/KV/share/), a page at a time. A share that stopped stays in the listing for 30 days with `revokedAt` and `revokedBy` set, so you can see who had access and when it ended. After 30 days it's deleted.
+A share that stopped stays in the listing for 30 days with `revokedAt` and `revokedBy` set, so you can see who had access and when it ended. After 30 days it's deleted.
 
 In an app, the listing has only the shares of that app's data. Outside an app, it has every share you made, and `appUid` narrows it to one app.
 
@@ -21,11 +23,15 @@ puter.kv.listSharedByMe(options)
 
 #### `options` (Object) (optional)
 
-- `limit` (Number): Shares per page. Defaults to `50`. A value over `200` is lowered to `200`.
-- `cursor` (String): The `cursor` from the previous page.
-- `includeTotal` (Boolean): Add `total` to the result. Defaults to `false`.
-- `appUid` (String | null): List only the shares of this app's data. Pass `null` for the store that belongs to no app. In an app, the only uid you can pass is the app's own.
-- `state` (String): `'live'` lists only shares that are still live, `'revoked'` only shares that stopped, and `'all'` both. Defaults to `'all'`.
+An object with these properties:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `limit` | `Number` | Shares per page. Defaults to `50`. A value over `200` is lowered to `200`. |
+| `cursor` | `String` | The `cursor` from the previous page. |
+| `state` | `String` | Which shares to list. Pass `'live'` for only shares that are still live, `'revoked'` for only shares that stopped, or `'all'` for both. Defaults to `'all'`. |
+| `includeTotal` | `Boolean` | Add `total` to the result. Defaults to `false`. |
+| `appUid` | `String \| null` | List only the shares of this app's data. Pass `null` for the store that belongs to no app. In an app, the only uid you can pass is the app's own. |
 
 ## Return value
 
@@ -56,9 +62,15 @@ The promise rejects with `{ message, code }`:
 | `bad_request` | `limit` isn't a positive number, `appUid` isn't an app uid, or `state` isn't `'live'`, `'revoked'`, or `'all'`. |
 | `too_many_requests` | Over the rate limit. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events). |
 
+## Related
+
+- [`puter.kv.share()`](/KV/share/) - Share keys with another user
+- [`puter.kv.unshare()`](/KV/unshare/) - Stop a share
+- [`puter.kv.listShared()`](/KV/listShared/) - List the shares made with you
+
 ## Examples
 
-<strong class="example-title">Show who has access, and who left</strong>
+### Show who has access, and who left
 
 ```js
 const { items } = await puter.kv.listSharedByMe();
@@ -70,7 +82,7 @@ for (const share of items) {
 }
 ```
 
-<strong class="example-title">Revoke everyone's access to one prefix</strong>
+### Revoke everyone's access to one prefix
 
 ```js
 let cursor;
@@ -84,9 +96,3 @@ do {
     cursor = page.cursor;
 } while (cursor);
 ```
-
-## Related
-
-- [`puter.kv.share()`](/KV/share/) - Share keys with another user
-- [`puter.kv.unshare()`](/KV/unshare/) - Stop a share
-- [`puter.kv.listShared()`](/KV/listShared/) - List the shares made with you

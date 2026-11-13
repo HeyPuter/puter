@@ -55,6 +55,12 @@
  */
 
 /**
+ * Preferred service speed for a chat completion.
+ *
+ * @typedef {'standard' | 'fast' | 'ultrafast'} ServiceSpeed
+ */
+
+/**
  * Options for a chat completion request.
  *
  * @typedef {Object} ChatOptions
@@ -67,6 +73,8 @@
  * @property {boolean} [vision]
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
+ * @property {ServiceSpeed} [serviceSpeed] Preferred service speed. Falls back to
+ * fast, then standard when the requested speed is unavailable. Faster service may cost more.
  * @property {boolean} [fallback] Set to `false` to fail the request when the first provider tried
  * fails, instead of retrying it on another provider that serves the same model.
  * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
@@ -115,6 +123,14 @@
  * @property {boolean} [streamToolInput] Streaming only: emit incremental `tool_use_start` /
  * `tool_input_delta` chunks as a tool call's arguments are generated, instead of a single `tool_use`
  * chunk once the call completes.
+ * @property {string} [prompt_cache_key] OpenAI models: which prompt cache the request reads from and
+ * writes to. Defaults to one cache per app and user.
+ * @property {'in_memory' | '24h'} [prompt_cache_retention] OpenAI models before GPT-5.6: how long a
+ * cache entry may live. `'24h'` is the default and the only value GPT-5.5 and later accept.
+ * @property {{ mode?: 'implicit' | 'explicit', ttl?: '30m' | '12h' }} [prompt_cache_options] OpenAI
+ * GPT-5.6 and later: `ttl` is the minimum lifetime of every cache entry the request writes. A `'12h'`
+ * entry costs twice as much to write as the default `'30m'` one and is served through the Responses
+ * API. `mode: 'explicit'` only writes at the `prompt_cache_breakpoint` markers in your messages.
  */
 
 /**
@@ -132,14 +148,17 @@
  * @property {number} inputTokens
  * @property {number} outputTokens
  * @property {number} [cacheReadTokens]
- * @property {number} [cacheWrite5mTokens]
- * @property {number} [cacheWrite1hTokens]
+ * @property {number} [cacheWrite5mTokens] Tokens written to the cache with a 5 minute lifetime (Claude, Moonshot).
+ * @property {number} [cacheWrite30mTokens] Tokens written with a 30 minute lifetime (OpenAI's default).
+ * @property {number} [cacheWrite1hTokens] Tokens written with a 1 hour lifetime (Claude, Moonshot).
+ * @property {number} [cacheWrite12hTokens] Tokens written with a 12 hour lifetime (OpenAI, `prompt_cache_options.ttl: '12h'`).
  * @property {number} [reasoningTokens]
  * @property {number} [webSearchRequests]
  * @property {number} [webFetchRequests]
  * @property {'fast' | 'standard'} [speed]
+ * @property {ServiceSpeed} [serviceSpeed]
  * @property {string} [serviceTier]
- * @property {Array<{ type: string, model?: string, inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWrite5mTokens?: number, cacheWrite1hTokens?: number }>} [iterations]
+ * @property {Array<{ type: string, model?: string, inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWrite5mTokens?: number, cacheWrite30mTokens?: number, cacheWrite1hTokens?: number, cacheWrite12hTokens?: number }>} [iterations]
  * Per-pass breakdown when the upstream ran several passes (compaction, an advisor sub-call).
  */
 
@@ -263,13 +282,13 @@
  * @property {string} [prompt] Non-empty text description of the image to generate. Missing, blank,
  * or non-string values reject with `prompt_required`.
  * @property {string} [model] Image model to use (provider-specific). Without one, the provider's
- * default applies: `'gpt-image-2'` (OpenAI, preferred when no provider is given),
+ * default applies: `'gpt-image-2.6-flare'` (OpenAI, preferred when no provider is given),
  * `'gemini-3.1-flash-image'` (Gemini), `'@cf/black-forest-labs/flux-1-schnell'` (Cloudflare),
  * `'grok-imagine-image'` (xAI), `'black-forest-labs/flux-schnell'` (Replicate),
  * `'seedream-5-0-lite-260128'` (BytePlus), or `'kling-v3'` (Kling).
  * @property {string} [quality] Image quality / output size tier. Interpretation is provider- and
  * model-specific: OpenAI GPT models take `'high'` | `'medium'` | `'low'` (default `'low'`),
- * `gpt-image-2` also accepts `'auto'`, and `gpt-image-2.5-sunburst` / `gpt-image-2.5-flare` also
+ * `gpt-image-2` also accepts `'auto'`, and the `gpt-image-2.5-*` / `gpt-image-2.6-*` models also
  * accept `'xhigh'` | `'max'` | `'auto'`; Gemini takes an output size tier `'512'` | `'1K'` | `'2K'` |
  * `'4K'` (availability varies by model); Kling takes `'1k'` (default) | `'2k'`, and `'4k'` on `kling-v3-omni`.
  * @property {string} [resolution] xAI output resolution: `'1k'` (default) or `'2k'`; model-specific resolution tier on Replicate.
@@ -592,7 +611,7 @@ export {};
 /**
  * Session settings for a live conversation.
  *
- * @typedef {Object} ConvoSessionOptions
+ * @typedef {Object} RealtimeSessionOptions
  * @property {string} [instructions] Instructions, up to 8192 characters.
  * @property {('text' | 'audio')[]} [output] Defaults to audio. Audio includes transcript events.
  * @property {string} [voice] OpenAI voice identifier, up to 128 characters.
@@ -601,12 +620,12 @@ export {};
 /**
  * Options for preparing a conversation.
  *
- * @typedef {ConvoSessionOptions & { model?: string }} ConvoOptions
+ * @typedef {RealtimeSessionOptions & { model?: string }} RealtimeOptions
  */
 /**
  * How much of an assistant audio item a custom player has played.
  *
- * @typedef {Object} ConvoPlaybackPosition
+ * @typedef {Object} RealtimePlaybackPosition
  * @property {string} itemId Assistant message item ID.
  * @property {number} contentIndex Audio content index.
  * @property {number} playedMs Played duration in milliseconds.
@@ -614,24 +633,24 @@ export {};
 /**
  * Built-in speaker options.
  *
- * @typedef {Object} ConvoSpeakerOptions
+ * @typedef {Object} RealtimeSpeakerOptions
  * @property {boolean} [bargeIn] Stop replies when user speech is detected. Defaults to true.
  */
 
 /**
- * @typedef {{ type: 'text'; delta: string; responseId: string }} ConvoTextEvent */
+ * @typedef {{ type: 'text'; delta: string; responseId: string }} RealtimeTextEvent */
 /**
- * @typedef {{ type: 'audio'; pcm: Int16Array; sampleRate: number; responseId: string; itemId: string; contentIndex: number }} ConvoAudioEvent */
+ * @typedef {{ type: 'audio'; pcm: Int16Array; sampleRate: number; responseId: string; itemId: string; contentIndex: number }} RealtimeAudioEvent */
 /**
- * @typedef {{ type: 'transcript'; role: 'user' | 'assistant'; text: string; final: boolean }} ConvoTranscriptEvent */
+ * @typedef {{ type: 'transcript'; role: 'user' | 'assistant'; text: string; final: boolean }} RealtimeTranscriptEvent */
 /**
- * @typedef {{ type: 'interrupted'; source: 'manual' | 'speech'; responseId: string }} ConvoInterruptedEvent */
+ * @typedef {{ type: 'interrupted'; source: 'manual' | 'speech'; responseId: string }} RealtimeInterruptedEvent */
 /**
  * A finished reply. `usage` and `status` are OpenAI's, unchanged.
- * @typedef {{ type: 'turn.done'; responseId: string | undefined; usage: unknown; status: unknown }} ConvoTurnDoneEvent */
+ * @typedef {{ type: 'turn.done'; responseId: string | undefined; usage: unknown; status: unknown }} RealtimeTurnDoneEvent */
 /**
  * An OpenAI `error` event, or an SDK media failure, which also carries `code` and `message` at the
  * top level.
- * @typedef {{ type: 'error'; error: { code?: string; message?: string } & Record<string, unknown>; code?: string; message?: string }} ConvoErrorEvent */
+ * @typedef {{ type: 'error'; error: { code?: string; message?: string } & Record<string, unknown>; code?: string; message?: string }} RealtimeErrorEvent */
 /** Native provider events retain their provider-owned fields.
- * @typedef {Record<string, RealtimeServerEvent> & { text: ConvoTextEvent; audio: ConvoAudioEvent; transcript: ConvoTranscriptEvent; interrupted: ConvoInterruptedEvent; 'turn.done': ConvoTurnDoneEvent; error: ConvoErrorEvent; ready: { type: 'ready'; model: string; provider: 'openai'; reconnected?: boolean }; reconnecting: { type: 'reconnecting'; code: number; reason: string }; close: { type: 'close'; code: number; reason: string } }} ConvoEventMap */
+ * @typedef {Record<string, RealtimeServerEvent> & { text: RealtimeTextEvent; audio: RealtimeAudioEvent; transcript: RealtimeTranscriptEvent; interrupted: RealtimeInterruptedEvent; 'turn.done': RealtimeTurnDoneEvent; error: RealtimeErrorEvent; ready: { type: 'ready'; model: string; provider: 'openai'; reconnected?: boolean }; reconnecting: { type: 'reconnecting'; code: number; reason: string }; context_trimmed: { type: 'context_trimmed'; omittedItems: number }; close: { type: 'close'; code: number; reason: string } }} RealtimeEventMap */

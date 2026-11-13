@@ -1145,9 +1145,11 @@ describe('receipts', () => {
         received: true,
         visibilityState: 'unknown',
         focused: false,
-        showsOwn: false,
         ...over,
     });
+
+    /** A socket.io client that records what the page sends on it. */
+    const ackSocket = (connected = true) => ({ connected, emit: vi.fn() });
 
     it('acknowledges a notification a feed already received', async () => {
         const events = makeEvents();
@@ -1204,14 +1206,22 @@ describe('receipts', () => {
         expect(second).toHaveBeenCalledWith(received());
     });
 
-    it('sends the page visibility and focus with the acknowledgement', async () => {
+    it('sends the page visibility and focus from when the notification arrived', async () => {
         const events = makeEvents();
         const notifications = makeModule({ events });
         await notifications.onNotification(() => {});
-        events.state.push(event('n-1'));
         vi.stubGlobal('document', {
             visibilityState: 'hidden',
             hasFocus: () => true,
+        });
+        try {
+            events.state.push(event('n-1'));
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        vi.stubGlobal('document', {
+            visibilityState: 'visible',
+            hasFocus: () => false,
         });
 
         const ack = vi.fn();
@@ -1226,22 +1236,69 @@ describe('receipts', () => {
         );
     });
 
-    it('says the desktop never shows its own browser notification', () => {
-        const notifications = makeModule({ env: 'gui' });
-        vi.stubGlobal('document', {
-            visibilityState: 'visible',
-            hasFocus: () => false,
+    describe('reporting a notification the page handled', () => {
+        const withPage = (state, run) => {
+            vi.stubGlobal('document', state);
+            try {
+                return run();
+            } finally {
+                vi.unstubAllGlobals();
+            }
+        };
+        const focused = { visibilityState: 'visible', hasFocus: () => true };
+
+        it('reports one received while visible and focused, once, on its socket', () => {
+            const notifications = makeModule({ env: 'gui' });
+            const socket = ackSocket();
+
+            withPage(focused, () => {
+                notifications._noteReceived('n-1', undefined, socket);
+                notifications._noteReceived('n-1', undefined, socket);
+            });
+
+            expect(socket.emit.mock.calls).toEqual([
+                ['notif.handled', { uid: 'n-1' }],
+            ]);
         });
-        const ack = vi.fn();
-        try {
-            notifications._noteReceived('n-1');
-            notifications._answerReceipt({ uid: 'n-1' }, ack);
-        } finally {
-            vi.unstubAllGlobals();
-        }
-        expect(ack).toHaveBeenCalledWith(
-            received({ visibilityState: 'visible', focused: false }),
-        );
+
+        it.each([
+            ['hidden', { visibilityState: 'hidden', hasFocus: () => true }],
+            ['out of focus', { visibilityState: 'visible', hasFocus: () => false }],
+        ])('reports nothing received while %s', (_label, state) => {
+            const notifications = makeModule({ env: 'gui' });
+            const socket = ackSocket();
+
+            withPage(state, () =>
+                notifications._noteReceived('n-1', undefined, socket),
+            );
+
+            expect(socket.emit).not.toHaveBeenCalled();
+        });
+
+        it('reports a feed`s notification on the events socket', async () => {
+            const events = makeEvents();
+            const socket = ackSocket();
+            events.channel = { socket };
+            const notifications = makeModule({ events });
+            await notifications.onNotification(() => {});
+
+            withPage(focused, () => events.state.push(event('n-1')));
+
+            expect(socket.emit).toHaveBeenCalledWith('notif.handled', {
+                uid: 'n-1',
+            });
+        });
+
+        it('reports nothing over a socket that is not connected', () => {
+            const notifications = makeModule({ env: 'gui' });
+            const socket = ackSocket(false);
+
+            withPage(focused, () =>
+                notifications._noteReceived('n-1', undefined, socket),
+            );
+
+            expect(socket.emit).not.toHaveBeenCalled();
+        });
     });
 
     it('answers received: false once a notification it never got stops being waited for', async () => {

@@ -72,9 +72,11 @@ export function bindBackdropDismiss ($overlay, isBackdrop, dismiss) {
  *   overlay, after it has closed. Not called for `close()`.
  * @param {(via: 'escape'|'close'|'backdrop') => boolean} [opts.canDismiss]
  *   Consulted before each dismissal; returning false keeps the overlay up.
+ * @param {boolean} [opts.fitKeyboard] Shrink to the part of the screen an
+ *   on-screen keyboard leaves visible. Defaults to true.
  * @returns {{ $overlay: jQuery, $dialog: jQuery, close: () => void, isClosed: () => boolean }}
  */
-export default function mountDashboardOverlay ({ html, $container, returnFocusTo, onDismiss, canDismiss }) {
+export default function mountDashboardOverlay ({ html, $container, returnFocusTo, onDismiss, canDismiss, fitKeyboard = true }) {
     const $root = $container && $container.length ? $container : $('body');
     const ns = `.dashboard-overlay-${++overlay_seq}`;
     const el_previous_focus = document.activeElement;
@@ -87,7 +89,7 @@ export default function mountDashboardOverlay ({ html, $container, returnFocusTo
     // iOS lays its keyboard over the page rather than resizing it, which
     // would leave a bottom sheet's fields and buttons underneath. Pin the
     // overlay to the part of the screen that is still visible.
-    const viewport = window.visualViewport;
+    const viewport = fitKeyboard ? window.visualViewport : null;
     const fitToViewport = () => {
         const covered = window.innerHeight - viewport.height - viewport.offsetTop;
         const pinned = covered > 1 || viewport.offsetTop > 1;

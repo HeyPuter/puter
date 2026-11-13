@@ -147,6 +147,22 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))('ClaudeProvider (integration)', () => {
         },
     );
 
+    it('returns a completion from claude-fable-5-2', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        const provider = buildProvider();
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'claude-fable-5-2',
+                messages: [{ role: 'user', content: 'Reply with OK.' }],
+                reasoning_effort: 'low',
+                max_tokens: 128,
+            }),
+        );
+        const content = (result as {
+            message: { content: Array<{ type: string; text?: string }> };
+        }).message.content;
+        expect(content.find((block) => block.type === 'text')?.text?.length).toBeGreaterThan(0);
+    });
+
     // (a) Claude Code-shaped system blocks, attribution header first — the
     // pipeline must never merge or reorder system blocks: the header is
     // only recognized by Anthropic when it is the sole content of an

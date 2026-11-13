@@ -17,13 +17,17 @@ puter.workers.delete(workerName)
 #### `workerName` (String)(Required)
 The name of the worker to delete.
 
-## Return Value
+## Return value
 
-A `Promise` that resolves to `true` if successful, or throws an `Error` if the operation fails.
+A `Promise` that resolves to `true` if successful.
+
+## Errors
+
+The call throws an `Error` if the operation fails.
 
 ## Examples
 
-<strong class="example-title">Basic Worker Deletion</strong>
+### Basic Worker Deletion
 
 ```html
 <html>

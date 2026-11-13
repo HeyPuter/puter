@@ -1416,7 +1416,7 @@ describe('AuthController.handleLogin', () => {
             is_user_token: true,
         });
         expect(body.user.directories).toBeTypeOf('object');
-        expect(Array.isArray(body.user.taskbar_items)).toBe(true);
+        expect(body.user).not.toHaveProperty('taskbar_items');
     });
 
     // A deleted row still answering from cache reaches the session INSERT.
@@ -7468,6 +7468,11 @@ describe('AuthController user-protected mutations (validation paths)', () => {
             { expiresIn: '1h' },
         );
 
+        const heard: Array<Record<string, unknown>> = [];
+        eventClient.on('user.email-changed', (_k, data) => {
+            heard.push(data as Record<string, unknown>);
+        });
+
         const req = makeReq({});
         (req as unknown as { query: Record<string, string> }).query = {
             token: linkJwt,
@@ -7475,6 +7480,11 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         const res = makeRes();
         await controller.handleChangeEmailConfirm(req, res);
         expect(res.sent).toMatch(/Email changed successfully/);
+        expect(heard).toContainEqual({
+            user_id: user.id,
+            old_email: user.email ?? null,
+            new_email: newEmail,
+        });
 
         const after = await server.stores.user.getById(user.id, {
             force: true,
@@ -8283,11 +8293,10 @@ describe('AuthController session endpoints', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('revoke-session: 403 when revoking someone else’s session', async () => {
+    it('revoke-session: 404 when revoking someone else’s session', async () => {
         const { user: u1 } = await makeUserAndActor();
         const { actor: a2 } = await makeUserAndActor();
-        // Create a real session for u1 so the lookup succeeds, then attempt
-        // to revoke it as a2 — must 403.
+        // A real session of u1, revoked as a2: answers as a missing one.
         const sessionRes = await server.services.auth.createSessionToken(
             u1,
             {},
@@ -8300,7 +8309,7 @@ describe('AuthController session endpoints', () => {
                 ),
                 makeRes(),
             ),
-        ).rejects.toMatchObject({ statusCode: 403 });
+        ).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('rename-session: 400 when uuid param is missing', async () => {
@@ -10070,6 +10079,77 @@ describe('AuthController.handleRevokeSession additional branches', () => {
         );
         const body = res.body as { sessions: unknown[] };
         expect(Array.isArray(body.sessions)).toBe(true);
+    });
+
+    const expiredSessionOf = async (user: { id: number }) => {
+        const row = await server.stores.session.create(user.id, {
+            expires_at: Math.floor(Date.now() / 1000) - 1,
+        });
+        return row.uuid as string;
+    };
+
+    it('revokes an expired session the caller owns', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const uuid = await expiredSessionOf(user);
+        const res = makeRes();
+        await controller.handleRevokeSession(makeReq({ uuid }, { actor }), res);
+
+        const body = res.body as { sessions: Array<{ uuid: string }> };
+        expect(body.sessions.map((s) => s.uuid)).not.toContain(uuid);
+        const rows = await server.clients.db.read(
+            'SELECT `revoked_at` FROM `sessions` WHERE `uuid` = ?',
+            [uuid],
+        );
+        expect(rows[0].revoked_at).not.toBeNull();
+    });
+
+    it('revoking an expired session ends its live child token', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const parent = await expiredSessionOf(user);
+        const child = await server.stores.session.getOrCreateGodmodeToken(
+            user.id,
+            {
+                parentSessionUid: parent,
+                appUid: `app-${uuidv4()}`,
+                expiresAt: Math.floor(Date.now() / 1000) + 3600,
+                maxAgeSeconds: 3600,
+                label: 'Godmode app',
+                auth_id: user.uuid,
+            },
+        );
+        const childUuid = child!.row.uuid as string;
+        expect(await server.stores.session.getByUuid(childUuid)).toBeTruthy();
+
+        await controller.handleRevokeSession(
+            makeReq({ uuid: parent }, { actor }),
+            makeRes(),
+        );
+
+        expect(await server.stores.session.getByUuid(childUuid)).toBeNull();
+    });
+
+    it('answers 404 for an expired session of another user', async () => {
+        const { user: owner } = await makeUserAndActor();
+        const { actor } = await makeUserAndActor();
+        const uuid = await expiredSessionOf(owner);
+        await expect(
+            controller.handleRevokeSession(
+                makeReq({ uuid }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('answers 404 for a session that is already revoked', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const row = await server.stores.session.create(user.id);
+        await server.stores.session.removeByUuid(row.uuid);
+        await expect(
+            controller.handleRevokeSession(
+                makeReq({ uuid: row.uuid }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('refuses to revoke the caller’s OWN current session row (400)', async () => {

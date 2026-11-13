@@ -25,12 +25,9 @@ window.window_nav_history_current_position = {};
 window.dashboard_nav_history = [];
 window.dashboard_nav_history_current_position = 0;
 window.progress_tracker = [];
-window.upload_item_global_id = 0;
 window.app_instance_ids = new Set();
 
 window.menubars = [];
-window.download_progress = [];
-window.download_item_global_id = 0;
 
 // This is the minimum width of the window for the sidebar to be shown
 window.window_width_threshold_for_sidebar = 500;
@@ -70,7 +67,7 @@ if ( window.logged_in_users.length === 0 && window.user !== null ) {
     let tuser = window.user;
     tuser.auth_token = window.auth_token;
     window.logged_in_users.push(tuser);
-    localStorage.setItem('logged_in_users', window.logged_in_users);
+    localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users));
 }
 
 window.last_window_zindex = 1;
@@ -113,9 +110,6 @@ if ( window.user_preferences === null ) {
 }
 
 window.window_stack = [];
-window.toolbar_height = 0;
-window.default_taskbar_height = 50;
-window.taskbar_height = window.default_taskbar_height;
 window.upload_progress_hide_delay = 500;
 window.active_uploads = {};
 window.copy_progress_hide_delay = 1000;
@@ -130,7 +124,6 @@ window.window_counter = 0;
 window.keypress_item_seach_term = '';
 window.keypress_item_seach_buffer_timeout = undefined;
 window.first_visit_animation = false;
-window.show_twitter_link = true;
 window.animate_window_opening = true;
 window.animate_window_closing = true;
 window.desktop_loading_fade_delay = (window.first_visit_ever && window.first_visit_animation ? 6000 : 1000);
@@ -153,20 +146,15 @@ window.launch_apps = [];
 window.launch_apps.recent = [];
 window.launch_apps.recommended = [];
 
-// Map of { child_instance_id -> { parent_instance_id, launch_msg_id } }
-window.child_launch_callbacks = {};
-
 // Is puter being loaded inside an iframe?
 if ( window.location !== window.parent.location ) {
     window.is_embedded = true;
-    // taskbar is not needed in embedded mode
-    window.taskbar_height = 0;
 } else {
     window.is_embedded = false;
 }
 
 // calculate desktop height and width
-window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+window.desktop_height = window.innerHeight;
 window.desktop_width = window.innerWidth;
 
 // {id: {left: 0, top: 0}}
@@ -180,7 +168,7 @@ $(window).on( 'resize', function () {
     if ( window.a_window_is_resizing ) return;
     if ( window.a_window_sidebar_is_resizing ) return;
 
-    const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+    const new_desktop_height = window.innerHeight;
     const new_desktop_width = window.innerWidth;
 
     window.desktop_height = new_desktop_height;
@@ -188,7 +176,7 @@ $(window).on( 'resize', function () {
 
     // Update all maximized windows to fit the new viewport
     $('.window[data-is_maximized="1"]').each(function () {
-        window.update_maximized_window_for_taskbar(this);
+        window.update_maximized_window(this);
     });
 });
 
@@ -199,10 +187,6 @@ window.active_element = null;
 
 // The number of recent apps to show in the launch menu
 window.launch_recent_apps_count = 10;
-
-// indicated if the mouse is in one of the window snap zones or not
-// if yes, which one?
-window.current_active_snap_zone = undefined;
 
 //
 window.is_fullpage_mode = false;
@@ -220,9 +204,6 @@ window.feature_flags = {
     download_directory: true,
 };
 
-window.is_auto_arrange_enabled = true;
-window.desktop_item_positions = {};
-window.reset_item_positions = true; // The variable decides if the item positions should be reset when the user enabled auto arrange
 
 window.file_templates = [];
 

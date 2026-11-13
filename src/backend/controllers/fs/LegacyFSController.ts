@@ -401,11 +401,9 @@ export class LegacyFSController extends PuterController {
                             .filter(Boolean);
 
                     // Don't hand out an index_url whose puter-hosted backing is
-                    // gone or reclaimed. The taskbar launches recents by name (so
-                    // AppDriver's guard applies), but this list is a
-                    // launch-metadata producer like any other — a future consumer
-                    // reading index_url straight off it shouldn't inherit a stale
-                    // origin.
+                    // gone or reclaimed. This list is a launch-metadata producer
+                    // like any other — a consumer reading index_url straight off
+                    // it shouldn't inherit a stale origin.
                     let backingGoneFlags: boolean[];
                     try {
                         backingGoneFlags =
@@ -767,8 +765,10 @@ export class LegacyFSController extends PuterController {
             normalizedTarget,
         );
         if (dedupeName) {
-            const existing =
-                await this.stores.fsEntry.getEntryByPath(normalizedTarget);
+            const existing = await this.stores.fsEntry.getEntryByPath(
+                normalizedTarget,
+                { foldedNames: true },
+            );
             if (existing) {
                 const parent = pathPosix.dirname(normalizedTarget);
                 await assertAccess(
@@ -950,9 +950,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const overwrittenEntry = replacedByMove(overwriteTarget, moved, name);
         const oldPath = source.path;
@@ -1426,8 +1424,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -2054,10 +2051,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

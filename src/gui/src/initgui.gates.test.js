@@ -69,6 +69,51 @@ describe('the popup token hand-off in postAuthActions', () => {
     });
 });
 
+describe('the requests a sign-in popup makes after an account is picked', () => {
+    const postAuthActions = src.slice(
+        src.indexOf('const postAuthActions = async'),
+        src.indexOf('window.initgui = async'),
+    );
+
+    it('matches the early exchange before every exchange in postAuthActions', () => {
+        const exchanges = postAuthActions.split('await window.getUserAppToken(origin)').length - 1;
+        const matched = postAuthActions.split(
+            'reusableTokenExchange(early_token_exchange, origin, window.auth_token) ??',
+        ).length - 1;
+        expect(exchanges).toBe(2);
+        expect(matched).toBe(2);
+        expect(postAuthActions.split('getUserAppToken(').length - 1).toBe(2);
+    });
+
+    it('records every early exchange, so none is repeated unmatched', () => {
+        const boot = src.slice(src.indexOf('window.initgui = async'));
+        const sdkLogin = boot.slice(
+            boot.indexOf('// show signup window'),
+            boot.indexOf('window.popup_signin_consent = !!picked_a_user_for_sdk_login;'),
+        );
+        expect(sdkLogin.split('await exchangeUserAppTokenEarly();').length - 1).toBe(3);
+        expect(sdkLogin).not.toContain('getUserAppToken(');
+    });
+
+    it('skips the relationship check only for a picked account', () => {
+        // Signup in the popup sets consent without a pick, and still needs
+        // the check to keep a second account picker away.
+        const check = src.indexOf('await window.checkUserSiteRelationship(');
+        const guard = src.lastIndexOf('if (', check);
+        expect(src.slice(guard, check)).toContain('if (!picked_a_user_for_sdk_login) {');
+        expect(src.slice(guard, check)).not.toContain('popup_signin_consent');
+    });
+
+    it('reuses the early whoami only through reusablePopupUser', () => {
+        const reuse = src.indexOf('whoami = popup_whoami.user;');
+        expect(reuse).toBeGreaterThan(-1);
+        expect(src.split('popup_whoami.user').length - 1).toBe(1);
+        const guard = src.slice(src.lastIndexOf('if (', reuse), reuse);
+        expect(guard).toContain('picked_a_user_for_sdk_login &&');
+        expect(guard).toContain('reusablePopupUser(popup_whoami, {');
+    });
+});
+
 describe('the permission popup and browser push', () => {
     const postAuthActions = src.slice(
         src.indexOf('const postAuthActions = async'),
@@ -102,13 +147,31 @@ describe('the permission popup and browser push', () => {
         expect(requestPermission).not.toContain('setTimeout');
     });
 
-    it('shows the enable-push dialog only for a site whose app may send pushes', () => {
+    it('skips the permission dialog only for a push grant that reaches Puter devices', () => {
+        const held = requestPermission.indexOf('await appHoldsForPuter(permissions, window.host_app_uid');
+        expect(held).toBeGreaterThan(-1);
+        expect(held).toBeLessThan(requestPermission.indexOf('await UIPermissionDialog({'));
+    });
+
+    it('takes the helper`s answer for a held push grant as it comes, also when the app list can`t be read', () => {
+        const held = requestPermission.indexOf('await appHoldsForPuter(permissions, window.host_app_uid');
+        const statement = requestPermission.slice(held, requestPermission.indexOf(';', held));
+        expect(statement).not.toContain('.catch(');
+    });
+
+    it('shows the enable-push dialog only for a site whose app may push to Puter devices', () => {
         const resolved = enablePush.indexOf('await window.getAppUIDFromOrigin(origin)');
-        const checked = enablePush.indexOf('await appHoldsPermissions([PUSH_PERMISSION], app_uid)');
+        const checked = enablePush.indexOf('await pushGrantOf(app_uid)');
         const dialog = enablePush.indexOf('await UIEnablePushDialog({ origin })');
         expect(resolved).toBeGreaterThan(-1);
         expect(checked).toBeGreaterThan(resolved);
         expect(dialog).toBeGreaterThan(checked);
+    });
+
+    it('asks Puter`s permission in the enable-push popup for a site holding only its own Web Push grant', () => {
+        const website = enablePush.indexOf("grant === 'website'");
+        expect(website).toBeGreaterThan(-1);
+        expect(enablePush.indexOf('await askPushPermission({ origin })')).toBeGreaterThan(website);
     });
 
     it('answers an enable-push opener it cannot attest, like a permission prompt', () => {
@@ -134,7 +197,7 @@ describe('the permission popup and browser push', () => {
 });
 
 describe('the account pickers in a popup', () => {
-    const PICKER = 'picked_a_user_for_sdk_login = await UIWindowSessionList(';
+    const PICKER = 'picked_a_user_for_sdk_login = await UIAuthAccountPicker(';
 
     it('record that they were shown', () => {
         // A dismissed picker has to outrank an existing relationship, so the

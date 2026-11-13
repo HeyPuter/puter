@@ -49,12 +49,94 @@ const makeReq = (over: Partial<Request> = {}): Request =>
         ...over,
     }) as unknown as Request;
 
+describe('app browser embed shell', () => {
+    it.each([
+        [{ env: 'dev' }, '/sdk/puter.dev.js'],
+        [{ env: 'prod' }, 'https://js.puter.com/v2/'],
+        [{ gui_puterjs_bundle: '/custom-sdk.js' }, '/custom-sdk.js'],
+    ])('uses the deployment SDK configuration %j', (config, sdkUrl) => {
+        const service = makeService({
+            ...config,
+            api_base_url: 'https://api.deployment.test',
+            domain: 'deployment.test',
+        });
+        const html = service.renderAppBrowserEmbed();
+        const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson)).toEqual({
+            apiOrigin: 'https://api.deployment.test', sdkUrl, guestApps: [],
+        });
+        expect(html).toContain('/dist/apps-embed.min.js');
+        expect(html).not.toContain('/dist/bundle.min.js');
+        expect(html).not.toContain('gui(');
+    });
+
+    it.each([
+        [{}, '/dist/apps-embed.min.js'],
+        [
+            { gui_bundle: 'https://gui-cdn.deployment.test/bundle.min.js' },
+            'https://gui-cdn.deployment.test/apps-embed.min.js',
+        ],
+        [
+            { gui_bundle: '/static/bundle.min.js?v=42' },
+            '/static/apps-embed.min.js?v=42',
+        ],
+    ])('loads its script from beside the GUI bundle %j', (config, script) => {
+        const html = makeService(config).renderAppBrowserEmbed();
+        expect(html).toContain(`<script defer src="${script}"></script>`);
+    });
+
+    it('escapes configured values without breaking its JSON bootstrap', () => {
+        const sdkUrl = '/sdk.js?value=</script><script>unexpected()</script>';
+        const html = makeService({
+            gui_params: { title: '<script>unexpected()</script>' },
+            gui_puterjs_bundle: sdkUrl,
+        }).renderAppBrowserEmbed();
+        expect(html).not.toContain('<script>unexpected()');
+        const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson).sdkUrl).toBe(sdkUrl);
+    });
+
+    it('carries the apps shown without a session, escaped', () => {
+        const guestApps = [
+            { name: 'notes', title: '</script><script>unexpected()</script>' },
+        ];
+        const html = makeService({}).renderAppBrowserEmbed({ guestApps });
+        expect(html).not.toContain('<script>unexpected()');
+        const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson).guestApps).toEqual(guestApps);
+    });
+});
+
+describe('feedback embed shell', () => {
+    it('carries the framing page and API origin, and loads only its own script', () => {
+        const html = makeService({
+            api_base_url: 'https://api.deployment.test',
+            gui_bundle: '/static/bundle.min.js?v=42',
+        }).renderFeedbackEmbed({ hostOrigin: 'https://notes.deployment.test' });
+        const configJson = html.match(/id="feedback-embed-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson)).toEqual({
+            apiOrigin: 'https://api.deployment.test',
+            hostOrigin: 'https://notes.deployment.test',
+        });
+        expect(html).toContain('<script defer src="/static/feedback-embed.min.js?v=42"></script>');
+        expect(html).toContain('<link rel="stylesheet" href="/css/feedback-embed.css">');
+        expect(html).toContain('<main id="feedback-embed"></main>');
+        expect(html).not.toContain('bundle.min.js');
+        expect(html).not.toContain('apps-embed');
+    });
+
+    it('carries no framing page when none is allowed', () => {
+        const html = makeService({}).renderFeedbackEmbed({ hostOrigin: null });
+        const configJson = html.match(/id="feedback-embed-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson).hostOrigin).toBeNull();
+    });
+});
+
 /** Capture what the service sends, and return the rendered HTML. */
 const render = async (
     service: PuterHomepageService,
     req: Request = makeReq(),
     meta: Record<string, unknown> = { title: 'Puter' },
-    launchOptions: Record<string, unknown> = {},
     actor: unknown = null,
 ): Promise<string> => {
     let sent = '';
@@ -66,7 +148,6 @@ const render = async (
     await service.send(
         { req, res, actor } as never,
         meta as never,
-        launchOptions as never,
     );
     return sent;
 };
@@ -209,7 +290,6 @@ describe('PuterHomepageService — gui() parameters', () => {
             asset_dir: '/dist',
             title: 'Editor',
             app: { name: 'editor' },
-            launch_options: {},
         });
         // No `config.origin`: fall back to the request's protocol + domain.
         expect(params.app_origin).toBe('http://puter.test');
@@ -255,7 +335,7 @@ describe('PuterHomepageService — gui() parameters', () => {
 
         const staff = { user: { id: 7, email: 'j@puter.com' } };
         expect(
-            guiParamsOf(await render(service, makeReq(), undefined, {}, staff))
+            guiParamsOf(await render(service, makeReq(), undefined, staff))
                 .teams_ui,
         ).toBe(true);
         expect(teamsAvailableTo).toHaveBeenCalledWith(7, 'j@puter.com');
@@ -266,7 +346,7 @@ describe('PuterHomepageService — gui() parameters', () => {
         teamsAvailableTo.mockResolvedValueOnce(false);
         expect(
             guiParamsOf(
-                await render(service, makeReq(), undefined, {}, {
+                await render(service, makeReq(), undefined, {
                     user: { id: 9, email: 'x@gmail.com' },
                 }),
             ).teams_ui,
@@ -336,22 +416,6 @@ describe('PuterHomepageService — gui() parameters', () => {
         const html = await render(service);
         expect(html).toContain('\\u003c/script>');
         expect(guiParamsOf(html).injected).toBe('</script><img src=x>');
-    });
-
-    it('passes launch options straight through', async () => {
-        const params = guiParamsOf(
-            await render(
-                makeService(),
-                makeReq(),
-                { title: 'Puter' },
-                {
-                    on_initialized: [{ do: 'thing' }],
-                },
-            ),
-        );
-        expect(params.launch_options).toEqual({
-            on_initialized: [{ do: 'thing' }],
-        });
     });
 });
 

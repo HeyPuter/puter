@@ -142,6 +142,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: ARGON_LAUNCH_COSTS,
         pricingOverrides: listPricingFrom(
             '2026-12-01T00:00:00Z',
@@ -174,6 +175,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         // Google serves this endpoint with gemini-3.6-flash and bills its rates.
+        serviceSpeedRates: { fast: 1.8 },
         costs: FLASH_LAUNCH_COSTS,
         pricingOverrides: FLASH_LIST_PRICING,
     },
@@ -201,6 +203,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
@@ -228,6 +231,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: FLASH_LAUNCH_COSTS,
         pricingOverrides: FLASH_LIST_PRICING,
     },
@@ -250,6 +254,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         // Google serves this endpoint with gemini-3.8-flash and bills its rates.
+        serviceSpeedRates: { fast: 1.8 },
         costs: FLASH_LAUNCH_COSTS,
         pricingOverrides: FLASH_LIST_PRICING,
     },
@@ -270,6 +275,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: FLASH_LAUNCH_COSTS,
         pricingOverrides: FLASH_LIST_PRICING,
     },
@@ -291,6 +297,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 25,
@@ -318,6 +325,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 50,
@@ -344,6 +352,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
@@ -374,6 +383,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 10,
@@ -402,6 +412,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 125,
@@ -448,6 +459,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,

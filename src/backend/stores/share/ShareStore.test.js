@@ -171,10 +171,19 @@ describe('ShareStore', () => {
             holder = await makeUser();
         });
 
-        it('says whether an owner has anything shared, legacy rows included', async () => {
+        it('says an owner with nothing shared has no shares', async () => {
             const owner = await makeUser();
+            await makeEntry(owner);
+            // An invite row that names no node is not a share of an entry.
+            await store.create({
+                issuerUserId: owner.id,
+                recipientEmail: `${owner.username}-invite@test.local`,
+            });
             await expect(store.ownerHasShares(owner.id)).resolves.toBe(false);
+        });
 
+        it('answers with one indexed read', async () => {
+            const owner = await makeUser();
             const entry = await makeEntry(owner);
             await store.upsertActive({
                 issuerUserId: owner.id,
@@ -182,24 +191,24 @@ describe('ShareStore', () => {
                 fsentryId: entry.id,
                 mode: 'read',
             });
-            await expect(store.ownerHasShares(owner.id)).resolves.toBe(true);
 
-            // A row written before the owner column existed.
-            const legacyOwner = await makeUser();
-            const legacy = await makeEntry(legacyOwner);
-            await store.upsertActive({
-                issuerUserId: legacyOwner.id,
-                holderUserId: holder.id,
-                fsentryId: legacy.id,
-                mode: 'read',
-            });
-            await server.clients.db.write(
-                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `fsentry_id` = ?',
-                [legacy.id],
-            );
-            await expect(store.ownerHasShares(legacyOwner.id)).resolves.toBe(
-                true,
-            );
+            const read = vi.spyOn(server.clients.db, 'read');
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                await expect(store.ownerHasShares(owner.id)).resolves.toBe(
+                    true,
+                );
+                const sql = [...read.mock.calls, ...pread.mock.calls].map(
+                    ([query]) => String(query),
+                );
+                expect(sql).toHaveLength(1);
+                expect(sql.some((q) => q.includes('JOIN `fsentries`'))).toBe(
+                    false,
+                );
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
         });
 
         it('finds a subtree share even when the descendant has no path yet', async () => {
@@ -335,6 +344,176 @@ describe('ShareStore', () => {
             expect(new Set(keys.map((key) => clusterKeySlot(key))).size).toBe(
                 1,
             );
+        });
+
+        it('does not read back a link removed with its node from a lagging replica', async () => {
+            const entry = await makeEntry(issuer);
+            const stale = await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await store.deleteByFsentryIds([entry.id]);
+
+            // The replica still has the link the primary just deleted.
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi.spyOn(db, 'pread').mockImplementation(primaryRead);
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (q, p) =>
+                    /FROM `share`/u.test(q)
+                        ? [
+                              {
+                                  ...stale,
+                                  data: '{}',
+                                  entry_uuid: entry.uuid,
+                                  owner_user_id: issuer.id,
+                              },
+                          ]
+                        : primaryRead(q, p),
+                );
+            try {
+                expect(await store.getAnyone(entry.id)).toBeNull();
+                expect(await store.listAnyoneOnFsentries([entry.id])).toEqual(
+                    [],
+                );
+                expect(await store.listAnyoneReaching([entry.uuid])).toEqual(
+                    [],
+                );
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+        });
+
+        it('tells peer regions when a link is removed', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await store.deleteByFsentryIds([entry.id]);
+                expect(emit).toHaveBeenCalledWith(
+                    'outer.share.linksRevoked',
+                    { fsentryIds: [entry.id], uuids: [entry.uuid] },
+                    {},
+                );
+            } finally {
+                emit.mockRestore();
+            }
+        });
+
+        it('applies a link removal broadcast by a peer region', async () => {
+            const fsentryId = 900000 + Math.floor(Math.random() * 99999);
+            const uuid = uuidv4();
+            server.clients.event.emit(
+                'outer.share.linksRevoked',
+                { fsentryIds: [fsentryId], uuids: [uuid] },
+                { from_outside: true },
+            );
+            await vi.waitFor(async () => {
+                expect(
+                    await server.clients.redis.get(
+                        ShareStore.revokedLinkKey('uuid', uuid),
+                    ),
+                ).toBe('1');
+            });
+            expect(
+                await server.clients.redis.ttl(
+                    ShareStore.revokedLinkKey('id', fsentryId),
+                ),
+            ).toBeGreaterThan(25);
+        });
+
+        it('still tells peer regions when the local marker cannot be set', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            const pipeline = vi
+                .spyOn(server.clients.redis, 'pipeline')
+                .mockImplementation(() => {
+                    throw new Error('redis unavailable');
+                });
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await store.deleteByFsentryIds([entry.id], [entry.uuid]);
+                expect(emit).toHaveBeenCalledWith(
+                    'outer.share.linksRevoked',
+                    { fsentryIds: [entry.id], uuids: [entry.uuid] },
+                    {},
+                );
+            } finally {
+                emit.mockRestore();
+                pipeline.mockRestore();
+            }
+        });
+
+        it('neither marks nor tells peers when nothing was removed', async () => {
+            const entry = await makeEntry(issuer);
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                expect(await store.deleteByFsentryIds([entry.id])).toBe(0);
+                expect(emit).not.toHaveBeenCalledWith(
+                    'outer.share.linksRevoked',
+                    expect.anything(),
+                    expect.anything(),
+                );
+            } finally {
+                emit.mockRestore();
+            }
+            expect(
+                await server.clients.redis.get(
+                    ShareStore.revokedLinkKey('uuid', entry.uuid),
+                ),
+            ).toBeNull();
+        });
+
+        it("ignores its own region's event and malformed payloads", async () => {
+            const local = uuidv4();
+            const sentinel = uuidv4();
+            const bogus = 900000 + Math.floor(Math.random() * 99999);
+            const emit = (data, meta) =>
+                server.clients.event.emit(
+                    'outer.share.linksRevoked',
+                    data,
+                    meta,
+                );
+            emit({ fsentryIds: [], uuids: [local] }, {});
+            for (const data of [
+                null,
+                { fsentryIds: 'x', uuids: 'y' },
+                {
+                    fsentryIds: [String(bogus), bogus + 0.5, null],
+                    uuids: [bogus, '', null],
+                },
+            ]) {
+                emit(data, { from_outside: true });
+            }
+            // Handled in order, so once this lands the ones above have too.
+            emit({ fsentryIds: [], uuids: [sentinel] }, { from_outside: true });
+            await vi.waitFor(async () => {
+                expect(
+                    await server.clients.redis.get(
+                        ShareStore.revokedLinkKey('uuid', sentinel),
+                    ),
+                ).toBe('1');
+            });
+
+            for (const key of [
+                ShareStore.revokedLinkKey('uuid', local),
+                ShareStore.revokedLinkKey('uuid', String(bogus)),
+                ShareStore.revokedLinkKey('id', bogus),
+                ShareStore.revokedLinkKey('id', bogus + 0.5),
+            ]) {
+                expect(await server.clients.redis.get(key)).toBeNull();
+            }
         });
 
         it('reads a link past the replica once one has been withdrawn', async () => {
@@ -689,12 +868,6 @@ describe('ShareStore', () => {
             await groupRow(member.id, await makeEntry(member));
             // A teammate's share of the member's item.
             await groupRow(mate.id, await makeEntry(member));
-            // As that, from before `entry_owner_user_id` was recorded.
-            const legacy = await groupRow(mate.id, await makeEntry(member));
-            await server.clients.db.write(
-                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `uid` = ?',
-                [legacy.uid],
-            );
             const theirs = await groupRow(mate.id, await makeEntry(mate));
             const direct = await store.upsertActive({
                 issuerUserId: mate.id,
@@ -714,6 +887,36 @@ describe('ShareStore', () => {
             const matePage = await store.listByHolder(mate.id, opts);
             expect(matePage.items).toHaveLength(1);
             expect(await store.countByHolder(mate.id, opts)).toBe(1);
+        });
+
+        it('lists a team row whose entry owner was never recorded', async () => {
+            const member = await makeUser();
+            const mate = await makeUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                    '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                [groupUid, member.id, 'team', 'No owner', '{}', '{}'],
+            );
+            const [{ id: groupId }] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
+            const row = await store.upsertActiveGroup({
+                issuerUserId: mate.id,
+                holderGroupId: Number(groupId),
+                fsentryId: (await makeEntry(mate)).id,
+                mode: 'read',
+            });
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `uid` = ?',
+                [row.uid],
+            );
+
+            const opts = { groupIds: [Number(groupId)] };
+            const page = await store.listByHolder(member.id, opts);
+            expect(page.items.map((r) => r.uid)).toEqual([row.uid]);
+            expect(await store.countByHolder(member.id, opts)).toBe(1);
         });
 
         it('lists what a user issued alongside what was issued on their node', async () => {
@@ -972,22 +1175,25 @@ describe('ShareStore', () => {
 
         it('claims a pending invite without dropping the row', async () => {
             const entry = await makeEntry(issuer);
-            const pending = await store.create({
+            const { row: pending } = await store.upsertPending({
                 issuerUserId: issuer.id,
                 recipientEmail: `pending-${uuidv4()}@test.local`,
-                data: {},
+                fsentryId: entry.id,
+                mode: 'write',
             });
 
             const applied = await store.applyPending({
                 uid: pending.uid,
                 holderUserId: holder.id,
-                fsentryId: entry.id,
                 mode: 'read',
             });
 
             expect(applied.holder_user_id).toBe(holder.id);
             expect(applied.mode).toBe('read');
             expect(applied.applied_at).toBeTruthy();
+            // The entry and its owner are the ones the invite was written with.
+            expect(Number(applied.fsentry_id)).toBe(entry.id);
+            expect(Number(applied.entry_owner_user_id)).toBe(issuer.id);
             // Second claim finds nothing left to claim.
             expect(
                 await store.applyPending({
@@ -1155,6 +1361,27 @@ describe('ShareStore', () => {
                 };
             };
 
+            it('lists a share the replica lacks in a subtree when asked to read the primary', async () => {
+                const entry = await makeEntry(issuer);
+                const link = await store.upsertAnyone({
+                    issuerUserId: issuer.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                const restore = lagShares([]);
+                try {
+                    expect(
+                        await store.listAllByFsentrySubtree(entry.id),
+                    ).toEqual([]);
+                    const rows = await store.listAllByFsentrySubtree(entry.id, {
+                        primary: true,
+                    });
+                    expect(rows.map((row) => row.uid)).toEqual([link.uid]);
+                } finally {
+                    restore();
+                }
+            });
+
             it('returns the rows it inserts before the replica has them', async () => {
                 const entry = await makeEntry(issuer);
                 // A group row written directly: the share only needs its id,
@@ -1163,7 +1390,14 @@ describe('ShareStore', () => {
                 await server.clients.db.write(
                     'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
                         '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
-                    [groupUid, issuer.id, 'team', 'Lagging replica', '{}', '{}'],
+                    [
+                        groupUid,
+                        issuer.id,
+                        'team',
+                        'Lagging replica',
+                        '{}',
+                        '{}',
+                    ],
                 );
                 const [team] = await server.clients.db.read(
                     'SELECT id FROM `group` WHERE uid = ?',
@@ -1268,7 +1502,6 @@ describe('ShareStore', () => {
                     const applied = await store.applyPending({
                         uid: claimable.uid,
                         holderUserId: holder.id,
-                        fsentryId: (await makeEntry(issuer)).id,
                         mode: 'read',
                     });
                     expect(applied.holder_user_id).toBe(holder.id);

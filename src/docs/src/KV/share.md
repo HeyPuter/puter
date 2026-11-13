@@ -4,9 +4,11 @@ description: Share the keys under a prefix with another Puter user, so they can 
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Shares the keys under a prefix with another Puter user, or with up to 50 users in one call.
+
 <div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
-Shares the keys under a prefix with another Puter user, or with up to 50 users in one call. The other user becomes the share's holder, and you stay its owner. The keys stay in your store, and the holder reaches them through the share.
+The other user becomes the share's holder, and you stay its owner. The keys stay in your store, and the holder reaches them through the share.
 
 Each share has a `handle`. The holder finds it with [`puter.kv.listShared()`](/KV/listShared/) and passes it as `handle` to the other [`puter.kv`](/KV/) methods, in the app whose data it is or outside any app. You can pass it too, with keys relative to the prefix, the same way the holder does. [Sharing with other users](/KV/#sharing-with-other-users) shows how a holder uses a share.
 
@@ -52,13 +54,15 @@ What the holder can do. Defaults to `'read'`. Each level includes the ones befor
 
 The options form takes these properties:
 
-- `prefix` (String) (required): The key prefix, as above.
-- `recipient` (String | Object): Who to share with, as above.
-- `recipients` (Array): Several users to share with, as above. Pass one of `recipient` or `recipients`. With both, `recipient` is ignored.
-- `access` (String): What the holder can do, as above. Defaults to `'read'`.
-- `label` (String | null): Plain text the holder is shown with the share, such as `'Groceries from Dan'`. Whitespace at either end is trimmed, and the rest can be at most 128 characters and 512 bytes of UTF-8. Control characters, invisible formatting characters (such as zero-width spaces and text direction marks), line breaks, and more than 3 combining marks on one character are rejected with `kv_share_label_invalid`. An empty string means no label.
-- `notify` (Boolean): Whether you and the holder can send each other notifications through the share's handle with [`puter.notifications.notify()`](/Notifications/notify/), from the app whose data it is. Defaults to `false`. Turning it on also sends the holder a `kv.share.received` notification, as [What the holder sees](#what-the-holder-sees) describes. Shares of the store that belongs to no app can't carry notifications.
-- `appUuid` (String): The app whose data to share. Outside an app, such as in a Node.js script using the user's auth token, it can name any app that exists. An app always shares its own data, and passing a different app's id fails with `events_kv_handle_outside_namespace`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `prefix` | `String` | Required. The key prefix, as above. |
+| `recipient` | `String \| Object` | Who to share with, as above. |
+| `recipients` | `Array` | Several users to share with, as above. Pass one of `recipient` or `recipients`. With both, `recipient` is ignored. |
+| `access` | `String` | What the holder can do, as above. Defaults to `'read'`. |
+| `label` | `String \| null` | Plain text the holder is shown with the share, such as `'Groceries from Dan'`. Whitespace at either end is trimmed, and the rest can be at most 128 characters and 512 bytes of UTF-8. Control characters, invisible formatting characters (such as zero-width spaces and text direction marks), line breaks, and more than 3 combining marks on one character are rejected with `kv_share_label_invalid`. An empty string means no label. |
+| `notify` | `Boolean` | Whether you and the holder can send each other notifications through the share's handle with [`puter.notifications.notify()`](/Notifications/notify/), from the app whose data it is. Defaults to `false`. Turning it on also sends the holder a `kv.share.received` notification, as [What the holder sees](#what-the-holder-sees) describes. Shares of the store that belongs to no app can't carry notifications. |
+| `appUuid` | `String` | The app whose data to share. Outside an app, such as in a Node.js script using the user's auth token, it can name any app that exists. An app always shares its own data, and passing a different app's id fails with `events_kv_handle_outside_namespace`. |
 
 Without an app, [`puter.kv`](/KV/) uses a store that belongs to no app. Shares of that store have an `appUid` of `null`.
 
@@ -79,7 +83,33 @@ With `recipients`, the `Promise` resolves to an array with one item per recipien
 
 - `error` (Object): Why that recipient didn't get a share, as `{ message, code }`. Its code is one of the [errors](#errors) about a recipient, which are `invalid_recipient`, `subject_does_not_exist`, `bad_request` when it's you, `invalid_kv_share_prefix` when a share with that user has the same prefix in different letter case, `recipient_not_accepting_shares`, or `events_kv_handle_limit_reached` when you already have 256 live shares with that user.
 
+## Errors
+
 Any other error, such as a bad `prefix`, rejects the whole call. Before it shares with anyone, the call checks that all the new shares fit within your limits and rate limits, and rejects the whole call if they don't.
+
+The promise rejects with `{ message, code }`:
+
+| Code | Meaning |
+| -- | -- |
+| `invalid_recipient` | A username contains `@`, or `recipient` isn't a username, `{ username }`, or `{ uid }`. |
+| `subject_does_not_exist` | No user has that username or uuid. |
+| `bad_request` | You named yourself as the recipient, `appUuid` isn't the id of an app that exists, or `recipients` is empty or has more than 50 entries. |
+| `invalid_kv_share_prefix` | `prefix` is empty, too long, has an empty segment, or has a character other than lowercase letters, digits, `_`, `.`, and `-` between its separators. Also returned when one of your shares with the same user has the same prefix in different letter case. |
+| `kv_share_access_invalid` | `access` isn't `'watch'`, `'read'`, or `'write'`. |
+| `kv_share_label_invalid` | `label` isn't a string or `null`, is too long, or contains a character it can't have. |
+| `kv_share_notify_invalid` | `notify` isn't a boolean. |
+| `recipient_not_accepting_shares` | The recipient blocked you, or doesn't accept shares. On an existing share, you raised its access, set a new label, or turned `notify` on. |
+| `account_is_not_verified` | Your email address isn't confirmed. |
+| `events_kv_handle_requires_account` | A temporary account tried to share. |
+| `events_kv_handle_limit_reached` | You already have as many live shares as your plan allows, in total, in this app, or with this user. With `recipients`, the new shares would go over your limit in total or in this app. |
+| `events_kv_handle_not_delegated` | An app shared without the user's consent for that prefix and level. |
+| `events_kv_handle_outside_namespace` | An app named another app's data. |
+| `events_kv_handle_owner_only` | The call came from an access token with less access than the account. |
+| `forbidden` | An app shared through an access token it issued. |
+| `kv_handles_disabled` | `read` and `write` shares are turned off on this deployment. |
+| `events_kv_handles_disabled` | `watch` shares are turned off on this deployment. |
+| `events_disabled` | Events, which `watch` shares need, are turned off on this deployment. |
+| `too_many_requests` | Over the rate limit, or another change to the same share was still running. Try again. |
 
 ## Sharing the same prefix again
 
@@ -107,35 +137,15 @@ When a share of an app's data allows notifications, the holder gets a `kv.share.
 
 See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for how many shares an account can make per minute and hold at once, and [Key-value store](/rate-limits-and-quotas/#key-value-store) for how much all the holders of your shares can read and write together.
 
-## Errors
+## Related
 
-The promise rejects with `{ message, code }`:
-
-| Code | Meaning |
-| -- | -- |
-| `invalid_recipient` | A username contains `@`, or `recipient` isn't a username, `{ username }`, or `{ uid }`. |
-| `subject_does_not_exist` | No user has that username or uuid. |
-| `bad_request` | You named yourself as the recipient, `appUuid` isn't the id of an app that exists, or `recipients` is empty or has more than 50 entries. |
-| `invalid_kv_share_prefix` | `prefix` is empty, too long, has an empty segment, or has a character other than lowercase letters, digits, `_`, `.`, and `-` between its separators. Also returned when one of your shares with the same user has the same prefix in different letter case. |
-| `kv_share_access_invalid` | `access` isn't `'watch'`, `'read'`, or `'write'`. |
-| `kv_share_label_invalid` | `label` isn't a string or `null`, is too long, or contains a character it can't have. |
-| `kv_share_notify_invalid` | `notify` isn't a boolean. |
-| `recipient_not_accepting_shares` | The recipient blocked you, or doesn't accept shares. On an existing share, you raised its access, set a new label, or turned `notify` on. |
-| `account_is_not_verified` | Your email address isn't confirmed. |
-| `events_kv_handle_requires_account` | A temporary account tried to share. |
-| `events_kv_handle_limit_reached` | You already have as many live shares as your plan allows, in total, in this app, or with this user. With `recipients`, the new shares would go over your limit in total or in this app. |
-| `events_kv_handle_not_delegated` | An app shared without the user's consent for that prefix and level. |
-| `events_kv_handle_outside_namespace` | An app named another app's data. |
-| `events_kv_handle_owner_only` | The call came from an access token with less access than the account. |
-| `forbidden` | An app shared through an access token it issued. |
-| `kv_handles_disabled` | `read` and `write` shares are turned off on this deployment. |
-| `events_kv_handles_disabled` | `watch` shares are turned off on this deployment. |
-| `events_disabled` | Events, which `watch` shares need, are turned off on this deployment. |
-| `too_many_requests` | Over the rate limit, or another change to the same share was still running. Try again. |
+- [`puter.kv.unshare()`](/KV/unshare/) - Stop a share
+- [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) - List the shares you made
+- [`puter.kv.listShared()`](/KV/listShared/) - List the shares made with you
 
 ## Examples
 
-<strong class="example-title">Share a list with another user</strong>
+### Share a list with another user
 
 ```js
 const prefix = `list:${crypto.randomUUID()}:`;
@@ -145,7 +155,7 @@ const share = await puter.kv.share(prefix, 'alice', 'write');
 puter.print(`Shared with ${share.holder} as ${share.access}`);
 ```
 
-<strong class="example-title">Add a label, and lower the access later</strong>
+### Add a label, and lower the access later
 
 ```js
 const share = await puter.kv.share({
@@ -159,7 +169,7 @@ const share = await puter.kv.share({
 await puter.kv.share('trip:japan-2027:', 'alice', 'read');
 ```
 
-<strong class="example-title">Let you and the holder notify each other</strong>
+### Let you and the holder notify each other
 
 ```js
 const share = await puter.kv.share({
@@ -171,7 +181,7 @@ const share = await puter.kv.share({
 puter.print(`Alice can be notified through ${share.handle}`);
 ```
 
-<strong class="example-title">Share with several users at once</strong>
+### Share with several users at once
 
 ```js
 const results = await puter.kv.share('board:planning:', ['alice', 'bob', 'carol'], 'read');
@@ -180,9 +190,3 @@ for (const result of results) {
     else puter.print(`Shared with ${result.holder}<br>`);
 }
 ```
-
-## Related
-
-- [`puter.kv.unshare()`](/KV/unshare/) - Stop a share
-- [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) - List the shares you made
-- [`puter.kv.listShared()`](/KV/listShared/) - List the shares made with you

@@ -215,15 +215,15 @@ These Key-Value Store features are supported out of the box when using Puter.js:
 
 - **[`puter.kv.set()`](/KV/set/)** - Set a key-value pair
 - **[`puter.kv.get()`](/KV/get/)** - Get a value by key
+- **[`puter.kv.del()`](/KV/del/)** - Delete a key-value pair
+- **[`puter.kv.list()`](/KV/list/)** - List keys in ascending or descending order
 - **[`puter.kv.incr()`](/KV/incr/)** - Increment a numeric value
 - **[`puter.kv.decr()`](/KV/decr/)** - Decrement a numeric value
+- **[`puter.kv.update()`](/KV/update/)** - Update values by path
 - **[`puter.kv.add()`](/KV/add/)** - Add values to an existing key
 - **[`puter.kv.remove()`](/KV/remove/)** - Remove values by path
-- **[`puter.kv.update()`](/KV/update/)** - Update values by path
-- **[`puter.kv.del()`](/KV/del/)** - Delete a key-value pair
 - **[`puter.kv.expire()`](/KV/expire/)** - Set key expiration in seconds
 - **[`puter.kv.expireAt()`](/KV/expireAt/)** - Set key expiration timestamp
-- **[`puter.kv.list()`](/KV/list/)** - List keys in ascending or descending order
 - **[`puter.kv.flush()`](/KV/flush/)** - Clear all data
 - **[`puter.kv.share()`](/KV/share/)** - Share the keys under a prefix with another user
 - **[`puter.kv.unshare()`](/KV/unshare/)** - Stop a share, as its owner or its holder

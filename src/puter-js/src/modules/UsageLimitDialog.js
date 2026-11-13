@@ -6,6 +6,8 @@ import { escapeHtml } from '../lib/html.js';
  * @property {string} [method] The SDK call that was refused.
  * @property {string} [reason] Which upgrade the refusal asks for.
  * @property {string} [appID] The app the refused call ran as.
+ * @property {() => boolean} [onUpgrade] Runs when the user clicks Upgrade, instead of
+ *   opening the dashboard's upgrade page in a new tab. Returning false opens the tab anyway.
  */
 
 const UPGRADE_PAGE = 'https://puter.com/dashboard/';
@@ -26,18 +28,32 @@ export const upgradeUrl = ({ reason, appID, method } = {}) => {
     return url.href;
 };
 
+/**
+ * The dashboard page that opens the top-up flow, for buying add-on credit.
+ *
+ * @param {string} [guiOrigin] The deployment whose dashboard it is; Puter's by default.
+ * @returns {string}
+ */
+export const topUpUrl = (guiOrigin) => {
+    const url = new URL('/dashboard/', guiOrigin || UPGRADE_PAGE);
+    url.searchParams.set('topup', '');
+    url.hash = 'usage';
+    return url.href;
+};
+
 class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
     /**
      * @param {string} message Plain-text line saying what was refused.
      * @param {UsageLimitDialogOptions} [options]
      */
-    constructor (message, { title = 'Low Balance', method, reason, appID } = {}) {
+    constructor (message, { title = 'Low Balance', method, reason, appID, onUpgrade } = {}) {
         super();
         this.message = message || 'You have reached your usage limit for this account.';
         // Not `this.title`: on an HTMLElement that is the tooltip attribute.
         this.heading = title;
         this.method = method;
         this.upgradeUrl = upgradeUrl({ reason, appID, method });
+        this.onUpgrade = onUpgrade;
 
         this.attachShadow({ mode: 'open' });
 
@@ -270,8 +286,10 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
         });
 
         this.shadowRoot.querySelector('#upgrade-btn').addEventListener('click', () => {
-            window.open(this.upgradeUrl, '_blank');
+            // Closed first, so the frame the upgrade shows in isn't under this modal.
             this.close();
+            const shown = this.onUpgrade ? this.onUpgrade() !== false : false;
+            if ( ! shown ) window.open(this.upgradeUrl, '_blank');
         });
 
         // Close on backdrop click

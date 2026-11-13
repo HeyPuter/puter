@@ -26,21 +26,25 @@ const conn = await puter.peer.connect(inviteCode, options);
 
 A string invite code created by `puter.peer.serve()`.
 
-#### `options` (optional)
+#### `options` (Object) (optional)
 
-`options` is an object with the following properties:
+An object with the following properties:
 
-- `iceServers` (`RTCIceServer[]`) Custom ICE servers (STUN/TURN) to use instead of the Puter-managed relays.
-- `forceRelay` (`boolean`) Whether to force connections to route through a relay instead of attempting peer-to-peer (default). Metering charges may apply.
-- `anonToken` (`String`) Join without a Puter session. Any uuid — it identifies this guest for the duration of the session, and no sign-in prompt is shown. The host sees the guest as `anonymous`, so anything you want to call them is yours to send over the connection.
-- `turnGrant` (`String`) A grant from [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/). Lets a guest use the Puter-managed relays on the host's account. Without one, a guest connects only where a direct connection is possible; with `forceRelay`, a guest needs one.
-- `recoveryTimeout` (`Number`) How long, in milliseconds, the connection keeps trying to restore a broken link before it closes, counted from when the link first showed trouble. Defaults to `60000`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `anonToken` | `String` | Any uuid, to join without a Puter session. It identifies this guest for the whole session, and no sign-in prompt is shown. The host sees the guest as `anonymous`, so send any name the host should show for the guest over the connection. |
+| `turnGrant` | `String` | A grant from [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/). It lets a guest use the Puter-managed relays on the host's account. Without one, a guest connects only where a direct connection is possible. With `forceRelay`, a guest needs one. |
+| `forceRelay` | `Boolean` | Whether to route connections through a relay instead of trying a peer-to-peer connection. Defaults to `false`, which tries peer-to-peer. Metering charges may apply. |
+| `iceServers` | `Array<RTCIceServer>` | Custom ICE servers (STUN/TURN) to use instead of the Puter-managed relays. |
+| `recoveryTimeout` | `Number` | How long, in milliseconds, the connection keeps trying to restore a broken link before it closes, counted from when the link first showed trouble. Defaults to `60000`. |
 
 ## Return value
 
 A `Promise` that resolves to a [`PuterPeerConnection`](/Objects/puterpeerconnection/) instance, which carries `send()` and `close()` methods and the `open`, `message`, `close`, and `error` events.
 
-## Example
+## Examples
+
+### Connect to a server with an invite code
 
 ```html
 <html>

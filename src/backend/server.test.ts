@@ -336,6 +336,175 @@ describe('PuterServer host header validation', () => {
         expect(api.headers['x-frame-options']).toBeUndefined();
     });
 
+    it('allows deployment subdomains to frame the app browser embed', async () => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
+        for (const path of ['/embed/apps', '/embed/apps/']) {
+            const res = await request(path, {
+                host: `puter.localhost:${port}`,
+                referer: `${parent}/sheet/1`,
+            });
+            expect(res.status).toBe(200);
+            expect(res.headers['x-frame-options']).toBeUndefined();
+            expect(res.headers['content-security-policy']).toBe(
+                `frame-ancestors 'self' ${parent}`,
+            );
+            expect(res.headers['cache-control']).toBe('no-store');
+            expect(res.body).toContain('/dist/apps-embed.min.js');
+            expect(res.body).not.toContain('/dist/bundle.min.js');
+            expect(res.body).toContain(`http://api.puter.localhost:${port}`);
+            const config = JSON.parse(
+                res.body.match(/id="app-browser-config">(.*?)<\/script>/)[1],
+            );
+            expect(Array.isArray(config.guestApps)).toBe(true);
+        }
+        const gui = await request('/embed/apps', {
+            host: `puter.localhost:${port}`,
+            referer: `http://puter.localhost:${port}/dashboard`,
+        });
+        expect(gui.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        const dashboard = await request('/dashboard', { host: `puter.localhost:${port}` });
+        expect(dashboard.headers['x-frame-options']).toBe('SAMEORIGIN');
+        const api = await request('/embed/apps', { host: `api.puter.localhost:${port}` });
+        expect(api.status).toBe(404);
+    });
+
+    it('lets a deployment subdomain frame the feedback embed and names it', async () => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
+        const res = await request('/embed/feedback', {
+            host: `puter.localhost:${port}`,
+            referer: `${parent}/sheet/1`,
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBeUndefined();
+        expect(res.headers['content-security-policy']).toBe(
+            `frame-ancestors 'self' ${parent}`,
+        );
+        expect(res.headers['cache-control']).toBe('no-store');
+        expect(res.body).toContain('/dist/feedback-embed.min.js');
+        expect(res.body).not.toContain('/dist/bundle.min.js');
+        const config = JSON.parse(
+            res.body.match(/id="feedback-embed-config">(.*?)<\/script>/)[1],
+        );
+        expect(config).toEqual({
+            apiOrigin: `http://api.puter.localhost:${port}`,
+            hostOrigin: parent,
+        });
+
+        const hosted = await request('/embed/feedback', {
+            host: `puter.localhost:${port}`,
+            referer: `http://someone.site.puter.localhost:${port}/`,
+        });
+        expect(hosted.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        expect(
+            JSON.parse(
+                hosted.body.match(/id="feedback-embed-config">(.*?)<\/script>/)[1],
+            ).hostOrigin,
+        ).toBeNull();
+
+        const redirected = await request('/embed/feedback?puter.api_origin=https://other.test', {
+            host: `puter.localhost:${port}`,
+        });
+        expect(redirected.status).toBe(302);
+        expect(redirected.headers.location).toBe('/embed/feedback');
+    });
+
+    it.each([
+        'sign-in',
+        'show-open-file-picker',
+        'show-save-file-picker',
+        'show-directory-picker',
+        'upgrade',
+        'top-up',
+        'request-email-confirmation',
+        'attach-custom-domain',
+    ])('lets a deployment subdomain frame the %s popup and names it to the GUI', async (action) => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
+        const guiParams = (body: string) =>
+            JSON.parse(body.match(/gui\((\{.*\})\);/)[1]);
+        const res = await request(`/embed/${action}`, {
+            host: `puter.localhost:${port}`,
+            referer: `${parent}/sheet/1`,
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBeUndefined();
+        expect(res.headers['content-security-policy']).toBe(
+            `frame-ancestors 'self' ${parent}`,
+        );
+        expect(res.headers['cache-control']).toBe('no-store');
+        expect(guiParams(res.body).embed_host_origin).toBe(parent);
+
+        const hosted = await request(`/embed/${action}`, {
+            host: `puter.localhost:${port}`,
+            referer: `http://someone.site.puter.localhost:${port}/`,
+        });
+        expect(hosted.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        expect(guiParams(hosted.body).embed_host_origin).toBeNull();
+
+        const redirected = await request(`/embed/${action}?auth_token=x&embedded_in_popup=true`, {
+            host: `puter.localhost:${port}`,
+            referer: `${parent}/sheet/1`,
+        });
+        expect(redirected.status).toBe(302);
+        expect(redirected.headers.location).toBe(`/embed/${action}`);
+        expect(redirected.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
+    it.each(['/embed/SIGN-IN', '/embed/Show-Open-File-Picker', '/embed/sign-in/', '/embed/Upgrade', '/embed/upgrade/', '/embed/Top-Up', '/embed/top-up/', '/embed/Request-Email-Confirmation'])(
+        'lets a first-party page frame only the exact spelling of %s',
+        async (spelling) => {
+            const res = await request(spelling, {
+                host: `puter.localhost:${port}`,
+                referer: `http://spreadsheet.puter.localhost:${port}/`,
+            });
+            expect(res.status).toBe(302);
+            expect(res.headers.location).toBe(spelling.toLowerCase().replace(/\/$/, ''));
+            expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+            expect(res.headers['content-security-policy']).toBeUndefined();
+        },
+    );
+
+    it('names no framing page to the popups it serves in a window', async () => {
+        const res = await request('/action/sign-in?embedded_in_popup=true', {
+            host: `puter.localhost:${port}`,
+            referer: `http://spreadsheet.puter.localhost:${port}/`,
+        });
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+        expect(res.headers['content-security-policy']).toBeUndefined();
+        expect(res.body).not.toContain('embed_host_origin');
+    });
+
+    it.each([
+        ['a user-hosted site', 'http://someone.site.puter.localhost:PORT/'],
+        ['a private app host', 'http://someone.app.puter.localhost:PORT/'],
+        ['the API host', 'http://api.puter.localhost:PORT/'],
+        ['the WebDAV host', 'http://dav.puter.localhost:PORT/'],
+        ['a native app host', 'http://about.puter.localhost:PORT/'],
+        ['a nested subdomain', 'http://a.spreadsheet.puter.localhost:PORT/'],
+        ['another site', 'http://evil.test:PORT/'],
+        ['another port', 'http://spreadsheet.puter.localhost:1/'],
+        ['a suppressed referrer', undefined],
+    ])('keeps the embed same-origin only when framed by %s', async (_label, referer) => {
+        const res = await request('/embed/apps', {
+            host: `puter.localhost:${port}`,
+            ...(referer ? { referer: referer.replace('PORT', String(port)) } : {}),
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+    });
+
+    it.each([
+        ['plain', ''],
+        // Past the parser's 1000-pair limit, so `req.query` comes back empty.
+        ['padded', '&'.repeat(1000)],
+    ])('strips %s SDK bootstrap query parameters from the embed route', async (_label, padding) => {
+        const res = await request(`/embed/apps?${padding}puter.app_instance_id=other&puter.api_origin=https://other.test`, {
+            host: `puter.localhost:${port}`,
+        });
+        expect(res.status).toBe(302);
+        expect(res.headers.location).toBe('/embed/apps');
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
     it('blocks a request the ip.validate listeners veto', async () => {
         const handler = (_key: unknown, data: unknown) => {
             (data as { allow: boolean }).allow = false;
@@ -623,6 +792,26 @@ describe('PuterServer request parsing', () => {
             expect(res.status, contentType).toBe(404);
             expect(res.body).toContain('no-such-method');
         }
+    });
+
+    it('parses a chat call above 50 MiB whose body opens with its token', async () => {
+        const fields = `"interface":"puter-chat-completion","method":"no-such-method","pad":"${'x'.repeat(51 * MiB)}"`;
+        const asText = { 'content-type': 'text/plain;actually=json' };
+        const first = await postJson(
+            '/drivers/call',
+            `{"auth_token":"${token}",${fields}}`,
+            asText,
+        );
+        expect(first.status).toBe(404);
+        expect(first.body).toContain('no-such-method');
+
+        // A token after other fields can't be read ahead of the body.
+        const last = await postJson(
+            '/drivers/call',
+            `{${fields},"auth_token":"${token}"}`,
+            asText,
+        );
+        expect(last.status).toBe(413);
     });
 
     it('keeps the default JSON limit for other drivers', async () => {

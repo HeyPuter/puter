@@ -551,10 +551,31 @@ ul code {
     margin-top: 10px;
 }
 
-.docs-content>h1 {
-	font-size: 22px;
+/* wrap-reverse moves the menu above the title once they don't fit on one line */
+.page-title-row {
+	display: flex;
+	flex-wrap: wrap-reverse;
+	align-items: center;
+	gap: 12px 16px;
+	margin-top: 20px;
 	margin-bottom: -10px;
-	font-weight: 400;
+}
+
+#docs .page-title-row>h1 {
+	flex: 1 1 280px;
+	min-width: 0;
+	height: auto;
+	margin: 0;
+}
+
+#docs .page-title-row>h1 code {
+	height: auto;
+	min-width: 0;
+	overflow-wrap: break-word;
+}
+
+.page-title-row>.menu-dropdown {
+	margin-left: auto;
 }
 
 .docs-content>h2 {
@@ -1598,6 +1619,7 @@ footer .copyright-notice{
 	position: absolute;
 	top: 120%;
 	right: 0;
+	width: max-content;
 	background-color: #fff;
 	border: 1px solid #ddd;
 	border-radius: 5px;
@@ -1659,9 +1681,13 @@ footer .copyright-notice{
 .table-of-contents {
 	max-height: 100%;
 	overflow-y: auto;
-	overscroll-behavior: contain;
 	padding-right: 16px;
 	margin-right: 8px;
+}
+
+/* Set by assets/js/toc.js when the TOC overflows. */
+.table-of-contents.is-scrollable {
+	overscroll-behavior: contain;
 }
 
 .toc-title {

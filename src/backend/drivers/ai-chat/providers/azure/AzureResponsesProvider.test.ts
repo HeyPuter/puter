@@ -449,6 +449,22 @@ describe('AzureResponsesProvider.complete request shape', () => {
         expect(args.service_tier).toBe('default');
     });
 
+    it('sends the wire spelling of the in-memory cache retention', async () => {
+        const provider = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce(okResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.3-codex',
+                messages: [{ role: 'user', content: 'hi' }],
+                prompt_cache_retention: 'in-memory',
+            } as never),
+        );
+
+        const [args] = responsesCreateMock.mock.calls[0]!;
+        expect(args.prompt_cache_retention).toBe('in_memory');
+    });
+
     it.each([
         ['previous_response_id', 'resp_1'],
         ['conversation', 'conv_1'],

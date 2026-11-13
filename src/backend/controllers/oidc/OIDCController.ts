@@ -102,16 +102,14 @@ function signupOptionsFromState(
 }
 
 // GUI pages an OIDC flow may return to: the root (where a share email lands),
-// /desktop, /dashboard, and direct app landings (/app/<name> and its
-// desktop-booted twin /desktop/app/<name>, mirroring APP_NAME_REGEX in
-// AppDriver). Strict whitelist — never a client-supplied URL (no open
-// redirect).
+// /dashboard, and direct app landings (/app/<name>, mirroring
+// APP_NAME_REGEX in AppDriver). Strict whitelist — never a client-supplied URL
+// (no open redirect).
 function isWhitelistedReturnPath(path: string): boolean {
     return (
         path === '/' ||
-        path === '/desktop' ||
         path === '/dashboard' ||
-        /^(\/desktop)?\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
+        /^\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
     );
 }
 
@@ -438,9 +436,8 @@ export class OIDCController extends PuterController {
 
                 let appRedirectUri = flowRedirects[flow] ?? (origin || '/');
 
-                // Optional GUI return path so login started from /desktop,
-                // /dashboard, an /app/<name> landing, or a share link lands
-                // back there.
+                // Optional GUI return path so login started from /dashboard,
+                // an /app/<name> landing, or a share link lands back there.
                 const rawReturnTo = Array.isArray(req.query.return_to)
                     ? req.query.return_to[0]
                     : req.query.return_to;
@@ -688,14 +685,7 @@ export class OIDCController extends PuterController {
                 );
             }
 
-            // If we landed on an existing account (either via the
-            // provider_sub or via email match), signal the GUI so it can
-            // render a "signed in" flow rather than "account created".
-            const extra =
-                resolved.origin === 'created'
-                    ? undefined
-                    : { oidc_switched: 'login' };
-            await this.#finishLogin(req, res, user, stateDecoded, extra);
+            await this.#finishLogin(req, res, user, stateDecoded);
         };
         router.get('/auth/oidc/callback/signup', cbOpts, signupCb);
         router.post('/auth/oidc/callback/signup', cbOpts, signupCb);
@@ -834,17 +824,14 @@ if (window.opener) {
         attempt = 0,
     ): Promise<
         | { error: string; code?: string; requestCode?: string }
-        | {
-              user: import('../../stores/user/UserStore.js').UserRow;
-              origin: 'linked-sub' | 'linked-email' | 'created';
-          }
+        | { user: import('../../stores/user/UserStore.js').UserRow }
     > {
         // 1. Existing provider/sub link.
         const linked = await this.services.oidc.findUserByProviderSub(
             provider,
             userinfo.sub,
         );
-        if (linked) return { user: linked, origin: 'linked-sub' };
+        if (linked) return { user: linked };
 
         // 2/3. Email match branch.
         const claimedEmail =
@@ -881,7 +868,7 @@ if (window.opener) {
                         error: outcome.error ?? 'Failed to link provider.',
                     };
                 }
-                return { user: byEmail, origin: 'linked-email' };
+                return { user: byEmail };
             }
         }
 
@@ -911,7 +898,7 @@ if (window.opener) {
                 requestCode: outcome.requestCode,
             };
         }
-        return { user: outcome.user, origin: 'created' };
+        return { user: outcome.user };
     }
 
     async #processCallback(
@@ -1000,7 +987,6 @@ if (window.opener) {
         res: Response,
         user: UserRow,
         stateDecoded: Record<string, unknown>,
-        extraQueryParams?: Record<string, string>,
     ): Promise<void> {
         const origin = (this.config.origin ?? '').replace(/\/$/, '');
         const continuation: OidcLoginContinuation = {
@@ -1018,7 +1004,6 @@ if (window.opener) {
                 stateDecoded.msg_id == null
                     ? null
                     : String(stateDecoded.msg_id),
-            switchedToLogin: extraQueryParams?.oidc_switched === 'login',
         };
         if (user.otp_enabled) {
             const challenge = this.services.token.sign(

@@ -19,13 +19,15 @@
 
 import type { Actor } from '../../../core/actor.js';
 import type { MeteringService } from '../../../services/metering/MeteringService.js';
-import type { IChatModel } from '../types.js';
+import type { IChatModel, ServiceSpeed } from '../types.js';
+import { serviceSpeedBillingModel } from './serviceSpeed.js';
 import { buildCostsOverride } from './pricing.js';
 
 /** Microcents per US dollar. */
 const MICROCENTS_PER_USD = 100_000_000;
 
 export interface MeterChatUsageOptions {
+    serviceSpeed?: ServiceSpeed;
     /**
      * What the upstream says it billed, in USD. Recorded as one `billedUsage`
      * line instead of pricing the tokens, which are still recorded at zero.
@@ -77,10 +79,15 @@ export const meterChatUsage = (
         authoritativeUsd,
         costOverrides,
         pricingTime,
+        serviceSpeed = 'standard',
     }: MeterChatUsageOptions = {},
 ): { usage: Record<string, number>; costs: Record<string, number> } => {
     const priced = {
-        ...buildCostsOverride(usage, model, pricingTime),
+        ...buildCostsOverride(
+            usage,
+            serviceSpeedBillingModel(model, serviceSpeed),
+            pricingTime,
+        ),
         ...costOverrides,
     };
     if (authoritativeUsd !== undefined) {

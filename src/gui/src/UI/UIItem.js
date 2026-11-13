@@ -18,24 +18,19 @@
  */
 
 import UIWindowItemProperties from './UIWindowItemProperties.js';
-import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIPopover from './UIPopover.js';
-import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
 import UIContextMenu from './UIContextMenu.js';
 import UIAlert from './UIAlert.js';
-import UIWindowPublishWorker from './UIWindowPublishWorker.js';
-import UIWindowShare from './UIWindowShare.js';
 import path from '../lib/path.js';
 import truncate_filename from '../helpers/truncateFilename.js';
 import launch_app from '../helpers/launchApp.js';
 import open_item from '../helpers/openItem.js';
-import publish_as_website from '../helpers/publishAsWebsite.js';
-import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
-import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
+import { can_rename, can_restructure, invalidate_shared_roots } from '../helpers/sharedAccess.js';
 import { is_default_app } from '../helpers/defaultApp.js';
 import openWithAI from '../helpers/openWithAI.js';
+import refresh_item_container from '../helpers/refreshItemContainer.js';
 
 async function UIItem (options) {
     const matching_appendto_count = $(options.appendTo).length;
@@ -65,6 +60,7 @@ async function UIItem (options) {
     options.share_mode = options.share_mode ?? '';
     options.shared_by = options.shared_by ?? '';
     options.is_team_share = options.is_team_share ?? false;
+    options.is_also_team_share = options.is_also_team_share ?? false;
     options.owner = options.owner ?? '';
     options.metadata = options.metadata ?? '';
     options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
@@ -103,6 +99,7 @@ async function UIItem (options) {
                 data-share_mode="${html_encode(options.share_mode)}"
                 data-shared_by="${html_encode(options.shared_by)}"
                 data-is_team_share="${options.is_team_share ? 1 : 0}"
+                data-is_also_team_share="${options.is_also_team_share ? 1 : 0}"
                 data-owner="${html_encode(options.owner)}"
                 data-has_website="${show_website_badge ? 1 : 0 }" 
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
@@ -237,17 +234,6 @@ async function UIItem (options) {
         window.update_explorer_footer_item_count(el_window);
     }
 
-    // manual positioning
-    if ( !window.is_auto_arrange_enabled &&
-        options.position &&
-        // item is on the desktop (must be desktop itself and not a window, hence the '.desktop' class check)
-        $(el_item).closest('.item-container.desktop').attr('data-path') === window.desktop_path
-    ) {
-        el_item.style.position = 'absolute';
-        el_item.style.left = `${options.position.left }px`;
-        el_item.style.top = `${options.position.top }px`;
-    }
-
     // --------------------------------------------------------
     // Dragster
     // allow dragging of local files on this window, if it's is_dir
@@ -327,14 +313,13 @@ async function UIItem (options) {
             last_window_dragged_over = null;
 
             window.an_item_is_being_dragged = true;
-            $('.toolbar').css('pointer-events', 'none');
         },
         drag: function (event, ui) {
             // Constrain item within desktop bounds
             const minLeft = -50;
             const maxLeft = window.desktop_width - 50;
-            const minTop = window.toolbar_height;
-            const maxTop = window.desktop_height + window.toolbar_height;
+            const minTop = 0;
+            const maxTop = window.desktop_height;
 
             // Apply constraints to ui.position
             ui.position.left = Math.max(minLeft, Math.min(maxLeft, ui.position.left));
@@ -394,7 +379,7 @@ async function UIItem (options) {
                 // do not highlight if the target is the same as the item being moved
                 $(el_item).attr('data-path') !== $(window.mouseover_item_container).attr('data-path') &&
                 // do not highlight if item is being moved to where it already is
-                $(el_item).attr('data-path') !== $(window.mouseover_item_container).attr('data-path') ) {
+                path.dirname($(el_item).attr('data-path')) !== $(window.mouseover_item_container).attr('data-path') ) {
 
                 // highlight item container
                 $(window.mouseover_item_container).addClass('item-container-active');
@@ -413,31 +398,18 @@ async function UIItem (options) {
             }
         },
         stop: function (event, ui) {
-            // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
-            if ( $(el_item).closest('.item-container').attr('data-path') === window.desktop_path &&
-                !window.is_auto_arrange_enabled && $(el_item).attr('data-path') !== window.trash_path && !ui.helper.data('dropped') &&
-                // Item must be dropped on the Desktop and not on the taskbar
-                window.mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15 ) {
-
-                el_item.style.position = 'absolute';
-                el_item.style.left = `${ui.position.left }px`;
-                el_item.style.top = `${ui.position.top }px`;
-                $('.ui-draggable-dragging').remove();
-                window.desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
-                window.save_desktop_item_positions();
-            }
-
             $('.item-selected-clone').remove();
             $('.draggable-count-badge').remove();
             // re-enable all droppable UIItems that are not a dir
             $('.item[data-is_dir=\'0\']:not(.item-selected)').droppable('enable');
             // remove active item-container border highlights
-            $('.item-container').removeClass('item-container-active');
+            $('.item-container').removeClass('item-container-active item-container-transparent-border');
+            // a drop that bailed out early never re-enables the containers an item's hover disabled
+            $('.item-container.ui-droppable').droppable('enable');
             // reset longer hover timeout and last window dragged over
             clearTimeout(longer_hover_timeout);
             last_window_dragged_over = null;
             window.an_item_is_being_dragged = false;
-            $('.toolbar').css('pointer-events', 'auto');
         },
     });
 
@@ -546,11 +518,9 @@ async function UIItem (options) {
                 }
                 // Otherwise, move items
                 else if ( options.is_dir ) {
-                    if ( $(el_item).closest('.item-container').attr('data-path') === window.desktop_path ) {
-                        delete window.desktop_item_positions[$(el_item).attr('data-uid')];
-                        window.save_desktop_item_positions();
-                    }
-                    window.move_items(items_to_move, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
+                    // a selected folder can be the drop target of its own selection; it stays where it is
+                    const items_to_drop = items_to_move.filter(item => $(item).attr('data-uid') !== $(el_item).attr('data-uid'));
+                    window.move_items(items_to_drop, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
                 }
             }
 
@@ -561,8 +531,9 @@ async function UIItem (options) {
         },
         over: function (event, ui) {
             // Check hovering over an item that is VISIBILE
+            // A desktop item has no window, so it only counts while the pointer is over the desktop itself
             const $event_parent_win = $(event.target).closest('.window');
-            if ( $event_parent_win.length > 0 && $event_parent_win.attr('data-id') !== $(window.mouseover_window).attr('data-id') )
+            if ( $event_parent_win.attr('data-id') !== $(window.mouseover_window).attr('data-id') )
             {
                 return;
             }
@@ -720,7 +691,7 @@ async function UIItem (options) {
         }
     });
 
-    $(document).on('click', function (e) {
+    $(document).on(`click.item-${item_id}`, function (e) {
         if ( !$(e.target).hasClass('item') && !$(e.target).hasClass('item-name') && !$(e.target).hasClass('item-icon') ) {
             skip_a_rename_click = true;
         }
@@ -729,6 +700,10 @@ async function UIItem (options) {
             skip_a_rename_click = true;
         }
     });
+    // a document handler outlives the row unless it is released with it
+    $(el_item).on('remove', function () {
+        $(document).off(`click.item-${item_id}`);
+    });
 
     // --------------------------------------------------------
     // Rename
@@ -736,6 +711,7 @@ async function UIItem (options) {
     function rename () {
         if ( rename_cancelled ) {
             rename_cancelled = false;
+            $(el_item_name_editor).removeClass('item-name-editor-active');
             return;
         }
 
@@ -755,10 +731,12 @@ async function UIItem (options) {
                 UIAlert('The name ".." is not allowed, because it is a reserved name. Please choose another name.');
             }
 
-            $(el_item_name).html(html_encode(truncate_filename(options.name)));
+            $(el_item_name).html(html_encode(truncate_filename($(el_item).attr('data-name'))));
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name_editor).hide();
+            // the Delete shortcut skips an item whose editor is marked active
+            $(el_item_name_editor).removeClass('item-name-editor-active');
             return;
         }
         // deactivate item name editable
@@ -804,8 +782,9 @@ async function UIItem (options) {
             e.stopPropagation();
             e.preventDefault();
             rename_cancelled = true;
+            $(el_item_name_editor).removeClass('item-name-editor-active');
             $(el_item_name_editor).hide();
-            $(el_item_name_editor).val(options.name);
+            $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name).show();
         }
     });
@@ -863,6 +842,11 @@ async function UIItem (options) {
         {
             return;
         }
+
+        // The menu is built after lookups that take time, so it opens where the pointer was when it was asked for.
+        const menu_position = (isMobile.phone || isMobile.tablet)
+            ? { left: window.last_touch_x, top: window.last_touch_y }
+            : { left: window.mouseX, top: window.mouseY };
 
         // if editing item name, preserve native context menu
         if ( event.target === el_item_name_editor )
@@ -1077,11 +1061,6 @@ async function UIItem (options) {
             // Someone else's, however we got here — including items reached by
             // opening a shared folder, which carry no share markers.
             const is_not_mine = !is_owned_by_me($(el_item).attr('data-path'));
-            // `manage` inherits downwards, so a file inside a folder you manage
-            // counts too — the row itself only carries a mode at a shared root.
-            const can_manage_share =
-                $(el_item).attr('data-share_mode') === 'manage'
-                || (await shared_mode_for($(el_item).attr('data-path'))) === 'manage';
             // Moving and deleting go by the holding folder, not by the item.
             const may_restructure = !is_not_mine
                 || await can_restructure($(el_item).attr('data-path'));
@@ -1135,7 +1114,7 @@ async function UIItem (options) {
                     // try to find suitable apps
                     const suitable_apps = await window.suggest_apps_for_fsentry({
                         uid: options.uid,
-                        path: options.path,
+                        path: $(el_item).attr('data-path'),
                     });
                     if ( suitable_apps && suitable_apps.length > 0 ) {
                         options.suggested_apps = suitable_apps;
@@ -1231,52 +1210,6 @@ async function UIItem (options) {
                 }
             }
             // -------------------------------------------
-            // Publish As Website
-            // -------------------------------------------
-            if ( !is_trashed && !is_trash && options.is_dir ) {
-                menu_items.push({
-                    html: i18n('publish_as_website'),
-                    disabled: !options.is_dir,
-                    onClick: async function () {
-                        await publish_as_website({
-                            uid: options.uid,
-                            name: $(el_item).attr('data-name'),
-                            path: $(el_item).attr('data-path'),
-                        });
-                    },
-                });
-
-            }
-            //-------------------------------------------
-            // Publish as Worker
-            // -------------------------------------------
-            // The backend refuses deploys from a file someone else owns.
-            if ( !is_trashed && !is_trash && !is_not_mine && !options.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
-                menu_items.push({
-                    html: i18n('publish_as_serverless_worker'),
-                    onClick: async function () {
-                        if ( window.user.is_temp &&
-                            !await UIWindowSaveAccount({
-                                send_confirmation_code: true,
-                                message: 'Please create an account to proceed.',
-                                window_options: {
-                                    backdrop: true,
-                                    close_on_backdrop_click: false,
-                                },
-                            }) )
-                        {
-                            return;
-                        }
-                        else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-                        {
-                            return;
-                        }
-
-                        UIWindowPublishWorker(options.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
-                    },
-                });
-            }
-            // -------------------------------------------
             // Deploy As App
             // -------------------------------------------
             if ( !is_trashed && !is_trash && options.is_dir ) {
@@ -1289,7 +1222,7 @@ async function UIItem (options) {
                             file_path: $(el_item).attr('data-path'),
                             file_uid: $(el_item).attr('data-uid'),
                             params: {
-                                source_path: options.path,
+                                source_path: $(el_item).attr('data-path'),
                             },
                         });
                     },
@@ -1309,20 +1242,6 @@ async function UIItem (options) {
                 });
             }
             // -------------------------------------------
-            // Share
-            // -------------------------------------------
-            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
-                menu_items.push({
-                    html: i18n('share_ellipsis'),
-                    onClick: async function () {
-                        UIWindowShare({
-                            path: $(el_item).attr('data-path'),
-                            name: $(el_item).attr('data-name'),
-                        });
-                    },
-                });
-            }
-            // -------------------------------------------
             // Download
             // -------------------------------------------
             if ( !is_trash && !is_trashed && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
@@ -1336,49 +1255,7 @@ async function UIItem (options) {
                         }
                         else
                         {
-                            window.trigger_download([options.path]);
-                        }
-                    },
-                });
-            }
-            // -------------------------------------------
-            // Set as Wallpaper
-            // -------------------------------------------
-            const mime_type = mime.getType($(el_item).attr('data-name')) ??
-                'application/octet-stream';
-            if ( !is_trashed && !is_trash && !options.is_dir && mime_type.startsWith('image/') ) {
-                menu_items.push({
-                    html: i18n('set_as_background'),
-                    onClick: async function () {
-                        const read_url = await puter.fs.sign(undefined, { uid: $(el_item).attr('data-uid'), action: 'read' });
-                        window.set_desktop_background({
-                            url: read_url.items.read_url,
-                            fit: window.desktop_bg_fit,
-                        });
-                        try {
-                            $.ajax({
-                                url: `${window.api_origin }/set-desktop-bg`,
-                                type: 'POST',
-                                data: JSON.stringify({
-                                    url: window.desktop_bg_url,
-                                    color: window.desktop_bg_color,
-                                    fit: window.desktop_bg_fit,
-                                }),
-                                async: true,
-                                contentType: 'application/json',
-                                headers: {
-                                    'Authorization': `Bearer ${window.auth_token}`,
-                                },
-                                statusCode: {
-                                    401: function (xhr) {
-                        window.handle401(xhr);
-                    },
-                                },
-                            });
-                            $(el_window).close();
-                            resolve(true);
-                        } catch ( err ) {
-                            // Ignore
+                            window.trigger_download([$(el_item).attr('data-path')]);
                         }
                     },
                 });
@@ -1451,12 +1328,13 @@ async function UIItem (options) {
             // -------------------------------------------
             // Cut
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' ) {
+            // Trashed items leave the Trash through Restore; moved any other way, they'd keep their uid as their name.
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && may_restructure ) {
                 menu_items.push({
                     html: i18n('cut'),
                     onClick: function () {
                         window.clipboard_op = 'move';
-                        window.clipboard = [options.path];
+                        window.clipboard = [$(el_item).attr('data-path')];
                     },
                 });
             }
@@ -1468,7 +1346,7 @@ async function UIItem (options) {
                     html: i18n('copy'),
                     onClick: function () {
                         window.clipboard_op = 'copy';
-                        window.clipboard = [{ path: options.path }];
+                        window.clipboard = [{ path: $(el_item).attr('data-path') }];
                     },
                 });
             }
@@ -1516,7 +1394,7 @@ async function UIItem (options) {
                             base_dir,
                             options.appendTo,
                             options.shortcut_to === '' ? options.uid : options.shortcut_to,
-                            options.shortcut_to_path === '' ? options.path : options.shortcut_to_path,
+                            options.shortcut_to_path === '' ? $(el_item).attr('data-path') : options.shortcut_to_path,
                         );
                     },
                 });
@@ -1539,14 +1417,21 @@ async function UIItem (options) {
                     html: i18n('share_remove_from_shared'),
                     onClick: async function () {
                         try {
-                            await puter.fs.unshare(
+                            const left = await puter.fs.unshare(
                                 $(el_item).attr('data-path'),
                                 window.user.username,
                             );
+                            if ( left?.failed?.length ) throw left.failed[0];
                             // Or mode lookups keep answering for a share we
                             // just walked away from.
                             invalidate_shared_roots();
-                            $(el_item).removeItems();
+                            // A team that still shares it keeps it listed,
+                            // as the team's share.
+                            if ( $(el_item).attr('data-is_also_team_share') === '1' ) {
+                                refresh_item_container($(el_item).closest('.item-container'));
+                            } else {
+                                $(el_item).removeItems();
+                            }
                         } catch (e) {
                             UIAlert({ message: e?.message ?? i18n('error_unknown_cause') });
                         }
@@ -1621,7 +1506,7 @@ async function UIItem (options) {
                     left = left > (window.innerWidth - window_width) ? (window.innerWidth - window_width) : left;
 
                     let top = $(el_item).position().top + $(el_item).height();
-                    top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
+                    top = top > (window.innerHeight - window_height) ? (window.innerHeight - window_height) : top;
 
                     UIWindowItemProperties(
                         $(el_item).attr('data-name'),
@@ -1638,7 +1523,8 @@ async function UIItem (options) {
 
         // Create ContextMenu
         UIContextMenu({
-            parent_element: ($(options.appendTo).hasClass('desktop') ? undefined : options.appendTo),
+            parent_element: options.appendTo,
+            position: menu_position,
             items: menu_items,
         });
 

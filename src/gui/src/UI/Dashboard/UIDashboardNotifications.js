@@ -29,10 +29,11 @@ import {
     storedTapHandler,
     tapRoute,
 } from '../../helpers/notificationTap.js';
-import { showLocalBanner, startPushWorker } from '../../helpers/pushWorker.js';
+import { startPushWorker } from '../../helpers/pushWorker.js';
 import { syncBrowserPush } from '../../helpers/pushSync.js';
 import { get_app_by_uid } from '../../helpers/getAppByUid.js';
 import launch_app from '../../helpers/launchApp.js';
+import { runLimited } from '../../helpers/runLimited.js';
 import {
     badgeLabel,
     glyphKey,
@@ -46,6 +47,7 @@ import {
     senderNameFor,
     setReadAt,
     takeMarksSince,
+    titleBadge,
     titleWithBadge,
     toEntry,
     unreadCount,
@@ -142,27 +144,6 @@ const whenFilesIdle = async (filesTab, timeoutMs = 4_000) => {
     while ( filesTab.renderingDirectory && Date.now() - started < timeoutMs ) {
         await new Promise((resolve) => setTimeout(resolve, 50));
     }
-};
-
-/**
- * Run `task` over `items`, at most `limit` at a time. Resolves to the items
- * whose task rejected.
- */
-const runLimited = async (items, limit, task) => {
-    const failed = [];
-    let index = 0;
-    const worker = async () => {
-        while ( index < items.length ) {
-            const item = items[index++];
-            try {
-                await task(item);
-            } catch {
-                failed.push(item);
-            }
-        }
-    };
-    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-    return failed;
 };
 
 /**
@@ -360,7 +341,26 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         target.focus({ preventScroll: true });
     };
 
+    // The badge last put in front of the title, the only prefix replaced.
+    let appliedBadge = '';
+    const applyTitleBadge = () => {
+        const count = unreadCount(entries);
+        const wanted = titleWithBadge(document.title, count, appliedBadge);
+        appliedBadge = titleBadge(count);
+        if ( document.title !== wanted ) document.title = wanted;
+    };
+
+    // Changes made in other tabs arrive one socket event per notification
+    // (Mark all read there sends one ack each), so they redraw once a beat.
+    // Not a frame: a hidden tab's title still carries the count.
+    let renderTimer = null;
+    const scheduleRender = () => {
+        renderTimer ??= setTimeout(render, 50);
+    };
+
     const render = () => {
+        clearTimeout(renderTimer);
+        renderTimer = null;
         const hadFocus = $panel[0].contains(document.activeElement);
         const count = unreadCount(entries);
         const label = badgeLabel(count);
@@ -373,7 +373,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         $sidebarToggle.toggleClass('has-unread', count > 0);
         $count.text(label);
         $markAll.attr('hidden', count > 0 ? null : '');
-        document.title = titleWithBadge(document.title, count);
+        applyTitleBadge();
 
         const showLoading = ! loaded && loading !== null;
         const showError = ! loaded && loadFailed && loading === null;
@@ -582,9 +582,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             timeout: TOAST_TIMEOUT_MS,
             // With nothing to open on the dashboard, a click only dismisses;
             // it mustn't send the apps the user is working in away.
+            // A regrouped notification rewrites the toast under the same uid,
+            // so a click acts on what it says now.
             click: () => {
-                if ( notificationTarget(notification) === null ) void markRead(entry.uid);
-                else void reveal_dashboard().then(() => actOn(entry));
+                const current = entries.find((e) => e.uid === entry.uid) ?? entry;
+                if ( notificationTarget(current.notification) === null ) void markRead(current.uid);
+                else void reveal_dashboard().then(() => actOn(current));
             },
             // The ✕ is a dismissal; timing out is not, so `close` alone acks.
             close: () => void markRead(entry.uid),
@@ -637,9 +640,6 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
         const fresh = incoming.filter((entry) => ! surfaced.has(entry.uid));
         for ( const entry of fresh ) surfaced.add(entry.uid);
-        for ( const entry of fresh ) {
-            void showLocalBanner(entry, { replay, acknowledged: ! isUnread(entry) });
-        }
         for ( const entry of result.added ) justAdded.add(entry.uid);
         render();
         announce(fresh);
@@ -801,10 +801,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     // same title again is a no-op, so this can't loop.
     const titleEl = document.querySelector('title');
     if ( titleEl ) {
-        new MutationObserver(() => {
-            const wanted = titleWithBadge(document.title, unreadCount(entries));
-            if ( document.title !== wanted ) document.title = wanted;
-        }).observe(titleEl, { childList: true, characterData: true, subtree: true });
+        new MutationObserver(applyTitleBadge)
+            .observe(titleEl, { childList: true, characterData: true, subtree: true });
     }
 
     // -- Arrivals -----------------------------------------------------------------
@@ -843,7 +841,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         acked.set(uid, now);
         if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
         entries = setReadAt(entries, uid, now);
-        render();
+        scheduleRender();
     });
     // Removed in another tab. Not gated, for the same reason as the ack.
     socket.on('notif.removed', ({ uid }) => {
@@ -851,7 +849,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         removed.set(uid, Date.now());
         const listed = entries.some((e) => e.uid === uid);
         dropEntry(uid);
-        if ( listed ) render();
+        if ( listed ) scheduleRender();
     });
     // Every (re)connection: anything read elsewhere while this tab was
     // offline is marked so in the server's list, and anything new is in it.

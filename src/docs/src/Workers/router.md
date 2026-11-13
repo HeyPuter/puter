@@ -4,7 +4,9 @@ description: Handle HTTP requests in a worker with the router object, reading an
 platforms: [workers]
 ---
 
-Puter workers use a router-based system to handle HTTP requests. The `router` object is automatically available in your worker code and provides methods to define API endpoints.
+Puter workers use a router-based system to handle HTTP requests.
+
+The `router` object is automatically available in your worker code and provides methods to define API endpoints.
 
 ## Syntax
 
@@ -109,7 +111,7 @@ router.options("/*path", async () => {
 
 ## Examples
 
-<strong class="example-title">Basic Router Structure</strong>
+### Basic Router Structure
 
 The example above is a simple GET endpoint that returns a JSON object with a message.
 
@@ -120,7 +122,7 @@ router.get("/api/hello", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Accessing Request JSON Body</strong>
+### Accessing Request JSON Body
 
 ```js
 router.post("/api/user", async ({ request }) => {
@@ -130,7 +132,7 @@ router.post("/api/user", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Accessing Request Form Data</strong>
+### Accessing Request Form Data
 
 ```js
 router.post("/api/user", async ({ request }) => {
@@ -140,7 +142,7 @@ router.post("/api/user", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Query Parameters</strong>
+### Query Parameters
 
 ```js
 router.get("/api/search", async ({ request }) => {
@@ -151,7 +153,7 @@ router.get("/api/search", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Accessing Request Headers</strong>
+### Accessing Request Headers
 
 ```js
 router.post("/api/user", async ({ request }) => {
@@ -161,7 +163,7 @@ router.post("/api/user", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Route Parameters</strong>
+### Route Parameters
 
 Use `:name` in your route path to capture route parameters:
 
@@ -172,7 +174,7 @@ router.get("/api/posts/:category/:id", async ({ request, params }) => {
 });
 ```
 
-<strong class="example-title">JSON Response</strong>
+### JSON Response
 
 ```js
 router.get("/api/simple", async ({ request }) => {
@@ -180,7 +182,7 @@ router.get("/api/simple", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Plain Text Response</strong>
+### Plain Text Response
 
 ```js
 router.get("/api/text", async ({ request }) => {
@@ -188,7 +190,7 @@ router.get("/api/text", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Blob Response</strong>
+### Blob Response
 
 ```js
 router.get("/api/blob", async ({ request }) => {
@@ -196,7 +198,7 @@ router.get("/api/blob", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Uint8Array Response</strong>
+### Uint8Array Response
 
 ```js
 router.get("/api/uint8array", async ({ request }) => {
@@ -204,7 +206,7 @@ router.get("/api/uint8array", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Binary Stream Response</strong>
+### Binary Stream Response
 
 ```js
 router.get("/api/binary-stream", async ({ request }) => {
@@ -219,7 +221,7 @@ router.get("/api/binary-stream", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Custom Response Objects</strong>
+### Custom Response Objects
 
 ```js
 router.get("/api/custom", async ({ request }) => {
@@ -233,7 +235,7 @@ router.get("/api/custom", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Returning Custom Error Responses</strong>
+### Returning Custom Error Responses
 
 You can also return custom error responses. To do so, you can use the `Response` object and set the status code and headers.
 
@@ -258,7 +260,7 @@ router.post("/api/risky-operation", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Worker Context vs User Context</strong>
+### Worker Context vs User Context
 
 The same operation can run against either Puter account. Here, one endpoint reads from the calling user's KV store (`user.puter`), the other from your own (`me.puter`).
 
@@ -280,7 +282,7 @@ router.get("/api/kv/worker/get", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">File System Integration</strong>
+### File System Integration
 
 ```js
 router.post("/api/upload", async ({ request }) => {
@@ -306,7 +308,7 @@ router.post("/api/upload", async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Key-Value Store (NoSQL Database) Integration</strong>
+### Key-Value Store (NoSQL Database) Integration
 
 ```js
 router.post("/api/kv/set", async ({ request }) => {
@@ -338,7 +340,7 @@ router.get("/api/kv/get/:key", async ({ request, params }) => {
 });
 ```
 
-<strong class="example-title">AI Integration</strong>
+### AI Integration
 
 ```js
 router.post("/api/chat", async ({ request, user }) => {
@@ -400,7 +402,7 @@ router.post("/api/chat", async ({ request, user }) => {
 });
 ```
 
-<strong class="example-title">404 Handler</strong>
+### 404 Handler
 
 Always include a catch-all route for unmatched paths:
 
@@ -423,7 +425,7 @@ router.get("/*page", async ({ request, params }) => {
 });
 ```
 
-## Complete Example
+### Complete example
 
 Here's a complete worker with multiple endpoints demonstrating various router patterns:
 
@@ -523,7 +525,7 @@ router.get("/*tag", async ({ params }) => {
 });
 ```
 
-## Testing Your Router
+### Test your router
 
 After deploying your worker, test your endpoints:
 

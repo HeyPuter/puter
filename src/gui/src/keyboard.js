@@ -18,195 +18,38 @@
  */
 
 import UIAlert from './UI/UIAlert.js';
-import UIWindowSearch from './UI/UIWindowSearch.js';
-import launch_app from './helpers/launchApp.js';
 import open_item from './helpers/openItem.js';
 import determine_active_container_parent from './helpers/determineActiveContainerParent.js';
 
+// The item container the user is working in: around or inside the element they
+// last pressed, or elsewhere in its window. A pressed item that the window has
+// since navigated away from leaves only the container it was in.
+const selection_container = () => {
+    const $active = $(window.active_element);
+    let $container = $active.closest('.item-container');
+    if ( $container.length === 0 ) {
+        $container = $active.find('.item-container');
+    }
+    if ( $container.length === 0 ) {
+        $container = $active.closest('.window').find('.item-container');
+    }
+    if ( $container.length === 0 && window.active_element && !document.contains(window.active_element)
+        && document.contains(window.active_item_container) ) {
+        $container = $(window.active_item_container);
+    }
+    return $container;
+};
+
 $(document).bind('keydown', async function (e) {
     const focused_el = document.activeElement;
-    //-----------------------------------------------------------------------------
-    // Search
-    // ctrl/command + f, will open UIWindowSearch — but not while the dashboard
-    // is open, where ctrl/cmd + f should fall through to the browser's find.
-    //-----------------------------------------------------------------------------
-    if ( (e.ctrlKey || e.metaKey) && e.which === 70 && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.window-dashboard').length === 0 ) {
-        e.preventDefault();
-        e.stopPropagation();
-        UIWindowSearch();
-        return false;
-    }
-
     //-----------------------------------------------------------------------
     // ← ↑ → ↓: an arrow key is pressed
     //-----------------------------------------------------------------------
     if (( e.which === 37 || e.which === 38 || e.which === 39 || e.which === 40 )) {
         // ----------------------------------------------
-        // Launch menu is open
-        // ----------------------------------------------
-        if ( $('.launch-popover').length > 0 ) {
-            // constants
-            const max_rows = $('body').hasClass('device-desktop') ? 5 : 4; // number of columns in the grid
-            const all_apps = $('.launch-popover .start-app-card:visible');
-            const recents = $('.launch-popover .launch-apps-recent .start-app-card:visible');
-            const recommended = $('.launch-popover .launch-apps-recommended .start-app-card:visible');
-            const search = $('.launch-popover .launch-search');
-            const selected_element = $('.launch-popover .start-app-card.launch-app-selected');
-
-            // helper functions for grid navigation
-
-            // get item at row/col in section (recents or recommended)
-            function item (row, col, section) {
-                let apps = (section === 'recents') ? recents : recommended;
-                const idx = row * max_rows + (col - 1);
-                if ( idx < 0 || idx >= apps.length ) return null;
-                return apps.get(idx);
-            }
-
-            // get row/col of item in all_apps
-            function coord (it) {
-                if ( !it || it.length === 0 ) return null;
-                const index = all_apps.index(it);
-                if ( index < 0 ) return null;
-                // row is 0-based; col is 1-based to match item(row,col)
-                return { row: Math.floor(index / max_rows), col: (index % max_rows) + 1 };
-            }
-
-            // select an item
-            function select (el) {
-                // clear previous
-                all_apps.removeClass('launch-app-selected');
-
-                // close context menus
-                $('.context-menu').fadeOut(200, function () {
-                    $(this).remove();
-                });
-
-                if ( ! el ) return;
-                // add to new
-                $(el).addClass('launch-app-selected');
-                // ensure visible
-                if ( el.scrollIntoView ) {
-                    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-                }
-            }
-
-            // helpers for section-local positioning and row/column counts
-
-            // number of rows in a given section
-            function rows (section) {
-                const len = (section === 'recents' ? recents : recommended).length;
-                return Math.ceil(len / max_rows);
-            }
-
-            // number of columns in a given row of a section
-            function columns (section, row) {
-                const len = (section === 'recents' ? recents : recommended).length;
-                const full_rows = Math.floor(len / max_rows);
-                const remainder = len % max_rows;
-                if ( row < full_rows ) return max_rows;
-                if ( row === full_rows ) return remainder === 0 ? max_rows : remainder;
-                return 0;
-            }
-
-            // get local row/col/index of element in section
-            function coords_local (section, el) {
-                const list = (section === 'recents' ? recents : recommended);
-                const idx = list.index(el);
-                if ( idx < 0 ) return null;
-                return { index: idx, row: Math.floor(idx / max_rows), col: (idx % max_rows) + 1 };
-            }
-
-            const selected = coord(selected_element);
-
-            // states
-            const search_focused = search.is(':focus');
-            const selected_grid = (selected && selected_element.parent().hasClass('launch-apps-recent')) ? 'recents' : 'recommended';
-
-            if ( e.which === 38 ) { // up
-                if ( selected_element.length === 0 ) return false;
-                if ( selected_grid === 'recents' ) {
-                    const pos = coords_local('recents', selected_element);
-                    if ( ! pos ) return false;
-                    if ( pos.row === 0 ) {
-                        // move to search
-                        search.focus();
-                        all_apps.removeClass('launch-app-selected');
-                    } else {
-                        const targetCol = Math.min(pos.col, columns('recents', pos.row - 1));
-                        select(item(pos.row - 1, targetCol, 'recents'));
-                    }
-                } else { // recommended
-                    const pos = coords_local('recommended', selected_element);
-                    if ( ! pos ) return false;
-                    if ( pos.row === 0 ) {
-                        if ( recents.length > 0 ) {
-                            const lastRow = rows('recents') - 1;
-                            const targetCol = Math.min(pos.col, columns('recents', lastRow));
-                            select(item(lastRow, targetCol, 'recents'));
-                        } else {
-                            // focus search if no recents exist
-                            search.focus();
-                            all_apps.removeClass('launch-app-selected');
-                        }
-                    } else {
-                        const targetCol = Math.min(pos.col, columns('recommended', pos.row - 1));
-                        select(item(pos.row - 1, targetCol, 'recommended'));
-                    }
-                }
-            } else if ( e.which === 40 ) { // down
-                // select first item if none selected
-                if ( selected_element.length === 0 ) {
-                    // unfocus search
-                    search.blur();
-                    if ( recents.length > 0 ) {
-                        select(item(0, 1, 'recents'));
-                    } else if ( recommended.length > 0 ) {
-                        select(item(0, 1, 'recommended'));
-                    }
-                } else {
-                    if ( selected_grid === 'recents' ) {
-                        const pos = coords_local('recents', selected_element);
-                        if ( ! pos ) return false;
-                        const rc = rows('recents');
-                        if ( pos.row + 1 < rc ) {
-                            const tgt = Math.min(pos.col, columns('recents', pos.row + 1));
-                            select(item(pos.row + 1, tgt, 'recents'));
-                        } else if ( recommended.length > 0 ) {
-                            const tgt = Math.min(pos.col, columns('recommended', 0));
-                            select(item(0, tgt, 'recommended'));
-                        }
-                    } else { // recommended
-                        const pos = coords_local('recommended', selected_element);
-                        if ( ! pos ) return false;
-                        const rc = rows('recommended');
-                        if ( pos.row + 1 < rc ) {
-                            const tgt = Math.min(pos.col, columns('recommended', pos.row + 1));
-                            select(item(pos.row + 1, tgt, 'recommended'));
-                        }
-                    }
-                }
-            } else if ( e.which === 37 ) { // left
-                if ( selected_element.length === 0 ) return false;
-                const pos = coords_local(selected_grid, selected_element);
-                if ( ! pos ) return false;
-                const count = columns(selected_grid, pos.row);
-                const next = pos.col > 1 ? pos.col - 1 : count;
-                select(item(pos.row, next, selected_grid));
-            } else if ( e.which === 39 ) { // right
-                if ( selected_element.length === 0 ) return false;
-                const pos = coords_local(selected_grid, selected_element);
-                if ( ! pos ) return false;
-                const count = columns(selected_grid, pos.row);
-                const next = pos.col < count ? pos.col + 1 : 1;
-                select(item(pos.row, next, selected_grid));
-            }
-            return false;
-        }
-        // ----------------------------------------------
         // A context menu is open
         // ----------------------------------------------
-        else if ( $('.context-menu').length > 0 ) {
+        if ( $('.context-menu').length > 0 ) {
             // if no item is selected and down arrow is pressed, select the first item
             if ( $('.context-menu-active .context-menu-item-active').length === 0 && (e.which === 40) ) {
                 let selected_item = $('.context-menu-active .context-menu-item').get(0);
@@ -290,13 +133,14 @@ $(document).bind('keydown', async function (e) {
                 if ( selected.length === 1 ) {
                     return selected.get(0);
                 }
-                if ( selected.length > 1 && window.latest_selected_item ) {
+                // only an item that is still selected in this container can anchor the move
+                if ( selected.is(window.latest_selected_item) ) {
                     return window.latest_selected_item;
                 }
-                if ( window.active_element && $(window.active_element).hasClass('item') ) {
+                if ( selected.is(window.active_element) ) {
                     return window.active_element;
                 }
-                return $(window.active_item_container).find('.item').get(0);
+                return selected.get(-1);
             }
 
             function findNeighbor (current, direction) {
@@ -363,18 +207,19 @@ $(document).bind('keydown', async function (e) {
             // select first item if none are already selected
             const selected = $(window.active_item_container).find('.item-selected');
             if ( selected.length === 0 ) {
-                const first = $(window.active_item_container).find('.item').get(0);
+                const first = $(window.active_item_container).find('.item:not(.item-hidden)').get(0);
                 if ( first ) {
                     $(first).addClass('item-selected');
                     window.active_element = first;
                     window.latest_selected_item = first;
                     first.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
                 }
                 return;
             }
 
             // virtual grid layout to determine item layout and next items
-            const items = Array.from($(window.active_item_container).find('.item'));
+            const items = Array.from($(window.active_item_container).find('.item:not(.item-hidden)'));
             const grid = items.map(item => {
                 const rect = item.getBoundingClientRect();
                 return {
@@ -393,6 +238,7 @@ $(document).bind('keydown', async function (e) {
 
             const currentEl = getActiveItem();
             const current = grid.find(i => i.el === currentEl);
+            if ( ! current ) return;
             const next = findNeighbor(current, dir);
 
             // apply new selection(s)
@@ -409,37 +255,8 @@ $(document).bind('keydown', async function (e) {
                     $(next.el).addClass('item-selected');
                 }
                 next.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
             }
-        }
-        // ----------------------------------------------
-        // Navigate search results in the search window
-        // ----------------------------------------------
-        else if ( $('.window-search').length > 0 ) {
-            let selected_item = $('.window-search .search-result-active').get(0);
-            let selected_item_index = selected_item ? $('.window-search .search-result').index(selected_item) : -1;
-            let new_selected_item_index = selected_item_index;
-            let new_selected_item;
-
-            // if up arrow is pressed
-            if ( e.which === 38 ) {
-                new_selected_item_index = selected_item_index - 1;
-                if ( new_selected_item_index < 0 )
-                {
-                    new_selected_item_index = $('.window-search .search-result').length - 1;
-                }
-            }
-            // if down arrow is pressed
-            else if ( e.which === 40 ) {
-                new_selected_item_index = selected_item_index + 1;
-                if ( new_selected_item_index >= $('.window-search .search-result').length )
-                {
-                    new_selected_item_index = 0;
-                }
-            }
-            new_selected_item = $('.window-search .search-result').get(new_selected_item_index);
-            $(selected_item).removeClass('search-result-active');
-            $(new_selected_item).addClass('search-result-active');
-            new_selected_item.scrollIntoView(false);
         }
     }
     //-----------------------------------------------------------------------
@@ -448,6 +265,8 @@ $(document).bind('keydown', async function (e) {
     else if (
         // escape key code
         e.which === 27 &&
+        // an open context menu takes the Escape (below) instead
+        $('.context-menu').length === 0 &&
         // active window must be a FileDialog or Alert
         ($('.window-active').hasClass('window-filedialog') || $('.window-active').hasClass('window-alert')) &&
         // either don't close if an input is focused or if the input is the filename input
@@ -464,27 +283,14 @@ $(document).bind('keydown', async function (e) {
         $(focused_el).val($(focused_el).closest('.window').attr('data-path'));
         $(focused_el).attr('data-path', $(focused_el).closest('.window').attr('data-path'));
     }
-    //-----------------------------------------------------------------------
-    // if the Esc key is pressed on a Search Window, close the Search Window
-    //-----------------------------------------------------------------------
-    else if ( e.which === 27 && $('.window-search').length > 0 ) {
-        $('.window-search').close();
-    }
 
     //-----------------------------------------------------------------------
-    // Esc key should:
-    //      - always close open context menus
-    //      - close the Launch Popover if it's open
+    // Esc key should always close open context menus
     //-----------------------------------------------------------------------
     if ( e.which === 27 ) {
         // close open context menus
         const closedMenu = $('.context-menu').length > 0;
         $('.context-menu').remove();
-
-        // close the Launch Popover if it's open
-        $('.launch-popover').closest('.popover').fadeOut(200, function () {
-            $('.launch-popover').closest('.popover').remove();
-        });
 
         // That Escape was the menu's; later handlers must not also act on it
         // (clear a Files selection, close its preview).
@@ -498,14 +304,15 @@ $(document).bind('keydown', async function (e) {
     // Shift+Delete (win)/ option+command+delete (Mac) key pressed
     // Permanent delete bypassing trash after alert
     //-----------------------------------------------------------------------
-    if ( (e.keyCode === 46 && e.shiftKey) || (e.altKey && e.metaKey && e.keyCode === 8) ) {
-        let $selected_items = $(window.active_element).closest('.item-container').find('.item-selected');
+    if ( ((e.keyCode === 46 && e.shiftKey) || (e.altKey && e.metaKey && e.keyCode === 8)) && !$(focused_el).is('input, textarea') ) {
+        let $selected_items = selection_container().find('.item-selected');
         if ( $selected_items.length > 0 ) {
             const alert_resp = await UIAlert({
                 message: i18n('confirm_delete_multiple_items'),
                 buttons: [
                     {
                         label: i18n('delete'),
+                        value: 'delete',
                         type: 'primary',
                     },
                     {
@@ -513,7 +320,7 @@ $(document).bind('keydown', async function (e) {
                     },
                 ],
             });
-            if ( (alert_resp) === 'Delete' ) {
+            if ( (alert_resp) === 'delete' ) {
                 for ( let index = 0; index < $selected_items.length; index++ ) {
                     const element = $selected_items[index];
                     await window.delete_item(element);
@@ -526,15 +333,16 @@ $(document).bind('keydown', async function (e) {
     // Delete (win)/ ctrl+delete (Mac) / cmd+delete (Mac) key pressed
     // Permanent delete from trash after alert or move to trash
     //-----------------------------------------------------------------------
-    if ( e.keyCode === 46 || (e.keyCode === 8 && (e.ctrlKey || e.metaKey)) ) {
+    if ( (e.keyCode === 46 || (e.keyCode === 8 && (e.ctrlKey || e.metaKey))) && !$(focused_el).is('input, textarea') ) {
         // permanent delete?
-        let $selected_items = $(window.active_element).closest('.item-container').find(`.item-selected[data-path^="${`${window.trash_path }/`}"]`);
+        let $selected_items = selection_container().find(`.item-selected[data-path^="${`${window.trash_path }/`}"]`);
         if ( $selected_items.length > 0 ) {
             const alert_resp = await UIAlert({
                 message: i18n('confirm_delete_multiple_items'),
                 buttons: [
                     {
                         label: i18n('delete'),
+                        value: 'delete',
                         type: 'primary',
                     },
                     {
@@ -542,7 +350,7 @@ $(document).bind('keydown', async function (e) {
                     },
                 ],
             });
-            if ( (alert_resp) === 'Delete' ) {
+            if ( (alert_resp) === 'delete' ) {
                 for ( let index = 0; index < $selected_items.length; index++ ) {
                     const element = $selected_items[index];
                     await window.delete_item(element);
@@ -552,7 +360,7 @@ $(document).bind('keydown', async function (e) {
         }
         // regular delete?
         else {
-            $selected_items = $(window.active_element).closest('.item-container').find('.item-selected');
+            $selected_items = selection_container().find('.item-selected');
             if ( $selected_items.length > 0 ) {
                 // Only delete the items if we're not renaming one.
                 if ( $selected_items.children('.item-name-editor-active').length === 0 ) {
@@ -567,6 +375,11 @@ $(document).bind('keydown', async function (e) {
     // A letter or number is pressed and there is no context menu open: search items by name
     //-----------------------------------------------------------------------
     if ( !e.ctrlKey && !e.metaKey && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.context-menu').length === 0 ) {
+        // Shift, arrows, Enter and other named keys are not part of a name
+        if ( e.key?.length !== 1 ) {
+            return false;
+        }
+
         if ( window.keypress_item_seach_term !== '' )
         {
             clearTimeout(window.keypress_item_seach_buffer_timeout);
@@ -587,7 +400,7 @@ $(document).bind('keydown', async function (e) {
         }
 
         // search for matches
-        let haystack = $(window.active_item_container).find('.item').not('.item-disabled');
+        let haystack = $(window.active_item_container).find('.item').not('.item-disabled, .item-hidden');
         for ( let j = 0; j < haystack.length; j++ ) {
             if ( $(haystack[j]).attr('data-name').toLowerCase().startsWith(window.keypress_item_seach_term) ) {
                 matches.push(haystack[j]);
@@ -611,7 +424,7 @@ $(document).bind('keydown', async function (e) {
             // select matching item
             $(matches[0]).not('.item-disabled').addClass('item-selected');
             matches[0].scrollIntoView(false);
-            window.update_explorer_footer_selected_items_count($(window.active_element).closest('.window'));
+            window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
         }
 
         return false;
@@ -685,11 +498,7 @@ $(document).bind('keyup keydown', async function (e) {
     // ctrl/command + a, will select all items on desktop and windows
     //-----------------------------------------------------------------------------
     if ( (e.ctrlKey || e.metaKey) && e.which === 65 && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
-        let $parent_container = $(window.active_element).closest('.item-container');
-        if ( $parent_container.length === 0 )
-        {
-            $parent_container = $(window.active_element).find('.item-container');
-        }
+        const $parent_container = selection_container();
 
         if ( $parent_container.attr('data-multiselectable') === 'false' )
         {
@@ -697,7 +506,7 @@ $(document).bind('keyup keydown', async function (e) {
         }
 
         if ( $parent_container ) {
-            $($parent_container).find('.item').not('.item-disabled').addClass('item-selected');
+            $($parent_container).find('.item').not('.item-disabled, .item-hidden').addClass('item-selected');
             window.update_explorer_footer_selected_items_count($parent_container.closest('.window'));
         }
 
@@ -730,11 +539,7 @@ $(document).bind('keyup keydown', async function (e) {
         !$(focused_el).is('textarea') ) {
         let $selected_items;
 
-        let parent_container = $(window.active_element).closest('.item-container');
-        if ( parent_container.length === 0 )
-        {
-            parent_container = $(window.active_element).find('.item-container');
-        }
+        const parent_container = selection_container();
 
         if ( parent_container !== null ) {
             $selected_items = $(parent_container).find('.item-selected');
@@ -759,11 +564,7 @@ $(document).bind('keyup keydown', async function (e) {
     //-----------------------------------------------------------------------------
     if ( (e.ctrlKey || e.metaKey) && e.which === 88 && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
         let $selected_items;
-        let parent_container = $(window.active_element).closest('.item-container');
-        if ( parent_container.length === 0 )
-        {
-            parent_container = $(window.active_element).find('.item-container');
-        }
+        const parent_container = selection_container();
 
         if ( parent_container !== null ) {
             $selected_items = $(parent_container).find('.item-selected');
@@ -775,16 +576,6 @@ $(document).bind('keyup keydown', async function (e) {
                 });
             }
         }
-        return false;
-    }
-    //-----------------------------------------------------------------------
-    // Enter key on a search window result
-    //-----------------------------------------------------------------------
-    if ( e.which === 13 && $('.window-search').length > 0
-        // prevent firing twice, because this will be fired on both keyup and keydown
-        && e.type === 'keydown' ) {
-        $('.window-search .search-result-active').trigger('click');
-
         return false;
     }
     //-----------------------------------------------------------------------
@@ -802,27 +593,9 @@ $(document).bind('keyup keydown', async function (e) {
         // the key.
 
         // ---------------------------------------------
-        // if this is a selected Launch menu item, open it
-        // ---------------------------------------------
-        if ( $('.launch-app-selected').length > 0 ) {
-            e.preventDefault();
-            e.stopPropagation();
-            // close launch menu
-            $('.launch-popover').fadeOut(200, function () {
-                launch_app({
-                    name: $('.launch-app-selected').attr('data-name'),
-                });
-                $('.popover-launcher').remove();
-                // taskbar item inactive
-                $('.taskbar-item[data-name="Start"]').removeClass('has-open-popover');
-            });
-
-            return false;
-        }
-        // ---------------------------------------------
         // if this is a selected context menu item, open it
         // ---------------------------------------------
-        else if ( $('.context-menu-active .context-menu-item-active').length > 0 && (e.which === 13) ) {
+        if ( $('.context-menu-active .context-menu-item-active').length > 0 && (e.which === 13) ) {
             e.preventDefault();
             e.stopPropagation();
             let selected_item = $('.context-menu-active .context-menu-item-active').get(0);
@@ -861,7 +634,8 @@ $(document).bind('keyup keydown', async function (e) {
     // Paste
     // ctrl/command + v, will paste items from the clipboard to the active element
     //----------------------------------------------
-    if ( (e.ctrlKey || e.metaKey) && e.which === 86 && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
+    // Once per press: releasing V with Ctrl still held would paste a second time.
+    if ( (e.ctrlKey || e.metaKey) && e.which === 86 && e.type === 'keydown' && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
         let target_path, target_el;
 
         // continue only if there is something in the clipboard

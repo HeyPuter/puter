@@ -17,9 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
+import express from 'express';
+import type { AnyTokenPayload } from '../auth/types.js';
+import type { EventMap } from '../../clients/event/types.js';
 import WebSocket, { WebSocketServer, type RawData } from 'ws';
 import type { Actor } from '../../core/actor.js';
 import {
@@ -34,8 +37,12 @@ import {
 } from '../../drivers/util/aiCostFactor.js';
 import { readProviderKey } from '../../drivers/util/providerRegistry.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { kv } from '../../util/kvSingleton.js';
-import { assertActorHasSubscription } from '../metering/enforcement.js';
+import {
+    assertActorHasSubscription,
+    subscriptionEnforcementEnabled,
+} from '../metering/enforcement.js';
 import type { CreditHold, UsageInput } from '../metering/types.js';
 import { decideSocketAuth } from '../socket/SocketService.js';
 import type { ServerDrainInfo } from '../../types.js';
@@ -148,14 +155,33 @@ const HEARTBEAT_MS = 30_000;
 const UPSTREAM_HANDSHAKE_MS = 10_000;
 const SESSION_SETUP_MS = 15_000;
 const DEFAULT_MAX_PER_USER = 20;
-// Session attempts per credential, checked before authenticating.
+// Session attempts per signature-verified credential.
 const CONNECTS_PER_MINUTE = 60;
+const HANDOVER_CONNECTS_PER_MINUTE = 20;
+const PREAUTH_PER_IP = 120;
+const PREAUTH_PER_NODE = 600;
+const MAX_AUTHENTICATING = 64;
+const MAX_TOKEN_BYTES = 8192;
 // Each response holds this much audio, at the session model's rates, from the
 // account's budget until its usage is recorded.
 const RESPONSE_HOLD_INPUT_TOKENS = 8_000;
 const RESPONSE_HOLD_OUTPUT_TOKENS = 4_096;
 // Committed input items whose transcription hasn't completed.
 const MAX_PENDING_TRANSCRIPTIONS = 64;
+// Reserved items kept ahead of the audio; each commit takes one and the pool
+// refills in the background.
+const SPARE_TRANSCRIPTIONS = 2;
+const TRANSCRIPTION_TIMEOUT_MS = 30_000;
+const TRANSCRIPTION_HOLD_TTL_MS = 90_000;
+const TRANSCRIPTION_AUDIO_SECONDS = 160;
+// Input audio bytes per second: 24 kHz PCM16 (the provider default) and G.711.
+const PCM16_AUDIO_RATE = 48_000;
+const G711_AUDIO_RATE = 8_000;
+const TRANSCRIPTION_BUDGET_TOKENS = {
+    audioIn: 8_000,
+    textIn: 8_000,
+    textOut: 4_096,
+};
 // Credentials are re-authenticated once their kv entry expires.
 const AUTH_RECHECK_SEC = 60;
 const AUTH_SWEEP_MS = 15_000;
@@ -166,6 +192,8 @@ const DRAIN_RESPONSE_MS = 5_000;
 const SETTLE_MS = 5_000;
 // RFC 6455 "Service Restart": the client should reconnect.
 const CLOSE_RESTART = 1012;
+// RFC 6455 "Try Again Later": a temporary overload on our side.
+const CLOSE_TRY_AGAIN_LATER = 1013;
 // Puter's own server event asking the client to reconnect when idle. OpenAI
 // event types never start with `puter.`.
 export const RECONNECT_EVENT = 'puter.reconnect';
@@ -174,6 +202,8 @@ const RECONNECT_NOTICE_INTERVAL_MS = 60_000;
 const TRANSCRIPTION_DONE =
     'conversation.item.input_audio_transcription.completed';
 const METERING_DRIVER = 'openai-realtime';
+// Text awaiting a prompt check; past this it is checked without a response.
+const MAX_PENDING_PROMPT_CHARS = 64 * 1024;
 // Provider organization IDs, as OpenAI puts them in some error messages.
 const ORG_ID = /\borg-[A-Za-z0-9]{8,}/g;
 
@@ -314,6 +344,13 @@ export const realtimeUsageRows = (
         }));
 };
 
+const transcriptionBillingModel = (model: string | undefined): string =>
+    model &&
+    (Object.hasOwn(TRANSCRIPTION_TOKEN_PRICES, model) ||
+        Object.hasOwn(TRANSCRIPTION_SECOND_PRICES, model))
+        ? model
+        : 'unknown';
+
 /**
  * Usage rows for one completed input transcription. A model missing from the
  * tables is billed at the highest known rate, so it is never free.
@@ -325,12 +362,7 @@ export const realtimeTranscriptionRows = (
     if (!usage) return [];
     const n = (v: number | undefined) =>
         typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
-    const known =
-        model &&
-        (Object.hasOwn(TRANSCRIPTION_TOKEN_PRICES, model) ||
-            Object.hasOwn(TRANSCRIPTION_SECOND_PRICES, model))
-            ? model
-            : 'unknown';
+    const known = transcriptionBillingModel(model);
     const usageType = (kind: string) =>
         `openai:${known}:realtime:transcription_${kind}`;
     if (usage.type === 'duration') {
@@ -384,6 +416,46 @@ const unreportedResponseRows = (model: string, count: number): UsageInput[] => [
     },
 ];
 
+const tokenItemBudget = (price: {
+    audioIn: number;
+    textIn: number;
+    textOut: number;
+}): number =>
+    TRANSCRIPTION_BUDGET_TOKENS.audioIn * price.audioIn +
+    TRANSCRIPTION_BUDGET_TOKENS.textIn * price.textIn +
+    TRANSCRIPTION_BUDGET_TOKENS.textOut * price.textOut;
+const TRANSCRIPTION_ITEM_BUDGETS: Record<string, number> = Object.fromEntries([
+    ...Object.entries(TRANSCRIPTION_TOKEN_PRICES).map(([name, price]) => [
+        name,
+        tokenItemBudget(price),
+    ]),
+    ...Object.entries(TRANSCRIPTION_SECOND_PRICES).map(([name, price]) => [
+        name,
+        TRANSCRIPTION_AUDIO_SECONDS * price,
+    ]),
+]);
+TRANSCRIPTION_ITEM_BUDGETS.unknown = Math.max(
+    ...Object.values(TRANSCRIPTION_ITEM_BUDGETS),
+);
+
+/**
+ * Credit, before cost factors, that one input transcription item holds and is
+ * billed when its usage never arrives, at the given model's rates.
+ */
+const transcriptionItemBudget = (model: string | undefined): number =>
+    TRANSCRIPTION_ITEM_BUDGETS[transcriptionBillingModel(model)];
+
+const unreportedTranscriptionRows = (
+    model: string | undefined,
+    items = 1,
+): UsageInput[] => [
+    {
+        usageType: `openai:${transcriptionBillingModel(model)}:realtime:transcription_unreported`,
+        usageAmount: items,
+        costOverride: items * transcriptionItemBudget(model),
+    },
+];
+
 /**
  * Why a client event is refused, or null. Retrieved items and MCP tool output
  * can exceed the upstream message cap.
@@ -406,6 +478,50 @@ const clientEventRefusal = (event: RealtimeEvent): string | null => {
         return 'MCP tools are not supported';
     }
     return null;
+};
+
+type PromptMessage = { role: string; content: string };
+
+const itemPromptMessages = (item: unknown): PromptMessage[] => {
+    if (!isRecord(item)) return [];
+    if (item.type === 'function_call_output') {
+        return typeof item.output === 'string' && item.output
+            ? [{ role: 'tool', content: item.output }]
+            : [];
+    }
+    if (item.type !== 'message' || !Array.isArray(item.content)) return [];
+    const role = typeof item.role === 'string' ? item.role : 'user';
+    return item.content.flatMap((part) => {
+        if (!isRecord(part)) return [];
+        const text = part.text ?? part.transcript;
+        return typeof text === 'string' && text
+            ? [{ role, content: text }]
+            : [];
+    });
+};
+
+/** The text a client event adds to the model's context, as chat messages. */
+export const promptMessagesOf = (event: unknown): PromptMessage[] => {
+    if (!isRecord(event)) return [];
+    if (event.type === 'conversation.item.create') {
+        return itemPromptMessages(event.item);
+    }
+    const config =
+        event.type === 'session.update'
+            ? event.session
+            : event.type === 'response.create'
+              ? event.response
+              : undefined;
+    if (!isRecord(config)) return [];
+    const messages: PromptMessage[] =
+        typeof config.instructions === 'string' && config.instructions
+            ? [{ role: 'system', content: config.instructions }]
+            : [];
+    if (Array.isArray(config.input)) {
+        for (const item of config.input)
+            messages.push(...itemPromptMessages(item));
+    }
+    return messages;
 };
 
 /** Whichever of two pricings of the same usage costs more. */
@@ -431,18 +547,52 @@ const transcriptionModelOf = (session: unknown): string | undefined => {
 };
 
 /**
+ * The input audio bytes per second, and whether server turn detection commits
+ * the buffer, as a session or `session.update` sets them. Fields the session
+ * leaves out are undefined.
+ */
+const inputAudioOf = (session: unknown): { rate?: number; vad?: boolean } => {
+    if (!isRecord(session)) return {};
+    const input =
+        isRecord(session.audio) && isRecord(session.audio.input)
+            ? session.audio.input
+            : undefined;
+    const format = input ? input.format : session.input_audio_format;
+    let rate: number | undefined;
+    if (format === 'pcm16') rate = PCM16_AUDIO_RATE;
+    else if (isRecord(format) && format.type === 'audio/pcm') {
+        rate =
+            typeof format.rate === 'number' && format.rate > 0
+                ? 2 * format.rate
+                : PCM16_AUDIO_RATE;
+    } else if (format !== undefined && format !== null) {
+        // G.711, or a format the relay doesn't know, counted at the lowest rate.
+        rate = G711_AUDIO_RATE;
+    }
+    const turnDetection =
+        input && 'turn_detection' in input
+            ? input.turn_detection
+            : session.turn_detection;
+    return {
+        rate,
+        vad: turnDetection === undefined ? undefined : turnDetection !== null,
+    };
+};
+
+/**
  * The realtime model a session event reports, mapped onto the price table
- * (dated snapshots resolve to their alias). `fallback` when it reports none or
- * one we don't price.
+ * (dated snapshots resolve to their alias). Missing models use `fallback`;
+ * explicitly unpriced models are refused.
  */
 export const realtimeBillingModel = (
     session: unknown,
     fallback: string,
-): string => {
+): string | undefined => {
     const model = isRecord(session) ? session.model : undefined;
-    if (typeof model !== 'string') return fallback;
+    if (model === undefined) return fallback;
+    if (typeof model !== 'string') return undefined;
     const alias = model.replace(/-\d{4}-\d{2}-\d{2}$/, '');
-    return Object.hasOwn(REALTIME_MODELS, alias) ? alias : fallback;
+    return Object.hasOwn(REALTIME_MODELS, alias) ? alias : undefined;
 };
 
 const tokenHash = (token: string): string =>
@@ -456,11 +606,28 @@ export const realtimeAuthKey = (token: string): string =>
 export const realtimeConnectKey = (token: string): string =>
     `realtime:connect:${tokenHash(token)}`;
 
-/** `buf` with provider organization IDs removed, or `buf` itself. */
-const redactOrgIds = (buf: Buffer): Buffer => {
-    const text = buf.toString('utf8');
-    const redacted = text.replace(ORG_ID, 'org-redacted');
-    return redacted === text ? buf : Buffer.from(redacted);
+/**
+ * Redacts supported provider diagnostics without rewriting conversation
+ * content.
+ */
+const redactDiagnostics = (event: RealtimeEvent, buf: Buffer): Buffer => {
+    const record = event as unknown as Record<string, unknown>;
+    let diagnostic: unknown;
+    if (
+        event.type === 'error' ||
+        event.type === 'conversation.item.input_audio_transcription.failed'
+    ) {
+        diagnostic = record.error;
+    } else if (event.type === 'response.done' && isRecord(record.response)) {
+        const details = record.response.status_details;
+        if (isRecord(details)) diagnostic = details.error;
+    }
+    if (!isRecord(diagnostic) || typeof diagnostic.message !== 'string')
+        return buf;
+    const message = diagnostic.message.replace(ORG_ID, 'org-redacted');
+    if (message === diagnostic.message) return buf;
+    diagnostic.message = message;
+    return Buffer.from(JSON.stringify(event));
 };
 
 /** An error event in OpenAI's realtime shape. */
@@ -497,7 +664,7 @@ const reconnectEvent = (closeInMs: number | undefined): string =>
  *
  * The client socket is accepted before authenticating: socket.io ends any
  * upgrade that hasn't written a byte within a second, which an auth lookup
- * under load can miss. Failures arrive as an `error` event and a 1008 close.
+ * under load can miss. Failures arrive as an `error` event and a close frame.
  * Limits, quirks and load-testing notes are in this directory's README.
  */
 export class OpenAIRealtimeRelayService extends PuterService {
@@ -506,6 +673,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
         close: (code: number, reason: string) => void;
         heartbeat: () => void;
         recheck: () => Promise<void>;
+        revoke: (sessionUids?: ReadonlySet<string>, tokenUid?: string) => void;
+        planChanged: (userUuid: string) => void;
         drain: () => Promise<void>;
         notify: (closeInMs: number | undefined) => void;
     }>();
@@ -514,6 +683,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
     // One re-authentication per token at a time, shared by its sessions.
     #authChecks = new Map<string, Promise<Actor | null>>();
     #draining = false;
+    #authenticating = 0;
+    #pendingUpgrades = 0;
     #sweeping = false;
     attachHttpServer(server: HttpServer): void {
         this.#wss = new WebSocketServer({
@@ -527,6 +698,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
             handleProtocols: (protocols) =>
                 protocols.has('realtime') ? 'realtime' : false,
         });
+        // Use Express itself so upgrades follow the ordinary HTTP trust policy.
+        const ipApp = express();
+        ipApp.set('trust proxy', this.config.trust_proxy ?? false);
         const domain = (this.config.domain ?? '').toLowerCase().trim();
         const apiHost = `api.${domain}`;
 
@@ -534,17 +708,101 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (!req.url?.startsWith(REALTIME_PATH)) return;
             const url = new URL(req.url, 'http://placeholder');
             if (url.pathname !== REALTIME_PATH) return;
+            socket.on('error', () => socket.destroy());
+            const refuseUpgrade = (
+                status:
+                    | '404 Not Found'
+                    | '429 Too Many Requests'
+                    | '503 Service Unavailable',
+            ) => {
+                socket.end(
+                    `HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`,
+                    () => socket.destroy(),
+                );
+            };
             const host = (req.headers.host ?? '').split(':')[0].toLowerCase();
             if (!domain || host !== apiHost) {
-                socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
+                refuseUpgrade('404 Not Found');
                 return;
             }
-            this.#wss!.handleUpgrade(req, socket, head, (client) => {
-                this.#runSession(client, req, url).catch((err: unknown) => {
-                    console.warn('[realtime] session setup failed', err);
-                    client.close(1011, 'internal error');
-                });
+            if (
+                this.#authenticating >= MAX_AUTHENTICATING ||
+                this.#pendingUpgrades >= MAX_AUTHENTICATING
+            ) {
+                refuseUpgrade('503 Service Unavailable');
+                return;
+            }
+            const ipRequest = Object.assign(Object.create(ipApp.request), {
+                headers: req.headers,
+                connection: req.socket,
+                socket: req.socket,
             });
+            const clientIp = ipRequest.ip as string;
+            this.#pendingUpgrades++;
+            let pendingUpgrade = true;
+            const releaseUpgrade = () => {
+                if (!pendingUpgrade) return;
+                pendingUpgrade = false;
+                this.#pendingUpgrades--;
+                socket.removeListener('close', releaseUpgrade);
+            };
+            socket.once('close', releaseUpgrade);
+            void (async () => {
+                try {
+                    if (
+                        !(await checkRateLimit(
+                            'realtime:preauth:node',
+                            PREAUTH_PER_NODE,
+                            60_000,
+                            'memory',
+                        )) ||
+                        !(await checkRateLimit(
+                            `realtime:preauth:ip:${clientIp}`,
+                            PREAUTH_PER_IP,
+                            60_000,
+                            'memory',
+                        ))
+                    ) {
+                        refuseUpgrade('429 Too Many Requests');
+                        return;
+                    }
+                    if (socket.destroyed) return;
+                    if (this.#authenticating >= MAX_AUTHENTICATING) {
+                        refuseUpgrade('503 Service Unavailable');
+                        return;
+                    }
+                    this.#wss!.handleUpgrade(req, socket, head, (client) => {
+                        this.#authenticating++;
+                        this.#runSession(
+                            client,
+                            req,
+                            url,
+                            clientIp,
+                            releaseUpgrade,
+                        )
+                            .catch((err: unknown) => {
+                                console.warn(
+                                    '[realtime] session setup failed',
+                                    err,
+                                );
+                                if (client.readyState !== WebSocket.OPEN)
+                                    return;
+                                client.send(
+                                    errorEvent(
+                                        'internal_error',
+                                        'Realtime setup failed',
+                                    ),
+                                );
+                                client.close(1011, 'internal error');
+                            })
+                            .finally(() => {
+                                this.#authenticating--;
+                            });
+                    });
+                } catch {
+                    refuseUpgrade('503 Service Unavailable');
+                }
+            })();
         });
 
         this.#heartbeatTimer = setInterval(() => {
@@ -573,6 +831,41 @@ export class OpenAIRealtimeRelayService extends PuterService {
 
     /** A host extension can announce a restart before the drain starts. */
     override onServerStart(): void {
+        this.clients.event.on('outer.auth.sessions.revoked', (_key, data) => {
+            this.clients.event.emit(
+                'pubsub.realtime.auth-revoked',
+                { sessionUids: data.session_uids },
+                {},
+            );
+        });
+        this.clients.event.on(
+            'outer.auth.access-token.revoked',
+            (_key, data) => {
+                const tokenUid = (data as { token_uid?: unknown } | null)
+                    ?.token_uid;
+                if (typeof tokenUid !== 'string' || !tokenUid) return;
+                this.clients.event.emit(
+                    'pubsub.realtime.auth-revoked',
+                    { tokenUid },
+                    {},
+                );
+            },
+        );
+        // Raw WebSockets do not participate in socket.io's cluster adapter.
+        this.clients.event.on('pubsub.realtime.auth-revoked', (_key, data) => {
+            const revoked = data.sessionUids
+                ? new Set(data.sessionUids)
+                : undefined;
+            for (const session of this.#sessions)
+                session.revoke(revoked, data.tokenUid);
+        });
+        this.clients.event.on(
+            'outer.pubsub.metering.subscription-changed',
+            (_key, data) => {
+                for (const session of this.#sessions)
+                    session.planChanged(data.userUuid);
+            },
+        );
         this.clients.event.on('serverRestartAnnounced', (_key, data) =>
             this.#announceRestart(data?.closeInMs),
         );
@@ -629,6 +922,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
         client: WebSocket,
         req: IncomingMessage,
         url: URL,
+        clientIp: string,
+        onAdmitted: () => void,
     ): Promise<void> {
         // Buffer what the client sends while auth and the upstream handshake
         // run; OpenAI clients send `session.update` immediately on open.
@@ -645,7 +940,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let settleTimer: ReturnType<typeof setTimeout> | null = null;
         const token = realtimeTokenFrom(req, url);
         let actor: Actor | null = null;
-        let rechecking = false;
+        let rechecking: Promise<void> | undefined;
+        let identity: AnyTokenPayload | undefined;
+        let verificationFailedAt: number | undefined;
         // Responses started upstream and not yet done. A response bills its
         // usage on `response.done`, so the upstream outlives the client until
         // then; one the upstream closes on first is billed its hold.
@@ -656,8 +953,100 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let requested = 0;
         // Credit holds of responses whose usage isn't recorded yet.
         const responseHolds = new Map<string, Promise<CreditHold | null>>();
-        // The transcription model in force when each input item was committed.
-        const committedModels = new Map<string, string | undefined>();
+        // Text sent since the last prompt check, checked when the next
+        // response starts. Each started response maps to the completion id
+        // its check logged, or null if the check refused it.
+        const checkPrompts =
+            this.clients.event.hasListeners('ai.prompt.validate');
+        let promptMessages: PromptMessage[] = [];
+        let promptChars = 0;
+        const responseCompletions = new Map<string, Promise<string | null>>();
+        // Committed input items awaiting usage, each with the transcription
+        // model in force at commit and the credit held for it.
+        const pendingTranscriptions = new Map<
+            string,
+            {
+                model: string | undefined;
+                timer: ReturnType<typeof setTimeout>;
+                hold: Promise<CreditHold | null>;
+            }
+        >();
+        // Reserved items not yet committed, priced at `spareModel`.
+        const spareTranscriptions: CreditHold[] = [];
+        let spareModel: string | undefined;
+        let toppingUp = false;
+        // Transcription holds of this session not yet released.
+        let heldTranscriptions = 0;
+        let reservations: Promise<unknown> = Promise.resolve();
+        // Forwarded input audio as a timeline in ms, and where the audio the
+        // provider may commit without an acknowledgement reaching the relay
+        // begins (null: none). Without turn detection that is everything since
+        // the last commit or clear; with it, only detected speech, since the
+        // provider drops silence. If the upstream closes first, it bills one
+        // item per TRANSCRIPTION_AUDIO_SECONDS, held as it arrives.
+        let audioMs = 0;
+        let ackedAtMs = 0;
+        let unackedFromMs: number | null = null;
+        let audioRate = PCM16_AUDIO_RATE;
+        // A lower rate the client requested, until the provider reports it.
+        let requestedAudioRate: number | undefined;
+        let serverVad = false;
+        const audioHolds: CreditHold[] = [];
+        const unackedItems = () =>
+            unackedFromMs === null
+                ? 0
+                : Math.max(
+                      1,
+                      Math.ceil(
+                          (audioMs - unackedFromMs) /
+                              (TRANSCRIPTION_AUDIO_SECONDS * 1000),
+                      ),
+                  );
+        const claimAudioHolds = () => {
+            while (
+                audioHolds.length < unackedItems() &&
+                spareTranscriptions.length
+            )
+                audioHolds.push(spareTranscriptions.shift()!);
+        };
+        // A commit or clear accounts for the audio; its holds become spares.
+        const acknowledgeAudio = () => {
+            ackedAtMs = audioMs;
+            unackedFromMs = null;
+            spareTranscriptions.unshift(...audioHolds.splice(0));
+            for (const hold of spareTranscriptions.splice(
+                SPARE_TRANSCRIPTIONS,
+            )) {
+                hold.release().catch((err) =>
+                    console.warn('[realtime] credit hold release failed', err),
+                );
+            }
+        };
+        // The provider's input format and turn detection.
+        const noteInputAudio = (session: unknown) => {
+            const { rate, vad } = inputAudioOf(session);
+            if (rate !== undefined) {
+                audioRate = rate;
+                if (rate === requestedAudioRate) requestedAudioRate = undefined;
+            }
+            if (vad !== undefined) serverVad = vad;
+        };
+        // The transcription model last requested or reported.
+        let selectedTranscriptionModel: string | undefined;
+        let wantsTranscription = false;
+        let pumping = false;
+        let pumpAgain = false;
+        const releaseSpareTranscriptions = () => {
+            for (const hold of spareTranscriptions.splice(0)) {
+                hold.release().catch((err) =>
+                    console.warn('[realtime] credit hold release failed', err),
+                );
+            }
+        };
+        let providerReady = false;
+        const finishedTranscriptions = new BoundedTtlMap<string, true>({
+            maxEntries: MAX_PENDING_TRANSCRIPTIONS * 2,
+        });
         let onIdle: (() => void) | null = null;
         let noticeAt = -Infinity;
         const model = url.searchParams.get('model') || DEFAULT_REALTIME_MODEL;
@@ -665,12 +1054,16 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let transcriptionModel: string | undefined;
 
         // Client reads stay paused while any reason holds.
-        const holds = new Set<'upstream' | 'budget'>();
-        const holdClient = (reason: 'upstream' | 'budget') => {
+        const holds = new Set<'upstream' | 'budget' | 'transcription'>();
+        const holdClient = (
+            reason: 'upstream' | 'budget' | 'transcription',
+        ) => {
             holds.add(reason);
             client.pause();
         };
-        const releaseClient = (reason: 'upstream' | 'budget') => {
+        const releaseClient = (
+            reason: 'upstream' | 'budget' | 'transcription',
+        ) => {
             if (holds.delete(reason) && holds.size === 0 && !closed) {
                 client.resume();
             }
@@ -695,12 +1088,17 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (
                 !up ||
                 up.readyState !== WebSocket.OPEN ||
-                (inFlight === 0 && requested === 0)
+                (inFlight === 0 &&
+                    requested === 0 &&
+                    pendingTranscriptions.size === 0 &&
+                    unackedFromMs === null)
             ) {
                 endUpstream();
                 return;
             }
             if (up.isPaused) up.resume();
+            if (unackedFromMs !== null)
+                up.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
             settleTimer = setTimeout(endUpstream, SETTLE_MS);
             // A requested response is cancelled once it starts.
             if (inFlight === 0) return;
@@ -714,6 +1112,36 @@ export class OpenAIRealtimeRelayService extends PuterService {
         };
 
         const session = {
+            revoke: (sessionUids?: ReadonlySet<string>, tokenUid?: string) => {
+                const sessionUid =
+                    identity?.session_uid ??
+                    (identity &&
+                    (identity.type === 'session' || identity.type === 'gui')
+                        ? identity.uuid
+                        : undefined);
+                const parentUid =
+                    identity?.type === 'app-under-user'
+                        ? identity.session
+                        : undefined;
+                if (
+                    !(
+                        sessionUids?.has(sessionUid ?? '') ||
+                        sessionUids?.has(parentUid ?? '') ||
+                        (tokenUid &&
+                            identity?.type === 'access-token' &&
+                            identity.token_uid === tokenUid)
+                    )
+                )
+                    return;
+                if (token) {
+                    kv.del(realtimeAuthKey(token));
+                    this.#authChecks.delete(realtimeAuthKey(token));
+                }
+                reject('invalid_api_key', 'Credentials are no longer valid');
+            },
+            planChanged: (userUuid: string) => {
+                if (actor?.user?.uuid === userUuid) void session.recheck();
+            },
             close: (code: number, reason: string) => {
                 if (closed) return;
                 closed = true;
@@ -731,6 +1159,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     client.close(code, reason);
                 }
                 settleUpstream();
+                // Uncommitted audio may still need a reserved item to bill.
+                if (unackedFromMs === null) releaseSpareTranscriptions();
             },
             // Called every HEARTBEAT_MS; a client that missed the last ping is
             // gone without a close frame.
@@ -741,32 +1171,101 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 }
                 alive = false;
                 if (client.readyState === WebSocket.OPEN) client.ping();
+                void Promise.all([
+                    ...spareTranscriptions,
+                    ...audioHolds,
+                    ...[...pendingTranscriptions.values()].map((p) => p.hold),
+                ])
+                    .then((held) =>
+                        Promise.all(held.map((hold) => hold?.extend?.())),
+                    )
+                    .catch(() =>
+                        reject(
+                            'internal_error',
+                            'Could not renew transcription budget',
+                            1011,
+                        ),
+                    );
             },
             // Called every AUTH_SWEEP_MS; re-authenticates once the token's kv
             // entry has expired. A failed lookup is retried on the next sweep.
-            recheck: async () => {
-                if (!actor || !token || closed || rechecking) return;
-                if (kv.get(realtimeAuthKey(token)) !== undefined) return;
-                rechecking = true;
-                try {
-                    const next = await this.#authenticateCached(token, req);
-                    if (closed) return;
-                    if (!next || next.user?.uuid !== actor.user?.uuid) {
-                        reject(
-                            'invalid_api_key',
-                            'Credentials are no longer valid',
-                        );
-                        return;
+            recheck: () => {
+                if (!actor || !token || closed) return Promise.resolve();
+                if (rechecking) return rechecking;
+                rechecking = (async () => {
+                    try {
+                        const next =
+                            kv.get(realtimeAuthKey(token)) !== undefined
+                                ? actor
+                                : await this.#authenticateCached(
+                                      token,
+                                      req,
+                                      clientIp,
+                                  );
+                        if (closed) return;
+                        if (!next || next.user?.uuid !== actor.user?.uuid) {
+                            reject(
+                                'invalid_api_key',
+                                'Credentials are no longer valid',
+                            );
+                            return;
+                        }
+                        actor = next;
+                        if (subscriptionEnforcementEnabled(this.config)) {
+                            if (await planProvisional())
+                                throw new Error('subscription unavailable');
+                            try {
+                                await assertActorHasSubscription(
+                                    this.services.metering,
+                                    actor,
+                                    true,
+                                    this.config,
+                                    {
+                                        events: this.clients.event,
+                                        surface: 'realtime.openai',
+                                    },
+                                );
+                            } catch (error) {
+                                if (
+                                    [402, 403].includes(
+                                        (error as { statusCode?: number })
+                                            .statusCode ?? 0,
+                                    ) &&
+                                    !(await planProvisional())
+                                ) {
+                                    reject(
+                                        'subscription_required',
+                                        'Realtime conversations require a subscription',
+                                    );
+                                    return;
+                                }
+                                throw error;
+                            }
+                        }
+                        verificationFailedAt = undefined;
+                    } catch {
+                        verificationFailedAt ??= Date.now();
+                        if (
+                            Date.now() - verificationFailedAt >=
+                            AUTH_RECHECK_SEC * 1000
+                        ) {
+                            reject(
+                                'internal_error',
+                                'Could not verify continued access',
+                                1011,
+                            );
+                        }
+                    } finally {
+                        rechecking = undefined;
                     }
-                    actor = next;
-                } catch (err) {
-                    console.warn('[realtime] credential recheck failed', err);
-                } finally {
-                    rechecking = false;
-                }
+                })();
+                return rechecking;
             },
             drain: async () => {
-                if (inFlight > 0 && !closed) {
+                if (
+                    (inFlight > 0 || pendingTranscriptions.size > 0) &&
+                    !closed
+                ) {
                     await new Promise<void>((resolve) => {
                         const timer = setTimeout(resolve, DRAIN_RESPONSE_MS);
                         onIdle = () => {
@@ -786,12 +1285,53 @@ export class OpenAIRealtimeRelayService extends PuterService {
             },
         };
         this.#sessions.add(session);
+        // Before any refusal: a frame can still error the socket while its close
+        // handshake runs, and an error without a listener ends the process.
+        client.on('close', (code) =>
+            session.close(code === 1005 || code === 1006 ? 1000 : code, ''),
+        );
+        client.on('error', (err: Error & { code?: string }) =>
+            session.close(
+                err.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' ? 1009 : 1011,
+                'client error',
+            ),
+        );
 
         const reject = (code: string, message: string, closeCode = 1008) => {
             if (client.readyState === WebSocket.OPEN) {
                 client.send(errorEvent(code, message));
             }
             session.close(closeCode, code);
+        };
+        // Whether the account's plan is, right now, a fallback for a failed
+        // lookup. Unknown counts as a fallback.
+        const planProvisional = async (): Promise<boolean> => {
+            try {
+                return (
+                    await this.services.metering.getActorSubscriptionStatus(
+                        actor!,
+                    )
+                ).provisional;
+            } catch (err) {
+                console.warn('[realtime] plan lookup failed', err);
+                return true;
+            }
+        };
+        // A plan or balance refusal decided on a plan whose lookup failed may
+        // not apply to this account, so the client is told to retry instead.
+        // The plan is checked on both sides of the decision: a fallback is
+        // only cached briefly, and one that ran out before the check after
+        // was still the plan the decision used.
+        const refuse = async (
+            code: string,
+            message: string,
+            provisionalBefore: boolean,
+        ) => {
+            if (provisionalBefore || (await planProvisional())) {
+                reject('internal_error', 'Could not verify subscription', 1011);
+            } else {
+                reject(code, message);
+            }
         };
 
         if (this.#draining) {
@@ -877,11 +1417,16 @@ export class OpenAIRealtimeRelayService extends PuterService {
             while (usageQueue.length) {
                 const { rows, holds } = usageQueue[0];
                 if (rows.length) {
-                    await this.#record(actor!, rows, () =>
-                        reject(
-                            'insufficient_funds',
-                            'No usage left for request',
-                        ),
+                    const provisional = await planProvisional();
+                    await this.#record(
+                        actor!,
+                        rows,
+                        () =>
+                            void refuse(
+                                'insufficient_funds',
+                                'No usage left for request',
+                                provisional,
+                            ),
                     );
                 }
                 await Promise.all(holds.map((hold) => releaseHold(hold)));
@@ -902,22 +1447,28 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 setImmediate(() => void drainUsage());
             }
             if (usageQueue.length > MAX_PENDING_USAGE) {
-                reject('rate_limit_exceeded', 'Too many pending usage events');
+                reject(
+                    'rate_limit_exceeded',
+                    'Too many pending usage events',
+                    CLOSE_TRY_AGAIN_LATER,
+                );
             }
         };
 
         const holdResponse = (id: string) => {
             const hold = (async () => {
                 try {
+                    const provisional = await planProvisional();
                     const taken = await this.#metering.reserveAiCredits(
                         actor!,
                         `openai:${billingModel}:realtime:audio_output`,
                         responseHoldAmount(billingModel),
                     );
                     if (!taken) {
-                        reject(
+                        await refuse(
                             'insufficient_funds',
                             'No usage left for request',
+                            provisional,
                         );
                     }
                     return taken;
@@ -942,6 +1493,206 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
         };
 
+        // Runs the host's prompt check on the pending text, which also logs
+        // it. A refusal closes the session.
+        const checkPrompt = async (): Promise<string | null> => {
+            const completionId = randomUUID().replaceAll('-', '').slice(0, 25);
+            const check: EventMap['ai.prompt.validate'] = {
+                username: actor!.user?.username || '',
+                actor,
+                completionId,
+                allow: true,
+                intended_service: METERING_DRIVER,
+                parameters: { model: billingModel, messages: promptMessages },
+            };
+            promptMessages = [];
+            promptChars = 0;
+            try {
+                await this.clients.event.emitAndWait(
+                    'ai.prompt.validate',
+                    check,
+                    {},
+                );
+            } catch (err) {
+                console.warn('[realtime] prompt check failed', err);
+            }
+            if (check.allow !== false) return completionId;
+            reject('permission_denied', 'Prompt blocked by policy');
+            return null;
+        };
+        const notePrompt = (event: RealtimeEvent) => {
+            for (const message of promptMessagesOf(event)) {
+                if (
+                    promptChars + message.content.length >
+                    MAX_PENDING_PROMPT_CHARS
+                )
+                    void checkPrompt();
+                promptMessages.push(message);
+                promptChars += message.content.length;
+            }
+        };
+        // Adds a response's cost to the row its prompt check logged.
+        const logResponseCost = async (
+            id: string,
+            rows: UsageInput[],
+            usage: unknown,
+        ) => {
+            const completion = responseCompletions.get(id);
+            if (!completion) return;
+            responseCompletions.delete(id);
+            const completionId = await completion;
+            if (!completionId) return;
+            const input = { tokens: 0, ucents: 0 };
+            const output = { tokens: 0, ucents: 0 };
+            for (const row of rows) {
+                const side = row.usageType.endsWith('_output') ? output : input;
+                side.tokens += row.usageAmount;
+                side.ucents += row.costOverride ?? 0;
+            }
+            this.clients.event.emit(
+                'ai.prompt.cost-calculated',
+                {
+                    completionId,
+                    username: actor!.user?.username || '',
+                    usage,
+                    input_tokens: input.tokens,
+                    output_tokens: output.tokens,
+                    input_ucents: input.ucents,
+                    output_ucents: output.ucents,
+                    total_ucents: input.ucents + output.ucents,
+                    costs_currency: 'usd-cents',
+                    model_used: billingModel,
+                    service_used: 'openai',
+                    intended_service: METERING_DRIVER,
+                },
+                {},
+            );
+        };
+
+        // One transcription item's credit at `name`'s price and cost factor,
+        // or null when the account can't cover it. Reservations run one at a
+        // time, so a session's own holds don't race each other's balance check.
+        const reserveTranscription = (
+            name: string,
+        ): Promise<CreditHold | null> => {
+            const next = reservations.then(async () => {
+                const hold = await this.#metering.reserveAiCredits(
+                    actor!,
+                    `openai:${name}:realtime:transcription_unreported`,
+                    transcriptionItemBudget(name),
+                    { ttlMs: TRANSCRIPTION_HOLD_TTL_MS },
+                );
+                if (!hold) return null;
+                heldTranscriptions++;
+                let released = false;
+                return {
+                    release: async () => {
+                        if (released) return;
+                        released = true;
+                        try {
+                            await hold.release();
+                        } finally {
+                            heldTranscriptions--;
+                            // Freed credit may admit audio waiting for an item.
+                            pumpPending();
+                        }
+                    },
+                    extend: async () => {
+                        if (!released) await hold.extend?.();
+                    },
+                } satisfies CreditHold;
+            });
+            reservations = next.catch(() => {});
+            return next;
+        };
+        // Adds one spare item at the current price. False when refused.
+        const reserveSpareTranscription = async (): Promise<boolean> => {
+            const name = spareModel ?? 'unknown';
+            const hold = await reserveTranscription(name);
+            if (!hold) return false;
+            if (
+                closed ||
+                name !== (spareModel ?? 'unknown') ||
+                pendingTranscriptions.size +
+                    spareTranscriptions.length +
+                    audioHolds.length >=
+                    MAX_PENDING_TRANSCRIPTIONS
+            ) {
+                await hold.release();
+            } else {
+                spareTranscriptions.push(hold);
+            }
+            return true;
+        };
+        const topUpTranscriptions = () => {
+            if (
+                spareModel === undefined ||
+                toppingUp ||
+                closed ||
+                spareTranscriptions.length + audioHolds.length >=
+                    SPARE_TRANSCRIPTIONS ||
+                pendingTranscriptions.size +
+                    spareTranscriptions.length +
+                    audioHolds.length >=
+                    MAX_PENDING_TRANSCRIPTIONS
+            )
+                return;
+            toppingUp = true;
+            reserveSpareTranscription().then(
+                (reserved) => {
+                    toppingUp = false;
+                    if (reserved) topUpTranscriptions();
+                },
+                (err) => {
+                    toppingUp = false;
+                    console.warn('[realtime] transcription hold failed', err);
+                },
+            );
+        };
+        // Spare items priced at another model are swapped for this one's.
+        const priceTranscriptionsAt = (requested: string | undefined) => {
+            const name = transcriptionBillingModel(requested);
+            if (name === spareModel) return;
+            releaseSpareTranscriptions();
+            spareModel = name;
+        };
+        // The credit for an item the provider committed with no spare left.
+        const holdCommittedTranscription = (
+            name: string | undefined,
+        ): Promise<CreditHold | null> => {
+            const spare = spareTranscriptions.shift();
+            if (spare) return Promise.resolve(spare);
+            if (closed) return Promise.resolve(null);
+            return (async (): Promise<CreditHold | null> => {
+                const provisional = await planProvisional();
+                const hold = await reserveTranscription(
+                    transcriptionBillingModel(name),
+                );
+                if (!hold && !closed) {
+                    await refuse(
+                        'insufficient_funds',
+                        'No transcription budget left',
+                        provisional,
+                    );
+                }
+                return hold;
+            })().catch((err): null => {
+                console.warn('[realtime] transcription hold failed', err);
+                return null;
+            });
+        };
+        const settleTranscription = (itemId: string) => {
+            const pending = pendingTranscriptions.get(itemId);
+            if (!pending) return undefined;
+            pendingTranscriptions.delete(itemId);
+            finishedTranscriptions.set(itemId, true);
+            clearTimeout(pending.timer);
+            // A slot under the pending cap may admit waiting audio.
+            pumpPending();
+            topUpTranscriptions();
+            return pending;
+        };
+
         // Upstream state the meter and the settle need. Runs for every
         // upstream event, before (and regardless of) forwarding.
         const track = (event: RealtimeEvent) => {
@@ -953,6 +1704,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     if (typeof id !== 'string') break;
                     inFlightIds.add(id);
                     holdResponse(id);
+                    if (checkPrompts)
+                        responseCompletions.set(id, checkPrompt());
                     if (closed) {
                         upstream?.send(
                             JSON.stringify({
@@ -963,59 +1716,159 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     }
                     break;
                 }
-                case 'response.done':
+                case 'response.done': {
                     inFlight = Math.max(0, inFlight - 1);
+                    const usage = event.response?.usage ?? undefined;
+                    const rows = realtimeUsageRows(billingModel, usage);
+                    meter(rows, takeHold(event.response?.id));
                     if (typeof event.response?.id === 'string') {
                         inFlightIds.delete(event.response.id);
+                        void logResponseCost(event.response.id, rows, usage);
                     }
-                    meter(
-                        realtimeUsageRows(
-                            billingModel,
-                            event.response?.usage ?? undefined,
-                        ),
-                        takeHold(event.response?.id),
-                    );
                     if (inFlight === 0) {
                         onIdle?.();
-                        if (closed && requested === 0) endUpstream();
+                        if (
+                            closed &&
+                            requested === 0 &&
+                            pendingTranscriptions.size === 0 &&
+                            unackedFromMs === null
+                        )
+                            endUpstream();
                     }
                     break;
-                case 'input_audio_buffer.committed':
-                    if (typeof event.item_id !== 'string') break;
-                    committedModels.set(event.item_id, transcriptionModel);
-                    if (committedModels.size > MAX_PENDING_TRANSCRIPTIONS) {
-                        committedModels.delete(
-                            committedModels.keys().next().value!,
+                }
+                case 'input_audio_buffer.speech_started': {
+                    // Detected speech is committed when it stops, from where
+                    // the provider says it began.
+                    if (unackedFromMs !== null || audioMs === ackedAtMs) break;
+                    const start = (event as { audio_start_ms?: unknown })
+                        .audio_start_ms;
+                    unackedFromMs =
+                        typeof start === 'number'
+                            ? Math.min(Math.max(start, ackedAtMs), audioMs)
+                            : ackedAtMs;
+                    claimAudioHolds();
+                    break;
+                }
+                case 'error':
+                    // A commit of an empty buffer added no item.
+                    if (
+                        (event as { error?: { code?: unknown } }).error
+                            ?.code === 'input_audio_buffer_commit_empty'
+                    )
+                        acknowledgeAudio();
+                    break;
+                case 'input_audio_buffer.cleared':
+                    acknowledgeAudio();
+                    break;
+                case 'input_audio_buffer.committed': {
+                    acknowledgeAudio();
+                    if (
+                        !transcriptionModel ||
+                        typeof event.item_id !== 'string' ||
+                        pendingTranscriptions.has(event.item_id) ||
+                        finishedTranscriptions.has(event.item_id)
+                    )
+                        break;
+                    if (
+                        pendingTranscriptions.size >= MAX_PENDING_TRANSCRIPTIONS
+                    ) {
+                        finishedTranscriptions.set(event.item_id, true);
+                        reject(
+                            'rate_limit_exceeded',
+                            'Transcription capacity exceeded',
+                            CLOSE_TRY_AGAIN_LATER,
                         );
+                        // Work beyond the pending cap has no reliable identity.
+                        meter(unreportedTranscriptionRows(undefined));
+                        endUpstream();
+                        break;
                     }
+                    const itemId = event.item_id;
+                    const timer = setTimeout(() => {
+                        const pending = settleTranscription(itemId);
+                        if (!pending) return;
+                        meter(
+                            unreportedTranscriptionRows(pending.model),
+                            pending.hold,
+                        );
+                        reject(
+                            'upstream_error',
+                            'Transcription usage timed out',
+                            1011,
+                        );
+                    }, TRANSCRIPTION_TIMEOUT_MS);
+                    pendingTranscriptions.set(itemId, {
+                        model: transcriptionModel,
+                        timer,
+                        hold: holdCommittedTranscription(transcriptionModel),
+                    });
+                    topUpTranscriptions();
                     break;
+                }
                 case 'session.created':
                 case 'session.updated':
                     transcriptionModel = transcriptionModelOf(event.session);
-                    billingModel = realtimeBillingModel(event.session, model);
-                    break;
-                case TRANSCRIPTION_DONE: {
-                    // Priced at the costlier of the models in force at commit
-                    // and now, whichever the provider used.
-                    const usage = event.usage ?? undefined;
-                    const itemId = event.item_id;
-                    const atCommit =
-                        typeof itemId === 'string' &&
-                        committedModels.has(itemId)
-                            ? committedModels.get(itemId)
-                            : transcriptionModel;
-                    if (typeof itemId === 'string') {
-                        committedModels.delete(itemId);
+                    noteInputAudio(event.session);
+                    // The provider's model reprices spare items; disabling
+                    // keeps them, since audio already sent may still commit.
+                    if (transcriptionModel) {
+                        selectedTranscriptionModel = transcriptionModel;
+                        if (spareModel !== undefined) {
+                            priceTranscriptionsAt(transcriptionModel);
+                            topUpTranscriptions();
+                        }
                     }
-                    meter(
-                        costlierRows(
-                            realtimeTranscriptionRows(atCommit, usage),
-                            realtimeTranscriptionRows(
-                                transcriptionModel,
-                                usage,
-                            ),
-                        ),
-                    );
+                    {
+                        const nextModel = realtimeBillingModel(
+                            event.session,
+                            billingModel,
+                        );
+                        if (!nextModel) {
+                            billingModel = 'gpt-realtime-2.1';
+                            reject(
+                                'upstream_error',
+                                'Provider reported an unsupported model',
+                                1011,
+                            );
+                            endUpstream();
+                            break;
+                        }
+                        billingModel = nextModel;
+                    }
+                    if (event.type === 'session.created') {
+                        providerReady = true;
+                        if (setupTimer) clearTimeout(setupTimer);
+                        pumpPending();
+                    }
+                    break;
+                case 'conversation.item.input_audio_transcription.failed':
+                case TRANSCRIPTION_DONE: {
+                    const itemId = event.item_id;
+                    if (typeof itemId !== 'string') break;
+                    const pending = settleTranscription(itemId);
+                    if (!pending) break;
+                    const rows =
+                        event.type !== TRANSCRIPTION_DONE
+                            ? unreportedTranscriptionRows(pending.model)
+                            : event.usage
+                              ? costlierRows(
+                                    realtimeTranscriptionRows(
+                                        pending.model,
+                                        event.usage,
+                                    ),
+                                    realtimeTranscriptionRows(
+                                        transcriptionModel,
+                                        event.usage,
+                                    ),
+                                )
+                              : unreportedTranscriptionRows(pending.model);
+                    meter(rows, pending.hold);
+                    if (!pendingTranscriptions.size && inFlight === 0) {
+                        onIdle?.();
+                        if (closed && requested === 0 && unackedFromMs === null)
+                            endUpstream();
+                    }
                     break;
                 }
             }
@@ -1036,6 +1889,135 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 }
             });
             if (up.bufferedAmount >= HIGH_WATER_BYTES) holdClient('upstream');
+        };
+
+        // Reserves a spare item. Waits, with client reads paused, while the
+        // pending cap is full or the account can't cover another item but
+        // this session's held items may still free credit; refuses once
+        // nothing is left to wait for.
+        const admitTranscription = async (): Promise<boolean> => {
+            while (!spareTranscriptions.length) {
+                if (pendingTranscriptions.size >= MAX_PENDING_TRANSCRIPTIONS) {
+                    holdClient('transcription');
+                    return false;
+                }
+                const provisional = await planProvisional();
+                const reserved = await reserveSpareTranscription();
+                if (closed) return false;
+                if (reserved) continue;
+                if (heldTranscriptions > 0) {
+                    holdClient('transcription');
+                    return false;
+                }
+                await refuse(
+                    'insufficient_funds',
+                    'No transcription budget left',
+                    provisional,
+                );
+                return false;
+            }
+            return true;
+        };
+
+        // Forwards queued client events in order. Returns a promise only while
+        // an event waits for a transcription reservation.
+        const forwardPending = (): Promise<void> | undefined => {
+            while (pending.length && !closed) {
+                const next = pending[0];
+                const event = parseEvent(next.data as Buffer)!;
+                const requestedModel =
+                    event.type === 'session.update'
+                        ? transcriptionModelOf(event.session)
+                        : undefined;
+                if (requestedModel) wantsTranscription = true;
+                if (
+                    (wantsTranscription || transcriptionModel) &&
+                    (event.type === 'input_audio_buffer.append' ||
+                        requestedModel)
+                ) {
+                    priceTranscriptionsAt(
+                        requestedModel ?? selectedTranscriptionModel,
+                    );
+                    if (!spareTranscriptions.length) {
+                        return admitTranscription().then((admitted) =>
+                            admitted ? forwardPending() : undefined,
+                        );
+                    }
+                    releaseClient('transcription');
+                    topUpTranscriptions();
+                    if (requestedModel)
+                        selectedTranscriptionModel = requestedModel;
+                    const audio = (event as unknown as { audio?: unknown })
+                        .audio;
+                    if (typeof audio === 'string' && audio) {
+                        // Until the provider confirms a requested format,
+                        // the lower rate counts the longer duration.
+                        const rate = Math.min(
+                            audioRate,
+                            requestedAudioRate ?? audioRate,
+                        );
+                        if (!serverVad && unackedFromMs === null)
+                            unackedFromMs = audioMs;
+                        audioMs +=
+                            (Buffer.byteLength(audio, 'base64') * 1000) / rate;
+                        claimAudioHolds();
+                    }
+                } else if (
+                    event.type === 'input_audio_buffer.commit' &&
+                    unackedFromMs === null &&
+                    audioMs > ackedAtMs
+                ) {
+                    // An explicit commit takes the buffer, silence included.
+                    unackedFromMs = ackedAtMs;
+                    claimAudioHolds();
+                }
+                if (event.type === 'session.update') {
+                    const { rate } = inputAudioOf(event.session);
+                    if (rate !== undefined) requestedAudioRate = rate;
+                }
+                pending.shift();
+                pendingBytes -= (next.data as Buffer).length;
+                if (event.type === 'response.create') requested++;
+                if (checkPrompts) notePrompt(event);
+                sendUpstream(next.data, next.isBinary);
+            }
+            return undefined;
+        };
+
+        const pumpPending = (): void => {
+            if (
+                closed ||
+                !providerReady ||
+                upstream?.readyState !== WebSocket.OPEN
+            )
+                return;
+            if (pumping) {
+                pumpAgain = true;
+                return;
+            }
+            pumping = true;
+            pumpAgain = false;
+            const finish = () => {
+                pumping = false;
+                if (pumpAgain) pumpPending();
+            };
+            const failed = () => {
+                reject(
+                    'internal_error',
+                    'Could not reserve transcription budget',
+                    1011,
+                );
+                finish();
+            };
+            let waiting: Promise<void> | undefined;
+            try {
+                waiting = forwardPending();
+            } catch {
+                failed();
+                return;
+            }
+            if (waiting) waiting.then(finish, failed);
+            else finish();
         };
 
         client.on('message', (data, isBinary) => {
@@ -1070,11 +2052,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
             spend(size);
             if (closed) return;
-            if (event.type === 'response.create') requested++;
-            if (upstream?.readyState === WebSocket.OPEN) {
-                sendUpstream(data, isBinary);
-                return;
-            }
+
             if (
                 pending.length >= MAX_PENDING_MESSAGES ||
                 pendingBytes + size > MAX_PENDING_BYTES
@@ -1087,16 +2065,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
             pending.push({ data, isBinary });
             pendingBytes += size;
+            pumpPending();
         });
-        client.on('close', (code) =>
-            session.close(code === 1005 || code === 1006 ? 1000 : code, ''),
-        );
-        client.on('error', (err: Error & { code?: string }) =>
-            session.close(
-                err.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' ? 1009 : 1011,
-                'client error',
-            ),
-        );
 
         if (!Object.hasOwn(REALTIME_MODELS, model)) {
             reject(
@@ -1106,12 +2076,47 @@ export class OpenAIRealtimeRelayService extends PuterService {
             return;
         }
 
+        const ipGate = { allow: true, ip: clientIp };
+        await this.clients.event.emitAndWait('ip.validate', ipGate, {});
+        if (closed) return;
+        if (!ipGate.allow) {
+            reject('permission_denied', 'Connection refused');
+            return;
+        }
+        try {
+            if (!token || Buffer.byteLength(token) > MAX_TOKEN_BYTES)
+                throw new Error('invalid token');
+            identity = this.services.token.verify<AnyTokenPayload>(
+                'auth',
+                token,
+            );
+        } catch {
+            reject('invalid_api_key', 'Authentication failed');
+            return;
+        }
         if (
-            token &&
+            url.searchParams.get('purpose') === 'handover' &&
             !(await checkRateLimit(
-                realtimeConnectKey(token),
+                `${realtimeConnectKey(token!)}:handover`,
+                HANDOVER_CONNECTS_PER_MINUTE,
+                60_000,
+                undefined,
+                { failOpen: false },
+            ))
+        ) {
+            reject(
+                'rate_limit_exceeded',
+                'Too many realtime handover attempts',
+            );
+            return;
+        }
+        if (
+            !(await checkRateLimit(
+                realtimeConnectKey(token!),
                 CONNECTS_PER_MINUTE,
                 60_000,
+                undefined,
+                { failOpen: false },
             ))
         ) {
             reject(
@@ -1122,15 +2127,21 @@ export class OpenAIRealtimeRelayService extends PuterService {
         }
         if (closed) return;
         try {
-            actor = token ? await this.#authenticateCached(token, req) : null;
-        } catch {
-            actor = null;
+            actor = token
+                ? await this.#authenticateCached(token, req, clientIp)
+                : null;
+        } catch (err) {
+            // A lookup that failed says nothing about the credential.
+            console.warn('[realtime] credential lookup failed', err);
+            reject('internal_error', 'Could not verify credentials', 1011);
+            return;
         }
         if (closed) return;
         if (!actor) {
             reject('invalid_api_key', 'Authentication failed');
             return;
         }
+        const provisional = await planProvisional();
         try {
             await assertActorHasSubscription(
                 this.services.metering,
@@ -1142,9 +2153,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
         } catch (err) {
             const status = (err as { statusCode?: number }).statusCode;
             if (status === 402 || status === 403) {
-                reject(
+                await refuse(
                     'subscription_required',
                     'Realtime conversations require a subscription',
+                    provisional,
                 );
             } else {
                 console.warn('[realtime] subscription check failed', err);
@@ -1154,13 +2166,18 @@ export class OpenAIRealtimeRelayService extends PuterService {
         }
         if (closed) return;
         // Enough for one response's hold, so a session that opens can answer.
+        const probeProvisional = await planProvisional();
         const probe = await this.#metering.reserveAiCredits(
             actor,
             `openai:${model}:realtime:audio_output`,
             responseHoldAmount(model),
         );
         if (!probe) {
-            reject('insufficient_funds', 'No usage left for request');
+            await refuse(
+                'insufficient_funds',
+                'No usage left for request',
+                probeProvisional,
+            );
             return;
         }
         await probe.release();
@@ -1215,14 +2232,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
         const up = upstream;
 
         up.on('open', () => {
-            if (setupTimer) clearTimeout(setupTimer);
             if (closed) return;
-            for (const { data, isBinary } of pending) {
-                if (closed) break;
-                sendUpstream(data, isBinary);
-            }
-            pending.length = 0;
-            pendingBytes = 0;
+            pumpPending();
         });
         up.on('message', (data, isBinary) => {
             const buf = data as Buffer;
@@ -1236,7 +2247,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (closed || client.readyState !== WebSocket.OPEN) return;
             // Rate limits describe Puter's provider account, not the caller's.
             if (event.type === 'rate_limits.updated') return;
-            const out = event.type === 'error' ? redactOrgIds(buf) : buf;
+            const out = redactDiagnostics(event, buf);
             if (
                 client.bufferedAmount + out.length >
                 HIGH_WATER_BYTES + MAX_UPSTREAM_MESSAGE_BYTES
@@ -1289,8 +2300,34 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (settleTimer) clearTimeout(settleTimer);
             session.close(
                 code === 1005 || code === 1006 ? 1011 : code,
-                reason.toString().slice(0, 120),
+                reason.toString().replace(ORG_ID, 'org-redacted').slice(0, 120),
             );
+            const transcriptionRows: UsageInput[] = [];
+            const transcriptionHolds: Promise<CreditHold | null>[] = [];
+            for (const pending of pendingTranscriptions.values()) {
+                clearTimeout(pending.timer);
+                transcriptionRows.push(
+                    ...unreportedTranscriptionRows(pending.model),
+                );
+                transcriptionHolds.push(pending.hold);
+            }
+            pendingTranscriptions.clear();
+            // Audio the provider may have committed without acknowledging it.
+            const unacked = unackedItems();
+            if (unacked) {
+                claimAudioHolds();
+                unackedFromMs = null;
+                transcriptionRows.push(
+                    ...unreportedTranscriptionRows(
+                        transcriptionModel ?? spareModel,
+                        unacked,
+                    ),
+                );
+                for (const hold of audioHolds.splice(0))
+                    transcriptionHolds.push(Promise.resolve(hold));
+            }
+            meter(transcriptionRows, ...transcriptionHolds);
+            releaseSpareTranscriptions();
             const holds = [...responseHolds.values()];
             responseHolds.clear();
             if (inFlight === 0) {
@@ -1312,6 +2349,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             // The holds are released once this charge is recorded.
             meter(unreportedResponseRows(billingModel, inFlight), ...holds);
         });
+        onAdmitted();
     }
 
     async #record(
@@ -1320,8 +2358,16 @@ export class OpenAIRealtimeRelayService extends PuterService {
         onExhausted: () => void,
     ): Promise<void> {
         try {
-            await this.#metering.batchIncrementUsages(actor, rows);
-            if (!(await this.services.metering.hasEnoughCredits(actor, 1))) {
+            const recorded = await this.#metering.batchIncrementUsages(
+                actor,
+                rows,
+            );
+            // Continuation asks whether settled credit remains; new work still
+            // requires atomic admission including every outstanding hold.
+            if (
+                recorded.total > 0 &&
+                !(await this.services.metering.hasAnyUsageCached(actor))
+            ) {
                 onExhausted();
             }
         } catch (err) {
@@ -1337,19 +2383,25 @@ export class OpenAIRealtimeRelayService extends PuterService {
     #authenticateCached(
         token: string,
         req: IncomingMessage,
+        clientIp: string,
     ): Promise<Actor | null> {
         const key = realtimeAuthKey(token);
         let check = this.#authChecks.get(key);
         if (!check) {
             check = (async () => {
                 try {
-                    const actor = await this.#authenticate(token, req);
-                    if (actor) {
+                    const actor = await this.#authenticate(
+                        token,
+                        req,
+                        clientIp,
+                    );
+                    if (actor && this.#authChecks.get(key) === check) {
                         kv.set(key, actor.user!.uuid, { EX: AUTH_RECHECK_SEC });
                     }
                     return actor;
                 } finally {
-                    this.#authChecks.delete(key);
+                    if (this.#authChecks.get(key) === check)
+                        this.#authChecks.delete(key);
                 }
             })();
             this.#authChecks.set(key, check);
@@ -1360,10 +2412,12 @@ export class OpenAIRealtimeRelayService extends PuterService {
     async #authenticate(
         token: string,
         req: IncomingMessage,
+        clientIp: string,
     ): Promise<Actor | null> {
         const ua = req.headers['user-agent'];
         const result = await this.services.auth.authenticate(token, {
-            ip: req.socket.remoteAddress,
+            ip: clientIp,
+            touch: false,
             userAgent: typeof ua === 'string' ? ua : undefined,
         });
         if (result.blocked) return null;

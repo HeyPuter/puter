@@ -4,7 +4,9 @@ description: Listens to broadcast events from Puter.
 platforms: [apps]
 ---
 
-Listen to broadcast events from Puter. If the broadcast was received before attaching the handler, then the handler is called immediately with the most recent value.
+Listens for broadcast events from Puter.
+
+If the broadcast was received before you attached the handler, the handler is called immediately with the most recent value.
 
 
 ## Syntax
@@ -31,20 +33,6 @@ Sent on app startup, and whenever the user's locale on Puter is changed. The val
 }
 ```
 
-#### `themeChanged`
-Sent on app startup, and whenever the user's desktop theme on Puter is changed. The value passed to `handler` is:
-```js
-{
-    palette: {
-        primaryHue,         // (Float) Hue of the theme color
-        primarySaturation,  // (String) Saturation of the theme color as a percentage, with % sign
-        primaryLightness,   // (String) Lightness of the theme color as a percentage, with % sign
-        primaryAlpha,       // (Float) Opacity of the theme color from 0 to 1
-        primaryColor,       // (String) CSS color value for text
-    }
-}
-```
-
 #### `connection`
 Sent when another app requests a connection to your app. The value passed to `handler` is:
 ```js
@@ -56,6 +44,8 @@ Sent when another app requests a connection to your app. The value passed to `ha
 ```
 
 ## Examples
+
+### Listen for language changes
 
 ```html
 <html>

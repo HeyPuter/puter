@@ -104,12 +104,6 @@ pre {
     --window-sidebar-alpha: calc(min(1, 0.11 + var(--primary-alpha)));
     --window-sidebar-color: var(--primary-color);
 
-    --taskbar-hue: var(--primary-hue);
-    --taskbar-saturation: var(--primary-saturation);
-    --taskbar-lightness: var(--primary-lightness);
-    --taskbar-alpha: calc(0.73 * var(--primary-alpha));
-    --taskbar-color: var(--primary-color);
-
     --select-hue: 213.05;
     --select-saturation: 74.22%;
     --select-lightness: 55.88%;
@@ -122,9 +116,6 @@ html, body {
 }
 
 body {
-    background: no-repeat center center fixed;
-    background-position: center;
-    background-size: cover;
     background-color: #ffffff;
     overflow: hidden;
 }
@@ -135,9 +126,24 @@ body {
     }
 }
 
-.embedded-in-3rd-party-website, .embedded-in-popup {
+.embedded-in-popup {
     background: none !important;
     background-color: #ccccccbe !important;
+}
+
+/* A popup framed over its whole page, such as the upgrade, shows the page
+   around its own dialog. The root's color scheme matches the frame's, or the
+   browser paints the frame opaque; the GUI inside keeps the light scheme it
+   has everywhere else, so its form fields don't turn dark. */
+html.popup-frame-transparent,
+html.popup-frame-transparent body {
+    background: transparent !important;
+}
+html.popup-frame-transparent {
+    color-scheme: light dark;
+}
+html.popup-frame-transparent body {
+    color-scheme: light;
 }
 
 .disable-user-select {
@@ -179,6 +185,20 @@ input[type=text], input[type=password], input[type=email], select {
     -webkit-font-smoothing: antialiased;
     color: #393f46;
     font-size: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+    input[type=text], input[type=password], input[type=email], select {
+        background-color: #2d2d2d;
+        border: 1px solid #555;
+        color: #e6e6e6;
+    }
+
+    input[type=text]::placeholder,
+    input[type=password]::placeholder,
+    input[type=email]::placeholder {
+        color: #999;
+    }
 }
 
 /* to prevent auto-zoom on input focus in mobile */
@@ -341,46 +361,15 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 }
 
 .desktop {
-    display: none;
     overflow: hidden;
-    height: calc(100vh - 60px) !important;
+    height: 100vh !important;
     width: 100%;
-    display: grid;
-    grid-template-rows: repeat(auto-fill, 109px);
-    grid-auto-flow: column;
-    grid-template-columns: repeat(auto-fill, 120px);
-    padding-top: 15px;
-}
-
-.device-desktop .desktop {
-    padding-top: 5px;
-}
-
-.desktop.desktop-taskbar-position-left {
-    margin-left: 50px;
-    padding-right: 0;
-    padding-bottom: 0;
-    height: calc(100vh) !important;
-}
-
-.desktop.desktop-taskbar-position-right {
-    margin-right: 50px;
-    padding-left: 0;
-    padding-bottom: 0;
-    height: calc(100vh) !important;
-}
-
-.fullpage-mode .window-minimize-btn {
-    display: none;
+    box-sizing: border-box;
 }
 
 .device-phone .desktop {
-    height: calc(100vh - 90px) !important;
-    height: calc(100dvh - 90px) !important;
-    /* Ensure no left/right padding on mobile, regardless of taskbar position classes */
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    padding-bottom: 0 !important;
+    height: 100vh !important;
+    height: 100dvh !important;
 }
 
 .item-container-list {
@@ -471,8 +460,9 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 
 .explore-table-headers {
     display: none;
-    width: 100%;
-    min-width: 795px;
+    /* the negative margin below shifts it left by the body's padding */
+    width: calc(100% + 10px);
+    min-width: 805px;
     height: 25px;
     border-bottom: 1px solid rgb(226, 226, 226);
     background-color: #fff;
@@ -505,6 +495,7 @@ span.header-sort-icon img {
     margin-left: 15px;
     color: #555c61;
     display: inline-block;
+    cursor: pointer;
 }
 
 .explore-table-headers-th-active {
@@ -813,6 +804,14 @@ span.header-sort-icon img {
     color: white;
 }
 
+.device-desktop .item-container-details .item-selected.item-blurred {
+    background-color: #dbdada;
+}
+
+.device-desktop .item-container-details .item-selected.item-blurred .item-attr {
+    color: rgb(73, 73, 73);
+}
+
 .item-container-details .item-attr--modified {
     left: 350px;
 }
@@ -906,7 +905,7 @@ span.header-sort-icon img {
     text-shadow: none;
 }
 
-.window-menubar:not(.window-menubar-global):empty {
+.window-menubar:empty {
     display: none !important;
 }
 
@@ -918,23 +917,6 @@ span.header-sort-icon img {
     background-color: #fafafa;
     --scale: 2pt;
     padding: 2px 5px;
-}
-
-.window-menubar-global {
-    background-color: transparent;
-    color: white;
-    border-bottom: none;
-    flex-grow: 1;
-    scale: 1;
-    --scale: 1;
-    margin-left: 15px;
-    padding: 0;
-}
-
-.window-menubar-global .window-menubar-item span {
-    padding: 3px 10px;
-    font-size: 13px;
-    border-radius: 3px;
 }
 
 .window-menubar-item {
@@ -952,10 +934,6 @@ span.header-sort-icon img {
 
 .window-menubar-item.active>span {
     background-color: #e2e2e2;
-}
-
-.window-menubar-global .window-menubar-item.active>span {
-    background-color: #e4e4e43a;
 }
 
 .explorer-empty-message {
@@ -1170,6 +1148,22 @@ span.header-sort-icon img {
     cursor: default;
 }
 
+/* A path too long for the bar is cut at the root end, so the current folder stays visible. */
+.window-navbar-path {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    min-height: 37px;
+}
+
+.window-navbar-path > * {
+    flex: none;
+}
+
+.window-navbar-path > :last-child {
+    margin-right: auto;
+}
+
 .device-phone .window-navbar-path {
     display: none;
 }
@@ -1179,6 +1173,7 @@ span.header-sort-icon img {
     height: 30px;
     margin-left: 10px;
     margin-top: 3px;
+    cursor: pointer;
 }
 
 .device-phone .window-navbar-layout-settings {
@@ -1290,18 +1285,6 @@ span.header-sort-icon img {
 
 .window-cover-page .window-sidebar {
     height: 100%;
-}
-
-.window-cover-page.window-puter-dialog {
-    height: 100%;
-    width: 100%;
-    top: 0 !important;
-}
-
-.window-cover-page.window-puter-dialog .window-body {
-    width: 100%;
-    height: 100%;
-    padding: 0 !important;
 }
 
 /* Auth/dialog cover pages fill the viewport. File dialogs are excluded: their
@@ -1478,6 +1461,18 @@ span.header-sort-icon img {
     align-items: center;
 }
 
+/* The file name shrinks so the buttons stay on one line, on screen, in a narrow dialog. */
+.window-filedialog-prompt > div {
+    min-width: 0;
+    white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+    .window-filedialog-prompt .button-small {
+        padding: 0 16px;
+    }
+}
+
 .savefiledialog-filename {
     float: left;
     margin-right: 10px;
@@ -1485,10 +1480,21 @@ span.header-sort-icon img {
     border-width: 1px !important;
     height: 31px;
     flex-grow: 1;
+    min-width: 0;
     width: initial !important;
 }
 
+/* In a narrow open dialog, the upload label gives way so its buttons stay whole. */
+.window-filedialog-upload-here + div {
+    flex-shrink: 0;
+}
+
 .window-filedialog-upload-here {
+    min-width: 0;
+    margin-right: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     -webkit-font-smoothing: antialiased;
     opacity: 0.7;
     font-size: 14px;
@@ -1613,71 +1619,6 @@ span.header-sort-icon img {
 
 .prompt-resp-btn-ok {
     width: 110px;
-}
-
-.mywebsites-card {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    position: relative;
-    border: 1px solid #CCC;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 4px;
-    background-color: white;
-}
-
-.mywebsites-address-link {
-    color: #0d6efd;
-    text-decoration: none;
-}
-
-.mywebsites-address-link:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-dir-path {
-    cursor: pointer;
-    font-size: 14px;
-    margin-bottom: 0;
-}
-
-.mywebsites-dir-path img {
-    width: 16px;
-    margin-bottom: -3px;
-    margin-right: 5px;
-}
-
-.mywebsites-dir-path:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-dis-dir {
-    cursor: pointer;
-}
-
-.mywebsites-dis-dir:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-no-dir-notice {
-    margin-bottom: 0;
-    color: #7e7e7e;
-    font-size: 14px;
-}
-
-.mywebsites-release-address {
-    color: red;
-    cursor: pointer;
-    font-size: 13px;
-}
-
-.mywebsites-site-setting {
-    position: absolute;
-    right: 5px;
-    top: 5px;
-    cursor: pointer;
-    width: 20px;
-    height: 20px;
 }
 
 /***********************
@@ -1925,6 +1866,60 @@ span.header-sort-icon img {
     background: transparent;
 }
 
+/* Dark mode: same surfaces as the dashboard's dark cards. The translucent
+   background is also set in the backdrop-filter @supports block below. */
+@media (prefers-color-scheme: dark) {
+    .context-menu {
+        color: #d4d4d4;
+        background-color: rgb(38 38 38 / 85%);
+        border-color: #3d3d3d;
+        box-shadow: 0px 3px 20px #00000066;
+    }
+
+    .context-menu .context-menu-divider>hr {
+        border-top-color: #ffffff26;
+    }
+
+    .context-menu .has-open-context-menu-submenu {
+        background-color: #3a3a3a;
+    }
+
+    /* `color: initial` resolves to black, unreadable on the dark surface. */
+    .context-menu .context-menu-item-active-blurred {
+        background-color: #404650;
+        color: inherit;
+    }
+
+    .context-menu .context-menu-item-disabled, .context-menu .context-menu-item-disabled:hover {
+        color: inherit;
+    }
+
+    /* The resting chevron is black; the active one is already white. */
+    .context-menu .submenu-arrow:not(.submenu-arrow-active) {
+        filter: invert(1);
+    }
+
+    /* Full-color icons (file types, app icons) keep their colors; only
+       monochrome dark glyphs are inverted. */
+    .context-menu .context-menu-item .ctx-item-icon-monochrome {
+        filter: invert(1);
+    }
+
+    .context-menu.context-menu-sheet {
+        background-color: rgba(38, 38, 38, 0.96) !important;
+        box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.5) !important;
+    }
+
+    .context-menu.context-menu-sheet .context-menu-item-active:not(.context-menu-divider) {
+        background-color: rgba(10, 132, 255, 0.24) !important;
+        color: #d4d4d4 !important;
+    }
+
+    .context-menu.context-menu-sheet .context-menu-divider > hr {
+        border-top-color: rgba(235, 235, 245, 0.18);
+    }
+}
+
 .draggable-count-badge {
     background-color: red;
     border: 2px solid white;
@@ -1983,114 +1978,7 @@ label {
     font-size: 14px;
 }
 
-/***********************************
- * Toolbar
- ***********************************/
-
-.toolbar {
-    background-color: #00000040;
-    height: 30px;
-    position: relative;
-    z-index: 999999;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: row;
-    justify-content: flex-end;
-    align-content: center;
-    flex-wrap: wrap;
-    padding-right: 10px;
-    left: 50%;
-    right: 50%;
-    left: 50%;
-    transform: translate(-50%);
-    top: 0px;
-    border-top-right-radius: 0px;
-    border-top-left-radius: 0px;
-    border-bottom-left-radius: 10px;
-    border-bottom-right-radius: 10px;
-    width: max-content;
-    overflow: clip;
-    box-shadow: rgb(255 255 255 / 14%) 0px 0px 0px 0.5px inset, rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.2) 0px 2px 14px;
-    position: absolute;
-    overflow-y: hidden;
-}
-
-.toolbar-hidden {
-    box-shadow: rgb(255 255 255 / 44%) 0px 0px 0px 0.5px inset, rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.2) 0px 2px 14px;
-}
-
-.device-phone .toolbar {
-    z-index: 1;
-}
-
-@supports ((backdrop-filter: blur())) {
-    .toolbar {
-        background-color: #00000040;
-        backdrop-filter: blur(10px);
-    }
-}
-
-.toolbar-btn {
-    padding: 4px;
-    font-size: 14px;
-    width: auto;
-    padding: 0 5px;
-    margin-left: 20px;
-    overflow-y: hidden !important;
-    overflow-x: hidden !important;
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
-    display: inline-block;
-    width: 22px;
-    height: 22px;
-    padding: 3px;
-    box-sizing: border-box;
-    background-origin: content-box;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    opacity: 0.8;
-}
-
-.toolbar-btn:hover {
-    opacity: 1 !important;
-}
-
-.toolbar-hidden .toolbar-btn {
-    opacity: 0;
-}
-
-.user-options-menu-btn.has-open-contextmenu {
-    background-color: rgb(255 255 255 / 35%);
-    border-radius: 3px;
-}
-
-.user-options-menu-username {
-    color: black;
-    margin-left: 5px;
-    display: block;
-    max-width: 70px;
-    text-overflow: ellipsis;
-    float: right;
-    overflow: hidden;
-}
-
-.user-options-menu-username:empty {
-    margin-left: 0;
-}
-
-.user-options-login-btn, .user-options-create-account-btn {
-    padding: 0 15px;
-}
-
-.toolbar-btn:hover:not(.has-open-contextmenu) {
-    background-color: rgb(255 255 255 / 15%);
-    border-radius: 3px;
-}
-/***************************************************/
-
-.login-error-msg, .signup-error-msg, .publish-website-error-msg, .form-error-msg, .publish-worker-error-msg {
+.login-error-msg, .signup-error-msg, .form-error-msg {
     display: none;
     color: red;
     border: 1px solid red;
@@ -2099,10 +1987,6 @@ label {
     margin-bottom: 15px;
     text-align: center;
     font-size: 13px;
-}
-
-.publish-worker-error-msg{
-    text-align: left;
 }
 
 .signup-blocked-overlay {
@@ -2160,12 +2044,6 @@ label {
     text-decoration: underline;
 }
 
-.oidc-btn {
-    font-size: 14px;
-    color: #393939;
-    background: transparent;
-}
-
 .error {
     display: none;
     color: red;
@@ -2188,41 +2066,7 @@ label {
     font-size: 13px;
 }
 
-.publish-btn {
-    margin-top: 20px;
-}
-
-.window-publishWebsite-success, .window-give-item-access-success, .window-publishWorker-success {
-    display: none;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    height: auto;
-}
-
-.manage-your-websites-link {
-    color: #007cff;
-    text-decoration: underline;
-    cursor: pointer;
-}
-
-.publishWebsite-published-link, .publishWorker-published-link {
-    text-decoration: none;
-    color: #007cff;
-}
-
-.publishWebsite-published-link:hover, .publishWorker-published-link:hover {
-    text-decoration: underline;
-}
-
-.publishWebsite-published-link-icon, .publishWorker-published-link-icon {
-    display: inline-block;
-    width: 12px;
-    margin-left: 5px;
-    margin-bottom: -1px;
-    user-select: none !important;
-}
-
-.login-form-title, .signup-form-title {
+.signup-form-title {
     text-align: center;
     margin-top: 10px;
     padding-bottom: 15px;
@@ -2258,13 +2102,6 @@ label {
 .signup-bonus-notice-invalid {
     background-color: #fdecea;
     color: #611a15;
-}
-
-.signup-oidc-only-notice {
-    text-align: center;
-    margin: 0 0 10px;
-    font-size: 14px;
-    color: #5f6368;
 }
 
 /* -- Logo strip above the login / signup forms -- */
@@ -2330,7 +2167,7 @@ label {
     background: repeating-linear-gradient(to right, #b0b5bb 0 6px, transparent 6px 14px);
 }
 
-.signup-c2a-clickable, .login-c2a-clickable {
+.signup-c2a-clickable {
     border: none;
     background: none;
     display: block;
@@ -2342,7 +2179,7 @@ label {
     font-size: 20px;
 }
 
-.signup-c2a-clickable:hover, .login-c2a-clickable:hover {
+.signup-c2a-clickable:hover {
     text-decoration: underline;
 }
 
@@ -2350,29 +2187,9 @@ label {
     display: none;
 }
 
-.intro-menu-item {
-    text-decoration: none;
-    color: #398ce7;
-    font-weight: 400;
-}
-
-.intro-menu-item:hover {
-    text-decoration: underline;
-}
-
 .bull {
     margin: 10px;
     color: #CCC;
-}
-
-.create-account-form-title {
-    text-align: center;
-    margin-top: 0;
-    padding-bottom: 15px;
-    font-size: 20px;
-    font-weight: 300;
-    margin-bottom: 10px;
-    color: #383e46;
 }
 
 .create-account-desc {
@@ -2383,22 +2200,6 @@ label {
     -moz-osx-font-smoothing: grayscale;
     color: #2f3f53;
     font-size: 14px;
-}
-
-.unsupported-device-notice {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    background-color: white;
-    z-index: 9999999;
-    display: none;
-    flex-direction: column;
-    justify-content: center;
-    text-align: center;
-    padding: 30px;
-    box-sizing: border-box;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
 }
 
 .item-props-tabview {
@@ -2482,10 +2283,6 @@ label {
     cursor: pointer;
 }
 
-.send-conf-code {
-    cursor: pointer;
-}
-
 .window-confirm-email-using-code .window-body {
     display: flex;
     flex-direction: column;
@@ -2512,10 +2309,6 @@ label {
 }
 
 .send-conf-email:hover, .conf-email-log-out:hover {
-    text-decoration: underline;
-}
-
-.send-conf-code:hover {
     text-decoration: underline;
 }
 
@@ -2555,103 +2348,6 @@ label {
     border: 1px solid #4092da;
 }
 
-.feedback-sent-success {
-    display: none;
-    padding: 10px;
-    margin-bottom: 20px;
-    border: 1px solid #59d959;
-    border-radius: 3px;
-    background-color: #e4f9e4;
-    position: relative;
-}
-
-/* Contact Us attachments (screenshots and screen recordings on bug reports) */
-.feedback-form {
-    border: 1px dashed transparent;
-    border-radius: 4px;
-    /* Hold the dashed drop outline off the fields without shifting them. */
-    margin: -6px;
-    padding: 6px;
-}
-
-.feedback-form-dragover {
-    border-color: #4092da;
-    background-color: rgb(64 146 218 / 6%);
-}
-
-.feedback-attachments {
-    margin-top: 10px;
-}
-
-.feedback-attach-hint {
-    display: block;
-    margin-top: 6px;
-    font-size: 12px;
-    color: #5f6b7a;
-}
-
-.feedback-attachment-list {
-    list-style: none;
-    margin: 8px 0 0;
-    padding: 0;
-}
-
-.feedback-attachment {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 8px;
-    margin-bottom: 4px;
-    font-size: 13px;
-    border: 1px solid #dfe3e8;
-    border-radius: 4px;
-    background-color: #fff;
-}
-
-.feedback-attachment-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.feedback-attachment-size {
-    flex-shrink: 0;
-    color: #5f6b7a;
-    font-size: 12px;
-}
-
-.feedback-attachment-remove {
-    flex-shrink: 0;
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: none;
-    border-radius: 3px;
-    background: none;
-    color: #5f6b7a;
-    font-size: 17px;
-    line-height: 18px;
-    cursor: pointer;
-}
-
-.feedback-attachment-remove:hover:not(:disabled) {
-    background-color: #eef1f4;
-    color: #12181f;
-}
-
-.feedback-attachment-remove:disabled {
-    opacity: 0.5;
-    cursor: default;
-}
-
-.feedback-error {
-    margin: 10px 0 0;
-    font-size: 13px;
-    color: #b3261e;
-}
-
 .save-account-success {
     display: none;
     padding: 30px;
@@ -2660,279 +2356,6 @@ label {
     position: relative;
     color: green;
     -webkit-font-smoothing: antialiased;
-}
-
-.session-entry {
-    cursor: pointer;
-    padding: 20px;
-    border: 1px solid #CCC;
-    border-radius: 3px;
-    margin-bottom: 10px;
-    background-color: white;
-    font-weight: 500;
-    color: #394d5c;
-}
-
-.session-entry:hover {
-    border-color: #00a6ff;
-}
-
-.login-c2a-session-list, .signup-c2a-session-list {
-    cursor: pointer;
-    font-size: 15px;
-    color: #636363;
-}
-
-.login-c2a-session-list:hover, .signup-c2a-session-list:hover {
-    text-decoration: underline;
-    ;
-}
-
-/*****************************************************
- * Taskbar
- *****************************************************/
-
-.taskbar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    background-color: hsla(var(--taskbar-hue),
-            var(--taskbar-saturation),
-            var(--taskbar-lightness),
-            calc(0.5 + 0.5*var(--taskbar-alpha)));
-    display: flex;
-    justify-content: center;
-    z-index: 99999;
-    overflow: hidden !important;
-
-    height: 50px;
-    border-radius: 10px;
-    bottom: calc(5px + env(safe-area-inset-bottom, 0px));
-    padding-left: 7px;
-    padding-right: 7px;
-    width: auto;
-    left: 50%;
-    transform: translateX(-50%);
-
-    /* that sweet sweet subtle shadow */
-    box-shadow:
-        inset 0 0 0 0.5px rgba(255, 255, 255, 0.2),
-        0 0 0 0.5px rgba(0, 0, 0, 0.2),
-        0 4px 16px rgba(0, 0, 0, 0.2);
-}
-
-/* Bottom positioned taskbar (default) */
-.taskbar.taskbar-position-bottom {
-    bottom: 5px;
-    left: 50%;
-    right: auto;
-    top: auto;
-    width: auto;
-    height: 50px;
-    transform: translateX(-50%);
-    flex-direction: row;
-    justify-content: center;
-    writing-mode: initial;
-}
-
-/* Left positioned taskbar */
-.taskbar.taskbar-position-left {
-    left: 0 !important;
-    top: 0;
-    width: 50px;
-    transform: none;
-    height: 100% !important;
-    flex-direction: column;
-    justify-content: normal;
-    writing-mode: initial;
-    padding-top: 7px;
-    padding-bottom: 7px;
-    padding-left: 0;
-    padding-right: 0;
-    border-radius: 0;
-}
-
-/* Right positioned taskbar */
-.taskbar.taskbar-position-right {
-    right: 0 !important;
-    top: 0;
-    left: auto;
-    bottom: auto;
-    width: 50px;
-    height: 100% !important;
-    transform: none;
-    flex-direction: column;
-    justify-content: normal;
-    writing-mode: initial;
-    padding-top: 7px;
-    padding-bottom: 7px;
-    padding-left: 0;
-    padding-right: 0;
-    border-radius: 0;
-}
-
-.taskbar.taskbar-position-left .taskbar-sortable,
-.taskbar.taskbar-position-right .taskbar-sortable {
-    display: block !important;
-}
-
-/* Taskbar items for left/right positioning */
-.taskbar.taskbar-position-left .taskbar-item,
-.taskbar.taskbar-position-right .taskbar-item {
-    margin-bottom: 5px;
-    margin-left: 0;
-    margin-right: 0;
-}
-
-.taskbar.taskbar-position-left .taskbar-item:last-child,
-.taskbar.taskbar-position-right .taskbar-item:last-child {
-    margin-bottom: 0;
-}
-
-.taskbar .taskbar-item {
-    float: left;
-    position: relative;
-    overflow: hidden !important;
-    transition: background-color 0.2s;
-    display: none;
-}
-
-.taskbar .taskbar-item-sortable-placeholder, .taskbar .taskbar-item {
-    width: 40px;
-    height: 40px;
-    padding: 6px 5px 10px 5px;
-}
-
-.taskbar .taskbar-item .taskbar-icon {
-    border-radius: 3px;
-}
-
-.taskbar .taskbar-item, .taskbar .taskbar-item * {
-    -webkit-user-drag: none;
-    user-select: none;
-    -moz-user-select: none;
-    -webkit-user-select: none;
-    -ms-user-select: none;
-}
-
-.taskbar-item.ui-sortable-helper {
-    margin-left: 25px;
-    z-index: 999999999 !important;
-}
-
-.desktop:not(.desktop-selectable-active) .taskbar .taskbar-item:hover .taskbar-icon {
-    background-color: rgb(255 255 255 / 40%);
-    transition: background-color 0.2s;
-}
-
-.taskbar .taskbar-item:active .taskbar-icon,
-.taskbar .taskbar-item:focus-within .taskbar-icon,
-.taskbar .taskbar-item:focus-visible .taskbar-icon,
-.taskbar .taskbar-item:focus .taskbar-icon,
-.taskbar-item.has-open-contextmenu .taskbar-icon,
-.taskbar-item.has-open-popover .taskbar-icon,
-.taskbar .taskbar-item.active .taskbar-icon,
-.taskbar-item.ui-sortable-helper .taskbar-icon {
-    background-color: rgb(255 255 255 / 80%) !important;
-    transition: background-color 0.2s;
-    filter: none;
-}
-
-.active-taskbar-indicator {
-    font-size: 18px;
-    position: absolute;
-    left: 50%;
-    -webkit-transform: translateX(-50%);
-    transform: translateX(-50%);
-    bottom: -6px;
-    display: none;
-    width: 9px;
-    height: 3px;
-    background-color: #686868;
-    bottom: 8px;
-    border-radius: 3px;
-}
-
-.device-phone .active-taskbar-indicator {
-    display: none !important;
-}
-
-.taskbar .taskbar-icon img {
-    width: 100%;
-    height: 100%;
-    filter: drop-shadow(0px 0px 0.2px rgb(51, 51, 51));
-    padding: 5px;
-    box-sizing: border-box;
-}
-
-.taskbar-icon {
-    height: 40px;
-}
-
-/* Taskbar separator styling */
-.taskbar-item[data-app="separator"] {
-    pointer-events: none !important;
-    background: none !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-
-.taskbar-item[data-app="separator"] .taskbar-icon {
-    background: none !important;
-    border: none !important;
-    box-shadow: none !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-}
-
-/* Vertical separator for bottom taskbar */
-.taskbar.taskbar-position-bottom .taskbar-item[data-app="separator"] .taskbar-icon::after {
-    content: '';
-    width: 1px;
-    height: 35px;
-    max-height: 35px;
-    background-color: rgba(0, 0, 0, 0.3);
-    border-radius: 0.5px;
-}
-
-/* Horizontal separator for left/right taskbar */
-.taskbar.taskbar-position-left .taskbar-item[data-app="separator"] .taskbar-icon::after,
-.taskbar.taskbar-position-right .taskbar-item[data-app="separator"] .taskbar-icon::after {
-    content: '';
-    width: 35px;
-    height: 1px;
-    background-color: rgba(0, 0, 0, 0.3);
-    border-radius: 0.5px;
-}
-
-/* Hide separator on mobile devices */
-.device-phone .taskbar-item[data-app="separator"],
-.device-tablet .taskbar-item[data-app="separator"] {
-    display: none !important;
-}
-
-.taskbar.taskbar-position-bottom .taskbar-item[data-app="separator"]{
-    max-width: 10px;
-    min-width: 10px !important;
-}
-
-.taskbar.taskbar-position-bottom .taskbar-item[data-app="separator"] .taskbar-icon{
-    width: 100% !important;
-}
-
-.taskbar.taskbar-position-left .taskbar-item[data-app="separator"],
-.taskbar.taskbar-position-right .taskbar-item[data-app="separator"]{
-    max-height: 10px;
-    min-height: 10px !important;
-    padding: 5px 3px 5px 7px !important;
-}
-.taskbar.taskbar-position-left .taskbar-item[data-app="separator"] .taskbar-icon,
-.taskbar.taskbar-position-right .taskbar-item[data-app="separator"] .taskbar-icon{
-    max-height: 10px;
-    min-height: 10px !important;
-    padding-bottom: 5px !important;
 }
 
 /*****************************************************
@@ -3010,13 +2433,6 @@ label {
     -webkit-font-smoothing: antialiased;
 }
 
-.captcha-modal .captcha-description {
-    margin: 10px 0 0 0;
-    color: #6b7280;
-    font-size: 14px;
-    line-height: 1.4;
-}
-
 .captcha-modal .captcha-container {
     display: flex;
     justify-content: center;
@@ -3062,129 +2478,6 @@ label {
     100% { transform: rotate(360deg); }
 }
 
-/*****************************************************
- * Task Manager
- *****************************************************/
-
-.task-manager-container {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    background-color: rgba(255,255,255,0.8);
-    border: 2px inset rgba(127, 127, 127, 0.3);
-    overflow: auto;
-}
-
-.task-manager-container table {
-    box-sizing: border-box;
-    border-collapse: collapse;
-    width: 100%;
-}
-
-.task-manager-container thead th {
-    box-shadow: 0 1px 4px -2px rgba(0,0,0,0.2);
-    backdrop-filter: blur(2px);
-    position: sticky;
-    z-index: 100;
-    padding: calc(10 * var(--scale)) calc(2.5 * var(--scale)) calc(5 * var(--scale)) calc(2.5 * var(--scale));
-    top: 0;
-    background-color: hsla(0, 0%, 100%, 0.8);
-    text-align: left;
-    border-bottom: 1px solid var(--dashboard-border);
-    padding: 5px;
-}
-
-.task-manager-container thead th:not(:last-of-type) {
-    border-right: 1px solid var(--dashboard-border);
-}
-
-.task-manager-container tbody > tr > td {
-    border-bottom: 1px solid var(--dashboard-border);
-    padding: 0 calc(2.5 * var(--scale));
-    vertical-align: middle;
-    padding-left: 0;
-}
-
-.task-manager-container td > span {
-    padding: 0 calc(2.5 * var(--scale));
-}
-
-.task {
-    display: flex;
-    height: calc(10 * var(--scale));
-    line-height: calc(10 * var(--scale));
-}
-
-.task-name {
-    flex-grow: 1;
-    padding-left: calc(2.5 * var(--scale));
-}
-
-.task-indentation {
-    display: flex;
-}
-
-.indentcell {
-    position: relative;
-    align-items: right;
-    width: calc(10 * var(--scale));
-    height: calc(10 * var(--scale));
-}
-
-.indentcell-trunk {
-    position: absolute;
-    top: 0;
-    left: calc(5 * var(--scale));
-    width: calc(5 * var(--scale));
-    height: calc(10 * var(--scale));
-    border-left: 2px solid var(--line-color);
-}
-
-.indentcell-branch {
-    position: absolute;
-    top: 0;
-    left: calc(5 * var(--scale));
-    width: calc(5 * var(--scale));
-    height: calc(5 * var(--scale));
-    border-left: 2px solid var(--line-color);
-    border-bottom: 2px solid var(--line-color);
-    border-radius: 0 0 0 calc(2.5 * var(--scale));
-}
-
-
-.toolbar-spacer {
-    margin-right: auto;
-}
-
-.desktop-bg-settings-wrapper {
-    display: none;
-    overflow: hidden;
-}
-
-.desktop-bg-color-block {
-    width: 25px;
-    height: 25px;
-    float: left;
-    margin: 5px;
-    border: 1px solid #898989;
-    box-sizing: border-box;
-    border-radius: 2px;
-}
-
-@supports ((backdrop-filter: blur())) {
-    .taskbar {
-        background-color: hsla(var(--taskbar-hue),
-                var(--taskbar-saturation),
-                var(--taskbar-lightness),
-                var(--taskbar-alpha));
-        backdrop-filter: blur(10px);
-    }
-
-    .taskbar .taskbar-icon img {
-        filter: drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
-    }
-}
-
 @media screen and (max-width: 768px) {
     .window-copy-auth-token {
         width: 100% !important;
@@ -3202,172 +2495,6 @@ label {
         flex-direction: column;
         justify-content: center;
     }
-
-    .taskbar {
-        justify-content: center;
-        overflow: visible !important;
-        overflow-x: scroll !important;
-        overflow-y: hidden !important;
-        max-width: calc(100% - 40px);
-    }
-
-    .taskbar .taskbar-item, .taskbar .taskbar-item-sortable-placeholder {
-        width: 40px !important;
-        height: 40px !important;
-        margin-right: 5px;
-        overflow: visible !important;
-        padding: 5px 5px 10px 5px;
-    }
-
-    .taskbar-icon {
-        height: 40px;
-        width: 40px;
-    }
-
-    /* Hide scrollbar for Chrome, Safari and Opera */
-    .taskbar ::-webkit-scrollbar {
-        width: 0 !important;
-        display: none;
-    }
-
-    /* Hide scrollbar for IE, Edge and Firefox */
-    .taskbar {
-        -ms-overflow-style: none;
-        /* IE and Edge */
-        scrollbar-width: none;
-        /* Firefox */
-    }
-
-}
-
-/*****************************************************
- * Tooltip
- *****************************************************/
-
-.ui-tooltip, .arrow:after {
-    background-color: rgba(231, 238, 245, .92);
-    box-shadow: none;
-}
-
-.ui-tooltip {
-    padding: 7px 11px;
-    border-radius: 2px;
-    font: 14px "Helvetica Neue", Sans-Serif;
-    border: none !important;
-    backdrop-filter: blur(3px);
-    filter: drop-shadow(0 0 3px rgba(0, 0, 0, .455));
-}
-
-/* Base arrow styles */
-.arrow {
-    width: 70px;
-    height: 16px;
-    overflow: hidden;
-    position: absolute;
-    left: 50%;
-    margin-left: -35px;
-    bottom: -16px;
-    border-top: none;
-}
-
-.arrow:after {
-    content: "";
-    position: absolute;
-    left: 20px;
-    top: -20px;
-    width: 25px;
-    height: 25px;
-    -webkit-transform: rotate(45deg);
-    -ms-transform: rotate(45deg);
-    transform: rotate(45deg);
-    background-color: rgba(231, 238, 245, .92);
-}
-
-/* Arrow pointing up (tooltip below taskbar item) */
-.arrow.bottom {
-    bottom: auto;
-    top: 31px !important;
-    transform: scaleY(-1);
-    left: calc(50% + 2px) !important;
-}
-
-.arrow.bottom:after {
-    bottom: -20px;
-    top: auto;
-}
-
-/* Arrow pointing down (tooltip above taskbar item) */
-.arrow.top {
-    top: auto;
-    bottom: -16px;
-}
-
-.arrow.top:after {
-    top: -20px;
-    bottom: auto;
-}
-
-/* Arrow pointing right (tooltip to the right of taskbar item) */
-.arrow.left {
-    width: 16px;
-    height: 70px;
-    left: -16px;
-    right: auto;
-    bottom: auto;
-    margin-left: 0;
-    margin-top: -37px;
-    transform: scaleX(-1);
-    top:18px !important;
-}
-
-.arrow.left:after {
-    left: -20px;
-    top: 20px;
-    right: auto;
-    bottom: auto;
-}
-
-/* Arrow pointing left (tooltip to the left of taskbar item) */
-.arrow.right {
-    width: 16px;
-    height: 70px;
-    right: -16px !important;
-    left: auto;
-    margin-left: 0;
-    margin-top: 35px;
-    transform: scaleX(-1);
-    position: absolute;
-    top:18px !important;
-}
-
-.arrow.right:after {
-    right: -20px !important;
-    left: auto !important;
-    top: 20px;
-    bottom: auto;
-}
-
-/* Center positioning adjustments */
-.arrow.center {
-    left: 50%;
-    margin-left: -35px;
-}
-
-.arrow.middle {
-    top: 50%;
-    margin-top: -35px;
-}
-
-/* Horizontal center adjustments for left/right arrows */
-.arrow.left.middle,
-.arrow.right.middle {
-    margin-top: -35px;
-}
-
-/* Vertical center adjustments for top/bottom arrows */
-.arrow.top.center,
-.arrow.bottom.center {
-    margin-left: -35px;
 }
 
 /******************************************************/
@@ -3381,25 +2508,6 @@ label {
 .font-selector-active {
     color: white;
     background-color: #2b62f1;
-}
-
-/******************************************************/
-/* Window Snapping */
-/******************************************************/
-.window-snap-placeholder {
-    display: none;
-    transition: all 0.2s;
-    position: absolute;
-    box-sizing: border-box;
-    padding: 10px;
-    backdrop-filter: blur(5px);
-}
-
-.window-snap-placeholder-inner {
-    border-radius: 4px;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(245, 245, 245, 0.7);
 }
 
 /*****************************************************
@@ -3416,43 +2524,9 @@ label {
     box-shadow: 0px 0px 15px #00000066;
 }
 
-@supports ((backdrop-filter: blur())) {
-    .launch-popover {
-        background-color: rgba(231, 238, 245, .92);
-        backdrop-filter: blur(3px);
-    }
-}
-
-.popover-apps-item {
-    clear: both;
-    margin-bottom: 10px;
-    overflow: hidden;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    padding: 5px;
-
-}
-
-.popover-apps-item:hover {
-    background-color: #a5c8f3;
-    border-radius: 4px;
-}
-
-.popover-apps-item img {
-    float: left;
-    filter: drop-shadow(0px 0px 0.75px rgb(51, 51, 51));
-}
-
-.popover-apps-item span {
-    line-height: 47px;
-    display: block;
-    float: left;
-    margin-left: 10px;
-}
-
 .device-phone .popover {
-    height: calc(100vh - 65px);
-    height: calc(100dvh - 65px);
+    height: 100vh;
+    height: 100dvh;
     top: 0 !important;
     left: 0 !important;
     width: 100%;
@@ -3578,121 +2652,6 @@ label {
     opacity: 1 !important;
 }
 
-/*****************************************************
- * Start
- *****************************************************/
-.launch-popover {
-    width: 530px;
-    height: 500px;
-    padding: 20px 20px 20px;
-    border: 1px solid #bbc2c9;
-    border-radius: 4px;
-    background-color: rgba(231, 238, 245, .92);
-    backdrop-filter: blur(3px);
-    box-sizing: border-box;
-    overflow-y: scroll;
-}
-
-.close-launch-popover {
-    position: absolute;
-    top: 2px;
-    right: 3px;
-    display: none;
-}
-
-.device-phone .close-launch-popover {
-    display: block;
-}
-
-.device-phone .launch-popover {
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh;
-    background-color: rgba(231, 238, 245);
-}
-
-.start-section-heading {
-    font-size: 13px;
-    margin: 0;
-    padding: 0;
-    height: 15px;
-    margin-left: 5px;
-    margin-right: 5px;
-    border-bottom: 1px solid #CCC;
-    padding-bottom: 10px;
-    color: #677a86;
-    clear: both;
-}
-
-.start-app-card {
-    height: 100px;
-    width: 20%;
-    float: left;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    box-sizing: content-box;
-}
-
-.start-app {
-    width: 70px;
-    height: 70px;
-    text-align: center;
-    overflow: hidden;
-    margin: 0 auto;
-    padding: 5px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    border-radius: 4px;
-    transition: 0.1s background-color;
-}
-
-.start-app-icon {
-    filter: drop-shadow(0px 0px .3px rgb(51, 51, 51));
-    display: block;
-    margin: 0 auto;
-    width: 38px;
-    height: 38px;
-    margin-top: 2px;
-}
-
-.start-app.ui-draggable-dragging {
-    background-color: transparent !important;
-    width: 40px !important;
-    height: 40px !important;
-}
-
-.start-app.ui-draggable-dragging img {
-    width: 26px !important;
-    height: 26px !important;
-}
-
-.start-app.ui-draggable-dragging .start-app-title {
-    display: none;
-}
-
-.start-app:hover, .launch-app-selected .start-app {
-    background-color: #ffffff;
-}
-
-.start-app:active {
-    background-color: white;
-}
-
-.start-app-title {
-    font-size: 12px;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-overflow: ellipsis;
-    display: block;
-    margin-top: 8px;
-    width: 100%;
-    box-sizing: border-box;
-    white-space: nowrap;
-    overflow: hidden;
-}
-
 /* UIWindowEmailConfirmationRequired */
 fieldset[name=number-code] {
     min-width: 0;
@@ -3745,19 +2704,6 @@ fieldset[name=number-code] {
     text-decoration: underline;
 }
 
-.pulse-dark {
-    display: block;
-    float: left;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: #3f3f3f;
-    cursor: pointer;
-    animation: pulse-dark 1.5s infinite;
-    margin-top: -7px;
-    margin-left: 7px;
-}
-
 .context-menu-item-icon-active .pulse {
     margin-top: -7px;
     margin-left: 7px;
@@ -3777,34 +2723,6 @@ fieldset[name=number-code] {
 
 .qr-code-window-close-btn:hover, .generic-close-window-button {
     opacity: 1;
-}
-
-.welcome-window-close-button {
-    opacity: 0.7;
-    font-weight: 300;
-    top: 5px;
-    right: 5px;
-}
-
-.welcome-window-close-button:hover {
-    opacity: 1;
-}
-
-.otp-qr-code {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    flex-direction: column;
-    align-items: center;
-}
-
-.otp-qr-code img {
-    width: 355px;
-    margin-bottom: 20px;
-}
-
-.otp-as-text {
-    margin: 20px 0;
 }
 
 @-webkit-keyframes pulse-white {
@@ -3835,37 +2753,6 @@ fieldset[name=number-code] {
     100% {
         -moz-box-shadow: 0 0 0 0 rgba(204, 169, 44, 0);
         box-shadow: 0 0 0 0 rgba(204, 169, 44, 0);
-    }
-}
-
-@-webkit-keyframes pulse-dark {
-    0% {
-        -webkit-box-shadow: 0 0 0 0 #3f3f3f;
-    }
-
-    70% {
-        -webkit-box-shadow: 0 0 0 6px #0267ff00;
-    }
-
-    100% {
-        -webkit-box-shadow: 0 0 0 0 #0267ff00;
-    }
-}
-
-@keyframes pulse-dark {
-    0% {
-        -moz-box-shadow: 0 0 0 0 #3f3f3f;
-        box-shadow: 0 0 0 0 #3f3f3f;
-    }
-
-    70% {
-        -moz-box-shadow: 0 0 0 6px #0267ff00;
-        box-shadow: 0 0 0 6px #0267ff00;
-    }
-
-    100% {
-        -moz-box-shadow: 0 0 0 0 #0267ff00;
-        box-shadow: 0 0 0 0 #0267ff00;
     }
 }
 
@@ -3949,13 +2836,15 @@ fieldset[name=number-code] {
         backdrop-filter: blur(10px);
     }
 
-    .window-snap-placeholder {
-        backdrop-filter: blur(5px);
-    }
-
     .context-menu {
         background-color: rgb(255 255 255 / 92%);
         backdrop-filter: blur(3px);
+    }
+
+    @media (prefers-color-scheme: dark) {
+        .context-menu {
+            background-color: rgb(38 38 38 / 92%);
+        }
     }
 
     .popover:not(.device-phone .popover) {
@@ -4018,54 +2907,6 @@ fieldset[name=number-code] {
     justify-content: center;
     align-items: center;
 }
-
-.dl-conf-item-attr {
-    width: 60px;
-    text-align: right;
-    display: inline-block;
-    margin-right: 10px;
-}
-
-.launch-search {
-    border-radius: 5px;
-    background-repeat: no-repeat;
-    width: 100%;
-    box-sizing: border-box;
-    background-color: white;
-    padding: 5px;
-    background-size: 20px;
-    background-position-y: center;
-    background-position-x: 5px;
-    padding-left: 35px;
-    padding-right: 35px;
-    border: 2px solid #CCC;
-}
-
-.launch-search-wrapper {
-    margin-bottom: 10px;
-    padding: 5px;
-    position: relative;
-}
-
-.device-phone .launch-search-wrapper {
-    margin-top: 15px;
-}
-
-.launch-search-clear {
-    display: none;
-    position: absolute;
-    right: 8px;
-    top: 8px;
-    height: 28px;
-    opacity: 0.5;
-}
-
-.launch-search-clear:hover {
-    opacity: 1;
-}
-
-.launch-app-selected {}
-
 
 .website-badge-popover-title {
     font-size: 14px;
@@ -4144,34 +2985,6 @@ fieldset[name=number-code] {
 }
 
 /* Zooming entrances */
-@-webkit-keyframes zoomIn {
-    from {
-        opacity: 0;
-        -webkit-transform: scale3d(0.3, 0.3, 0.3);
-        transform: scale3d(0.3, 0.3, 0.3);
-    }
-
-    50% {
-        opacity: 1;
-    }
-}
-
-@keyframes zoomIn {
-    from {
-        opacity: 0;
-        -webkit-transform: scale3d(0.3, 0.3, 0.3);
-        transform: scale3d(0.3, 0.3, 0.3);
-    }
-
-    50% {
-        opacity: 1;
-    }
-}
-
-.animate__zoomIn {
-    -webkit-animation-name: zoomIn;
-    animation-name: zoomIn;
-}
 
 @-webkit-keyframes fadeInRight {
     from {
@@ -4247,23 +3060,9 @@ fieldset[name=number-code] {
     /* --animate-delay: 0.9s; */
 }
 
-.animate__animated.animate__faster {
-    -webkit-animation-duration: calc(1s / 2);
-    animation-duration: calc(1s / 2);
-    -webkit-animation-duration: calc(var(--animate-duration) / 2);
-    animation-duration: calc(var(--animate-duration) / 2);
-}
-
 .antialiased {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-}
-
-.share-copy-link-on-social {
-    float: right;
-    width: 30px;
-    cursor: pointer;
-    margin-top: 2px;
 }
 
 .copy-link-social-btn {
@@ -4276,65 +3075,6 @@ fieldset[name=number-code] {
 .copy-link-social-btn img {
     width: 20px;
     height: 20px;
-}
-
-
-.puter-auth-dialog {
-    outline: none;
-    display: block;
-    width: 100% !important;
-}
-
-.puter-auth-dialog {
-    outline: none;
-}
-
-.puter-auth-dialog-content {
-    border: 1px solid var(--dashboard-hover);
-    border-radius: 8px;
-    padding: 20px;
-    background: white;
-    box-shadow: 0 0 9px 1px rgb(0 0 0 / 21%);
-    padding: 80px 20px;
-    -webkit-font-smoothing: antialiased;
-    color: #575762;
-    position: relative;
-    background-image: url('data:image/webp;base64,UklGRlAbAABXRUJQVlA4WAoAAAAwAAAA8AIArQEAQUxQSB0AAAABB1ChiAgAKNL//xTR/9T//ve///3vf//73/+ZAwBWUDggDBsAAHAjAZ0BKvECrgE+nUyfTKWkMKsjk3mqEBOJaW6WwjzR/6prSfc95r2ztLOrL7Qmk8WYj6B+qfKm8C//+ufPmvfz/L6dZ/lf/79Rn1D/u8lf1n/h51GW/9DvL9u3/+z8//rLz8rv/Ho91qL//9Tf3+Dt29xsjEB3trEAO1CpmGKEcxEE0NTCpyVf/lDAyEBRUXwgPowMARkOmIbfb4QzfbEpqmW/oVDjCDhYdvNTH6wCem7jlfp6TsCUMhAr8Nka9YNDW//M1hIARGlp5TiuWo8zkVrq7MQ8sjAbL2ZDAR5HrshhvuQpLP42dIBC+d2vAQEWdwbMDviLsUYj7YuRYgd/nYcIbMPrxgnEqUps4UewgKUjphAD2DIgVLi0raUFF6zyUCN4z77Os61eB1TcZJ0RwsZHd++GEzQ7mz3e/8Gt7hdASIxvpMWj1hBk/wtwuFUwoyhwmcO1bs85XxEslCt8brpD8GCPMocPhn3/M5wnWvE4CeIukjl4/r+Ma/17kBr2SFIk0YVKOOYHgsl6GX4fv5Tgz90tiX7+h39885X77VVv+c7XN0O/GPWEet/y34k/ypNmTihk+1ziSLuRV3nLSLZDMraRTIfNve0QRePaEiQVD4I+oFEmoBXEet6lDvR2iq+orPAMjasfTuLzL+gpCtJ47qYj+USzv7/+nm7jib/cuN82LsnH50Z/Qk0/cZniT2GD2pL57Z/3gcIbTLEo7saABHxnU5Dv78DbEISkXdIVUjE/Awv/4aAzf8VAkX+XJNfUhTeww6xuB7Zu0m2J+gfOeH0Nn0l+pr9VX7F9aMLFhnIMOTFtu9Xc0Exd7mwlq375ksxdJpEUw6oFlJxzH/DIozmmdzgRB6l9d4UK9eS/pUXkYxjeJ2PI7bFvzs7y4wPLLiaVo9n+5t1O4wnKYicOhiAasGiBV1NxFmFla/CHup6UbeeDHzMZ7shRHDWBgc67HG4Y6QVKrO9Rit+tZR22I4OpyhlNHYqhJmGzk2dsUBm7cbqPRmypC85dJXnXGD7U2CPR42Y70JBkQKnmXLXYEt55FMu3VKekwAhkMW1Q79UIkNMnxJ1geGhorliFjJ+gfca/Jp4D7E92CdB6uuubIZCWwwaftBiWwe5cKLWOTC6b9Tw5nJawLRkmeUDhNZBdhVfuACupAs+NCF8EjDaStA1YbEMziSrNgssdExVpaDRVToIoF4iVTwTb5ZNQjsrf9lfPX4PKlDWwz+vzT+nl7FJlEv75tkQ+rcObWSCvKhbYUlfXyuvIwfIHKu1+Tqd0tIjunozTnB4a6XhLDZIh084eRLvPDCPOaiquqW9Xfb109xNCKIGY36jlHH19tPE3TSyFg+gxtpGM7g/FkY1FVIxaCN+l/y+UuvmfInYIVaigEVQ6Xm/UBjoDaTP5wRkNyvKH+P3q7Z8eVyeDxwc7HwX3+Ga3YD1QTq/ql1v4FMm4fGwg2FwEb6Ng9zG4WzQ1qmNQnWMPWQVTc81z6/pJol8l2RmHRW4lsFaECR4EOJME86gBBPlFjExRZ+MEqoKWbYJh879MOdYFxEUOt+5YtXsQavOsx65aVe/l6EqXyZSBZZRljO/Ywx8uBC/99P+8BYqFFm2sgzw68Rk58Mn8fYOzAtNndX8JOqrrqh/Nvv2nmz/7jdnIivgBNdRI1NSl2mHu4DIVZfYCvx5hq8OCKST64vf9yvvarVU9gh272p8B9RRIBeRRHS5/Krbce41kV59WESLOi8hkkKWwiHJUW0tnkjVBrSi9MUXZkaXeTkRcPQG1X3TKs4PFJqHjUErBx8tuZZCKAb/DZfBdn3CpcCPNKb3GOvLfCJi8SP94JrmDk2um/Zo/zpAtUDNPMJHA3w2vYkL7prMIT4lSV6Newo69qnSXCEHk3jiblYwkAp4lQQBNiJeDxwuaNLlqFltDn4qaUcoK+m6Oc4a8V+/OMJhEtP9PrGfwTTArKufxFqXwqCuiNoCHIm9kDduO6zjA4JHbXL2u5UmVQCtKhVIEatqpersXs5H0WzvX2ja+9EhhbfzYuZrxWM/H7ZRqJAx6nqkZ4Nz5tSeYQYBVT0TobZNNoNJdHCCpHVaZMwxsK4rWon/DqMYw3E6L4moc6X67ZM7pvSnxeqSl9VMLMF3duaw2CsSJJ17xOr/HdJIvYymBsKNQiKlXU+X/Ha16L9FQGyiODd80CAPCgiKBgpP5nIPiRplDZRuTHDLRKS+Mv3c52cZfX9sNxY1vID2AG5g7OK/xysbyq2n4/6zOXOzM3mVWuMTiYR/4vV1kVY/Y3oPEDJPnd4kTjc9A4ReI1qa9AinIrLebNbtO70z0rSxUaoqI/Ddd20APl+fcoK8aumsx1N7w9oOa6z8+vgxqymt2n6Mulhq/yizgRjwLEP8tNbeZ40sp2eLYH+j8oTbix7BCjbM2vKCwcb22/+G79VgP997sfr9IwLz/oAZL8HBpewJQROWUUGdBYPU44uXqUBQ+3RjfXJaFv3w8Q4QpHGnecadb8ax+KVBX6u/y8OfsxwWE9HOUwHlP46APGwQ+GPGpBaKI1SbIPRoa1UNvVhT1Fmu/f/78ibV1WhDu8iCCw2gOI4hcdIes5WJMziWjdawAg4x5eX0jdGnw4oGYhjeqe3+M/+/UrSiKFuXS7f+V2+oNPjw5RdWM/ihv8MXf9RAdzltvZSoibPdhMv9/2aVUrxvR8BHRc3Z7kO4q5f5GfueRP/AgjiQpRp6NfqPUkakThRII9ZhV7SMusfNM1ugq6b9susPW90czpMEcMgsJ6kmVqHn2veFKFxUR7HftHZ3RLayUGJ/Qtrh12rN/g2vH/nlmr7UMqN0nv7daUBxyCAS1j/1Re/U9f9h7i3HfZiACc0AvHk+n6l9biwnkm0/SMNKX7+/i/PopB4KjMlaY2iPhZXE2YM3GUnQvhEUTH1BuP4Y/5tLQPvAJN0xmLUV9aIM+azpAaMDKgVGrhZrD/Wp0wh8l9xEcV/7Y2cS/kV39lzHf+z+Z59JLt6fYeVXBv4wrgJbcpL1l8kb8aiujewjd4tgpWc1domyEBRaMH/jkIgGl+xxvv6kxI87+73ZST+1LL4K6wf3hWERTWle2yOQltkdL8FRfEDdB8H9uAAD+79iqhFzfCubLbi3KpzVtf0fq94WmyWGDBhJqMlbX9eGhEre0W6GTrU0DpOZz0Sp0bpi0GlQ9V79EwoeJg4gBgnqF07+EVYzYAexrVUn3k4ELSUsPhlMq5vZUbqpfAxgyuGcMyn/qxi47SfTJwEw2BOsS5fyEfthIiD1LVJqsAvdKbQZ4t/rcld466i8YpYFWkFygmX+5swl8sq6OSILIOVouQGVUAZiBf/iHqfGdNTsHvlCK1KVc2nwF8WX1R1dWJ9jEpS5tO/SFeRneGPo+AqqOr33kavMdAFEWANbIAwxycDadtirhcrZ2TMT6jUEKxXr6OJWt1xgSVrBtUysZ7VYjpBv/bormAMg84n5IOQiECoUhDyaSQA6azdnJ0r8bfvz7+f24jwKFL/iMmfrzlizpxbsF/Zesri2UFzsnk7ZbRzSSAiCdl+N80zZoYEOPj1vnMCmAItUEBb3q0Ni3OVKeO3a3UfaZc0Gv2Ghj4UIIetvoYxr2mvXUiZpREsvYp7YIz4f5qLpqr9aAjoDzh3f47M8jX4XTshiR9g31ScDA1EBKQtwH96YdlngZCrOLsjhAZWgOVONtvjSL1Wk/uFwSRUctic/1SdrjQiOYSmnobCAS51hlxwZ6xIeWthPP8AAFo+T2IEq1Lw0MlzQGxnjJLpfL8pMcHICMbTfpTr6/jz4zliTWNAgrRMGJw/P1iq0T02Gk8HC/XjB4ssb2CxZCll58HLmnoBiyVAAECWgREVdcJ3/L6NBpjnXVkR0DaPu/kWpNzovmAAGeVkbufex8OHbi3mcKGgVACobGeDilBFAL9ZGuooWAW+JlPApRzw1SGrNSCOEZ7fbYc2+BsSrNCaYCb1grfPghxqp5jAynnabMu8WJlqcWHsTXJCMNpf0sFik0Dh0pPUXsDK0CdmdaU2JB2RX1Jzk59jCkD7YaWVs2dLNLUFxzbqqCDWcPdJ3bfFiqjO5rOkZWKbNP+DfFqTVf2KFb+xrmEAUJtEIQ/g10ArYs1OrYC8cqaBR4CmJsAnuCXQJXocp4Qp908VzvIxaESMkR4zg8iFj9oX0Mle61Yc2jl7UtKGCNqkXy6JGZG1CfrOD+yYmrFBX6xQVif1UlK3a4a8jI3r1CrShUPwCzr7Lg67tKvkh0pifZB7FiMbXjxxGdo7tL/omkt62lEA1q6C7mnxPCiI88A9DiD2PTxf4gGD6W/upL+3nB7qa8Ta0ppjCWpL9cBAO3SQ2G9Kr3NrbUlMreTufoEg8FP7yhpgs0mLKfn5aGHYNONh9geGnHhcl9Hr18jswDyXemHvhMAhipvRKZuOvo2caiG+ZprtB+mywq2sqMQfWaRmfMiX9PoaWTx7L3kdx8buLUr0DIibKA9c6DxfVoiVS1wSsYWf5G2bsx3AIi8Eark/H0fH8WDtT5lQdsI6hOSkTIwyaQEHMRgR5Hba5INB3kNhCbhx6eNwECPIqluE/DWxF/hPFGiuOYz7f6aXKawksWmDqhnHmB0jOlqmMWpuedZOTHCzmjZBCrtz+PYtkAnkmH48HrjmhBLnOLCsGrOieoAh1cr5rdq0wyeqXwZtn5/p5wOocmL06tGcfFCD53CeJwuC09AvVyo+EUdjagIavVV2rkcHCWATnHrrdJmhQQ3ZGGNQt4eywkolaPhCKRaFf9z4MkEQDZQTG1aDbIu+rVc61W/99itGp2pVvIUvjLNR/mP5FRg0q/6d3Nt4C3WsOatn7XLAQ01YaUrAYVSsXNPfLT0JEPTAS2E7U67/TC6HMFPMxoM9Mz4kHVmnorS4vUPUeZ8YG0AT5zi27XrrFtaZa5w/r//mFVXISlF6+YtMR9xktRoFtYv6KbIsDpIl72hfcZVB29jgWwalMe5tijxx6MqRVG63TlGnLomZzW02YlPvHOfK2+I4rcJlv+2tEjZ3Z4ZeTXA19BMiyz+F6UO7XHe9emNM+mASK88YfuWjlgTQ8a4vV2uHb1vTsTPGipfKSudF6HjtcuE+mfXPp/ZTWBmU+kTQxDnwR8c1EtrO+6VnESk9tHWRSQE9DGcw+RomE6ddjmoy1BnNtjABYyh/IZ5q81DyuiWpy+yZ2QrzXUiLaKqJqzwtCIKWayZQBZ4E1uIuxdYL6kRwUmsRJ1FIgpHQVtqdZ0zvb6jfdUN2WkdPML9iZexnc6iqLmF3IzmQ5qXAOwM8omxZjiSl1kirUM4abv4CtsL7PmZtJ1/ZWOwyplpB8vm3U479b1XaAqBKBkAiZ+Ibh1pf8c3gViC008xpz0fSrq1VcOHutDr//jpmS0wPfz4YdQrhIIcWUAA1ikL6rSplUEAGYbl7E4WmvjY1x34W+4aEXX/hyjOUPklFCXBVatZMu4by1vM07fGV4YE5Jv3vGJQ8UJFcQM4y4u5YvaB70ETl7JtC5UFt6d1s8BSXLFjN28I8qAAfZqXU0Vv0NZ2aWIH8BL0SAH2nc3St6fGNAxqnPoPOtFoSN1HZCbPvr9DPqIG2bFH3I+cPatgd6Pj9ndcR4u9emiAuguCkXyz5bhMiRzGyEEG9ru1vpeLSuaGXB8NJoIo2jZcOcUC2EjXnZYEQ/Jf6vSChgn6jqF1uvlO6XYC7p/Rzo75DkxtCp4cbA77h9PY5CsyaBykd1nVGLxui7GPze9/LqsoTSr+4JAwgD8JkPEXXqSMckP8yZbYiJdp4oDXMvjDscvRPROBbGGHJME8apNrXGIf5wFVl50F5aiI2xboHuy+LOA5DgIjduDGFJq0uF2LgaawMmcIX1D9Z+iktUNOfqO51o28KYuDd2w84SRBEty/ola9Lta++BgwwAjczDn+wreIFWqo4RDoi5BbKpqEmTtUVqSzqiZH8Tl1fUxkRfvvUqnw0o1KZ8Mzv5Cg5hNUadG0hhcc/up/cALkm+J+QpTOWEYrXXf0TiZ8vzf2rcAul85hCjixJTdfO2qvWsfBVUf0EaeVYnXFpBX3kj0t6q17/kxF1fp9BhbV1LVUcWiUWCBNIN/clgUJLPHOCu1zscxM8+cqBsSNmhE0NTSfuJDNZTgGvrMfM3srdP0OeJfVpSEaxeEiNlDFNkGkFlJ7xBuNioj9cCUJYvOveexs9DyOdzZkiSZmUDtHXauC83MZhxPxH5LL1NpCoJdYNhQEwdqSevhulQKlx+2K8OEq0OTPXacZlAuT4kLeYHBi9Uy/j10L0M2h8kwiK5HunGAqLtb3kSTMBCQHvWnPWfWubUdClh8YnrCPiCTFDg5XCQY022i9V/fzcf9cy6nHmP+KV0IsJm17ZOLsabqgVs4mR86ttLrPkoCNZIMFQMvJ5rbLpfhdfWMCXR/3Worm/8rfib4pDffCy8iz56yNPd+s6FGpdD8AkeEGyiEqazY72j/sssV69VlAgKKLAy7/UhllSdFQEb8f8za++1RdnCtB+1pwQdiZ9asz5OuMAZ6CwudyC6t1wnU4dGQHzJK/zqXDzcdoSwcy2bHDt6vKFRzdcTUnEr7C9Ws/cj3WpvIS2xIsvDuQRpnWG5IP5k2VVhrsGV9nhpvRzQb8XlCMZi0noHul72X2QFJQ48zVJgCIBSlblTPk/rLfTqmZxk75FmFhfcFszUGCFvAIWyroBPFefNrtZN26hsXbynXPfxNGhXwroIip+eCG/uzurUqFlyy+JblVL+5SEtvK990PrbJl7E5xVImEl6RdsHqYvNhTytMs0dxgQdDInMNAyFtdlciS9qzKvztdcw+oq0W9+BaNaiqssxz7caLrh54IUfUJHnHTpbop1lAyJXEAo6L8eDl1X46mkoNUkoR21o//xnmL2u5zyu8JmaTD8c77VjqRpQayOh5QUgEExPeXrogXDalS48ubECOx7aZBfyn9ci4ir4ifPPokAj0IVMglh85stOMGuZPkq+dIHdNEgAq8ZMTY+NbXs7ah8yP27QWYz1lbJGJJyAU97X1uQ5rG4TQVzqFtxYkqHyeoIygRFD4SVyB8uABK7mE7rXkvBtbGlBKvHMLiwoFvkgL2YNNxjvHilB76ZfounqxabWY1ufFDEULUsCT/nhdTw+P5CbDBzwWdNtxervRm6xdnwtMprXXcFRzVl8uWOIopDKPRF04tHOb9R920BNhv5aEpB4Y0hVrQzuRfxffGafun+4tceUWjtIMd8xWXnfrFjxU2ioEH0oM5oXSLihduRkeYF9gWIuNigtLp/nS3sI49rzxdTLwxMPW13BZPM5FQe/vbtDFPMN/1FFpj3ND7ZEex0MKCVWZhTkyn1f4QOSNu1d2RE0E6QhPdN+exhYztnnFipBW++osJCm2Go2rtg8TRjJQJzA1zcfDtH8NToCCeMzlNMap0mWxKMb850VuMZQaMq8GzRWHTdRRly7lZQl9GIhxH9mzXiJ/RHF5juTu5O45WtXBgVfR33LWLom6CbXrkjje1hE57XeYkgSTPVzelKq4Q95h43KlmyMPh9R91j726nPrCGaYqebkBnwBc6773ZMVdcin533GG5IQcXq7V/CEWWFIIvMDMwvSC35kyspY58QH4aahgG19XPvYf5Qn5ygsNL3TM7dzwfBIZ52qsSOmpaUuBLIJCv0yKDjzTo8+aUI+iwurRUJm5Z1bdbdr2bByKFXHdkbjTFj+BXbPw+zmUOJ5fjBY18uRra6s4zMosDtS899s6fstWhMCstRkK0NaDK5Q3hMbhbUTeXVH99Fup1LmS2yBXbuK+yVvQZ6WTmtctSrvLjNdR1+j2nvyRtNW4DYJGL1QFbdOWx0vqjuJRHGwyvlzC3fnGTJdCgEzzK04KaKT388uvtNwB7sRlSAiyX8HwzjAaIdfWBkuxsmM2zhGA2Esq9dSKsjPJqFpmAw7wtNCWq1GgelC6gmzCjMri9mavI4JYSGj7LoPlwJFqXqMOLN7Nu0Wk00OiW2wfcb8JDzBl6sne3bcj7XYcKezsFzC98WCS4sx5UlNfeJ5kMFhLpq8WeGDL4IeO3PAK98ZvNdmJ52uAyxIfWE44qTgwJsAxwYRBvkUI2yY4VnTBnf8Gh0nPHPFdhwfWYEWEBOw+K1BFNv/mZbic/DwkoqZWAR514lCA0aV43LBemE6zHUpXCMQXs7daqeh2kpwKiYQqUWNlrVShO1NVIUn6ir+SDS6X20QWkly6kWUFajhovz5n38DgutRdpNwngVyBSbd9Ivbh53YjwNAlsa0b8I5LEvhoTTQsfPZ5S3Zu2a/PYIpo51zfsK3f+XmEYWzZoEXbsvtl/usqdVD13+qeTuEU7V+sTf6OD/uo/B4/KpnM53lfCWfJNC3WKm5fyoUSeqj3NqjWfSS6bne3lcMnOk46zJZSIXyxaPs7Gb7NXogDdulXYM5PHj7DTDwprdEMKgENQa9Lxht5U4tfsrFsBR9HBLSMOUTAv3JQd9oEymfBz/lZBpVIM79OlzzKZcBKmTtus9qlm++iXv6eGLdEoEi17rSx1W7X7kQXaIkMsV+Ns9HtgN+2AZuzvsMRPdkX5oF21vVSmE91By9UnhKG8jjNUr66maTmHc0VBff2EPP1MC5OJ3h8EzlOaedk2k0OcEiRYPsasA2vYeu9fkcJLmT2Sq76VYK8/IPpTXI+/TSpXUFc1V5VqNyt/39hTJ/6kjBuuw+1cvJI4Ch4lMhw2xDUPR1uVztKpLamzen1fLYdTeupquuXMLAxtLFUEnwaQ18gb3wxUYIJwE3VkfXA/shqyDSb1+jNg5uBJmQyEgTBHjmHRoLIe/Woh58xTbLtb7IrXITJgvZmFXeSbhjd7ms2Kb0DyyDFPDz1pxEk2VO13dfjgNzw4rRZXDGNxKdW4V8x0ZqfMrs48cLI/j1eOqmLvo3k6gkaYRfrs1ngoVMqazzJrkJYFz8WmsD+K1eEp/LqNxUkodWrAq885E8VeIULxp0u3xb1m7uUnyrHzshPXSnGCDUaxFj6UxoYG6a3Ga7OYz0Sdnw+dQk230G0weEIt9GN3BpWOiGAJZ69w4jr2D+6RkhzNmnY9n1qV05DE1BflAzIDxsPW78jJAFiz5aARulRgVFwgBnMuPWxvLmIXBvAAHy65muvCAsGfVex4ZHKCCv6XnQ2OW9EURTQsdw7Gb8bz9teGINBk3/fz0oAJ5e9QAAAA==');
-    background-repeat: no-repeat;
-    background-position: center center;
-    background-size: 100% 100%;
-    background-color: #fff;
-    height: 100%;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-}
-
-.puter-auth-dialog * {
-    max-width: 500px;
-    font-family: "Helvetica Neue", HelveticaNeue, Helvetica, Arial, sans-serif;
-}
-
-.puter-auth-dialog p.about {
-    text-align: center;
-    font-size: 17px;
-    padding: 10px 30px;
-    font-weight: 400;
-    -webkit-font-smoothing: antialiased;
-    color: #404048;
-    box-sizing: border-box;
-}
-
-.puter-auth-dialog .buttons {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-top: 20px;
-    text-align: center;
-    margin-bottom: 20px;
 }
 
 .launch-auth-popup-footnote {
@@ -4359,201 +3099,11 @@ fieldset[name=number-code] {
     margin: 10px 0 15px;
 }
 
-.puter-auth-dialog .close-btn {
-    position: absolute;
-    right: 15px;
-    top: 10px;
-    font-size: 17px;
-    color: #8a8a8a;
-    cursor: pointer;
-}
-
-.puter-auth-dialog .close-btn:hover {
-    color: #000;
-}
-
-/** 
- * ------------------------------------
- * Button
- * ------------------------------------
- */
-
-.puter-auth-dialog .button {
-    color: #666666;
-    background-color: #eeeeee;
-    border-color: #eeeeee;
-    font-size: 14px;
-    text-decoration: none;
-    text-align: center;
-    line-height: 40px;
-    height: 35px;
-    padding: 0 30px;
-    margin: 0;
-    display: inline-block;
-    appearance: none;
-    cursor: pointer;
-    border: none;
-    -webkit-box-sizing: border-box;
-    -moz-box-sizing: border-box;
-    box-sizing: border-box;
-    border-color: #b9b9b9;
-    border-style: solid;
-    border-width: 1px;
-    line-height: 35px;
-    background: -webkit-gradient(linear, left top, left bottom, from(#f6f6f6), to(#e1e1e1));
-    background: linear-gradient(#f6f6f6, #e1e1e1);
-    -webkit-box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
-    box-shadow: inset 0px 1px 0px rgb(255 255 255 / 30%), 0 1px 2px rgb(0 0 0 / 15%);
-    border-radius: 4px;
-    outline: none;
-    -webkit-font-smoothing: antialiased;
-}
-
-.puter-auth-dialog .button:focus-visible {
-    border-color: rgb(118 118 118);
-}
-
-.puter-auth-dialog .button:active, .puter-auth-dialog .button.active, .puter-auth-dialog .button.is-active, .puter-auth-dialog .button.has-open-contextmenu {
-    text-decoration: none;
-    background-color: #eeeeee;
-    border-color: #cfcfcf;
-    color: #a9a9a9;
-    -webkit-transition-duration: 0s;
-    transition-duration: 0s;
-    -webkit-box-shadow: inset 0 1px 3px rgb(0 0 0 / 20%);
-    box-shadow: inset 0px 2px 3px rgb(0 0 0 / 36%), 0px 1px 0px white;
-}
-
-.puter-auth-dialog .button.disabled, .puter-auth-dialog .button.is-disabled, .puter-auth-dialog .button:disabled {
-    top: 0 !important;
-    background: #EEE !important;
-    border: 1px solid #DDD !important;
-    text-shadow: 0 1px 1px white !important;
-    color: #CCC !important;
-    cursor: default !important;
-    appearance: none !important;
-    pointer-events: none;
-}
-
-.puter-auth-dialog .button-action.disabled, .puter-auth-dialog .button-action.is-disabled, .puter-auth-dialog .button-action:disabled {
-    background: #55a975 !important;
-    border: 1px solid #60ab7d !important;
-    text-shadow: none !important;
-    color: #CCC !important;
-}
-
-.puter-auth-dialog .button-primary.disabled, .puter-auth-dialog .button-primary.is-disabled, .puter-auth-dialog .button-primary:disabled {
-    background: #8fc2e7 !important;
-    border: 1px solid #98adbd !important;
-    text-shadow: none !important;
-    color: var(--dashboard-sidebar-background) !important;
-}
-
-.puter-auth-dialog .button-block {
-    width: 100%;
-}
-
-.puter-auth-dialog .button-primary {
-    border-color: #088ef0;
-    background: -webkit-gradient(linear, left top, left bottom, from(#34a5f8), to(#088ef0));
-    background: linear-gradient(#34a5f8, #088ef0);
-    color: white;
-}
-
-.puter-auth-dialog .button-danger {
-    border-color: #f00808;
-    background: #f00808;
-    color: white;
-}
-
-.puter-auth-dialog .button-primary:active,
-.puter-auth-dialog .button-primary.active,
-.puter-auth-dialog .button-primary.is-active,
-.puter-auth-dialog .button-primary-flat:active,
-.puter-auth-dialog .button-primary-flat.active,
-.puter-auth-dialog .button-primary-flat.is-active {
-    background-color: #2798eb;
-    border-color: #2798eb;
-    color: #bedef5;
-}
-
-.puter-auth-dialog .button-action {
-    border-color: #08bf4e;
-    background: -webkit-gradient(linear, left top, left bottom, from(#29d55d), to(#1ccd60));
-    background: linear-gradient(#29d55d, #1ccd60);
-    color: white;
-}
-
-.puter-auth-dialog .button-action:active,
-.puter-auth-dialog .button-action.active,
-.puter-auth-dialog .button-action.is-active,
-.puter-auth-dialog .button-action-flat:active,
-.puter-auth-dialog .button-action-flat.active,
-.puter-auth-dialog .button-action-flat.is-active {
-    background-color: #27eb41;
-    border-color: #27eb41;
-    color: #bef5ca;
-}
-
-.puter-auth-dialog .button-giant {
-    font-size: 28px;
-    height: 70px;
-    line-height: 70px;
-    padding: 0 70px;
-}
-
-.puter-auth-dialog .button-jumbo {
-    font-size: 24px;
-    height: 60px;
-    line-height: 60px;
-    padding: 0 60px;
-}
-
-.puter-auth-dialog .button-large {
-    font-size: 20px;
-    height: 50px;
-    line-height: 50px;
-    padding: 0 50px;
-}
-
-.puter-auth-dialog .button-normal {
-    font-size: 16px;
-    height: 40px;
-    line-height: 38px;
-    padding: 0 40px;
-}
-
-.puter-auth-dialog .button-small {
-    height: 30px;
-    line-height: 29px;
-    padding: 0 30px;
-}
-
-.puter-auth-dialog .button-tiny {
-    font-size: 9.6px;
-    height: 24px;
-    line-height: 24px;
-    padding: 0 24px;
-}
-
 #launch-auth-popup {
     margin-left: 10px;
     width: 200px;
     font-weight: 500;
     font-size: 15px;
-}
-
-.puter-auth-dialog .button-auth {
-    margin-bottom: 10px;
-}
-
-.puter-auth-dialog a, .puter-auth-dialog a:visited {
-    color: rgb(0 69 238);
-    text-decoration: none;
-}
-
-.puter-auth-dialog a:hover {
-    text-decoration: underline;
 }
 
 @media (max-width:480px) {
@@ -4567,23 +3117,6 @@ fieldset[name=number-code] {
     }
     .window-copy-auth-token .window-body {
         box-sizing: border-box !important;
-    }
-    .puter-auth-dialog-content {
-        padding: 50px 20px;
-    }
-
-    .puter-auth-dialog .buttons {
-        flex-direction: column-reverse;
-    }
-
-    .puter-auth-dialog p.about {
-        padding: 10px 0;
-    }
-
-    .puter-auth-dialog .button-auth {
-        width: 100% !important;
-        margin: 0 !important;
-        margin-bottom: 10px !important;
     }
 }
 
@@ -4606,12 +3139,6 @@ fieldset[name=number-code] {
  * ==================================================
  */
 
-.settings-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-}
-
 .settings {
     display: flex;
     flex-direction: row;
@@ -4619,222 +3146,6 @@ fieldset[name=number-code] {
     flex-grow: 1;
     position: relative;
     height: 500px;
-}
-
-.settings-sidebar {
-    width: 200px;
-    background-color: #f9f9f9;
-    border-right: 1px solid #e0e0e0;
-    padding: 20px;
-    position: fixed;
-    margin-top: 1px;
-    height: 100%;
-    z-index: 2;
-}
-
-
-.settings-sidebar-title {
-    margin-bottom: 20px;
-    font-weight: bold;
-    -webkit-font-smoothing: antialiased;
-    margin-top: 15px;
-    color: #8c8c8c;
-    font-size: 19px;
-}
-
-.settings-sidebar-item {
-    cursor: pointer;
-    border-radius: 4px;
-    padding: 10px;
-    margin-bottom: 15px;
-    background-repeat: no-repeat;
-    background-position: 10px center;
-    background-size: 20px;
-    padding-left: 40px;
-    font-size: 15px;
-}
-
-.settings-sidebar-item:hover {
-    background-color: #e8e8e88c;
-}
-
-.settings-sidebar-item.active {
-    background-color: #e0e0e0a6;
-}
-
-.settings-content-container {
-    flex: 1;
-    padding: 20px 30px;
-    overflow-y: auto;
-    margin-left: 240px;
-}
-
-.device-phone .settings-content-container {
-    margin-left: 0;
-}
-
-.settings-content {
-    display: none;
-    max-width: 800px;
-    margin: auto;
-}
-
-.settings-content[data-settings="about"] {
-    height: 100%;
-}
-
-.settings-content h1 {
-    font-size: 24px;
-    margin-bottom: 20px;
-    border-bottom: 1px solid #e0e0e0;
-    padding-bottom: 10px;
-    padding-left: 5px;
-    font-weight: 500;
-}
-
-.settings-shortcuts-intro {
-    font-size: 14px;
-    color: #4a4a4a;
-    margin: -8px 0 18px;
-}
-
-.settings-shortcuts-section {
-    margin-bottom: 24px;
-}
-
-.settings-shortcuts-section h2 {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0 0 10px;
-    color: #2c2c2c;
-}
-
-.settings-shortcuts-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    background: #ffffff;
-    border: 1px solid #ececec;
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-.settings-shortcuts-table thead th {
-    text-align: left;
-    padding: 10px 14px;
-    background: #f6f6f6;
-    font-weight: 600;
-    color: #444;
-}
-
-.settings-shortcuts-table tbody td {
-    padding: 10px 14px;
-    border-top: 1px solid #eeeeee;
-    vertical-align: top;
-}
-
-.settings-shortcuts-keys span {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
-    border-radius: 6px;
-    background: #f3f3f3;
-    border: 1px solid #e0e0e0;
-    font-family: "SFMono-Regular", "Segoe UI", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: 12px;
-    color: #333;
-}
-
-.settings-content.active {
-    display: flex;
-    flex-direction: column;
-}
-
-.settings-content .about-container {
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-}
-
-.settings-content[data-settings="about"] a {
-    color: #1663d4;
-    text-decoration: none;
-    font-size: 12px;
-}
-
-.settings-content[data-settings="about"] a:hover {
-    text-decoration: underline;
-}
-
-.settings-content .logo,
-.settings-content .logo img {
-    display: block;
-    width: 55px;
-    height: 55px;
-    margin: 0 auto;
-    border-radius: 4px;
-}
-
-.settings-content .links {
-    text-align: center;
-    font-size: 14px;
-    margin-top: 10px;
-}
-
-.settings-content .social-links {
-    text-align: center;
-    /* margin-top: 10px; */
-}
-
-.settings-content .social-links a {
-    opacity: 0.7;
-    transition: opacity 0.1s ease-in-out;
-}
-
-.settings-content .social-links a,
-.settings-content .social-links a:hover {
-    text-decoration: none;
-    margin: 0 10px;
-
-}
-
-.settings-content .social-links a:hover {
-    opacity: 1;
-}
-
-.settings-content .social-links svg {
-    width: 20px;
-    height: 20px;
-}
-
-.settings-content .about {
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 20px 40px;
-    max-width: 500px;
-}
-
-.about-container .about {
-    text-align: center;
-}
-
-.settings-content .version {
-    font-size: 9px;
-    color: #343c4f;
-    text-align: center;
-    margin-bottom: 10px;
-    opacity: 0.3;
-    transition: opacity 0.1s ease-in-out;
-    height: 12px;
-}
-
-.settings-content .version:hover {
-    opacity: 1;
 }
 
 .profile-picture {
@@ -4852,10 +3163,6 @@ fieldset[name=number-code] {
     margin-top: 20px;
     margin-bottom: 20px;
     background-color: #c5cdd4;
-}
-
-.profile-image-has-picture {
-    border: 1px solid white;
 }
 
 .driver-usage {
@@ -4888,32 +3195,6 @@ fieldset[name=number-code] {
     width: 400px;
 }
 
-.credit-content a {
-    font-size: 15px;
-}
-
-.credits .credit-content {
-    padding: 20px;
-}
-
-.credit-content {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-}
-
-.credit-content ul {
-    max-height: 300px;
-    overflow-y: scroll;
-    background: #f4f4f4;
-    padding: 10px;
-    box-shadow: 2px 2px 5px 2px inset #CCC;
-
-}
-
-.credit-content li {
-    margin-bottom: 10px;
-}
-
 .driver-usage-header{
     display: flex;
     flex-direction: row;
@@ -4931,15 +3212,19 @@ fieldset[name=number-code] {
     align-items: stretch;
 }
 
-#storage-bar, #storage-bar-host, .usage-progbar {
+#storage-bar, #storage-bar-host, .usage-progbar, .usage-addon-bar {
     height: 100%;
     background-color: var(--dashboard-bento-usage-bar-fill, #ea580c);
     width: 0;
     transition: width 0.4s ease, background-color 0.4s ease;
 }
 
-#storage-used-percent, .usage-progbar-percent {
+#storage-used-percent, .usage-progbar-percent, .usage-addon-percent {
     font-weight: 500;
+}
+
+.usage-addon {
+    margin-top: 18px;
 }
 
 .usage-addon-credits {
@@ -5142,10 +3427,15 @@ html.dark-mode .usage-table-fade-overlay {
 }
 
 /* On a phone, units and cost keep every digit; the resource name is the
-   column that gives way. */
+   column that gives way, wrapping rather than cut off, since a touch screen
+   has no hover to show the rest. */
 @media (max-width: 480px) {
     .dashboard-section-usage .driver-usage-details-content-table td:not(:first-child) {
         max-width: none;
+    }
+    .dashboard-section-usage .driver-usage-details-content-table td:first-child {
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 }
 .version {
@@ -5167,43 +3457,6 @@ html.dark-mode .usage-table-fade-overlay {
     opacity: 1;
 }
 
-.language-list {
-    display: grid;
-    grid-template-columns: 33.333333333% 33.333333333% 33.333333333%;
-}
-
-.language-item {
-    cursor: pointer;
-    padding: 10px;
-    border-radius: 4px;
-    margin-bottom: 10px;
-    margin-right: 10px;
-    font-size: 13px;
-    position: relative;
-}
-
-.language-item:hover {
-    background-color: #f6f6f6;
-}
-
-.language-item .checkmark {
-    width: 15px;
-    height: 15px;
-    border-radius: 50%;
-    margin-left: 10px;
-    display: none;
-    position: absolute;
-    right: 10px;
-}
-
-.language-item.active {
-    background-color: #e0e0e0;
-}
-
-.language-item.active .checkmark {
-    display: inline-block;
-}
-
 .settings-card {
     overflow: hidden;
     padding: 10px 15px;
@@ -5222,18 +3475,8 @@ html.dark-mode .usage-table-fade-overlay {
     box-shadow: none;
 }
 
-.thin-card {
-    padding: 0 15px;
-}
-
 .settings-card strong {
     font-weight: 500;
-}
-
-.settings-card-danger {
-    border-color: #fecaca;;
-    background: #fef2f2;
-    color: #dc2626;
 }
 
 .settings-card-success {
@@ -5893,92 +4136,16 @@ html.dark-mode .usage-table-fade-overlay {
 }
 
 /* Extra small devices (phones, less than 576px) */
-@media (max-width: 575.98px) {
-    .hidden-xs {
-        display: none !important;
-    }
-}
 
 /* Small devices (landscape phones, 576px and up) */
-@media (min-width: 576px) and (max-width: 767.98px) {
-    .hidden-sm {
-        display: none !important;
-    }
-}
 
 /* Medium devices (tablets, 768px and up) */
-@media (min-width: 768px) and (max-width: 991.98px) {
-    .hidden-md {
-        display: none !important;
-    }
-}
 
 /* Large devices (desktops, 992px and up) */
-@media (min-width: 992px) and (max-width: 1199.98px) {
-    .hidden-lg {
-        display: none !important;
-    }
-}
 
 /* Extra large devices (large desktops, 1200px and up) */
-@media (min-width: 1200px) {
-    .hidden-xl {
-        display: none !important;
-    }
-}
 
 /* Visible classes */
-.visible-xs,
-.visible-sm,
-.visible-md,
-.visible-lg,
-.visible-xl {
-    display: none !important;
-}
-
-@media (max-width: 575.98px) {
-    .visible-xs {
-        display: block !important;
-    }
-
-    .settings-sidebar {
-        display: none;
-        position: fixed;
-        height: 100%;
-        z-index: 9;
-    }
-}
-
-@media (min-width: 576px) and (max-width: 767.98px) {
-    .visible-sm {
-        display: block !important;
-    }
-
-    .settings-sidebar {
-        display: none;
-        position: fixed;
-        height: 100%;
-        z-index: 9;
-    }
-}
-
-@media (min-width: 768px) and (max-width: 991.98px) {
-    .visible-md {
-        display: block !important;
-    }
-}
-
-@media (min-width: 992px) and (max-width: 1199.98px) {
-    .visible-lg {
-        display: block !important;
-    }
-}
-
-@media (min-width: 1200px) {
-    .visible-xl {
-        display: block !important;
-    }
-}
 
 .sidebar-toggle {
     position: absolute;
@@ -5988,11 +4155,6 @@ html.dark-mode .usage-table-fade-overlay {
     padding-top: 5px;
     padding-bottom: 5px;
     top: 3px;
-}
-
-.sidebar-toggle .sidebar-toggle-button {
-    height: 20px;
-    width: 20px;
 }
 
 .sidebar-toggle span:nth-child(1) {
@@ -6006,77 +4168,6 @@ html.dark-mode .usage-table-fade-overlay {
     width: 100%;
 }
 
-.settings-sidebar.active {
-    display: block;
-}
-
-.welcome-window-footer {
-    position: absolute;
-    bottom: 20px;
-}
-
-.welcome-window-footer a {
-    color: #727c8d;
-    text-decoration: none;
-    font-size: 12px;
-    -webkit-font-smoothing: antialiased;
-}
-
-.welcome-window-footer a:hover {
-    color: #1d1e23;
-}
-
-/*
-* ------------------------------------
-* Search
-* ------------------------------------
-*/
-.search-input-wrapper {
-    width: 100%;
-    border-radius: 5px;
-    padding-bottom: 10px;
-    padding-top: 20px;
-    position: absolute;
-    padding-left: 15px;
-    padding-right: 15px;
-    box-sizing: border-box;
-    background: #f1f6fc;
-}
-
-.search-input {
-    padding-left: 33px !important;
-    background-repeat: no-repeat;
-    background-position: 5px center;
-    background-size: 20px;
-}
-
-.search-results {
-    padding-right: 15px;
-    margin-top: 70px;
-    padding-left: 15px;
-    padding-right: 15px;
-    padding-bottom: 5px;
-    display: none;
-}
-
-.search-result {
-    padding: 10px;
-    cursor: pointer;
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-}
-
-.search-result-active {
-    background-color: #4092da;
-    color: #fff;
-    border-radius: 5px;
-}
-
-.search-results .search-result:last-child {
-    margin-bottom: 0;
-}
-
 .device-phone .window:not(.window-alert), .device-tablet .window:not(.window-alert) {
     transform: none;
     width: 100%;
@@ -6087,17 +4178,6 @@ html.dark-mode .usage-table-fade-overlay {
     height: 100dvh !important;
 }
 
-.device-phone .window.window-search {
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    width: calc(100% - 40px);
-    max-width: calc(100% - 40px);
-    max-height: fit-content;
-    border-radius: 5px;
-
-}
-
-.device-phone .window.window-qr,
 .device-phone .window.window-progress,
 .device-phone .window.window-login-progress,
 .device-phone .window-confirm-email-using-code {
@@ -6105,18 +4185,6 @@ html.dark-mode .usage-table-fade-overlay {
     transform: translate(-50%) !important;
     height: initial !important;
     max-width: calc(100% - 30px);
-}
-
-.device-phone .window.window-task-manager {
-    height: initial !important;
-}
-
-.device-phone .window.window-feedback {
-    height: initial !important;
-}
-
-.device-phone .window.window-app-feedback {
-    height: initial !important;
 }
 
 .device-phone .window.window-filedialog {
@@ -6139,13 +4207,6 @@ html.dark-mode .usage-table-fade-overlay {
     border-radius: 0;
 }
 
-.device-phone .window.window-login-2fa {
-    left: 50% !important;
-    transform: translate(-50%) !important;
-    height: initial !important;
-    max-width: calc(100% - 30px);
-}
-
 .device-phone .window.window-explorer {
     transform: none;
     width: 100%;
@@ -6154,190 +4215,6 @@ html.dark-mode .usage-table-fade-overlay {
     height: 100dvh;
     top: 0 !important;
     border-radius: 0 !important;
-}
-
-.device-phone .window.window-settings {
-    transform: none;
-    width: 100% !important;
-    left: 0 !important;
-    height: 100dvh;
-    top: 0 !important;
-    border-radius: 0;
-}
-
-.device-phone .window-signup {
-    transform: none;
-    width: 100%;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    border-radius: 0;
-}
-
-.device-phone .send-feedback-btn {
-    width: 100%;
-}
-
-.device-phone .feedback-attach-btn {
-    width: 100%;
-}
-
-/* Taskbar container */
-.device-phone .taskbar {
-    /* Force taskbar to bottom on mobile devices, overriding any position classes */
-    position: fixed !important;
-    bottom: 5px !important;
-    left: 50% !important;
-    right: auto !important;
-    top: auto !important;
-    width: auto !important;
-    height: 50px !important;
-    transform: translateX(-50%) !important;
-    flex-direction: row !important;
-    justify-content: left !important;
-    writing-mode: initial !important;
-    padding: 0 7px !important;
-    border-radius: 10px !important;
-    
-    /* Enable smooth scrolling */
-    -webkit-overflow-scrolling: touch;
-    /* Allow horizontal touch scrolling */
-    touch-action: pan-x;
-    /* Enable horizontal scroll */
-    overflow-x: auto;
-    /* Hide scrollbars while keeping functionality */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-
-    /* Base styling */
-    display: flex;
-}
-
-/* Hide scrollbar while keeping functionality */
-.device-phone .taskbar::-webkit-scrollbar {
-    display: none;
-}
-
-/* Taskbar items */
-.device-phone .taskbar .taskbar-item {
-    /* Allow dragging while preventing unwanted touch actions */
-    touch-action: pan-x pinch-zoom;
-    /* Ensure items can be dragged */
-    user-select: none;
-    -webkit-user-select: none;
-    cursor: grab;
-
-    /* Base styling */
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.device-phone .popover-launcher, .device-phone .launch-popover {
-    border-radius: 0;
-}
-
-/* Main launcher container */
-.device-phone .launch-popover {
-    /* Enable smooth scrolling on iOS */
-    -webkit-overflow-scrolling: touch;
-
-    /* Allow vertical touch scrolling while preventing horizontal */
-    touch-action: pan-y;
-
-    /* Base dimensions */
-    width: 100%;
-    height: 100%;
-
-    /* Scrolling behavior */
-    overflow-y: scroll;
-    overflow-x: hidden;
-
-    /* Background and styling */
-    background-color: rgba(231, 238, 245);
-    padding: 0;
-    margin: 0;
-
-    /* Hide scrollbars while keeping functionality */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-
-    padding-left: 10px;
-    padding-right: 10px;
-}
-
-/* Hide scrollbar while keeping functionality */
-.device-phone .launch-popover::-webkit-scrollbar {
-    display: none;
-}
-
-/* Ensure content can receive touch events */
-.device-phone .launch-popover * {
-    touch-action: pan-y;
-}
-
-/* Make sure the search wrapper doesn't interfere with scrolling */
-.launch-search-wrapper {
-    position: sticky;
-    top: -20px;
-    z-index: 1;
-    background: rgba(231, 238, 245);
-    padding-top: 7px;
-}
-
-.device-phone .launch-search-wrapper {
-    top: 0;
-}
-
-.device-phone .popover-launcher {
-    left: 50% !important;
-    border-radius: 10px;
-    top: 5px !important;
-    transform: translateX(-50%);
-    width: calc(100% - 25px);
-    height: calc(100vh - 65px);
-    height: calc(100dvh - 65px);
-}
-
-.device-phone .start-app-card {
-    width: 25%;
-}
-
-.device-phone .start-app-icon {
-    width: 50px;
-    height: 50px;
-}
-
-.device-phone .start-app-title {
-    margin-top: 5px;
-}
-
-.device-phone .desktop {
-    position: relative;
-
-    /* Enable smooth scrolling on iOS */
-    -webkit-overflow-scrolling: touch;
-
-    /* Allow vertical touch scrolling while preventing horizontal */
-    touch-action: pan-x;
-
-    /* Hide scrollbars while keeping functionality */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-
-    /* Scrolling behavior */
-    overflow-y: visible !important;
-    overflow-x: scroll;
-
-    padding-bottom: 60px;
-}
-
-.device-phone .desktop * {
-    touch-action: pan-x;
-}
-
-.device-phone .desktop::-webkit-scrollbar {
-    display: none;
 }
 
 /* height of 100% should not be applied to file dialogs */
@@ -6368,11 +4245,6 @@ html.dark-mode .usage-table-fade-overlay {
     touch-action: pan-y;
 }
 
-/* Hide desktop icons when the desktop-icons-hidden class is applied */
-.desktop.item-container.desktop-icons-hidden>.item {
-    visibility: hidden;
-}
-
 
 .progress-report{
     font-size:15px; 
@@ -6382,39 +4254,6 @@ html.dark-mode .usage-table-fade-overlay {
     white-space: nowrap;
 }
 
-.update-usage-details{
-    float: right;
-    background: none;
-    border: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 30px;
-    width: 30px;
-    border-radius: 5px;
-}
-
-.update-usage-details:hover{
-    background: #f0f0f0;
-}
-
-.update-usage-details svg{
-    width: 20px;
-    height: 20px;
-}
-
-.window-recover-password.window-cover-page .window-body{
-    background-color: white !important;
-}
-.window-recover-password .window-body{
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    height: 100%;
-    width: 100%;
-}
 /* -------------------------------------------------------------------------
    Permission Request Dialog (UIPermissionDialog)
    Standalone top-layer <dialog>; follows the OS light/dark scheme.
@@ -6743,7 +4582,7 @@ html.dark-mode .usage-table-fade-overlay {
 }
 
 /**
- * Share dialog
+ * Share dialog layout, used by the Blocked Senders window
  */
 .share-dialog {
     padding: 20px;
@@ -6755,29 +4594,10 @@ html.dark-mode .usage-table-fade-overlay {
     margin-bottom: 15px;
 }
 
-.share-dialog .share-recipient {
-    flex: 1;
-}
-
-.share-dialog .share-mode {
-    width: 130px;
-    flex: none;
-}
-
 /* -- Recipient suggestions --
-   Shared by this dialog and the Dashboard's share modal; each host sets the
-   palette below through its own tokens (dashboard.css restates them for
-   .share-modal). The list is anchored to the recipient row and floats over
-   what follows it, so opening and closing it never resizes the dialog. */
-.share-dialog {
-    --share-suggest-bg: #fff;
-    --share-suggest-border: #dfe3e8;
-    --share-suggest-hover: #eef1f4;
-    --share-suggest-shadow: rgba(15, 23, 42, 0.12);
-    --share-suggest-fg: #3e5362;
-    --share-suggest-muted: #7f8b99;
-    --share-suggest-picked-bg: #eef4fb;
-}
+   Used by the Dashboard's share modal, which sets the palette through its own
+   tokens in dashboard.css. The list is anchored to the recipient row and floats
+   over what follows it, so opening and closing it never resizes the modal. */
 
 .share-suggest-field {
     position: relative;
@@ -6975,28 +4795,6 @@ html.dark-mode .usage-table-fade-overlay {
     letter-spacing: 0.04em;
 }
 
-/* General access: the owner's switch between people-only and anyone with
-   the link. */
-.share-general-access {
-    margin-top: 18px;
-}
-
-.share-dialog .share-link-access {
-    flex: 1;
-    min-width: 0;
-}
-
-.share-dialog .share-link-mode {
-    width: 130px;
-    flex: none;
-}
-
-.share-link-note {
-    font-size: 12px;
-    color: #7f8b99;
-    margin: -8px 0 12px;
-}
-
 .share-dialog-empty {
     font-size: 13px;
     color: #7f8b99;
@@ -7045,64 +4843,3 @@ html.dark-mode .usage-table-fade-overlay {
     white-space: nowrap;
 }
 
-.share-row-mode {
-    color: #7f8b99;
-    font-size: 12px;
-    margin-left: auto;
-    flex: none;
-}
-
-.share-dialog .share-row-mode-select {
-    width: auto;
-    min-width: 110px;
-    margin-left: auto;
-    flex: none;
-    padding: 4px 6px;
-    font-size: 13px;
-}
-
-.share-row-inherited {
-    color: #7f8b99;
-}
-
-.share-row-via {
-    font-size: 12px;
-    color: #9aa5b1;
-    flex: none;
-}
-
-.share-row-inherited .share-row-mode {
-    margin-left: 0;
-}
-
-.share-dialog .share-revoke {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    flex: none;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: #6b7785;
-    cursor: pointer;
-}
-
-.share-dialog .share-revoke:hover:not(:disabled) {
-    background-color: #eceff2;
-    color: #d1242f;
-}
-
-.share-dialog .share-revoke:disabled {
-    opacity: 0.4;
-    cursor: default;
-}
-
-.share-row-owner {
-    color: #7f8b99;
-    font-size: 12px;
-    flex: none;
-    padding-right: 4px;
-}

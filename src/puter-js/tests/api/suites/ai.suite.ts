@@ -97,6 +97,23 @@ const textOf = (result: {
 };
 
 export default suite('ai', {
+    'service speed falls back on unsupported models without changing the normalized response': async t => {
+        useApiToken(t);
+        for (const serviceSpeed of ['standard', 'fast', 'ultrafast'] as const) {
+            const result = await t.puter.ai.chat('Hello', { model: 'fake', serviceSpeed, normalize: true });
+            t.assert.equal(typeof result.message.content, 'string');
+            t.assert.equal(result.usageDetails?.serviceSpeed, 'standard');
+        }
+    },
+    'invalid service speed returns a stable error': async t => {
+        const values = [null, false, true, 0, 1, -1, NaN, Infinity, '', 'invalid',
+            'FAST', 'fast ', ' fast', 'ultraFast', [], ['fast'], {}, { speed: 'fast' },
+            { toString: 'fast' }];
+        for (const serviceSpeed of values) {
+            const error = await errorOf(t, () => t.puter.ai.chat('Hello', { model: 'fake', serviceSpeed: serviceSpeed as never }));
+            t.assert.equal(error.code, 'invalid_service_speed');
+        }
+    },
     'chat with the fake model returns a message': async (t) => {
         useApiToken(t);
         const result = await t.puter.ai.chat('Hello there', {
@@ -1743,10 +1760,10 @@ export default suite('ai', {
         t.assert.equal(error.message, 'Input size cannot be larger than 25 MB');
     },
 
-    'convo streams a live text turn': {
+    'realtime streams a live text turn': {
         requires: ['ai.openai'],
         fn: async (t) => {
-            const conversation = await t.puter.ai.convo({ output: ['text'], instructions: 'Reply with exactly realtime-ok.' });
+            const conversation = await t.puter.ai.realtime({ output: ['text'], instructions: 'Reply with exactly realtime-ok.' });
             let text = '';
             conversation.on('text', ({ delta }) => { text += delta; });
             let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1767,8 +1784,8 @@ export default suite('ai', {
         },
     },
 
-    'convo prepares and closes without opening a provider session': async (t) => {
-        const conversation = await t.puter.ai.convo({ output: ['text'] });
+    'realtime prepares and closes without opening a provider session': async (t) => {
+        const conversation = await t.puter.ai.realtime({ output: ['text'] });
         t.assert.equal(conversation.state, 'prepared');
         t.assert.equal(conversation.model, 'gpt-realtime-2.1-mini');
         let closed = 0;
@@ -1779,9 +1796,9 @@ export default suite('ai', {
         t.assert.equal(closed, 1);
     },
 
-    'convo rejects invalid options and sending before connect': async (t) => {
-        await t.assert.rejects(() => t.puter.ai.convo({ model: 'not-a-realtime-model' }));
-        const conversation = await t.puter.ai.convo({ output: ['text'] });
+    'realtime rejects invalid options and sending before connect': async (t) => {
+        await t.assert.rejects(() => t.puter.ai.realtime({ model: 'not-a-realtime-model' }));
+        const conversation = await t.puter.ai.realtime({ output: ['text'] });
         try {
             await t.assert.rejects(async () => conversation.sendText('Hello'));
         } finally {
@@ -1789,9 +1806,24 @@ export default suite('ai', {
         }
     },
 
-    'convo is the realtime SDK entry point': async (t) => {
+    'realtime rejects interruption readiness through its Promise': async (t) => {
+        const conversation = await t.puter.ai.realtime({ output: ['text'] });
+        try {
+            const prepared = conversation.interrupt();
+            t.assert.equal(typeof prepared.then, 'function');
+            await t.assert.rejects(() => prepared);
+            conversation.close();
+            const closed = conversation.interrupt();
+            t.assert.equal(typeof closed.then, 'function');
+            await t.assert.rejects(() => closed);
+        } finally {
+            conversation.close();
+        }
+    },
+
+    'realtime is the only realtime SDK entry point': async (t) => {
         t.assert.equal('assistant' in t.puter.ai, false);
         t.assert.equal('conversation' in t.puter.ai, false);
-        t.assert.equal(typeof t.puter.ai.convo, 'function');
+        t.assert.equal(typeof t.puter.ai.realtime, 'function');
     },
 });

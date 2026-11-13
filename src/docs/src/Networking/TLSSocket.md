@@ -4,7 +4,9 @@ description: Create a TLS protected TCP socket connection directly in the browse
 platforms: [websites, apps]
 ---
 
-The TLS Socket API lets you create a TLS protected TCP socket connection which can be used directly in the browser. The interface is exactly the same as the normal <a href="/Networking/Socket/">`puter.net.Socket`</a> but connections are encrypted instead of being in plain text.
+Creates a TLS-protected TCP socket connection that can be used directly in the browser.
+
+The interface is exactly the same as the normal <a href="/Networking/Socket/">`puter.net.Socket`</a> but connections are encrypted instead of being in plain text.
 
 ## Syntax
 
@@ -90,7 +92,7 @@ The encryption is done by [rustls-wasm](https://github.com/MercuryWorkshop/rustl
 
 ## Examples
 
-<strong class="example-title">Connect to a server with TLS and print the response</strong>
+### Connect to a server with TLS and print the response
 
 ```html;net-tls
 <html>

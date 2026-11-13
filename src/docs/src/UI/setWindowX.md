@@ -23,6 +23,8 @@ Targets a specific window other than the app's main window. Accepts either a win
 
 ## Examples
 
+### Set the window's horizontal position
+
 ```html
 <html>
 <body>

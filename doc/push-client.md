@@ -1,6 +1,6 @@
 # Browser push client
 
-Puter's desktop shows pushes through `/sw.js`. Core registers it, and shows Settings → Notifications, only when the `pushEnabled` gui param is `true`; core never sets it. A backend extension that delivers pushes sets it with `services.homepage.setGuiParam('pushEnabled', true)` and can load its own code into the worker with `services.homepage.registerServiceWorkerScript(path)`.
+Puter's desktop shows pushes through `/sw.js`. Core shows Settings → Notifications only when the `pushEnabled` gui param is `true`; core never sets it. The worker is registered only when push is turned on in the browser, and a load removes one left without a subscription. A backend extension that delivers pushes sets it with `services.homepage.setGuiParam('pushEnabled', true)` and can load its own code into the worker with `services.homepage.registerServiceWorkerScript(path)`.
 
 Core subscribes the browser to a push service only when the server also publishes `pushWebPushKey` (see [Built-in Web Push client](#built-in-web-push-client)), and it has no `/push/*` routes of its own. The device, app, preference and subscription endpoints below come from that extension. On a deployment without one, such as most self-hosted servers, they answer core's plain 404 (`code: 'not_found'`), which `puter.notifications` reports as `push_unavailable` and the Notifications tab shows as unavailable. A device the extension can't find is `device_not_found`.
 
@@ -16,18 +16,19 @@ Core subscribes the browser to a push service only when the server also publishe
 
 `uid` is the notification's uid, a later push with the same `group` replaces the one showing, and `target` and `data` reach the app when the user taps it.
 
-When the browser replaces the subscription (`pushsubscriptionchange`), `sw.js` posts `{ type: 'puter-push-subscription-changed' }` to every open window on Puter's origin. The worker has no token or session, so the page's push client registers the new subscription.
+When the browser replaces the subscription (`pushsubscriptionchange`), `sw.js` keeps the new one, or subscribes again with Puter's stored key when the browser gave none and the event, the receipt or an earlier mark names the subscription that went. It writes `puter:subscription-changed:<scope>` to the `puter-push` IndexedDB as `{ at, oldEndpoint }`, the old endpoint kept from an earlier mark no page handled yet, else taken from the event or from the receipt, forgets the receipt kept for that scope, and posts `{ type: 'puter-push-subscription-changed' }` to every open window on Puter's origin. The worker has no token or session, so an open page runs `helpers/pushSync.js` on that message, after any run already in flight, and a later load does the same through the marker.
 
 ## Receipts
 
 Before a notification is pushed, the server asks the open clients whether they received it live. It sends `notif.receipt` with `{ uid }` on the user's sockets for the app that sent it, or on the desktop's sockets for Puter's own notifications. The SDK remembers the uids its page received through `onNotification()`, `onPush()` or the desktop's feed, and answers once its page has that notification, or with `{ received: false }` when it never gets it. The server waits up to 5 seconds (`notificationAckTimeoutMs`).
 
-An answer carries `visibilityState`, `focused` and `showsOwn`, the last being whether the page shows the notification itself. A website page shows it itself when it is hidden or unfocused, has an `onPush()` handler and notification permission, and no other tab of the same site is focused. Inside the desktop, the desktop shows it, and an app's `onPush()` result is never shown as a browser notification.
+An answer carries `visibilityState` and `focused` as they were when the page received the notification. Pages never show a browser notification themselves; pushes do.
 
-- An answer from a page that is visible and focused, or that shows the notification itself, stops the push.
-- Otherwise the notification is pushed. A website's pushes go only to the browsers that subscribed through its own worker, never to Puter's `/sw.js`. An app inside the desktop pushes through `/sw.js`, which shows the app's name and icon.
-- A hidden desktop tab shows no banner, so answers only from hidden desktop tabs don't stop a push of Puter's own notifications.
-- A client that can't answer, such as an older puter.js, holds the push back while it is connected.
+- An answer from a page that was visible and focused stops the push (`handled` on `notif.delivery.settled`). An older client that doesn't send `focused` counts while visible.
+- Otherwise the notification is pushed, to every browser the user subscribed. A website's pushes go only to the browsers that subscribed through its own worker, never to Puter's `/sw.js`. An app inside the desktop pushes through `/sw.js`, which shows the app's name and icon.
+- A client that can't answer, such as an older puter.js, doesn't hold the push back.
+
+The ask reaches only the sockets in the asking region. So that other regions hear about a page too, a page that receives a notification live while visible and focused also sends `notif.handled` with `{ uid }` on the socket it came on. Core relays it as the node-local `notif.handled` event with the socket's user and app, at most 60 a minute per user; an extension that delivers pushes decides what to do with it.
 
 ## Registering
 
@@ -58,9 +59,9 @@ Apps on their own origin do the same through `push-sw.js`, which they import int
 
 ```ts
 interface PushClient {
-    enable(): Promise<{ deviceUid: string }>;
+    enable(options?: { background?: boolean }): Promise<{ deviceUid: string }>;
     disable(): Promise<void>;
-    status(): Promise<{
+    status(options?: { cached?: boolean }): Promise<{
         permission: 'default' | 'granted' | 'denied';
         registered: boolean;
         deviceUid?: string;
@@ -68,12 +69,12 @@ interface PushClient {
 }
 ```
 
-- `enable()` may ask for notification permission, so core calls it from a click: Turn on in the Notifications tab, Allow on a permission prompt that includes `notifications:push` while this browser is off, and the "Turn on notifications" button of the `/action/enable-push` popup and the matching desktop dialog (`UIEnablePushDialog`). Core also calls it without a click, from `helpers/pushSync.js`, when `Notification.permission` is already `granted`, `status()` reports the browser as not registered, the user has not turned push off in this browser, and an app holds `notifications:push`; the browser does not prompt then. The built-in client runs `puter.notifications.enable()`, which subscribes with the `/sw.js` registration and registers the browser through the Web Push flow above (`platform: 'webpush'`). It then resolves the `uid` of this browser's `webpush` device from `listDevices()`. It rejects when permission is refused or the browser wasn't registered.
+- `enable()` may ask for notification permission, so core calls it from a click: Turn on in the Notifications tab, Allow on a permission prompt that includes `notifications:push` while this browser is off, and the "Turn on notifications" button of the `/action/enable-push` popup and the matching desktop dialog (`UIEnablePushDialog`). Core also calls it without a click, from `helpers/pushSync.js`, when `Notification.permission` is already `granted`, `status()` reports the browser as not registered, the user has not turned push off in this browser, and an app may push to Puter's devices (`puterDevices` in `GET /push/apps`); the browser does not prompt then. That call passes `{ background: true }`: a browser the user removed in Puter stays removed, and the built-in client rejects with code `push_device_removed`, after which core records the browser as turned off. Before a background call the built-in client asks `POST /push/web/subscriptions/status` about every earlier endpoint it knows: the marker's `oldEndpoint` and the last endpoint the server answered `active` for (`puter.push.last-endpoint:<user uuid>` in `localStorage`). On a 429 it registers nothing and rejects with `too_many_requests`, which the sync reports as `later`, keeping the marker for the next run. When any answer is `removed`, it ends the current subscription in the browser, clears the marker and rejects with `push_device_removed`, so a subscription change or a dropped subscription never brings back a browser removed from another device. A click renews it as before. For a click the built-in client runs `puter.notifications.enable()`, which subscribes with the `/sw.js` registration and registers the browser through the Web Push flow above (`platform: 'webpush'`); in the background it runs the same registration without replacing a removed subscription or opening Puter's sign-in. It then resolves the `uid` of this browser's `webpush` device from `listDevices()` and clears the subscription-changed marker. It rejects when permission is refused or the browser wasn't registered.
 - `disable()` runs `puter.notifications.disable()`, which sends `DELETE /push/web/subscriptions { endpoint }` and ends the browser's subscription. The tab calls it for Turn off, and for Remove on the device marked as this browser. Remove on any other device is `DELETE /push/devices/:uid`.
-- `status()` reports the state without prompting. `permission` is `Notification.permission`. `registered` is true when this browser has a device registered for the signed-in user, and `deviceUid` is that device's `uid`.
+- `status()` reports the state without prompting. `permission` is `Notification.permission`. `registered` is true when this browser has a device registered for the signed-in user and `POST /push/web/subscriptions/status` answers `active` for the current subscription's endpoint, and `deviceUid` is that device's `uid`. A server that can't answer leaves the device match alone, and so does an `unknown` for an endpoint `enable()` registered in this page in the last 5 minutes, since that check can trail a registration. While the subscription-changed marker is set, `registered` is false. With `{ cached: true }` a client may answer with the last registered state it read in this page. Core passes it for the silent registration on app launch and for an app's `puter.notifications.status()`; the Notifications tab and the push dialogs read fresh. The built-in client keeps that state in memory for the same user and subscription for up to 5 minutes, from `enable()` or once the server answered `active` for the endpoint, and answers from it without either request. Reads of the same user and endpoint share one real check while it is in flight. It drops it on `disable()`, a failed `enable()`, an unregistered answer, a set subscription-changed marker, and the worker's `puter-push-subscription-changed` message, so a new page load always asks the server. Whether the calling app may push is checked on every call, against a `GET /push/apps` answer the page reuses for 30 seconds and drops on `enable()`, `disable()`, a grant, a revoke and a user change. When it can't be read, or leaves the app out, the grant alone counts.
 
 After `enable()` resolves, the tab calls `POST /push/devices/:uid/test` and asks the user whether a notification showed up.
 
 The tab also reads `GET /push/apps` and `GET`/`POST /push/preferences`.
 
-Core keeps its own record of a browser the user turned off, `puter.push.browser-off:<user uuid>` in `localStorage`, written by Turn off and by Remove on this browser's device, and cleared when `enable()` resolves. The silent registration above skips a browser with that record, so a device removed here stays removed while one removed from another device, or a new sign-in in a browser that already allows notifications, registers again.
+Core keeps its own record of a browser the user turned off, `puter.push.browser-off:<user uuid>` in `localStorage`, written by Turn off, by Remove on this browser's device, and by a silent registration the server refuses with `push_device_removed`, and cleared when `enable()` resolves. The silent registration above skips a browser with that record, so a device removed here or from another device stays removed until the user turns it on from a click, while a new sign-in in a browser that already allows notifications registers again.

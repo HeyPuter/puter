@@ -23,6 +23,7 @@ import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget }
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
+import { openAppInNewTab } from '../../helpers/dashboardAppLaunch.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 import { intlLocale } from '../../i18n/intlLocale.js';
 
@@ -167,15 +168,19 @@ function buildUsageHTML() {
 // what the badge carries: a date says when, only a countdown says how long
 // there is to decide. Returns null when the subscription carries no end date,
 // so callers fall back to unqualified "Free trial" wording.
-function formatTrialEnd(trialEndsAt) {
+export function formatTrialEnd(trialEndsAt, now = Date.now()) {
     if (!Number.isFinite(trialEndsAt)) return null;
     const date = new Date(trialEndsAt);
     if (Number.isNaN(date.getTime())) return null;
-    // Rounded up, so a trial with any time on it never reads "0 days left"
-    // before the day it actually converts.
+    // Calendar days in the user's time zone, so the countdown agrees with the
+    // date beside it: a trial ending this afternoon ends "today", and one
+    // ending tomorrow morning has one day left. Rounded, for the 23- and
+    // 25-hour days daylight saving makes.
+    const startOfDay = (d) =>
+        new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const days = Math.max(
         0,
-        Math.ceil((date.getTime() - Date.now()) / 86400000),
+        Math.round((startOfDay(date) - startOfDay(new Date(now))) / 86400000),
     );
     // In the dashboard's language, which the sentences around it are in.
     const locale = intlLocale(window.locale);
@@ -291,25 +296,6 @@ const TabHome = {
         h += '</div>';
         h += '</div>';
 
-        // Open Desktop card (spans full width, links to the desktop interface)
-        h +=
-            '<a href="/desktop" target="_blank" rel="noopener" class="bento-card bento-desktop allow-native-ctxmenu">';
-        h +=
-            '<div class="bento-card-fancy-icon bento-card-fancy-icon-desktop">';
-        h +=
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
-        h += '</div>';
-        h += '<div class="bento-card-fancy-text">';
-        h += `<h2>${i18n('open_desktop')}</h2>`;
-        h += '<span class="bento-card-fancy-subtitle">';
-        h +=
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>';
-        h += i18n('open_desktop_hint');
-        h += '</span>';
-        h += '</div>';
-        h += '<span class="bento-desktop-arrow">›</span>';
-        h += '</a>';
-
         h += '</div>';
         return h;
     },
@@ -393,7 +379,7 @@ const TabHome = {
             if (targetLink && targetLink !== '') {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if (appName) {
-                window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
+                openAppInNewTab(appName);
             }
         });
 

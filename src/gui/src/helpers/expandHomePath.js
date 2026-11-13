@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import path from '../lib/path.js';
+
 /**
  * Expands a user-facing path into the absolute path the filesystem API takes:
  * `~` and `~/x` resolve under the user's home, a bare relative path is read as
@@ -38,4 +40,21 @@ export const expand_home_path = (fspath, home_path) => {
     if ( fspath.startsWith('~/') ) return home + fspath.slice(1);
     if ( fspath.startsWith('/') ) return fspath;
     return `${home}/${fspath}`;
+};
+
+/**
+ * Turns what a user typed into an address bar into the canonical absolute
+ * path: trimmed, home-expanded, with `.`/`..`, doubled and trailing slashes
+ * resolved. An empty entry keeps the current path.
+ *
+ * @param {string} typed_path - the raw text the user entered
+ * @param {{ current_path: string, home_path: string, shared_path: string }} context
+ * @returns {string} the path to navigate to
+ */
+export const resolve_typed_path = (typed_path, { current_path, home_path, shared_path }) => {
+    const trimmed = typeof typed_path === 'string' ? typed_path.trim() : '';
+    if ( trimmed === '' ) return current_path;
+    // The Shared view is a pseudo-path, not a filesystem one.
+    if ( trimmed === shared_path ) return shared_path;
+    return path.resolve('/', expand_home_path(trimmed, home_path));
 };

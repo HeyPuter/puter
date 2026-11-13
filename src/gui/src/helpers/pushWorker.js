@@ -17,11 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// The page's side of `/sw.js`: registration, routed taps, hidden-tab banners.
+// The page's side of `/sw.js`: routed taps, and updates once push is on.
 
-import { httpsIconFor, isShareNotification } from '../UI/Dashboard/notificationCenter.js';
 import {
-    APP_MESSAGE_TYPE,
     dispatchPushTap,
     normalizePushTap,
     pushTapFromParams,
@@ -29,12 +27,13 @@ import {
 } from './notificationTap.js';
 import { clear_query_param } from './parseSharedPath.js';
 import { getPushClient, registerPushClient } from './pushClient.js';
+import { syncBrowserPush } from './pushSync.js';
 import { webPushClient } from './webPushClient.js';
 
 export const WORKER_URL = '/sw.js';
 export const WORKER_CLICK_MESSAGE = 'puter-notification-click';
 export const WORKER_CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-export const WORKER_SHOW_MESSAGE = 'puter-show-notification';
+export const WORKER_SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 
 /**
  * @param {Object} [params] - `window.gui_params`
@@ -46,96 +45,10 @@ export const pushWorkerEnabled = (params, nav) => (
     && typeof nav?.serviceWorker?.register === 'function'
 );
 
-/**
- * @param {{ replay?: boolean, acknowledged?: boolean, notification?: Object,
- *     visibilityState?: string, permission?: string }} input
- * @returns {boolean}
- */
-export const shouldShowLocalBanner = ({ replay = false, acknowledged = false, notification, visibilityState, permission }) => (
-    ! replay
-    && ! acknowledged
-    && visibilityState === 'hidden'
-    && permission === 'granted'
-    && !! notification
-    && typeof notification === 'object'
-    && notification.silent !== true
-);
-
-const nonEmpty = (value) => (typeof value === 'string' && value.trim() !== '' ? value : undefined);
-
-/**
- * @param {string} uid
- * @param {Object} notification
- * @param {string|null} [appUid] - The app the row names; wins over the value's
- * @returns {Object} The push payload shape `sw.js` shows
- */
-export const pushMessageFor = (uid, notification, appUid = null) => {
-    const group = nonEmpty(notification.group);
-    const message = { uid, group: group ?? uid };
-    if ( notification.type === APP_MESSAGE_TYPE ) {
-        const app = nonEmpty(appUid) ?? nonEmpty(notification.app?.uid);
-        // An app's group is its own, as the server names it on a push.
-        if ( app && group ) message.group = `${app}:${group}`;
-        if ( notification.sensitive === true ) {
-            return { ...message, title: nonEmpty(notification.app?.name), ...(app ? { target: { app } } : {}) };
-        }
-        const path = nonEmpty(notification.target);
-        if ( app ) message.target = { app, ...(path ? { path } : {}) };
-        if ( notification.data !== undefined ) message.data = notification.data;
-    } else if ( isShareNotification(notification) ) {
-        const path = nonEmpty(notification.fields?.target?.path);
-        if ( path ) message.target = { path };
-    }
-    const body = nonEmpty(notification.text);
-    const icon = httpsIconFor(notification);
-    return {
-        ...message,
-        title: nonEmpty(notification.title),
-        ...(body ? { body } : {}),
-        ...(icon ? { icon } : {}),
-    };
-};
-
-/**
- * Only while push is on in this browser, and only for Puter's own notifications: an app's message is shown by the app's page while it is open, and by the app's own push while it is closed.
- * @param {{ uid: string, notification: Object }} item
- * @param {{ replay?: boolean, acknowledged?: boolean }} [meta]
- * @param {{ params?: Object, doc?: Document, nav?: Navigator, NotificationApi?: { permission: string } }} [env]
- * @returns {Promise<boolean>} Whether one was handed to the worker
- */
-export const showLocalBanner = async ({ uid, notification }, { replay = false, acknowledged = false } = {}, {
-    params = globalThis.gui_params,
-    doc = globalThis.document,
-    nav = globalThis.navigator,
-    NotificationApi = globalThis.Notification,
-} = {}) => {
-    if ( ! pushWorkerEnabled(params, nav) ) return false;
-    if ( notification?.type === APP_MESSAGE_TYPE ) return false;
-    if ( ! shouldShowLocalBanner({
-        replay,
-        acknowledged,
-        notification,
-        visibilityState: doc?.visibilityState,
-        permission: NotificationApi?.permission,
-    }) ) return false;
-    try {
-        const registration = await nav.serviceWorker.getRegistration?.('/');
-        const worker = registration?.active;
-        if ( ! worker ) return false;
-        if ( ! await registration.pushManager?.getSubscription() ) return false;
-        worker.postMessage({ type: WORKER_SHOW_MESSAGE, puter: pushMessageFor(uid, notification) });
-        return true;
-    } catch ( err ) {
-        console.warn('Could not show a browser notification:', err);
-        return false;
-    }
-};
-
 let started = false;
 
 /**
- * @param {{ params?: Object, nav?: Navigator, query?: URLSearchParams,
- *     clearParam?: (name: string) => void, framed?: boolean }} [env]
+ * @param {{ params?: Object, nav?: Navigator, query?: URLSearchParams, clearParam?: (name: string) => void, framed?: boolean, resync?: () => unknown }} [env] `resync` runs when the worker replaced the subscription
  * @returns {Promise<void>}
  */
 export const startPushWorker = async ({
@@ -144,6 +57,7 @@ export const startPushWorker = async ({
     query = globalThis.url_query_params,
     clearParam = clear_query_param,
     framed = globalThis.top !== globalThis.self,
+    resync = () => syncBrowserPush({ fresh: true }),
 } = {}) => {
     if ( started || framed ) return;
     started = true;
@@ -160,15 +74,23 @@ export const startPushWorker = async ({
         registerPushClient(webPushClient());
     }
     nav.serviceWorker.addEventListener('message', (event) => {
+        if ( event.data?.type === WORKER_SUBSCRIPTION_CHANGED_MESSAGE ) {
+            void resync();
+            return;
+        }
         if ( event.data?.type !== WORKER_CLICK_MESSAGE || ! normalizePushTap(event.data.notification) ) return;
         event.source?.postMessage?.({ type: WORKER_CLICK_ACK_MESSAGE, id: event.data.id });
         dispatchPushTap(event.data.notification);
     });
+    // Turning push on registers the worker. One left without a subscription
+    // goes, so nothing but push installs it.
     try {
-        // Scripts the worker imports are fetched fresh on each update check.
-        await nav.serviceWorker.register(WORKER_URL, { scope: '/', updateViaCache: 'none' });
+        const registration = await nav.serviceWorker.getRegistration?.('/');
+        if ( ! registration ) return;
+        if ( await registration.pushManager?.getSubscription() ) await registration.update?.();
+        else await registration.unregister();
     } catch ( err ) {
-        console.warn('Could not register the service worker:', err);
+        console.warn('Could not update the service worker:', err);
     }
 };
 

@@ -1,0 +1,64 @@
+html,
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--dashboard-text);
+    background: var(--dashboard-background);
+}
+
+#app-browser {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* Empty until the session check and the SDK finish; matches <puter-user-menu>'s spinner. */
+#app-browser:empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#app-browser:empty::after {
+    content: '';
+    width: 22px;
+    height: 22px;
+    box-sizing: border-box;
+    border: 2px solid rgba(0, 0, 0, .12);
+    border-top-color: #555;
+    border-radius: 50%;
+    animation: app-browser-spin .7s linear infinite;
+}
+
+@keyframes app-browser-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #app-browser:empty::after { animation-duration: 1.6s; }
+}
+
+@media (prefers-color-scheme: dark) {
+    #app-browser:empty::after {
+        border-color: rgba(255, 255, 255, .15);
+        border-top-color: #ccc;
+    }
+}
+
+#app-browser .dashboard-section-apps {
+    width: 100%;
+}
+
+/* The dashboard's narrow-screen padding clears its hamburger button, which embeds don't have. */
+#app-browser .myapps-search-wrap {
+    padding-top: 16px;
+    padding-bottom: 16px;
+    margin-bottom: 8px;
+}
+
+#app-browser .myapps-group-name[readonly] {
+    cursor: default;
+}

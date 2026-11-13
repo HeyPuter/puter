@@ -97,6 +97,10 @@ import type {
     PendingShed,
 } from '../../stores/events/PendingDeliveryStore.js';
 import {
+    HANDLER_RENEW_MS,
+    type HandledSubscription,
+} from '../../stores/events/PresenceStore.js';
+import {
     isScheduleRow,
     runsInWorker,
     type HandlerScopeKind,
@@ -732,6 +736,11 @@ export const EVENTS_UNSUBSCRIBE_VERB = 'events.unsubscribe';
 export const EVENTS_ACK_VERB = 'events.ack';
 /** Client→server: hand a queued delivery back, so the worker takes it now. */
 export const EVENTS_NACK_VERB = 'events.nack';
+/**
+ * Client→server: every persistent subscription this connection runs a function
+ * handler for, replacing what it sent before.
+ */
+export const EVENTS_HANDLE_VERB = 'events.handle';
 export const EVENTS_DELIVERY_CHANNEL = 'events.delivery';
 /** Server→client, no ack: the server ended a session subscription itself. */
 export const EVENTS_ENDED_CHANNEL = 'events.ended';
@@ -888,8 +897,17 @@ const NO_CREDIT_SWEEP_LEASE_MS = 10 * 60 * 1000;
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
     id: string;
+    connected: boolean;
+    rooms: ReadonlySet<string>;
     on(event: string, listener: (...args: never[]) => void): unknown;
     once(event: string, listener: (...args: never[]) => void): unknown;
+    join(room: string): unknown;
+    leave(room: string): unknown;
+}
+
+/** Body of the `events.handle` verb. */
+export interface HandleRequest {
+    subIds?: unknown;
 }
 
 // -- Errors -----------------------------------------------------------
@@ -1146,6 +1164,37 @@ const deliveryTarget = (row: DispatchSubscription): SocketSpecifier => {
             : String(row.holderUserId),
     };
 };
+
+/**
+ * The room, inside a row's delivery room, of the connections that said they run
+ * its handler. A queue row with a worker is offered only to these: any other
+ * connection would decline it while one of these is still running it.
+ */
+export const handlerSocketRoom = (room: string, subId: string): string =>
+    `${room}:sub:${subId}`;
+
+const handlerTarget = (row: DispatchSubscription): string =>
+    handlerSocketRoom(String(deliveryTarget(row).room), row.subId);
+
+/** Handler rooms one forwarded batch looks up at once. */
+const HANDLER_PROBE_CONCURRENCY = 16;
+
+/** One subscription a connection runs the handler for. */
+interface HandledRoom extends HandledSubscription {
+    room: string;
+}
+
+/** The handler room a forwarded delivery must reach, if it is limited to one. */
+const forwardedHandlerRoom = (item: ForwardDelivery): string | null =>
+    item.ackRequired && item.toHandlers && item.ackId
+        ? handlerSocketRoom(
+              String(forwardTarget(item.userId, item.appUid).room),
+              item.subId,
+          )
+        : null;
+
+/** Rows one `events.handle` reads at once. */
+const HANDLER_ANNOUNCE_CONCURRENCY = 8;
 
 /** Whether this deployment can address an events worker at all. */
 const workerRuntimeReady = (config: IConfig): boolean =>
@@ -1798,6 +1847,8 @@ export class EventsService extends PuterService {
             });
         }) as (...args: never[]) => void);
 
+        const releaseHandlers = this.#trackHandlers(actor, userId, socket);
+
         // Presence is per (user, app) and per region, so it is the connection
         // rather than the subscription that moves it — a client that has not
         // subscribed yet is still somewhere, and that is what a peer needs.
@@ -1808,6 +1859,7 @@ export class EventsService extends PuterService {
             });
 
         socket.once('disconnect', (() => {
+            releaseHandlers();
             void this.reapSocket(userId, socket.id);
             void this.services.eventForward
                 .noteDisconnect(actor, socket.id)
@@ -1818,12 +1870,198 @@ export class EventsService extends PuterService {
     }
 
     /**
+     * Install `events.handle` on one connection and keep the region's record of
+     * the handlers it runs renewed. Announces, renewals and the release on
+     * disconnect take turns, so a slower earlier one can't undo a later one.
+     * Returns the release.
+     */
+    #trackHandlers(
+        actor: Actor,
+        userId: number,
+        socket: EventSocket,
+    ): () => void {
+        const handling = new Map<string, HandledRoom>();
+        let turns: Promise<void> = Promise.resolve();
+        const takeTurn = (run: () => Promise<void>): Promise<void> => {
+            const previous = turns;
+            const turn = (async () => {
+                try {
+                    await previous;
+                } catch {
+                    // Answered on its own turn.
+                }
+                await run();
+            })();
+            turns = turn;
+            return turn;
+        };
+
+        let renewTimer: ReturnType<typeof setInterval> | null = null;
+        const stopRenewing = () => {
+            if (renewTimer) clearInterval(renewTimer);
+            renewTimer = null;
+        };
+        const renew = async () => {
+            if (!socket.connected || handling.size === 0) return;
+            try {
+                await this.stores.presence.addHandlerSocket(userId, socket.id, [
+                    ...handling.values(),
+                ]);
+            } catch (err) {
+                console.warn('[events] handler renewal failed', err);
+            }
+        };
+
+        socket.on(EVENTS_HANDLE_VERB, ((
+            payload: HandleRequest,
+            ack: unknown,
+        ) => {
+            const turn = takeTurn(async () => {
+                try {
+                    await this.#announceHandlers(
+                        actor,
+                        socket,
+                        handling,
+                        payload,
+                    );
+                } finally {
+                    if (handling.size === 0 || !socket.connected)
+                        stopRenewing();
+                    else if (!renewTimer) {
+                        renewTimer = setInterval(
+                            () => void takeTurn(renew),
+                            HANDLER_RENEW_MS,
+                        );
+                        renewTimer.unref?.();
+                    }
+                }
+            });
+            void this.#answer(ack, async () => {
+                await turn;
+                return {};
+            });
+        }) as (...args: never[]) => void);
+
+        return () => {
+            stopRenewing();
+            void takeTurn(async () => {
+                stopRenewing();
+                const released = [...handling.values()];
+                handling.clear();
+                await this.#forgetHandlers(userId, socket.id, released);
+            });
+        };
+    }
+
+    /** Take a connection out of the region's record for these subscriptions. */
+    async #forgetHandlers(
+        userId: number,
+        socketId: string,
+        handled: readonly HandledRoom[],
+    ): Promise<void> {
+        try {
+            await this.stores.presence.removeHandlerSocket(
+                userId,
+                socketId,
+                handled,
+            );
+        } catch (err) {
+            // Lapses on its own once nothing renews it.
+            console.warn('[events] handler release failed', err);
+        }
+    }
+
+    /**
+     * Whether a connection in this region runs the subscription's handler: one
+     * on this node, or one the region's record holds. A failed read is a no.
+     */
+    async #handlerHeld(
+        userId: number,
+        appUid: string | null,
+        subId: string,
+        room: string,
+    ): Promise<boolean> {
+        if (this.services.socket.has({ room })) return true;
+        try {
+            return await this.stores.presence.holdsHandler(
+                userId,
+                presenceApp(appUid),
+                subId,
+            );
+        } catch (err) {
+            console.warn('[events] handler lookup failed', err);
+            return false;
+        }
+    }
+
+    /**
+     * Whether each handler room the forwarded deliveries name has a connection
+     * in this region, for `deliverForwarded`, each room looked up once.
+     */
+    async heldHandlerRooms(
+        items: readonly ForwardDelivery[],
+    ): Promise<Map<string, boolean>> {
+        const held = new Map<string, boolean>();
+        if (!this.enabled) return held;
+        const rooms = new Map<string, ForwardDelivery>();
+        for (const item of items) {
+            const room = forwardedHandlerRoom(item);
+            if (room && !rooms.has(room)) rooms.set(room, item);
+        }
+        if (rooms.size === 0) return held;
+        const list = [...rooms];
+        const outcomes = await runWithConcurrencyLimitSettled(
+            list,
+            HANDLER_PROBE_CONCURRENCY,
+            ([room, item]) =>
+                this.#handlerHeld(item.userId, item.appUid, item.subId, room),
+        );
+        list.forEach(([room], i) => {
+            const outcome = outcomes[i];
+            held.set(
+                room,
+                outcome?.status === 'fulfilled' && outcome.value === true,
+            );
+        });
+        return held;
+    }
+
+    /**
      * Put down one delivery another region handed us. Nothing is metered or
      * re-checked: the region that emitted it did both, and this one holds no
      * state about it at all.
      */
-    async deliverForwarded(item: ForwardDelivery): Promise<void> {
+    async deliverForwarded(
+        item: ForwardDelivery,
+        heldRooms?: ReadonlyMap<string, boolean>,
+    ): Promise<void> {
         if (!this.enabled) return;
+        let target = forwardTarget(item.userId, item.appUid);
+        const room = forwardedHandlerRoom(item);
+        if (room && item.ackId) {
+            const held =
+                heldRooms?.get(room) ??
+                (await this.#handlerHeld(
+                    item.userId,
+                    item.appUid,
+                    item.subId,
+                    room,
+                ));
+            // Nobody here runs its handler: hand it straight back, so the
+            // worker takes it without waiting out the lease.
+            if (!held) {
+                if (item.origin)
+                    this.services.eventForward.relayNack(
+                        item.origin,
+                        item.userId,
+                        item.subId,
+                        item.ackId,
+                        'no_handler',
+                    );
+                return;
+            }
+            target = { room };
+        }
         const envelope: DeliveryEnvelope = {
             subId: item.subId,
             event: item.event,
@@ -1837,7 +2075,7 @@ export class EventsService extends PuterService {
             ...(item.skipHandler ? { skipHandler: true as const } : {}),
         };
         await this.services.socket.send(
-            forwardTarget(item.userId, item.appUid),
+            target,
             EVENTS_DELIVERY_CHANNEL,
             envelope,
         );
@@ -1862,17 +2100,18 @@ export class EventsService extends PuterService {
         if (row.suspendedAt === null) await this.#drain(row);
     }
 
-    /** Apply a decline whose client gave it in another region. */
+    /** Apply a decline whose client, or `fromRegion` itself, gave it there. */
     async declineRelayed(
         holderUserId: number,
         subId: string,
         entryId: string,
         reason: DeclineReason,
+        fromRegion: string,
     ): Promise<void> {
         if (!this.enabled || !subId || !entryId) return;
         const row = await this.stores.durableSubscription.getBySubId(subId);
         if (!row || row.holderUserId !== holderUserId) return;
-        await this.#declined(row, entryId, reason);
+        await this.#declined(row, entryId, reason, fromRegion);
     }
 
     async #answer<T extends object>(
@@ -2488,7 +2727,90 @@ export class EventsService extends PuterService {
             );
             return;
         }
-        await this.#declined(row, entryId, reason);
+        await this.#declined(row, entryId, reason, null);
+    }
+
+    /**
+     * Put a connection in the handler room of each queue row it names and out
+     * of the ones it no longer names. A row it can't be shown to hold, or whose
+     * delivery room it isn't in, is skipped without saying so.
+     */
+    async #announceHandlers(
+        actor: Actor,
+        socket: EventSocket,
+        handling: Map<string, HandledRoom>,
+        request: HandleRequest,
+    ): Promise<void> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+        const raw = request?.subIds;
+        if (!Array.isArray(raw))
+            throw badRequest('subIds must be an array', 'bad_request');
+        const wanted = new Set(
+            raw
+                .filter(
+                    (subId): subId is string =>
+                        typeof subId === 'string' && subId.length > 0,
+                )
+                .slice(0, EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP.limit),
+        );
+
+        await spendUserWindow(EVENTS_ACK_LIMIT, holderUserId);
+
+        const dropped: HandledRoom[] = [];
+        for (const [subId, handled] of handling) {
+            if (wanted.has(subId)) continue;
+            handling.delete(subId);
+            dropped.push(handled);
+        }
+        // Out of the record before the room: a record naming a connection
+        // that left sends events to nobody until their lease lapses.
+        await this.#forgetHandlers(holderUserId, socket.id, dropped);
+        for (const { room } of dropped) await socket.leave(room);
+
+        const added = [...wanted].filter((subId) => !handling.has(subId));
+        const rows = await runWithConcurrencyLimitSettled(
+            added,
+            HANDLER_ANNOUNCE_CONCURRENCY,
+            (subId) => this.stores.durableSubscription.getBySubId(subId),
+        );
+        const joined: HandledRoom[] = [];
+        for (const outcome of rows) {
+            if (outcome.status !== 'fulfilled') continue;
+            const row = outcome.value;
+            if (
+                !row ||
+                row.holderUserId !== holderUserId ||
+                !rowInActorScope(actor, row) ||
+                row.delivery !== 'single' ||
+                !runsInWorker(row)
+            )
+                continue;
+            if (!socket.rooms.has(String(deliveryTarget(row).room))) continue;
+            // Joined after a disconnect, the id would stay in the room.
+            if (!socket.connected) return;
+            const handled: HandledRoom = {
+                room: handlerTarget(row),
+                appUid: presenceApp(row.appUid),
+                subId: row.subId,
+            };
+            handling.set(row.subId, handled);
+            await socket.join(handled.room);
+            joined.push(handled);
+        }
+        // Recorded only once in the room. A failed write is retried by the
+        // next renewal; until then this connection is not offered the row.
+        if (joined.length === 0) return;
+        try {
+            await this.stores.presence.addHandlerSocket(
+                holderUserId,
+                socket.id,
+                joined,
+            );
+        } catch (err) {
+            console.warn('[events] handler record failed', err);
+        }
     }
 
     /** The row an ack or decline names, and the region it belongs to. */
@@ -2530,18 +2852,22 @@ export class EventsService extends PuterService {
     /**
      * Take a declined delivery off the client's lease. A failed client run
      * counts like a failed worker run: retried after the backoff, or dropped. A
-     * client with no handler costs nothing and the worker runs it now; a row
-     * with no worker has nothing to hand it to, so its lease is left to lapse.
+     * client with no handler costs nothing: the next region with the app open
+     * that hasn't had it gets it, and once none is left the worker runs it now.
+     * A row with no worker has nothing to hand it to, so its lease is left to
+     * lapse. `fromRegion` is where the decline came from, `null` for here.
      */
     async #declined(
         row: DurableSubscription,
         entryId: string,
         reason: DeclineReason,
+        fromRegion: string | null,
     ): Promise<void> {
         if (reason === 'no_handler' && !runsInWorker(row)) return;
         const claimed = await this.stores.pendingDelivery.takeFromSocket(
             row.subId,
             entryId,
+            fromRegion,
         );
         if (!claimed) return;
 
@@ -2558,8 +2884,17 @@ export class EventsService extends PuterService {
         // later drain asks again.
         const serving = await this.#stillOwed(row);
         if (!serving) return;
-        if (await this.#runInWorker(serving, claimedAsServed(serving, claimed)))
-            await this.#drain(row);
+        const served = claimedAsServed(serving, claimed);
+        const region = await this.services.eventForward.candidateRegion(
+            serving.holderUserId,
+            serving.appUid,
+            served.triedRegions,
+        );
+        if (region) {
+            await this.#handToRegion(serving, served, region, true);
+            return;
+        }
+        if (await this.#runInWorker(serving, served)) await this.#drain(row);
     }
 
     // -- Handlers ----------------------------------------------------
@@ -6233,16 +6568,25 @@ export class EventsService extends PuterService {
         // suspension's window and goes out if the balance comes back.
         if (!(await this.#chargeable(meter, row.subId))) return false;
 
-        const target = deliveryTarget(row);
         const hasWorkerFallback = runsInWorker(row);
+        const appTarget = deliveryTarget(row);
+        const target: SocketSpecifier = hasWorkerFallback
+            ? { room: handlerTarget(row) }
+            : appTarget;
         // Region-wide: `has` only sees this node's sockets, and the room send
         // below reaches a sibling node's just the same.
-        const heldHere =
-            this.services.socket.has(target) ||
-            (await this.services.eventForward.heldInRegion(
-                row.holderUserId,
-                row.appUid,
-            ));
+        const heldHere = hasWorkerFallback
+            ? await this.#handlerHeld(
+                  row.holderUserId,
+                  row.appUid,
+                  row.subId,
+                  String(target.room),
+              )
+            : this.services.socket.has(appTarget) ||
+              (await this.services.eventForward.heldInRegion(
+                  row.holderUserId,
+                  row.appUid,
+              ));
 
         // A row with no worker to fall back to has nothing left to try once
         // its socket budget is spent. Without this, a socket that disappeared
@@ -6273,17 +6617,15 @@ export class EventsService extends PuterService {
                   )
                 : null;
 
-        if (here || region) {
+        if (region) {
+            await this.#handToRegion(row, claimed, region);
+            return false;
+        }
+        if (here) {
             await this.stores.pendingDelivery.leaseToSocket(
                 row.subId,
                 claimed.entryId,
             );
-            if (region)
-                await this.stores.pendingDelivery.recordRemoteAttempt(
-                    row.subId,
-                    claimed.entryId,
-                    region,
-                );
             const envelope: DeliveryEnvelope = {
                 subId: row.subId,
                 event: claimed.event,
@@ -6291,28 +6633,13 @@ export class EventsService extends PuterService {
                 ackId: claimed.entryId,
             };
             const bill = await this.#firstAttempt(row.subId, claimed);
-            if (region) {
-                this.services.eventForward.handOff(region, {
-                    holderUserId: row.holderUserId,
-                    appUid: row.appUid,
-                    subId: row.subId,
-                    event: claimed.event,
-                    ackRequired: true,
-                    ackId: claimed.entryId,
-                });
-                this.#delivered(envelope, meter, bill);
-            } else {
-                await this.#send({
-                    target,
-                    envelope,
-                    meter,
-                    bill,
-                });
-            }
-            singleAttempt.add(1, {
-                target: region ? 'remote-socket' : 'local-socket',
-                result: 'sent',
+            await this.#send({
+                target,
+                envelope,
+                meter,
+                bill,
             });
+            singleAttempt.add(1, { target: 'local-socket', result: 'sent' });
             return false;
         }
 
@@ -6323,6 +6650,44 @@ export class EventsService extends PuterService {
         }
 
         return this.#runInWorker(row, claimed);
+    }
+
+    /**
+     * Forward one claimed delivery to a region's connections under a socket
+     * lease, `reoffer` after another region declined it.
+     */
+    async #handToRegion(
+        row: DispatchSubscription,
+        claimed: ClaimedDelivery,
+        region: string,
+        reoffer = false,
+    ): Promise<void> {
+        await this.stores.pendingDelivery.leaseToSocket(
+            row.subId,
+            claimed.entryId,
+            { region, reoffer },
+        );
+        const bill = await this.#firstAttempt(row.subId, claimed);
+        this.services.eventForward.handOff(region, {
+            holderUserId: row.holderUserId,
+            appUid: row.appUid,
+            subId: row.subId,
+            event: claimed.event,
+            ackRequired: true,
+            ackId: claimed.entryId,
+            ...(runsInWorker(row) ? { toHandlers: true as const } : {}),
+        });
+        this.#delivered(
+            {
+                subId: row.subId,
+                event: claimed.event,
+                ackRequired: true,
+                ackId: claimed.entryId,
+            },
+            meterFor(row),
+            bill,
+        );
+        singleAttempt.add(1, { target: 'remote-socket', result: 'sent' });
     }
 
     /**

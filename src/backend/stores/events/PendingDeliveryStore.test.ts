@@ -219,13 +219,13 @@ describe('handing a delivery out', () => {
         await store.leaseToSocket(subId, entryId);
 
         await expect(
-            store.takeFromSocket(subId, entryId),
+            store.takeFromSocket(subId, entryId, null),
         ).resolves.toMatchObject({
             entryId,
             socketAttempts: 1,
         });
         // A second decline for the same lease changes nothing.
-        await expect(store.takeFromSocket(subId, entryId)).resolves.toBeNull();
+        await expect(store.takeFromSocket(subId, entryId, null)).resolves.toBeNull();
 
         // Held past the socket lease: the worker has it now.
         vi.useFakeTimers({ toFake: ['Date'] });
@@ -241,27 +241,77 @@ describe('handing a delivery out', () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(Date.now() + EVENTS_SOCKET_LEASE_MS + 1_000);
         await expect(store.claim(subId)).resolves.toMatchObject({ entryId });
-        await expect(store.takeFromSocket(subId, entryId)).resolves.toBeNull();
+        await expect(store.takeFromSocket(subId, entryId, null)).resolves.toBeNull();
 
         await store.settle(subId, entryId);
-        await expect(store.takeFromSocket(subId, entryId)).resolves.toBeNull();
+        await expect(store.takeFromSocket(subId, entryId, null)).resolves.toBeNull();
+    });
+
+    it('takes a decline only from the region the current attempt went to', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.claim(subId);
+        await store.leaseToSocket(subId, entryId, { region: 'east' });
+
+        await expect(
+            store.takeFromSocket(subId, entryId, null),
+        ).resolves.toBeNull();
+        await expect(
+            store.takeFromSocket(subId, entryId, 'south'),
+        ).resolves.toBeNull();
+        await expect(
+            store.takeFromSocket(subId, entryId, 'east'),
+        ).resolves.toMatchObject({ entryId, triedRegions: ['east'] });
+    });
+
+    it('leaves a later attempt alone when an earlier region declines again', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.claim(subId);
+        await store.leaseToSocket(subId, entryId, { region: 'east' });
+        await store.takeFromSocket(subId, entryId, 'east');
+        await store.leaseToSocket(subId, entryId, {
+            region: 'south',
+            reoffer: true,
+        });
+
+        // East's second client, declining the attempt east already gave back.
+        await expect(
+            store.takeFromSocket(subId, entryId, 'east'),
+        ).resolves.toBeNull();
+        await expect(
+            store.takeFromSocket(subId, entryId, 'south'),
+        ).resolves.toMatchObject({ triedRegions: ['east', 'south'] });
+    });
+
+    it('keeps a re-offer out of reach of a decline that reads only the first lease', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.claim(subId);
+        await store.leaseToSocket(subId, entryId, { region: 'east' });
+        await store.takeFromSocket(subId, entryId, 'east');
+        await store.leaseToSocket(subId, entryId, {
+            region: 'south',
+            reoffer: true,
+        });
+
+        // What a server without re-offers does with a decline: release the
+        // lease it finds stamped as `socketLeaseUntil`.
+        const raw = await redis.hget(`ev:q:{${subId}}`, entryId);
+        const { socketLeaseUntil } = JSON.parse(String(raw));
+        const moved = await redis.zscore(`ev:ql:{${subId}}`, entryId);
+        expect(Number(moved)).not.toBe(socketLeaseUntil);
     });
 
     it('ignores a decline for a delivery never handed to a socket', async () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId);
 
-        await expect(store.takeFromSocket(subId, entryId)).resolves.toBeNull();
+        await expect(store.takeFromSocket(subId, entryId, null)).resolves.toBeNull();
     });
 
     it('records remote regions tried separately from socket attempts', async () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId, { leaseMs: 1 });
 
-        await store.leaseToSocket(subId, entryId);
-        await expect(
-            store.recordRemoteAttempt(subId, entryId, 'east'),
-        ).resolves.toEqual(['east']);
+        await store.leaseToSocket(subId, entryId, { region: 'east' });
 
         vi.useFakeTimers({ toFake: ['Date'] });
         vi.setSystemTime(Date.now() + EVENTS_SOCKET_LEASE_MS + 1_000);
@@ -275,8 +325,7 @@ describe('handing a delivery out', () => {
     it('gives a delivery a fresh attempt budget on request', async () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId, { leaseMs: 1 });
-        await store.leaseToSocket(subId, entryId);
-        await store.recordRemoteAttempt(subId, entryId, 'east');
+        await store.leaseToSocket(subId, entryId, { region: 'east' });
 
         await store.resetSocketAttempts(subId, entryId);
 
@@ -552,7 +601,7 @@ describe('finding the work', () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId);
         await store.leaseToSocket(subId, entryId);
-        await store.takeFromSocket(subId, entryId);
+        await store.takeFromSocket(subId, entryId, null);
         await store.settle(subId, entryId);
         await store.enqueue(subId, event('b'));
         await store.purge(subId);

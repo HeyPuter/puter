@@ -117,11 +117,6 @@
     --dashboard-bento-usage-surface: #eef2ff;
     --dashboard-bento-usage-header-bg: #e0e7ff;
     --dashboard-bento-usage-bar-fill: #ea580c;
-    /* Emerald (matches the green icon accent used elsewhere) */
-    --dashboard-bento-desktop-icon-bg: #059669;
-    --dashboard-bento-desktop-icon-shadow: rgba(5, 150, 105, 0.22);
-    --dashboard-bento-desktop-surface: #ecfdf5;
-    --dashboard-bento-desktop-header-bg: #d1fae5;
 
     --dashboard-shadow-subtle: rgba(0, 0, 0, 0.04);
     --dashboard-shadow-light: rgba(0, 0, 0, 0.06);
@@ -244,10 +239,6 @@ body {
         --dashboard-bento-usage-surface: #1c1d2e;
         --dashboard-bento-usage-header-bg: #252a42;
         --dashboard-bento-usage-bar-fill: #fb923c;
-        --dashboard-bento-desktop-icon-bg: #10b981;
-        --dashboard-bento-desktop-icon-shadow: rgba(16, 185, 129, 0.32);
-        --dashboard-bento-desktop-surface: #16241f;
-        --dashboard-bento-desktop-header-bg: #172e26;
 
         --dashboard-shadow-subtle: rgba(0, 0, 0, 0.2);
         --dashboard-shadow-light: rgba(0, 0, 0, 0.3);
@@ -950,7 +941,7 @@ input.myapps-search::-webkit-search-decoration {
     appearance: none;
 }
 
-/* Frozen while reorder mode is on (see TabApps._setReorderMode). */
+/* Frozen while reorder mode is on (see _setReorderMode in AppBrowser.js). */
 input.myapps-search:disabled {
     opacity: 0.55;
 }
@@ -1016,7 +1007,7 @@ input.myapps-search:disabled {
 }
 
 .myapps-container {
-    /* Pager geometry is inherited from .myapps-tab; TabApps.js reads it here
+    /* Pager geometry is inherited from .myapps-tab; AppBrowser.js reads it here
        (computeLayout) to size pages. */
     flex: 1;
     min-height: 0;
@@ -1294,7 +1285,7 @@ input.myapps-search:disabled {
 
 /* Uninstall: the tile shrinks away in place, then the surviving tiles
    FLIP-slide into the closed-up grid (see showUninstallModal). Duration is
-   mirrored by TILE_REMOVE_ANIM_MS in TabApps.js. */
+   mirrored by TILE_REMOVE_ANIM_MS in AppBrowser.js. */
 .myapps-tile.myapps-tile-removing {
     transition: transform 0.18s ease-in, opacity 0.18s ease-in;
     transform: scale(0.5);
@@ -1414,7 +1405,7 @@ input.myapps-search:disabled {
 }
 
 /* Pending: the well fills over the dwell the drop is waiting out
-   (DRAG_MERGE_DWELL_MS in TabApps.js) — for the ordinary gesture (carry the
+   (DRAG_MERGE_DWELL_MS in AppBrowser.js) — for the ordinary gesture (carry the
    icon over, stop) the fill IS the countdown, so leaving before it completes
    is an informed choice rather than a surprise. */
 body.myapps-reordering .myapps-tile-merge-pending::before {
@@ -1491,7 +1482,7 @@ body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
     opacity: 0;
     transform: scale(0.92);
     transform-origin: center;
-    /* Mirrors GROUP_PANEL_OPEN_MS / GROUP_PANEL_CLOSE_MS in TabApps.js; the
+    /* Mirrors GROUP_PANEL_OPEN_MS / GROUP_PANEL_CLOSE_MS in AppBrowser.js; the
        curve is the window morph's, so a folder opening and an app opening
        feel like the same gesture at two scales. */
     transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease;
@@ -2739,15 +2730,17 @@ input.myapps-group-name:focus {
     }
 }
 
-/* In a popup that exists only for this dialog, the dialog is the page: a
-   centered column, with the actions pinned to the bottom edge. */
-.custom-domain-fullpage {
-    --cd-column: min(552px, 100% - 48px);
+/* In a popup that exists only to host one of these dialogs, the dialog is the
+   page: a centered column, with the actions pinned to the bottom edge. */
+.app-feedback-fullpage {
+    --afb-column: min(552px, 100% - 48px);
     padding: 0;
     align-items: stretch;
     background: var(--afb-bg);
 }
-.custom-domain-fullpage .custom-domain-modal {
+.app-feedback-fullpage .app-feedback-modal {
+    display: flex;
+    flex-direction: column;
     width: 100%;
     height: 100dvh;
     max-height: none;
@@ -2758,39 +2751,39 @@ input.myapps-group-name:focus {
     padding-bottom: 0;
     overflow: hidden;
 }
-.custom-domain-fullpage .app-feedback-x {
+.app-feedback-fullpage .app-feedback-x {
     display: none;
 }
-.custom-domain-fullpage .custom-domain-head {
-    width: var(--cd-column);
+.app-feedback-fullpage .app-feedback-head {
+    width: var(--afb-column);
     margin: 0 auto;
     padding: 28px 0 4px;
 }
-.custom-domain-fullpage .custom-domain-body {
+.app-feedback-fullpage .app-feedback-body {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow-y: auto;
     padding: 20px 0 0;
 }
-.custom-domain-fullpage .custom-domain-pane {
+.app-feedback-fullpage .app-feedback-pane {
     flex: 1 0 auto;
     display: flex;
     flex-direction: column;
 }
-.custom-domain-fullpage .custom-domain-pane > :not(.app-feedback-actions, .app-feedback-success-check, .custom-domain-state-icon) {
+.app-feedback-fullpage .app-feedback-pane > :not(.app-feedback-actions, .app-feedback-success-check, .custom-domain-state-icon) {
     box-sizing: border-box;
-    width: var(--cd-column);
+    width: var(--afb-column);
     margin-left: auto;
     margin-right: auto;
 }
 /* Keeps the actions off the content when it fills the page. */
-.custom-domain-fullpage .custom-domain-pane::after {
+.app-feedback-fullpage .app-feedback-pane::after {
     content: '';
     flex: 1 0 20px;
     order: 1;
 }
-.custom-domain-fullpage .app-feedback-actions {
+.app-feedback-fullpage .app-feedback-actions {
     order: 2;
     position: sticky;
     bottom: 0;
@@ -2799,8 +2792,17 @@ input.myapps-group-name:focus {
     background: var(--afb-bg);
     border-top: 1px solid var(--afb-border);
 }
-.custom-domain-fullpage .custom-domain-state .app-feedback-actions {
+.app-feedback-fullpage .app-feedback-unavailable .app-feedback-actions,
+.app-feedback-fullpage .custom-domain-state .app-feedback-actions {
     justify-content: center;
+}
+/* The message box takes the spare height instead of the spacer. */
+.app-feedback-fullpage .app-feedback-form::after {
+    flex-grow: 0;
+}
+.app-feedback-fullpage .app-feedback-message {
+    flex: 1 0 160px;
+    resize: none;
 }
 
 /* Add-an-app chooser (see showAddAppModal): the three ways to get an app, as
@@ -3341,8 +3343,7 @@ p.myapps-add-error {
 }
 
 /* -- Share modal --
-   Responsive, from-scratch replacement for UIWindowShare in the Dashboard:
-   a centered card on desktop, a bottom sheet on mobile. Mirrors the item
+   A centered card on desktop, a bottom sheet on mobile. Mirrors the item
    properties modal's shell so the two read as one system. */
 .share-modal-overlay {
     position: fixed;
@@ -3703,9 +3704,8 @@ select.share-modal-row-mode:disabled {
     font-size: 16px;
 }
 
-/* Recipient suggestions. The structure lives in style.css, shared with the
-   desktop share dialog; only the palette is restated here so the list picks
-   up the dashboard's tokens in both themes. */
+/* Recipient suggestions. The structure lives in style.css; only the palette
+   is set here so the list picks up the dashboard's tokens in both themes. */
 .share-modal {
     --share-suggest-bg: var(--dashboard-card-background);
     --share-suggest-border: var(--dashboard-border);
@@ -4597,7 +4597,7 @@ select.share-modal-row-mode:focus {
 /* A tile installed by a deep-link landing, not yet arrived: rendered in
    place — layout, page count, and the wayfinding flip all see it — but held
    invisible for the intro's arrival beat to reveal (see _spliceDeepLinkApp /
-   _revealArrivingTile in TabApps.js). */
+   _revealArrivingTile in AppBrowser.js). */
 .myapps-tile-installing {
     opacity: 0;
     transform: scale(0.55);
@@ -4605,7 +4605,7 @@ select.share-modal-row-mode:focus {
 }
 
 /* The arrival itself: an INSTALLATION, staged over 1400ms (mirrored by
-   DEEP_LINK_INSTALL_ARRIVE_MS in TabApps.js) with the grammar users know
+   DEEP_LINK_INSTALL_ARRIVE_MS in AppBrowser.js) with the grammar users know
    from every app store:
      1. the slot opens — the folder well's own surface — and the icon
         materializes into it DIM (grayscale, translucent, slightly small):
@@ -4750,7 +4750,7 @@ body.myapps-reordering .myapps-tile {
     touch-action: none;
 }
 
-/* -- Reorder mode (touch; see TabApps._setReorderMode) --
+/* -- Reorder mode (touch; see _setReorderMode in AppBrowser.js) --
    touch-action must be locked down BEFORE the finger goes down — the browser
    reads it at gesture start, so the mid-drag body.myapps-reordering rule
    above can't stop a touch the scroller has already claimed. While the mode
@@ -5246,7 +5246,9 @@ body.myapps-reordering .myapps-tile {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding-bottom: 30px;
+    /* Ends above the footer, not under it, so a drop outline drawn on its
+       edge shows all the way round. */
+    margin-bottom: 30px;
     overflow-y: auto;
     touch-action: pan-y;
 }
@@ -7026,7 +7028,7 @@ body.myapps-reordering .myapps-tile {
     }
 
     .dashboard-section-files .files {
-        padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+        margin-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
     }
 
     /* The grids keep their own padding and clear the footer with a margin,
@@ -7373,11 +7375,6 @@ body.myapps-reordering .myapps-tile {
     color: #fff;
 }
 
-.dashboard .bento-card-fancy-icon-desktop {
-    background-color: var(--dashboard-bento-desktop-icon-bg);
-    color: #fff;
-}
-
 .dashboard .bento-card-fancy-text {
     display: flex;
     flex-direction: column;
@@ -7538,41 +7535,6 @@ body.myapps-reordering .myapps-tile {
 .dashboard .bento-recent-apps-empty span {
     font-size: 13px;
     color: var(--dashboard-text-tertiary);
-}
-
-/* Open Desktop bento card (full width; links to the desktop interface) */
-.dashboard .bento-desktop {
-    grid-column: 1 / -1;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 18px 24px;
-    background-color: var(--dashboard-bento-desktop-header-bg);
-    text-decoration: none;
-    color: inherit;
-    transition: box-shadow 0.15s ease;
-}
-
-@media (hover: hover) {
-    .dashboard .bento-desktop:hover {
-        box-shadow:
-            0 2px 4px var(--dashboard-shadow-subtle),
-            0 10px 28px var(--dashboard-bento-desktop-icon-shadow);
-    }
-
-    .dashboard .bento-desktop:hover .bento-desktop-arrow {
-        transform: translateX(3px);
-        color: var(--dashboard-text-primary);
-    }
-}
-
-.dashboard .bento-desktop-arrow {
-    margin-left: auto;
-    font-size: 22px;
-    font-weight: 300;
-    line-height: 1;
-    color: var(--dashboard-text-hint);
-    transition: transform 0.15s ease, color 0.15s ease;
 }
 
 /* Usage bento card (cool indigo surfaces; orange bars stay as progress accent) */
@@ -7893,11 +7855,6 @@ body.myapps-reordering .myapps-tile {
     }
 
     .dashboard .bento-card-fancy-header {
-        padding: 16px 20px;
-        gap: 12px;
-    }
-
-    .dashboard .bento-desktop {
         padding: 16px 20px;
         gap: 12px;
     }
@@ -8734,13 +8691,6 @@ body.myapps-reordering .myapps-tile {
     margin-left: auto;
 }
 
-/* Dashboard mode runs fullpage (which normally hides the minimize button
-   because there's no taskbar to restore from), but here a minimized app can
-   be brought back from its Apps-tab tile — so keep the button available. */
-body.dashboard-mode .window-minimize-btn {
-    display: inline;
-}
-
 /* Fullpage mode sizes .window-body-app to 100% because fullpage windows have
    no titlebar — but dashboard-mode app windows WITH a head still lose 29px to
    it, so compensate for those. Headless dashboard app windows
@@ -9092,7 +9042,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 
 /* Running dot: marks Apps-tab tiles whose app has a live window (visible or
    minimized), macOS-dock style — sits centered in the gap between the 56px
-   icon and the label. Kept/removed by updateRunningDots in TabApps.js. */
+   icon and the label. Kept/removed by updateRunningDots in AppBrowser.js. */
 .myapps-tile {
     position: relative;
 }
@@ -10590,6 +10540,253 @@ body.dashboard-mode .notifications-close-all {
     overflow-wrap: anywhere;
 }
 
+/* Contact Us: a message with screenshots or recordings attached */
+.dashboard-dialog.dashboard-contact-dialog {
+    width: min(500px, 100%);
+}
+
+.dashboard-contact-dialog .dashboard-form-input[name='message'] {
+    min-height: 132px;
+}
+
+.dashboard-contact-attachments {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dashboard-contact-dropzone {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px dashed var(--dashboard-border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--dashboard-text-primary);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dashboard-contact-dropzone-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+
+.dashboard-contact-dropzone-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+.dashboard-contact-dropzone-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dashboard-contact-dropzone-label,
+.dashboard-contact-dropzone-drop {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.dashboard-contact-dropzone-drop {
+    display: none;
+    color: var(--select-text);
+}
+
+.dashboard-contact-dropzone-hint {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--dashboard-text-muted);
+}
+
+@media (hover: hover) {
+    .dashboard-contact-dropzone:hover:not(:disabled) {
+        border-color: var(--select-color);
+        background: var(--select-tint-weak);
+    }
+}
+
+.dashboard-contact-dropzone:focus-visible {
+    outline: none;
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-contact-dropzone:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+/* Files dragged anywhere over the dialog land here. */
+.dashboard-contact-dragging .dashboard-contact-dropzone {
+    border-style: solid;
+    border-color: var(--select-color);
+    background: var(--select-tint);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-contact-dragging .dashboard-contact-dropzone-label {
+    display: none;
+}
+
+.dashboard-contact-dragging .dashboard-contact-dropzone-drop {
+    display: block;
+}
+
+.dashboard-contact-files {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.dashboard-contact-files[hidden] {
+    display: none;
+}
+
+.dashboard-contact-file {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 6px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background);
+    animation: dashboard-contact-file-in 160ms ease;
+}
+
+@keyframes dashboard-contact-file-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+}
+
+.dashboard-contact-file-thumb {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 7px;
+    overflow: hidden;
+    background: var(--dashboard-sidebar-background);
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard-contact-file-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.dashboard-contact-file-thumb svg {
+    width: 20px;
+    height: 20px;
+}
+
+.dashboard-contact-file-text {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.dashboard-contact-file-name {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--dashboard-text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-contact-file-size {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.dashboard-contact-file-remove {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.dashboard-contact-file-remove svg {
+    width: 16px;
+    height: 16px;
+}
+
+@media (hover: hover) {
+    .dashboard-contact-file-remove:hover:not(:disabled) {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.dashboard-contact-file-remove:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-contact-file-remove:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+/* Sending: the files are on their way and no longer up for change. */
+.dashboard-contact-sending .dashboard-contact-file {
+    opacity: 0.7;
+}
+
+@media (pointer: coarse) {
+    .dashboard-contact-dropzone {
+        min-height: 56px;
+    }
+
+    .dashboard-contact-file-remove {
+        width: 44px;
+        height: 44px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-contact-file {
+        animation: none;
+    }
+}
+
 /* API token, shown once */
 .dashboard-token-warning {
     padding: 10px 12px;
@@ -10678,6 +10875,990 @@ body.dashboard-mode .notifications-close-all {
 @media (prefers-reduced-motion: reduce) {
     .dashboard-form-spinner {
         animation-duration: 1.6s;
+    }
+}
+
+/* ======================================
+   Publish dialog: custom domain
+   ====================================== */
+
+/* The address, once the site is live under it, reads as settled. */
+.dashboard-form-affix:has([readonly]) {
+    background: var(--dashboard-sidebar-background);
+}
+
+.dashboard-form-affix:has([readonly]):focus-within {
+    border-color: var(--dashboard-border);
+    box-shadow: none;
+}
+
+.dashboard-publish-upsell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    background: var(--select-tint-weak);
+}
+
+.dashboard-publish-upsell[hidden],
+.dashboard-publish-claim[hidden] {
+    display: none;
+}
+
+.dashboard-publish-upsell-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+
+.dashboard-publish-upsell-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.dashboard-publish-upsell-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dashboard-publish-upsell-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-publish-upsell .dashboard-dialog-btn {
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+@media (max-width: 600px) {
+    .dashboard-publish-upsell {
+        flex-wrap: wrap;
+    }
+
+    /* The text keeps to the icon's row; only the button takes its own. */
+    .dashboard-publish-upsell-text {
+        flex-basis: 0;
+    }
+
+    .dashboard-publish-upsell .dashboard-dialog-btn {
+        flex-basis: 100%;
+    }
+}
+
+.dashboard-publish-claim {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dashboard-publish-claim-text {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--dashboard-warning-border);
+    border-radius: 8px;
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+/* DNS records: the type, then a copyable name and value. */
+.dashboard-dns-records {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* One grid per card, so the label column fits the longest label and the
+   name and value line up. */
+.dashboard-dns-record {
+    display: grid;
+    grid-template-columns: minmax(44px, max-content) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-sidebar-background);
+}
+
+.dashboard-dns-record-head {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dashboard-dns-record-type {
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--select-tint);
+    color: var(--select-color);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.dashboard-dns-record-optional {
+    font-size: 11px;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-dns-record-field {
+    display: contents;
+}
+
+.dashboard-dns-record-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+}
+
+/* The done screen's domain, under the live address. */
+.dashboard-publish-domain {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.dashboard-publish-domain-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dashboard-publish-domain-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.dashboard-publish-domain-icon {
+    flex-shrink: 0;
+    display: flex;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-publish-domain-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.dashboard-publish-domain-host {
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
+}
+
+.dashboard-publish-domain-badge {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.dashboard-publish-domain-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.dashboard-publish-domain-badge[data-status='active'] {
+    background: var(--dashboard-success-background);
+    color: var(--dashboard-success-text);
+}
+
+.dashboard-publish-domain-badge[data-status='failed'] {
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+
+.dashboard-publish-domain-detail {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dashboard-danger-text);
+    overflow-wrap: anywhere;
+}
+
+.dashboard-publish-domain-actions {
+    display: flex;
+}
+
+.dashboard-publish-domain-status {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--dashboard-text-secondary);
+}
+
+/* Empty, it stays in the a11y tree and gives back the gap it would claim. */
+.dashboard-publish-domain-status:empty {
+    margin-top: -10px;
+}
+
+.dashboard-publish-domain-status-error {
+    color: var(--dashboard-danger-text);
+}
+
+.dashboard-publish-link-btn {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--dashboard-link);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .dashboard-publish-link-btn:hover:not(:disabled) {
+        text-decoration: underline;
+    }
+}
+
+.dashboard-publish-link-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.dashboard-publish-link-btn:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* ======================================
+   Auth dialog (login, signup, account picker, password recovery, 2FA)
+   ====================================== */
+
+/* Above every window (phones pin them all at 9999999) and the toolbar, and
+   under the stay-on-top band (99999999 and up) where the account checks a
+   new signup has to pass open as windows. */
+.dashboard-dialog-overlay.auth-dialog-overlay {
+    z-index: 99999998;
+}
+
+/* As a page there is nothing behind the card to go back to. It covers the
+   screen at once rather than fading in over whatever was there. */
+.dashboard-dialog-overlay.auth-dialog-page {
+    background: var(--dashboard-sidebar-background);
+    transition: none;
+}
+
+.dashboard-dialog.auth-dialog {
+    position: relative;
+    width: min(400px, 100%);
+    color: var(--dashboard-text-primary);
+    text-align: left;
+}
+
+.auth-dialog [hidden] {
+    display: none !important;
+}
+
+/* Back and ✕ float over the top corners; the logo sits between them. */
+.auth-dialog-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    padding: 10px;
+    pointer-events: none;
+    transition: background-color 0.15s, box-shadow 0.15s;
+}
+
+/* Scrolled, the screen passes under an opaque bar rather than under the
+   bare buttons. */
+.auth-dialog-scrolled .auth-dialog-bar:has(> button:not([hidden])) {
+    background: var(--dashboard-card-background);
+    box-shadow: 0 1px 0 var(--dashboard-border);
+    pointer-events: auto;
+}
+
+.auth-dialog .auth-body {
+    scroll-padding-top: 52px;
+}
+
+.auth-dialog-bar > button {
+    pointer-events: auto;
+}
+
+.auth-dialog-bar .dashboard-dialog-close {
+    margin-left: auto;
+}
+
+.auth-dialog-back {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.auth-dialog-back svg {
+    width: 20px;
+    height: 20px;
+}
+
+.auth-dialog-back:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+@media (hover: hover) {
+    .auth-dialog-back:not(:disabled):hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.auth-dialog-back:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (pointer: coarse) {
+    .auth-dialog-back {
+        position: relative;
+    }
+
+    .auth-dialog-back::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+}
+
+.auth-screen {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.auth-dialog .dashboard-dialog-body.auth-body {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 28px 28px 24px;
+}
+
+.auth-dialog .auth-footer {
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    font-size: 13px;
+}
+
+.auth-footer-sep {
+    color: var(--dashboard-text-muted);
+}
+
+/* Logo strip, title, and the opener notice of a sign-in popup. */
+.auth-head {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+    text-align: center;
+}
+
+.auth-dialog .auth-logo {
+    width: 28px;
+    height: 28px;
+    padding: 12px;
+    border-radius: 12px;
+}
+
+.auth-dialog .auth-logo-link {
+    display: block;
+    border-radius: 12px;
+}
+
+.auth-dialog .auth-logo-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.auth-dialog .auth-opener-logo {
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
+}
+
+.auth-dialog .auth-opener-logo-fallback,
+.auth-dialog .auth-opener-logo-img {
+    border-radius: 12px;
+}
+
+.auth-dialog .auth-opener-logo-fallback {
+    padding: 12px;
+}
+
+.auth-dialog .auth-logo-connector {
+    width: 54px;
+}
+
+.auth-title {
+    margin: 4px 0 0;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--dashboard-text-primary);
+    text-shadow: none;
+    overflow-wrap: anywhere;
+}
+
+.auth-subtitle,
+.auth-dialog .auth-opener-notice {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--dashboard-text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.auth-dialog .auth-opener-notice strong {
+    color: var(--dashboard-text-primary);
+}
+
+.auth-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+
+.auth-badge svg {
+    width: 26px;
+    height: 26px;
+}
+
+/* Forms */
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.dashboard-dialog-btn.auth-submit {
+    width: 100%;
+    height: 40px;
+    margin-top: 4px;
+}
+
+.auth-status-success {
+    border-color: var(--dashboard-success-border, transparent);
+    background: var(--dashboard-success-background, transparent);
+    color: var(--dashboard-success-text);
+}
+
+.auth-status-help p {
+    margin: 0 0 6px;
+}
+
+.auth-status-help ul {
+    margin: 0;
+    padding-left: 1.4em;
+}
+
+.auth-forgot-row,
+.auth-link-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: -6px;
+}
+
+.auth-link-row {
+    justify-content: center;
+    margin-top: 0;
+}
+
+.auth-link {
+    display: inline;
+    padding: 2px 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--dashboard-link);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .auth-link:hover {
+        text-decoration: underline;
+    }
+}
+
+.auth-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (pointer: coarse) {
+    .auth-link {
+        min-height: 44px;
+        padding: 0 4px;
+        font-size: 14px;
+    }
+
+    .auth-forgot-row {
+        margin-top: -12px;
+    }
+}
+
+/* Identity providers */
+.auth-providers {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 18px;
+}
+
+.auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--dashboard-border);
+}
+
+.auth-provider-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dashboard-dialog-btn.auth-provider-btn {
+    width: 100%;
+    height: 40px;
+    gap: 10px;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+@media (hover: hover) {
+    .dashboard-dialog-btn.auth-provider-btn:hover {
+        background: var(--dashboard-sidebar-background);
+    }
+}
+
+/* The dark sidebar shade is the dark card's own. */
+@media (hover: hover) and (prefers-color-scheme: dark) {
+    .dashboard-dialog-btn.auth-provider-btn:hover {
+        background: var(--dashboard-hover);
+    }
+}
+
+.auth-provider-icon {
+    display: flex;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+}
+
+.auth-provider-icon img,
+.auth-provider-icon svg {
+    width: 20px !important;
+    height: 20px !important;
+}
+
+/* Signup */
+.auth-dialog .auth-screen-status {
+    margin: 0 0 16px;
+}
+
+.auth-dialog .auth-screen-status:empty {
+    margin: 0;
+}
+
+.auth-dialog .signup-bonus-notice {
+    margin: 0 0 16px;
+    border: 1px solid var(--dashboard-success-border);
+    border-radius: 8px;
+    background: var(--dashboard-success-background);
+    color: var(--dashboard-success-text);
+}
+
+.auth-dialog .signup-bonus-notice-invalid {
+    border-color: var(--dashboard-danger-border);
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+
+.auth-dialog .oidc-providers-wrapper {
+    margin-top: 0;
+}
+
+.signup-with-email-wrapper {
+    margin-top: 8px;
+}
+
+/* The email form under the provider buttons. */
+.oidc-providers-wrapper:not([hidden]) ~ .signup-form {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.auth-dialog .signup-terms {
+    margin: 18px 0 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--dashboard-text-muted);
+    text-align: center;
+}
+
+.auth-dialog .signup-terms a {
+    color: var(--dashboard-link);
+}
+
+.auth-turnstile {
+    display: flex;
+    justify-content: center;
+}
+
+.auth-turnstile:has(.cf-turnstile:empty) {
+    display: none;
+}
+
+.cf-turnstile.captcha-completed {
+    border: 2px solid #4caf50;
+    border-radius: 4px;
+    padding: 2px;
+}
+
+/* Account picker */
+.auth-accounts {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.auth-account {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 58px;
+    padding: 10px 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+@media (hover: hover) {
+    .auth-account:not(:disabled):hover {
+        border-color: var(--select-color);
+        background: var(--select-tint-weak);
+    }
+}
+
+.auth-account:focus-visible {
+    outline: none;
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.auth-account:disabled {
+    cursor: default;
+}
+
+.auth-account:disabled:not(.dashboard-form-busy) {
+    opacity: 0.55;
+}
+
+.auth-account-avatar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--select-tint);
+    color: var(--select-text);
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.auth-account-avatar img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.auth-account-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.auth-account-name,
+.auth-account-detail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.auth-account-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.auth-account-detail {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+}
+
+.auth-account-chevron {
+    display: flex;
+    flex-shrink: 0;
+    color: var(--dashboard-text-muted);
+}
+
+.auth-account-chevron svg {
+    width: 16px;
+    height: 16px;
+}
+
+.auth-account.dashboard-form-busy .auth-account-chevron {
+    display: none;
+}
+
+.auth-account .auth-account-spinner {
+    margin-right: 0;
+    color: var(--select-color);
+}
+
+/* Second factor */
+.login-2fa-code-inputs {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+.auth-dialog .login-2fa-code-inputs .dashboard-dialog-input,
+.auth-dialog .login-2fa-code-inputs .dashboard-dialog-input:focus {
+    width: 46px;
+    height: 54px;
+    padding: 0;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.auth-dialog .dashboard-dialog-input.login-2fa-recovery-input,
+.auth-dialog .dashboard-dialog-input.login-2fa-recovery-input:focus {
+    height: 50px;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 2px;
+}
+
+.auth-dialog .login-2fa-code-inputs .login-2fa-wrong {
+    border-color: var(--dashboard-danger-text);
+    animation: auth-shake 0.4s ease;
+}
+
+@keyframes auth-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-4px); }
+    40% { transform: translateX(4px); }
+    60% { transform: translateX(-3px); }
+    80% { transform: translateX(2px); }
+}
+
+@media (max-width: 380px) {
+    .login-2fa-code-inputs {
+        gap: 6px;
+    }
+
+    .auth-dialog .login-2fa-code-inputs .dashboard-dialog-input,
+    .auth-dialog .login-2fa-code-inputs .dashboard-dialog-input:focus {
+        width: 40px;
+        height: 48px;
+        font-size: 20px;
+    }
+}
+
+/* Recovery email sent */
+.auth-done {
+    padding: 4px 0 0;
+}
+
+/* Wait on the work in flight rather than act twice. */
+.auth-dialog-busy .auth-link,
+.auth-dialog-busy .auth-provider-btn {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* Phones (and any popup): a page fills the screen, content centered in it,
+   rather than a card on a page. */
+@media (max-width: 600px) {
+    /* A bottom sheet spans the screen, like every other dashboard sheet. */
+    .dashboard-dialog.auth-dialog {
+        width: 100%;
+    }
+
+    .dashboard-dialog-overlay.auth-dialog-page {
+        align-items: stretch;
+        background: var(--dashboard-card-background);
+    }
+
+    .auth-dialog-page .dashboard-dialog.auth-dialog {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        transform: none;
+    }
+
+    .auth-dialog .dashboard-dialog-body.auth-body {
+        padding: 24px 20px 20px;
+    }
+
+    /* Two links side by side, not stacked like a dialog's buttons. */
+    .auth-dialog .auth-footer {
+        flex-direction: row;
+    }
+}
+
+.embedded-in-popup .dashboard-dialog-overlay.auth-dialog-page {
+    align-items: stretch;
+    padding: 0;
+    background: var(--dashboard-card-background);
+}
+
+.embedded-in-popup .auth-dialog-page .dashboard-dialog.auth-dialog {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+}
+
+/* Filling the screen, the content keeps a readable width and sits in the
+   middle of the height it doesn't need. */
+@media (max-width: 600px) {
+    .auth-dialog-page .auth-body::before,
+    .auth-dialog-page .auth-body::after {
+        content: '';
+        flex: 1 1 0;
+    }
+
+    .auth-dialog-page .auth-body > * {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+}
+
+.embedded-in-popup .auth-dialog-page .auth-body::before,
+.embedded-in-popup .auth-dialog-page .auth-body::after {
+    content: '';
+    flex: 1 1 0;
+}
+
+.embedded-in-popup .auth-dialog-page .auth-body > * {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .auth-dialog .login-2fa-code-inputs .login-2fa-wrong {
+        animation: none;
     }
 }
 

@@ -18,173 +18,11 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-    closeLocalBanner,
-    pushMessageFor,
-    pushWorkerEnabled,
-    shouldShowLocalBanner,
-    showLocalBanner,
-} from './pushWorker.js';
+import { closeLocalBanner, pushWorkerEnabled } from './pushWorker.js';
 
 afterEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
-});
-
-const share = {
-    type: 'share.received',
-    title: 'alice shared a file with you',
-    icon: 'shared.svg',
-    fields: { target: { path: '/alice/Shared/a.txt', name: 'a.txt' } },
-};
-
-describe('shouldShowLocalBanner', () => {
-    const live = { notification: share, visibilityState: 'hidden', permission: 'granted' };
-
-    it('shows one for a live arrival in a hidden tab with permission', () => {
-        expect(shouldShowLocalBanner(live)).toBe(true);
-    });
-
-    it('shows none while the tab is visible', () => {
-        expect(shouldShowLocalBanner({ ...live, visibilityState: 'visible' })).toBe(false);
-    });
-
-    it('shows none for a replay, an acknowledged or a silent one', () => {
-        expect(shouldShowLocalBanner({ ...live, replay: true })).toBe(false);
-        expect(shouldShowLocalBanner({ ...live, acknowledged: true })).toBe(false);
-        expect(shouldShowLocalBanner({ ...live, notification: { ...share, silent: true } })).toBe(false);
-    });
-
-    it('shows none without permission granted', () => {
-        expect(shouldShowLocalBanner({ ...live, permission: 'default' })).toBe(false);
-        expect(shouldShowLocalBanner({ ...live, permission: 'denied' })).toBe(false);
-        expect(shouldShowLocalBanner({ ...live, permission: undefined })).toBe(false);
-    });
-});
-
-describe('pushMessageFor', () => {
-    it('targets the app and path an app message names, with its data and https icon', () => {
-        expect(pushMessageFor('n1', {
-            type: 'app.message',
-            title: 'New reply',
-            text: 'see you',
-            icon: 'https://example.com/i.png',
-            target: '/rooms/7',
-            data: { room: 7 },
-            group: 'room-7',
-            app: { uid: 'app-1', name: 'Chat' },
-        })).toEqual({
-            uid: 'n1',
-            group: 'app-1:room-7',
-            title: 'New reply',
-            body: 'see you',
-            icon: 'https://example.com/i.png',
-            target: { app: 'app-1', path: '/rooms/7' },
-            data: { room: 7 },
-        });
-    });
-
-    it('shows only the app name for a sensitive app message', () => {
-        expect(pushMessageFor('n1', {
-            type: 'app.message',
-            title: 'Code 1234',
-            text: 'secret',
-            sensitive: true,
-            app: { uid: 'app-1', name: 'Bank' },
-        })).toEqual({ uid: 'n1', group: 'n1', title: 'Bank', target: { app: 'app-1' } });
-    });
-
-    it('points a share at the item it names and drops a non-https icon', () => {
-        expect(pushMessageFor('n2', share)).toEqual({
-            uid: 'n2',
-            group: 'n2',
-            title: 'alice shared a file with you',
-            target: { path: '/alice/Shared/a.txt' },
-        });
-    });
-
-    it("tags an app message's group with its app, so two apps never share one", () => {
-        const message = (app, over = {}) => ({ type: 'app.message', title: 't', group: 'room-7', app: { uid: app }, ...over });
-        expect(pushMessageFor('n1', message('app-1')).group).toBe('app-1:room-7');
-        expect(pushMessageFor('n1', message('app-2')).group).toBe('app-2:room-7');
-        expect(pushMessageFor('n1', message('app-1', { sensitive: true })).group).toBe('app-1:room-7');
-        expect(pushMessageFor('n1', message('app-b'), 'app-a').group).toBe('app-a:room-7');
-        expect(pushMessageFor('n1', message('app-1', { group: undefined })).group).toBe('n1');
-        expect(pushMessageFor('n2', { ...share, group: 'room-7' }).group).toBe('room-7');
-    });
-
-    it("uses the row's app uid over the one the message names", () => {
-        expect(pushMessageFor('n1', { type: 'app.message', title: 't' }, 'app-9').target).toEqual({ app: 'app-9' });
-        expect(pushMessageFor('n1', { type: 'app.message', title: 't', app: { uid: 'app-b' } }, 'app-a').target)
-            .toEqual({ app: 'app-a' });
-        expect(pushMessageFor('n1', { type: 'app.message', title: 't', app: { uid: 'app-b' } }, '').target)
-            .toEqual({ app: 'app-b' });
-    });
-});
-
-describe('showLocalBanner', () => {
-    const env = ({
-        visibilityState = 'hidden',
-        permission = 'granted',
-        active = { postMessage: vi.fn() },
-        pushEnabled = true,
-        subscribed = true,
-    } = {}) => ({
-        params: { pushEnabled },
-        doc: { visibilityState },
-        NotificationApi: { permission },
-        nav: {
-            serviceWorker: {
-                register: vi.fn(),
-                getRegistration: vi.fn(async () => (active
-                    ? { active, pushManager: { getSubscription: async () => (subscribed ? {} : null) } }
-                    : undefined)),
-            },
-        },
-        active,
-    });
-
-    it('hands one notification to the worker, tagged by its uid', async () => {
-        const e = env();
-        expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, e)).toBe(true);
-        expect(e.nav.serviceWorker.getRegistration).toHaveBeenCalledWith('/');
-        expect(e.active.postMessage).toHaveBeenCalledOnce();
-        expect(e.active.postMessage).toHaveBeenCalledWith({
-            type: 'puter-show-notification',
-            puter: pushMessageFor('n1', share),
-        });
-    });
-
-    it('hands nothing over while visible, for a replay, or without a worker', async () => {
-        const visible = env({ visibilityState: 'visible' });
-        expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, visible)).toBe(false);
-        expect(visible.nav.serviceWorker.getRegistration).not.toHaveBeenCalled();
-
-        const replay = env();
-        expect(await showLocalBanner({ uid: 'n1', notification: share }, { replay: true }, replay)).toBe(false);
-        expect(replay.active.postMessage).not.toHaveBeenCalled();
-
-        expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, env({ active: null }))).toBe(false);
-    });
-
-    it('hands nothing over while push is off in this browser', async () => {
-        const off = env({ subscribed: false });
-        expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, off)).toBe(false);
-        expect(off.active.postMessage).not.toHaveBeenCalled();
-    });
-
-    it("hands nothing over for an app's message, even one from an app that may push", async () => {
-        const e = { ...env(), holdsPush: vi.fn(async () => true) };
-        const message = { type: 'app.message', title: 'Hi', text: 'see you', app: { uid: 'app-1', name: 'Chat' } };
-        expect(await showLocalBanner({ uid: 'n1', notification: message, appUid: 'app-1' }, {}, e)).toBe(false);
-        expect(e.active.postMessage).not.toHaveBeenCalled();
-    });
-
-    it('hands nothing over where push is off for the deployment', async () => {
-        const off = env({ pushEnabled: false });
-        expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, off)).toBe(false);
-        expect(off.nav.serviceWorker.getRegistration).not.toHaveBeenCalled();
-    });
 });
 
 describe('pushWorkerEnabled', () => {
@@ -200,19 +38,26 @@ describe('pushWorkerEnabled', () => {
 describe('startPushWorker', () => {
     const UID = '0b6a2c1e-6f1d-4a57-9c1e-3d2f8a9b7c10';
 
-    const makeNav = (registrations = []) => {
+    /** `registration`: the `/sw.js` already installed, if any. */
+    const makeNav = (registration = null) => {
         const listeners = {};
         return {
             listeners,
             serviceWorker: {
                 register: vi.fn(async () => ({})),
-                getRegistrations: vi.fn(async () => registrations),
+                getRegistration: vi.fn(async () => registration),
                 addEventListener: vi.fn((type, fn) => {
                     listeners[type] = fn;
                 }),
             },
         };
     };
+
+    const installed = (subscription) => ({
+        pushManager: { getSubscription: vi.fn(async () => subscription) },
+        update: vi.fn(async () => {}),
+        unregister: vi.fn(async () => true),
+    });
 
     const load = async () => {
         const worker = await import('./pushWorker.js');
@@ -228,13 +73,14 @@ describe('startPushWorker', () => {
         ...over,
     });
 
-    it('registers /sw.js at the root scope, acks its taps and routes them', async () => {
+    it('registers no worker before push is turned on, acks its taps and routes them', async () => {
         const mod = await load();
         const handler = vi.fn();
         mod.setPushTapHandler(handler);
         const nav = makeNav();
         await start(mod, { nav });
-        expect(nav.serviceWorker.register).toHaveBeenCalledWith('/sw.js', { scope: '/', updateViaCache: 'none' });
+        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
+        expect(nav.serviceWorker.getRegistration).toHaveBeenCalledWith('/');
 
         const source = { postMessage: vi.fn() };
         nav.listeners.message({ data: { type: 'other', notification: { uid: UID } }, source });
@@ -247,6 +93,16 @@ describe('startPushWorker', () => {
         expect(handler.mock.calls).toEqual([[{ uid: UID }]]);
     });
 
+    it('syncs again when the worker reports the subscription replaced', async () => {
+        const resync = vi.fn(async () => 'on');
+        const nav = makeNav();
+        await start(await load(), { nav, resync });
+        nav.listeners.message({ data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: UID } }, source: { postMessage: vi.fn() } });
+        expect(resync).not.toHaveBeenCalled();
+        nav.listeners.message({ data: { type: 'puter-push-subscription-changed' }, source: {} });
+        expect(resync).toHaveBeenCalledTimes(1);
+    });
+
     it('registers nothing inside a frame', async () => {
         const nav = makeNav();
         await start(await load(), { nav, framed: true });
@@ -254,11 +110,25 @@ describe('startPushWorker', () => {
     });
 
     it('leaves an existing /sw.js alone where push is off, and registers nothing', async () => {
-        const puter = { active: { scriptURL: 'https://puter.test/sw.js' }, unregister: vi.fn(async () => true) };
-        const nav = makeNav([puter]);
+        const worker = installed(null);
+        const nav = makeNav(worker);
         await start(await load(), { nav, params: { pushEnabled: false } });
         expect(nav.serviceWorker.register).not.toHaveBeenCalled();
-        expect(puter.unregister).not.toHaveBeenCalled();
+        expect(worker.unregister).not.toHaveBeenCalled();
+    });
+
+    it('updates the worker this browser subscribed through', async () => {
+        const worker = installed({ endpoint: 'https://push.example/1' });
+        await start(await load(), { nav: makeNav(worker) });
+        expect(worker.update).toHaveBeenCalled();
+        expect(worker.unregister).not.toHaveBeenCalled();
+    });
+
+    it('removes a worker left without a subscription', async () => {
+        const worker = installed(null);
+        await start(await load(), { nav: makeNav(worker) });
+        expect(worker.unregister).toHaveBeenCalled();
+        expect(worker.update).not.toHaveBeenCalled();
     });
 
     it('hands over the notification uid a page was opened for and clears it', async () => {

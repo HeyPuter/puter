@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
+import { formatCount, formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { isOrgSeat } from './orgSeat.js';
-import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { addonCreditsBudget, addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
@@ -67,7 +67,7 @@ const TabUsage = {
                 </div>
                 <div class="driver-usage-container" style="margin-top: 30px;">
                     <div class="driver-usage-header">
-                        <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('Resources')}</h3>
+                        <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('monthly_credits_title')}</h3>
                         <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
                             <span class="usage-progbar-percent">--%</span>
                             <span> &middot; </span>
@@ -77,10 +77,22 @@ const TabUsage = {
                     <div class="usage-progbar-wrapper">
                         <div class="usage-progbar" style="width: 0;"></div>
                     </div>
-                    <p class="usage-addon-credits" style="display: none;">
-                        <span class="usage-addon-left"></span>
-                        <span class="usage-addon-note">&middot; ${i18n('addon_credits_note')}</span>
-                    </p>
+                    <div class="usage-addon" style="display: none;">
+                        <div class="driver-usage-header">
+                            <h3 id="usage-addon-title" style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('addon_credits')}</h3>
+                            <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
+                                <span class="usage-addon-percent">--%</span>
+                                <span> &middot; </span>
+                                ${i18n('used_of', { used: '<span class="usage-addon-used">--</span>', available: '<span class="usage-addon-capacity">--</span>' }, false)}
+                            </div>
+                        </div>
+                        <div class="usage-progbar-wrapper" role="progressbar" aria-labelledby="usage-addon-title" aria-valuemin="0" aria-valuemax="100">
+                            <div class="usage-addon-bar" style="width: 0;"></div>
+                        </div>
+                        <p class="usage-addon-credits">
+                            <span class="usage-addon-note">${i18n('addon_credits_note')}</span>
+                        </p>
+                    </div>
                     <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">${i18n('usage_details')}</h3>
                     <div class="driver-usage-details-content visible">
                     </div>
@@ -281,7 +293,7 @@ function renderUsageTable () {
     for ( const row of rowsToShow ) {
         h += `
         <tr>
-            <td>${window.html_encode(row.resource.replaceAll('_dot_', '.'))}</td>
+            <td title="${window.html_encode(row.resource.replaceAll('_dot_', '.'))}">${window.html_encode(row.resource.replaceAll('_dot_', '.'))}</td>
             <td>${row.formattedUnits}</td>
             <td>${row.formattedCost}</td>
         </tr>`;
@@ -330,9 +342,20 @@ async function update_usage_details ($el_window) {
             'background-color': window.usage_bar_color(budget.barPercent),
         });
 
-        $('.usage-addon-credits').toggle(addonLeft !== null);
-        if ( addonLeft !== null ) {
-            $('.usage-addon-left').html(i18n('addon_credits_available', { amount: amount(addonLeft) }));
+        // Its own meter under the monthly one, for an account that has ever had any.
+        const addon = addonCreditsBudget(res.allowanceInfo);
+        $('.usage-addon').toggle(addon !== null);
+        if ( addon !== null ) {
+            $('.usage-addon-used').html(amount(addon.used));
+            $('.usage-addon-capacity').html(amount(addon.capacity));
+            $('.usage-addon-percent').html(`${addon.percent}%`);
+            $('.usage-addon-bar').css({
+                width: `${addon.barPercent}%`,
+                'background-color': window.usage_bar_color(addon.barPercent),
+            }).parent().attr({
+                'aria-valuenow': addon.percent,
+                'aria-valuetext': `${addon.percent}%`,
+            });
         }
 
         // Store raw data for sorting
@@ -351,7 +374,7 @@ async function update_usage_details ($el_window) {
             if ( key.endsWith(':bytes') ) {
                 formattedUnits = window.byte_format(rawUnits);
             } else {
-                formattedUnits = window.number_format(rawUnits, { decimals: 0, thousandSeparator: ',' });
+                formattedUnits = formatCount(rawUnits);
             }
 
             usageTableData.push({

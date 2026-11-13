@@ -29,9 +29,11 @@ puter.fs.listShared(options)
 
 An object with the following properties:
 
-- `limit` (Number) - Maximum shares per page.
-- `cursor` (String) - Continuation token from a previous page.
-- `includeTotal` (Boolean) - Include the total count in the response. Defaults to `false`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `limit` | `Number` | Maximum shares per page. |
+| `cursor` | `String` | Continuation token from a previous page. |
+| `includeTotal` | `Boolean` | Include the total count in the response. Defaults to `false`. |
 
 ## Return value
 
@@ -45,9 +47,14 @@ Iterate until `cursor` is absent rather than comparing `items.length` to `limit`
 
 Items shared with you appear at a **masked path**, `/<owner>/<uid>/<name>`, where `<uid>` stands in for wherever the owner keeps the item. Pass that path back to any `puter.fs` method and it resolves normally; what it does not tell you is the folder the item lives in, or what sits beside it. Your own items are never listed here.
 
+## Related
+
+- [`puter.fs.share()`](/FS/share/) - Grant access
+- [`puter.fs.getShares()`](/FS/getShares/) - See who can reach an item you manage
+
 ## Examples
 
-<strong class="example-title">List everything shared with you</strong>
+### List everything shared with you
 
 ```html;fs-listShared
 <html>
@@ -66,7 +73,7 @@ Items shared with you appear at a **masked path**, `/<owner>/<uid>/<name>`, wher
 </html>
 ```
 
-<strong class="example-title">Page through every share</strong>
+### Page through every share
 
 ```js
 let cursor;
@@ -78,7 +85,7 @@ do {
 } while (cursor);
 ```
 
-<strong class="example-title">Open a file someone shared with you</strong>
+### Open a file someone shared with you
 
 ```js
 const page = await puter.fs.listShared();
@@ -88,8 +95,3 @@ if (shared) {
     puter.print(await blob.text());
 }
 ```
-
-## Related
-
-- [`puter.fs.share()`](/FS/share/) - Grant access
-- [`puter.fs.getShares()`](/FS/getShares/) - See who can reach an item you manage

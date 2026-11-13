@@ -4,9 +4,11 @@ description: Check whether push notifications from your app reach the browser th
 platforms: [websites, apps]
 ---
 
-Checks your app's push subscription in this browser. It never prompts, so call it on page load to decide whether to show your own "Turn on notifications" button, which calls [`enable()`](/Notifications/enable/).
+Checks your app's push subscription in this browser.
 
-On a website, it's `'on'` when the user turned pushes on in this browser with [`enable()`](/Notifications/enable/), this browser still holds the subscription, and Puter hasn't reported it removed or revoked. It's `'off'` after the user removes this browser in Puter's settings or turns your app off there. Pushes start once Puter confirms the browser, usually within seconds of [`enable()`](/Notifications/enable/) resolving. Inside the Puter desktop, it's `'on'` when pushes are on in this browser and the user allowed pushes from your app.
+It never prompts, so call it on page load to decide whether to show your own "Turn on notifications" button, which calls [`enable()`](/Notifications/enable/).
+
+On a website, it's `'on'` when the user turned pushes on in this browser with [`enable()`](/Notifications/enable/), this browser still holds the subscription, and Puter hasn't reported it removed or revoked. It's `'off'` after the user removes this browser in Puter's settings or turns your app off there. Pushes start once Puter confirms the browser, usually within seconds of [`enable()`](/Notifications/enable/) resolving. Inside the Puter desktop, it's `'on'` when pushes are on in this browser and the user allowed pushes from your app in Puter's prompt. Pushes allowed only through [`enable()`](/Notifications/enable/) on your website reach only your website, so they don't count.
 
 ## Syntax
 ```js
@@ -17,7 +19,10 @@ puter.notifications.status(options)
 ## Parameters
 
 #### `options` (Object) (optional)
-- `serviceWorker` (String): The path of the worker passed to [`enable()`](/Notifications/enable/). Defaults to `/puter-sw.js`. Only used on a website.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `serviceWorker` | `String` | The path of the worker passed to [`enable()`](/Notifications/enable/). Defaults to `/puter-sw.js`. Only used on a website. |
 
 ## Return value
 A `Promise` that resolves to one of these strings. It never rejects.
@@ -33,7 +38,7 @@ On a website, it answers `'off'` when nobody is signed in. When it can't check t
 
 ## Examples
 
-<strong class="example-title">Show the button only when it can help</strong>
+### Show the button only when it can help
 
 ```html
 <html>

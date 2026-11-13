@@ -20,6 +20,7 @@
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
+import { servedServiceSpeed } from '../../utils/serviceSpeed.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
@@ -35,7 +36,10 @@ import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import {
     clampReasoningEffort,
+    messagesHaveCacheBreakpointTtl,
     openAICompatParams,
+    promptCacheOptionsToWire,
+    promptCacheRetentionToWire,
 } from '../../utils/openaiParams.js';
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
@@ -114,6 +118,7 @@ export class OpenAiChatProvider implements IChatProvider {
 
     async complete(
         params: ICompleteArguments,
+        resolved?: IChatModel,
     ): ReturnType<IChatProvider['complete']> {
         const {
             max_tokens,
@@ -126,8 +131,16 @@ export class OpenAiChatProvider implements IChatProvider {
             temperature,
             text,
             prompt_cache_key,
+            prompt_cache_retention,
+            prompt_cache_options,
         } = params;
         let { messages, model } = params;
+        const cacheOptions = promptCacheOptionsToWire(prompt_cache_options);
+        if (params.service_tier === 'ultrafast' && this.#responsesProvider) {
+            return resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params);
+        }
         if (
             tools?.filter((e) => isWebSearchTool(e as Record<string, unknown>))
                 .length
@@ -141,7 +154,9 @@ export class OpenAiChatProvider implements IChatProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            return await this.#responsesProvider.complete(params);
+            return await (resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params));
         }
         // Inline compaction is a Responses-API feature; chat.completions can't
         // express `context_management` or a `compaction` content block.
@@ -155,7 +170,26 @@ export class OpenAiChatProvider implements IChatProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            return await this.#responsesProvider.complete(params);
+            return await (resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params));
+        }
+        // Only the Responses API writes 12h cache entries or takes a lifetime
+        // on a `prompt_cache_breakpoint`; Chat Completions rejects both.
+        if (
+            cacheOptions?.ttl === '12h' ||
+            messagesHaveCacheBreakpointTtl(messages)
+        ) {
+            if (!this.#responsesProvider) {
+                throw new HttpError(
+                    400,
+                    'a prompt cache lifetime requires the OpenAI Responses provider, which is not configured',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            return await (resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params));
         }
         // Validate messages
         if (!Array.isArray(messages)) {
@@ -168,9 +202,11 @@ export class OpenAiChatProvider implements IChatProvider {
         model = model ?? this.#defaultModel;
 
         const modelUsed =
-            this.models().find((m) =>
+            resolved ??
+            (this.models().find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
-            ) || this.models().find((m) => m.id === this.getDefaultModel())!;
+            ) ||
+                this.models().find((m) => m.id === this.getDefaultModel())!);
 
         // messages.unshift({
         //     role: 'system',
@@ -180,6 +216,9 @@ export class OpenAiChatProvider implements IChatProvider {
         const userIdentifier = upstreamUserIdentifier(actor);
         // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
+        const cacheRetention = promptCacheRetentionToWire(
+            prompt_cache_retention,
+        );
 
         // Strip Anthropic-only shape a fallback-replayed message can carry
         // (thinking/server-tool blocks, cache_control, citations) before the
@@ -216,8 +255,17 @@ export class OpenAiChatProvider implements IChatProvider {
             user: userIdentifier,
             safety_identifier: userIdentifier,
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
+            ...(cacheRetention !== undefined
+                ? { prompt_cache_retention: cacheRetention }
+                : {}),
+            ...(cacheOptions !== undefined
+                ? { prompt_cache_options: cacheOptions }
+                : {}),
             messages: messages,
             model: modelUsed.id,
+            ...(params.service_tier !== undefined
+                ? { service_tier: params.service_tier }
+                : {}),
             ...(mappedTools?.length ? { tools: mappedTools } : {}),
             ...(max_tokens !== undefined
                 ? { max_completion_tokens: max_tokens }
@@ -254,28 +302,17 @@ export class OpenAiChatProvider implements IChatProvider {
         );
 
         return OpenAiUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts }) => {
-                const cachedTokens =
-                    usage.prompt_tokens_details?.cached_tokens ?? 0;
-                // GPT-5.6 and later bill cache writes at 1.25x input. They're
-                // reported inside `prompt_tokens`, like cached reads.
-                // The SDK doesn't type `cache_write_tokens` yet.
-                const cacheWriteTokens =
-                    (
-                        usage.prompt_tokens_details as
-                            { cache_write_tokens?: number } | undefined
-                    )?.cache_write_tokens ?? 0;
-                const trackedUsage = {
-                    prompt_tokens:
-                        (usage.prompt_tokens ?? 0) -
-                        cachedTokens -
-                        cacheWriteTokens,
-                    completion_tokens: usage.completion_tokens ?? 0,
-                    cached_tokens: cachedTokens,
-                    ...(cacheWriteTokens
-                        ? { cache_write_tokens: cacheWriteTokens }
-                        : {}),
-                };
+            usage_calculator: ({
+                usage,
+                service_tier,
+                setUsageCosts,
+                setUsageDetails,
+            }) => {
+                const serviceSpeed = servedServiceSpeed({ service_tier });
+                // GPT-5.6 and later report cache writes inside
+                // `prompt_tokens`, like cached reads; Chat Completions only
+                // writes the default 30m entries, billed at 1.25x input.
+                const trackedUsage = OpenAiUtil.splitCachedPrompt(usage);
 
                 const metered = meterChatUsage(
                     this.#meteringService,
@@ -283,8 +320,17 @@ export class OpenAiChatProvider implements IChatProvider {
                     this.meteringModelKey(modelUsed.id),
                     modelUsed,
                     trackedUsage,
+                    { serviceSpeed },
                 );
                 setUsageCosts(metered.costs);
+                setUsageDetails({
+                    ...OpenAiUtil.usageDetailsFromTrackedUsage(metered.usage, {
+                        writeTtl: '30m',
+                    })!,
+                    ...(params.serviceSpeed !== undefined
+                        ? { serviceSpeed }
+                        : {}),
+                });
                 return metered.usage;
             },
             stream,

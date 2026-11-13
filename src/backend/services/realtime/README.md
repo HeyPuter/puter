@@ -1,17 +1,20 @@
 # OpenAI Realtime relay
 
 The relay serves `/puterai/openai/v1/realtime` on the API host. The SDK exposes
-it through [`puter.ai.convo()`](../../../docs/src/AI/convo.md).
+it through [`puter.ai.realtime()`](../../../docs/src/AI/realtime.md).
 
 **Beta:** This API is incomplete. Its methods, options, events, and behavior may change abruptly, including breaking changes without notice.
 
-Direct clients are documented in the [Realtime WebSocket API reference](../../../docs/src/AI/realtime.md).
+Direct clients are documented in the [Realtime WebSocket API reference](../../../docs/src/AI/realtime-websocket.md).
 
 ## Transport
 
 The relay forwards native OpenAI JSON events unchanged after validating the
 event envelope, except that `rate_limits.updated` (Puter's provider account) is
-dropped and provider organization IDs are removed from error messages. An event must be an object with a nonempty string `type` of at
+dropped and provider organization IDs are removed from diagnostic messages in
+`error`, `response.done.status_details.error`, and
+`conversation.item.input_audio_transcription.failed.error`, and from provider
+close reasons. Conversation content is preserved. An event must be an object with a nonempty string `type` of at
 most 128 characters. Binary messages and malformed envelopes close the session.
 Usage fields consumed by metering are validated before use. Event field order
 does not affect billing.
@@ -24,7 +27,7 @@ The socket opens before authentication completes. Authentication and model
 failures arrive as OpenAI-shaped error events followed by a close frame.
 
 ```js
-const conversation = await puter.ai.convo({ output: ['text'] });
+const conversation = await puter.ai.realtime({ output: ['text'] });
 conversation.on('error', (event) => console.error(event));
 conversation.on('text', ({ delta }) => console.log(delta));
 conversation.on('turn.done', () => conversation.close());
@@ -46,7 +49,8 @@ traffic is not rate limited: OpenAI sends audio faster than real time, and
 backpressure bounds what a slow client can queue. Usage is priced as each event
 arrives, before any forwarding decision, and recorded serially off the
 forwarding path through the AI cost-factor hook. Pricing follows the model the
-session reports, falling back to the connection's; a client `session.update`
+session reports. A missing model uses the last known model, while an explicitly
+unpriced model closes the connection; a client `session.update`
 that changes the model is refused. So are `conversation.item.retrieve` and MCP
 tools in `session.update` or `response.create`, since a retrieved item or MCP
 output can exceed the upstream message cap.
@@ -65,9 +69,55 @@ Each response holds a fixed amount of the account's budget
 until its usage is recorded, so concurrent sessions can't overdraw it; a session
 opens only if one hold fits. Input transcription is priced at the costlier of
 the transcription models in force at commit and at completion. Session attempts
-are limited per credential before authentication runs.
+are limited per credential after signature verification. Local, bounded IP and
+node admission limits protect signature verification and authentication lookups.
+Upgrades use Express's configured proxy trust policy and the `ip.validate` gate.
+Authentication uses `touch: false` on both initial connection and rechecks, so
+opening or maintaining a realtime socket does not update session activity metadata.
+
+Input transcription holds credit per item, at a fixed budget for the selected
+transcription model and that model's cost factor. Audio and the configuration
+that enables transcription are forwarded only while a reserved spare item
+exists. Each provider commit takes one, and the pool refills to two spares in
+the background, up to 64 pending plus spare items. A commit with no spare left
+reserves its own item. A model change, requested or reported, releases the spares
+and reserves new ones at the new model's price. Committed items keep their hold
+and model. Disabling transcription keeps the spares until the connection ends.
+If the account can't cover another item, client reads pause while the session
+still holds items that may free credit, and the session is refused with
+`insufficient_funds` once it holds none.
+
+Audio the provider may commit without the relay seeing the acknowledgement is
+tracked apart from the pool, as a duration at the session's input format. Without
+turn detection that is all audio since the last acknowledged commit or clear.
+With server turn detection it is only speech from `speech_started`, since the
+provider drops silence, plus the buffer after an explicit commit. Each started
+160 seconds of it claims one held item, and an acknowledged commit, a clear, or
+an `input_audio_buffer_commit_empty` error returns those items to the spares.
+The session is never closed for its length. If the upstream closes first, each
+claimed item is billed. Each committed item retains its model
+until completion, failure, or bounded settlement. Missing usage is billed the
+item's fixed budget. Overflow closes the connection without evicting existing
+pending identities.
+
+The post-record continuation check asks whether settled credit remains. It
+excludes outstanding holds and accepts fractional positive credit. Admission of
+new billable work continues to use the atomic hold path, which includes every
+outstanding reservation.
+
+When the host listens for `ai.prompt.validate`, each response that starts runs
+it on the text the client sent since the previous check: session and response
+instructions, message text and transcripts, and function call output, as chat
+messages. The response's cost follows as `ai.prompt.cost-calculated` under the
+same completion id. A refusal closes the session with `permission_denied`; the
+response may already be streaming by then. Pending text past 64 KiB is checked
+on its own. Audio is not checked.
 
 Credential checks run in batches of at most 16 with no overlapping sweeps.
+Session and access-token revocation events close affected sockets and invalidate
+their auth cache entries. Subscription eligibility is checked independently of
+authentication and after subscription invalidations. A failed verification check after a 60-second
+retry grace from the first failed lookup closes with a retryable internal error. Periodic checks remain the missed-event fallback.
 When the drain starts, open sessions get a `puter.reconnect` event and new
 sessions receive `server_restarting` and close with 1012. Open sessions can
 finish an in-flight response for up to five seconds at shutdown, then close

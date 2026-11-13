@@ -1,3 +1,4 @@
+import { createCoverageMap } from 'istanbul-lib-coverage';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
     setupPuterTestEnv,
@@ -6,11 +7,7 @@ import {
 import type { IConfig } from '@heyputer/backend/types.ts';
 import { bundleHarnessEntry } from '../harness/bundleHarnessEntry.ts';
 import { loadPuterJsTestOptions } from '../harness/capabilities.ts';
-import {
-    coverageEnabled,
-    writeCoverageShard,
-    type IstanbulCoverage,
-} from '../harness/coverage.ts';
+import { coverageEnabled, writeCoverageShard } from '../harness/coverage.ts';
 import { listTests, skipReason, type RunTestArgs } from '../harness/executor.ts';
 import { loadNodePuter } from '../harness/nodeSdkLoader.ts';
 import type { EnvManifest, RunTestResult } from '../harness/types.ts';
@@ -20,8 +17,9 @@ const WORKER_NAME = 'puterjs-suites';
 const options = loadPuterJsTestOptions();
 
 // Counters ride along on every /run response (the workerd isolate can
-// recycle mid-run); merged into one shard after the run.
-const workerdCoverage: IstanbulCoverage[] = [];
+// recycle mid-run). Merged as they arrive, since keeping each ~6 MB
+// snapshot until the end runs the fork out of heap.
+const workerdCoverage = createCoverageMap({});
 
 // The shared puter.js suites running inside local workerd. The suite
 // bundle is deployed through the real workers pipeline (SDK
@@ -61,7 +59,7 @@ describe('puter.js API suites (workerd)', () => {
 
     afterAll(async () => {
         if (coverageEnabled()) {
-            await writeCoverageShard('workerd', workerdCoverage);
+            await writeCoverageShard('workerd', [workerdCoverage.toJSON()]);
         }
         await env?.shutdown();
     });
@@ -89,7 +87,7 @@ describe('puter.js API suites (workerd)', () => {
             }
             const result = JSON.parse(text) as RunTestResult;
             if (result.coverage) {
-                workerdCoverage.push(result.coverage);
+                workerdCoverage.merge(result.coverage);
             }
             expect(result.error ?? '').toBe('');
             expect(result.ok).toBe(true);

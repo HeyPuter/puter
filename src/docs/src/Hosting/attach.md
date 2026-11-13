@@ -4,13 +4,15 @@ description: Let the user connect one of their own domains to a website hosted o
 platforms: [websites, apps]
 ---
 
-Opens a Puter dialog where the user connects a domain they own, such as `www.example.com`, to one of their websites. In the dialog, the user can pick a domain already on their account or add a new one. A domain the user picks that currently serves another of their websites moves to this one.
+Opens a Puter dialog where the user connects a domain they own, such as `www.example.com`, to one of their websites.
+
+In the dialog, the user can pick a domain already on their account or add a new one. A domain the user picks that currently serves another of their websites moves to this one.
 
 When the user adds a new domain, the dialog shows the DNS records to set at their DNS provider. The domain starts serving the website once those records are in place, usually within a few minutes.
 
 Your app doesn't need any permission to call this method. The user makes the choice in the dialog, and your app only receives the domain they chose. Custom domains are billed to the user's Puter account, and the dialog shows the price before the user adds one.
 
-Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog and signs the user in first if needed.
+Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog and signs the user in first if needed. Puter's own apps on puter.com subdomains show it in a frame over the page instead, when the user is signed in to both.
 
 ## Syntax
 
@@ -32,6 +34,8 @@ A newly added domain resolves with `status` set to `pending`. Its `records` list
 
 On a website that is cross-origin isolated, the popup can't send its result back to your page, so the promise resolves `null` even if the user goes on to connect a domain in the popup.
 
+## Errors
+
 The promise rejects with an error whose `code` is one of the following:
 
 - `invalid_argument` when `subdomain` is missing or empty.
@@ -40,7 +44,7 @@ The promise rejects with an error whose `code` is one of the following:
 
 ## Examples
 
-<strong class="example-title">Connect a custom domain to a website</strong>
+### Connect a custom domain to a website
 
 ```html;hosting-attach
 <html>

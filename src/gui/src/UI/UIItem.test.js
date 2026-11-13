@@ -27,12 +27,10 @@ vi.mock('./UIPopover.js', () => ({ default: vi.fn() }));
 vi.mock('./UIWindowEmailConfirmationRequired.js', () => ({ default: vi.fn() }));
 vi.mock('./UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('./UIAlert.js', () => ({ default: vi.fn() }));
-vi.mock('./UIWindowPublishWorker.js', () => ({ default: vi.fn() }));
-vi.mock('./UIWindowShare.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/launchApp.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openItem.js', () => ({ default: vi.fn() }));
-vi.mock('../helpers/publishAsWebsite.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openWithAI.js', () => ({ default: vi.fn() }));
+vi.mock('../helpers/refreshItemContainer.js', () => ({ default: vi.fn() }));
 
 globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
@@ -67,8 +65,13 @@ Object.assign(window, {
 
 const { default: UIItem } = await import('./UIItem.js');
 const { default: UIContextMenu } = await import('./UIContextMenu.js');
+const { default: UIAlert } = await import('./UIAlert.js');
+const { unshareAnswering, allRefused, goneRefused } =
+    await import('../../tests/fixtures/sdkUnshare.js');
+const { default: refresh_item_container } =
+    await import('../helpers/refreshItemContainer.js');
 
-const menuLabels = async (options) => {
+const menuItems = async (options) => {
     document.body.innerHTML =
         '<div class="window"><div class="item-container"></div></div>';
     await UIItem({
@@ -87,7 +90,17 @@ const menuLabels = async (options) => {
     UIContextMenu.mockClear();
     $('.item').trigger('contextmenu');
     await vi.waitFor(() => expect(UIContextMenu).toHaveBeenCalled());
-    return UIContextMenu.mock.calls[0][0].items.map((item) => item?.html);
+    return UIContextMenu.mock.calls[0][0].items;
+};
+
+const menuLabels = async (options) =>
+    (await menuItems(options)).map((item) => item?.html);
+
+const removeFromShared = async (options) => {
+    await menuLabels(options);
+    await UIContextMenu.mock.calls[0][0].items
+        .find((item) => item?.html === 'share_remove_from_shared')
+        .onClick();
 };
 
 describe('UIItem Remove from Shared', () => {
@@ -95,9 +108,14 @@ describe('UIItem Remove from Shared', () => {
         window.user = { username: 'alice' };
         window.trash_path = '/alice/Trash';
         window.puter = {
-            fs: { listShared: vi.fn(async () => ({ items: [] })) },
+            fs: {
+                listShared: vi.fn(async () => ({ items: [] })),
+                unshare: vi.fn(async () => ({ revoked: 1 })),
+            },
         };
         globalThis.puter = window.puter;
+        refresh_item_container.mockClear();
+        UIAlert.mockClear();
     });
 
     it('is offered on an item shared with the user directly', async () => {
@@ -108,5 +126,102 @@ describe('UIItem Remove from Shared', () => {
         const labels = await menuLabels({ is_team_share: true });
         expect($('.item').attr('data-is_team_share')).toBe('1');
         expect(labels).not.toContain('share_remove_from_shared');
+    });
+
+    it('keeps the item and shows the error when leaving is refused', async () => {
+        puter.fs.unshare = unshareAnswering(allRefused);
+        const items = await menuItems({});
+        await items
+            .find((item) => item?.html === 'share_remove_from_shared')
+            .onClick();
+
+        expect(UIAlert).toHaveBeenCalledWith({
+            message: 'Held through a team',
+        });
+        expect($('.item').length).toBe(1);
+    });
+
+    it('keeps the item and shows why when the unshare resolves with the pair refused', async () => {
+        puter.fs.unshare = unshareAnswering(goneRefused);
+        await removeFromShared({});
+
+        expect(UIAlert).toHaveBeenCalledWith({
+            message: 'Subject does not exist',
+        });
+        expect($('.item').length).toBe(1);
+    });
+
+    it('takes the item away once the user has left it', async () => {
+        await removeFromShared({});
+        expect(puter.fs.unshare).toHaveBeenCalledWith('/bob/u-1/Photos', 'alice');
+        expect($('.item')).toHaveLength(0);
+        expect(refresh_item_container).not.toHaveBeenCalled();
+    });
+
+    it('lists the item again when a team still shares it', async () => {
+        await removeFromShared({ is_also_team_share: true });
+        expect(puter.fs.unshare).toHaveBeenCalledWith('/bob/u-1/Photos', 'alice');
+        expect($('.item')).toHaveLength(1);
+        expect(refresh_item_container).toHaveBeenCalledTimes(1);
+        expect(refresh_item_container.mock.calls[0][0][0]).toBe($('.item-container')[0]);
+    });
+});
+
+describe('UIItem Share', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on an item the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/Photos',
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('share_ellipsis');
+    });
+});
+
+describe('UIItem Publish as Worker', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on a .js file the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/worker.js',
+            name: 'worker.js',
+            is_dir: false,
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('publish_as_serverless_worker');
+    });
+});
+
+describe('UIItem Publish as Website', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on a folder the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/Site',
+            name: 'Site',
+            is_dir: true,
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('publish_as_website');
+        expect(labels).toContain('deploy_as_app');
     });
 });

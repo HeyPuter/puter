@@ -4,7 +4,9 @@ description: Floats a page of your app in an always-on-top picture-in-picture wi
 platforms: [apps]
 ---
 
-Floats a page of your app in a picture-in-picture window: a small always-on-top window that stays in view while the user works in other windows or tabs.
+Opens a page of your app in a picture-in-picture window.
+
+A picture-in-picture window is a small always-on-top window that stays in view while the user works in other windows or tabs.
 
 Browsers only let a top-level page open a Document Picture-in-Picture window, and an app runs inside an iframe — so calling `documentPictureInPicture.requestWindow()` yourself fails with `NotAllowedError`. Puter opens the window on your app's behalf and loads the page you name in it.
 
@@ -19,20 +21,21 @@ puter.ui.requestPictureInPicture(options)
 
 ## Parameters
 
-#### `options.url` (String) (required)
-The page to show in the window. Resolved against your app's own page, and must be on the same origin.
+#### `options` (Object) (required)
 
-#### `options.width` (Number) (optional)
-Window width in CSS pixels. The browser may clamp it.
-
-#### `options.height` (Number) (optional)
-Window height in CSS pixels. The browser may clamp it.
-
-#### `options.onClose` (Function) (optional)
-Runs when the window goes away other than through [`puter.ui.exitPictureInPicture()`](/UI/exitPictureInPicture/) — the user closing it, typically.
+| Option | Type | Description |
+|--------|------|-------------|
+| `url` | `String` | Required. The page to show in the window. Resolved against your app's own page, and must be on the same origin. |
+| `width` | `Number` | Window width in CSS pixels. The browser may clamp it. |
+| `height` | `Number` | Window height in CSS pixels. The browser may clamp it. |
+| `onClose` | `Function` | Runs when the window closes other than through [`puter.ui.exitPictureInPicture()`](/UI/exitPictureInPicture/), typically when the user closes it. |
 
 ## Return value
-A `Promise` that resolves once the window is up. It rejects with an error named the way the DOM would name it:
+A `Promise` that resolves once the window is up.
+
+## Errors
+
+The promise rejects with an error named the way the DOM would name it:
 
 - `NotSupportedError` — the browser has no Document Picture-in-Picture, or the code isn't running as an app on the Puter desktop.
 - `NotAllowedError` — not called from a user gesture.
@@ -41,7 +44,7 @@ A `Promise` that resolves once the window is up. It rejects with an error named 
 
 ## Examples
 
-<strong class="example-title">Float a page from a button</strong>
+### Float a page from a button
 
 ```html
 <html>
@@ -66,7 +69,7 @@ A `Promise` that resolves once the window is up. It rejects with an error named 
 </html>
 ```
 
-<strong class="example-title">Reach the main frame from the floating page</strong>
+### Reach the main frame from the floating page
 
 ```html
 <!-- pip.html -->

@@ -257,8 +257,41 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.created_ts).toBeGreaterThan(0);
         // `directories` is only sent to user actors — confirm it’s present.
         expect(body.directories).toBeDefined();
-        // taskbar_items is only sent to user actors.
-        expect(body).toHaveProperty('taskbar_items');
+    });
+
+    it('leaves out taskbar items saved on the account', async () => {
+        const user = await seedUser();
+        await server.stores.user.update(user.id as number, {
+            taskbar_items: JSON.stringify([{ type: 'app', name: 'editor' }]),
+        });
+        const { res, captured } = makeRes();
+
+        await runWithContext(
+            { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+            () => handleWhoami(makeReq(), res),
+        );
+
+        expect(captured.body).not.toHaveProperty('taskbar_items');
+    });
+
+    it('leaves out a desktop background saved on the account', async () => {
+        const user = await seedUser();
+        await server.stores.user.update(user.id as number, {
+            desktop_bg_url: 'https://cdn.test/wallpaper.png',
+            desktop_bg_color: '#000000',
+            desktop_bg_fit: 'cover',
+        });
+        const { res, captured } = makeRes();
+
+        await runWithContext(
+            { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+            () => handleWhoami(makeReq(), res),
+        );
+
+        const body = captured.body as Record<string, unknown>;
+        expect(body).not.toHaveProperty('desktop_bg_url');
+        expect(body).not.toHaveProperty('desktop_bg_color');
+        expect(body).not.toHaveProperty('desktop_bg_fit');
     });
 
     it('reports the SMS-to-card fallback only once a send has opened it', async () => {
@@ -322,7 +355,7 @@ describe('whoami extension — handleWhoami', () => {
         expect(flags.payment_bypass).toBeUndefined();
     });
 
-    it('strips desktop_bg_*, created_ts and human_readable_age fields for app actors', async () => {
+    it('strips created_ts and human_readable_age fields for app actors', async () => {
         const user = await seedUser();
         const { res, captured } = makeRes();
 
@@ -340,9 +373,6 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.app_name).toBe('app-test-actor');
         // is_user_token is stripped for app actors.
         expect(body.is_user_token).toBeUndefined();
-        expect(body.desktop_bg_url).toBeUndefined();
-        expect(body.desktop_bg_color).toBeUndefined();
-        expect(body.desktop_bg_fit).toBeUndefined();
         expect(body.human_readable_age).toBeUndefined();
         // Account age, in either form, is not exposed to apps.
         expect(body.created_ts).toBeUndefined();
@@ -432,7 +462,7 @@ describe('whoami extension — handleWhoami', () => {
             });
         });
 
-        it('cannot add taskbar_items for an app actor, which core omits', async () => {
+        it('cannot add directories for an app actor, which core omits', async () => {
             const user = await seedUser();
             const body = await whoamiWithListener(
                 makeActor({
@@ -440,11 +470,11 @@ describe('whoami extension — handleWhoami', () => {
                     app: { uid: 'app-test-actor' },
                 }),
                 (_key, event) => {
-                    event.details.taskbar_items = [{ name: 'injected' }];
+                    event.details.directories = { '/injected': 'uuid' };
                 },
             );
 
-            expect(body).not.toHaveProperty('taskbar_items');
+            expect(body).not.toHaveProperty('directories');
         });
     });
 
@@ -525,7 +555,7 @@ describe('whoami extension — handleWhoami', () => {
             expect(body.otp_secret).toBeUndefined();
             expect(body.signup_ip).toBeUndefined();
             // Not just absent as a key — the values must not appear anywhere
-            // in the payload (nested under metadata, taskbar items, …).
+            // in the payload (nested under metadata, …).
             const serialized = JSON.stringify(body);
             expect(serialized).not.toContain('5551234567');
             expect(serialized).not.toContain('fp_ABC123');

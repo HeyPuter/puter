@@ -4,7 +4,9 @@ description: Revoke a URL created by getReadURL(), so it stops serving the file.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Revokes a URL created by [`getReadURL()`](/FS/getReadURL/), so it immediately stops serving the file. An app can revoke only URLs it created; the account itself, through its own session or API token, can revoke any of its read URLs. Revoking a URL that is already revoked or has expired resolves without error.
+Revokes a URL created by [`getReadURL()`](/FS/getReadURL/), so it immediately stops serving the file.
+
+An app can revoke only URLs it created. The account itself, through its own session or API token, can revoke any of its read URLs. Revoking a URL that is already revoked or has expired resolves without error.
 
 ## Syntax
 
@@ -37,9 +39,9 @@ A rejection carries an `Error` with a stable `code`:
 | `not_found` | The URL was created by a different app, or belongs to another account. |
 | `too_many_requests` | The rate limit was exceeded. See [Rate Limits & Quotas](/rate-limits-and-quotas/). |
 
-## Example
+## Examples
 
-<strong class="example-title">Revoke a read URL</strong>
+### Revoke a read URL
 
 ```html
 <html>

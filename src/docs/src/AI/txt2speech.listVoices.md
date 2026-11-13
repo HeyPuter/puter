@@ -4,7 +4,9 @@ description: List available TTS voices, optionally filtered by provider.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns the voices available from a TTS provider. Each voice entry includes metadata such as language, category, and supported models.
+Returns the voices available from a TTS provider.
+
+Each voice entry includes metadata such as language, category, and supported models.
 
 ## Syntax
 
@@ -52,7 +54,7 @@ Example response (with `provider: 'all'`):
 
 ## Examples
 
-<strong class="example-title">List voices for a provider</strong>
+### List voices for a provider
 
 ```html;ai-txt2speech-list-voices
 <html>
@@ -71,7 +73,7 @@ Example response (with `provider: 'all'`):
 </html>
 ```
 
-<strong class="example-title">List all default (AWS Polly) voices</strong>
+### List all default (AWS Polly) voices
 
 ```js
 const voices = await puter.ai.txt2speech.listVoices();
@@ -81,7 +83,7 @@ for (const voice of voices) {
 }
 ```
 
-<strong class="example-title">List Gemini voices</strong>
+### List Gemini voices
 
 ```js
 const voices = await puter.ai.txt2speech.listVoices({ provider: 'gemini' });

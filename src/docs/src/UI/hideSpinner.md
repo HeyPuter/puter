@@ -13,6 +13,8 @@ puter.ui.hideSpinner()
 
 ## Examples
 
+### Hide the spinner after 3 seconds
+
 ```html;ui-spinner
 <html>
 <body>

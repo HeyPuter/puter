@@ -30,7 +30,7 @@ A string containing the environment in which Puter.js is being used:
 
 ## Examples
 
-<strong class="example-title">Get the environment in which Puter.js is running</strong>
+### Get the environment in which Puter.js is running
 
 <div style="position: relative;">
 

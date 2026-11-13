@@ -75,8 +75,17 @@ function moveIndicator (link) {
     }
 }
 
+// Mark a TOC that overflows, so the CSS can stop its scroll from reaching the
+// page. A TOC that fits stays unmarked, because Chrome on macOS rubber-bands
+// any element that stops the page scroll, even one with nothing to scroll.
+function markScrollable () {
+    const toc = document.querySelector('#toc-wrapper .table-of-contents');
+    toc?.classList.toggle('is-scrollable', toc.scrollHeight > toc.clientHeight);
+}
+
 function updateActiveLink () {
     pendingFrame = null;
+    markScrollable();
     const link = findActiveLink();
     if ( link !== activeLink ) {
         activeLink?.classList.remove('active');

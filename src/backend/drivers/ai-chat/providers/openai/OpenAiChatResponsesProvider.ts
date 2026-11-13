@@ -19,6 +19,7 @@
 
 import { OpenAI } from 'openai';
 import { ResponseCreateParams } from 'openai/resources/responses/responses.mjs';
+import { servedServiceSpeed } from '../../utils/serviceSpeed.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
@@ -32,6 +33,8 @@ import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import {
     clampReasoningEffort,
     openAICompatParams,
+    promptCacheOptionsToWire,
+    promptCacheRetentionToWire,
     rejectStatefulResponsesFields,
 } from '../../utils/openaiParams.js';
 import { responseSamplingParams } from '../../utils/responseSampling.js';
@@ -132,37 +135,42 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         return rate ? { extraCost: rate } : {};
     }
 
-    async complete({
-        messages,
-        model,
-        max_tokens,
-        moderation,
-        tools,
-        tool_choice,
-        parallel_tool_calls,
-        include,
-        conversation,
-        compaction,
-        context_management,
-        previous_response_id,
-        instructions,
-        metadata,
-        prompt,
-        prompt_cache_key,
-        prompt_cache_retention,
-        store,
-        top_p,
-        truncation,
-        background,
-        service_tier,
-        verbosity,
-        stream,
-        reasoning,
-        reasoning_effort,
-        temperature,
-        text,
-        outputFormat,
-    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
+    async complete(
+        {
+            messages,
+            model,
+            max_tokens,
+            moderation,
+            tools,
+            tool_choice,
+            parallel_tool_calls,
+            include,
+            conversation,
+            compaction,
+            context_management,
+            previous_response_id,
+            instructions,
+            metadata,
+            prompt,
+            prompt_cache_key,
+            prompt_cache_retention,
+            prompt_cache_options,
+            store,
+            top_p,
+            truncation,
+            background,
+            service_tier,
+            serviceSpeed: requestedServiceSpeed,
+            verbosity,
+            stream,
+            reasoning,
+            reasoning_effort,
+            temperature,
+            text,
+            outputFormat,
+        }: ICompleteArguments,
+        resolved?: IChatModel,
+    ): ReturnType<IChatProvider['complete']> {
         // Validate messages
         if (!Array.isArray(messages)) {
             throw new HttpError(400, '`messages` must be an array', {
@@ -180,12 +188,13 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         model = model ?? this.#defaultModel;
 
         const modelUsed =
-            this.models({ no_restrictions: true }).find((m) =>
+            resolved ??
+            (this.models({ no_restrictions: true }).find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
             ) ||
-            this.models({ no_restrictions: true }).find(
-                (m) => m.id === this.getDefaultModel(),
-            )!;
+                this.models({ no_restrictions: true }).find(
+                    (m) => m.id === this.getDefaultModel(),
+                )!);
 
         // messages.unshift({
         //     role: 'system',
@@ -195,6 +204,10 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         const userIdentifier = upstreamUserIdentifier(actor);
         // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
+        const cacheRetention = promptCacheRetentionToWire(
+            prompt_cache_retention,
+        );
+        const cacheOptions = promptCacheOptionsToWire(prompt_cache_options);
 
         if (tools) {
             // Unravel tools to OpenAI Responses API format
@@ -288,8 +301,11 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             ...(instructions !== undefined ? { instructions } : {}),
             ...(metadata !== undefined ? { metadata } : {}),
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
-            ...(prompt_cache_retention !== undefined
-                ? { prompt_cache_retention }
+            ...(cacheRetention !== undefined
+                ? { prompt_cache_retention: cacheRetention }
+                : {}),
+            ...(cacheOptions !== undefined
+                ? { prompt_cache_options: cacheOptions }
                 : {}),
             ...(store !== undefined ? { store } : {}),
             ...(max_tokens !== undefined
@@ -310,24 +326,18 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             { signal: Context.get('upstreamSignal') },
         );
         return OpenAiUtil.handle_completion_output_responses_api({
-            usage_calculator: ({ usage, webSearchCalls, setUsageCosts }) => {
-                const cachedTokens =
-                    (usage as any).input_tokens_details?.cached_tokens ?? 0;
-                // GPT-5.6 and later bill cache writes at 1.25x input. They're
-                // reported inside `input_tokens`, like cached reads.
-                const cacheWriteTokens =
-                    (usage as any).input_tokens_details?.cache_write_tokens ??
-                    0;
+            usage_calculator: ({
+                usage,
+                service_tier,
+                webSearchCalls,
+                setUsageCosts,
+                setUsageDetails,
+            }) => {
+                // GPT-5.6 and later report cache writes inside `input_tokens`,
+                // like cached reads, split by lifetime (30m and 12h entries
+                // cost 1.25x and 2.5x input to write).
                 const trackedUsage: Record<string, number> = {
-                    prompt_tokens:
-                        ((usage as any).input_tokens ?? 0) -
-                        cachedTokens -
-                        cacheWriteTokens,
-                    completion_tokens: (usage as any).output_tokens ?? 0,
-                    cached_tokens: cachedTokens,
-                    ...(cacheWriteTokens
-                        ? { cache_write_tokens: cacheWriteTokens }
-                        : {}),
+                    ...OpenAiUtil.splitCachedPrompt(usage),
                     ...(webSearchCalls
                         ? { web_search_calls: webSearchCalls }
                         : {}),
@@ -344,18 +354,31 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                     // model is a reasoning model, not a static per-model
                     // cost-table entry — the model's rates would otherwise
                     // price it (wrongly) at the input/output token rate.
-                    webSearchCalls
-                        ? {
-                              costOverrides: {
-                                  web_search_calls:
-                                      webSearchCalls *
-                                      (webSearchCallRate(tools, modelUsed.id) ??
-                                          0),
-                              },
-                          }
-                        : {},
+                    {
+                        serviceSpeed: servedServiceSpeed({ service_tier }),
+                        ...(webSearchCalls
+                            ? {
+                                  costOverrides: {
+                                      web_search_calls:
+                                          webSearchCalls *
+                                          (webSearchCallRate(
+                                              tools,
+                                              modelUsed.id,
+                                          ) ?? 0),
+                                  },
+                              }
+                            : {}),
+                    },
                 );
                 setUsageCosts?.(metered.costs);
+                setUsageDetails?.({
+                    ...(requestedServiceSpeed !== undefined
+                        ? { serviceSpeed: servedServiceSpeed({ service_tier }) }
+                        : {}),
+                    ...OpenAiUtil.usageDetailsFromTrackedUsage(metered.usage, {
+                        writeTtl: '30m',
+                    })!,
+                });
                 return metered.usage;
             },
             stream,

@@ -36,6 +36,16 @@ const numberFormat = (options) => {
     }
 };
 
+/**
+ * A whole count (usage units) in the dashboard's language: "1,234,567" in
+ * English, "1.234.567" in German.
+ *
+ * @param {number} count
+ * @returns {string}
+ */
+export const formatCount = (count) =>
+    numberFormat({ maximumFractionDigits: 0 }).format(Number.isFinite(count) ? count : 0);
+
 /** Whether a `getMonthlyUsage()` response reports credits. */
 export const usageIsCredits = (allowanceInfo) =>
     allowanceInfo?.unit === 'credits';

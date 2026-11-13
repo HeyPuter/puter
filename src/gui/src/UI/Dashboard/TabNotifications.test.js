@@ -412,6 +412,26 @@ describe('Puter notifications', () => {
         expect($('.push-puter-card').text()).toContain('push_load_failed');
     });
 
+    it('puts the hint back once a later visit reads the preference', async () => {
+        serve({
+            'GET /push/devices': { devices: [] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': () => reply(500, {}),
+        });
+        await open();
+        serve({
+            'GET /push/devices': { devices: [] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+        });
+        await tab.onActivate($('.win'));
+        await settle();
+
+        expect($('.push-puter-toggle').prop('disabled')).toBe(false);
+        expect($('.push-puter-card').text()).toContain('push_puter_notifications_hint');
+        expect($('.push-puter-card').text()).not.toContain('push_load_failed');
+    });
+
     it('puts the switch back when the save fails', async () => {
         serve({
             'GET /push/devices': { devices: [] },
@@ -471,6 +491,21 @@ describe('your devices', () => {
         expect($cards.eq(2).find('strong').text()).toBe('push_device_unknown');
     });
 
+    it('labels a browser on Puter\'s own Web Push as a browser', async () => {
+        serve({
+            'GET /push/devices': { devices: [device({ uid: 'a', platform: 'webpush' }), device({ uid: 'b', platform: 'ios' })] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+        });
+        await open();
+
+        const $cards = $('.push-device-card');
+        expect($cards.eq(0).find('.dashboard-settings-card-info > span').text()).toContain('push_platform_web');
+        // Laptop, not phone.
+        expect($cards.eq(0).find('svg rect').attr('width')).toBe('18');
+        expect($cards.eq(1).find('svg rect').attr('width')).toBe('12');
+    });
+
     it('removes a device once the user confirms', async () => {
         const remove = vi.fn(() => reply(200, { removed: true }));
         serve({
@@ -522,6 +557,30 @@ describe('your devices', () => {
         expect(pushClient.browserPushOptedOut('u-1')).toBe(true);
     });
 
+    it('keeps this browser opted out when its push is off but the server removal fails', async () => {
+        const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'a' });
+        pushClient.registerPushClient(client);
+        serve({
+            'GET /push/devices': { devices: [device({ uid: 'a', current: true })] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'DELETE /push/devices/a': () => reply(500, {}),
+        });
+        await open();
+        client.disable.mockImplementation(async () => {
+            client.status.mockResolvedValue({ permission: 'granted', registered: false });
+        });
+
+        $('.push-remove-device[data-uid="a"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+
+        expect(dialog('.dashboard-dialog-message').text()).toContain('push_device_remove_failed');
+        expect(pushClient.browserPushOptedOut('u-1')).toBe(true);
+        expect(browserCard().hasClass('push-browser-off')).toBe(true);
+    });
+
     it('still removes this browser on the server when it has no local record', async () => {
         const client = fakeClient({ permission: 'granted', registered: false });
         pushClient.registerPushClient(client);
@@ -546,6 +605,36 @@ describe('your devices', () => {
         expect(client.disable).toHaveBeenCalledTimes(1);
         expect(remove).toHaveBeenCalledTimes(1);
         expect($('.push-device-card')).toHaveLength(0);
+    });
+
+    it('does not bring back a removed device when an older listing lands after the removal', async () => {
+        const both = [device({ uid: 'a' }), device({ uid: 'b', label: 'Phone' })];
+        let releaseListing;
+        let deferred = false;
+        serve({
+            'GET /push/devices': () => (deferred
+                ? new Promise(resolve => { releaseListing = () => resolve(reply(200, { devices: both })); })
+                : reply(200, { devices: both })),
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'DELETE /push/devices/b': () => reply(200, { removed: true }),
+        });
+        await open();
+        // Coming back to the tab starts a listing that is slow to answer.
+        deferred = true;
+        void tab.onActivate($('.win'));
+        await settle();
+
+        $('.push-remove-device[data-uid="b"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+        expect($('.push-remove-device[data-uid="b"]')).toHaveLength(0);
+
+        releaseListing();
+        await settle();
+        expect($('.push-remove-device[data-uid="b"]')).toHaveLength(0);
+        expect($('.push-device-card')).toHaveLength(1);
     });
 
     it('removes another device with the server alone', async () => {

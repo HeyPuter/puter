@@ -4,7 +4,9 @@ description: Fetch and parse one message from the user's mailbox by its id.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Reads one message by the `id` a listing returned. The whole raw message is downloaded and parsed, so the result carries the full subject, sender and recipients, the text and HTML bodies, every header, and each attachment with its bytes. Pass `raw: true` to get the unparsed `message/rfc822` bytes as a `Blob` instead.
+Reads one message by the `id` a listing returned.
+
+The whole raw message is downloaded and parsed, so the result carries the full subject, sender and recipients, the text and HTML bodies, every header, and each attachment with its bytes. Pass `raw: true` to get the unparsed `message/rfc822` bytes as a `Blob` instead.
 
 Reading the mailbox requires read access to the `~/.mail` folder, the same grant [`puter.email.list()`](/Email/list/) needs.
 
@@ -23,9 +25,11 @@ The message id from `puter.email.list()`. Looks up the inbox.
 
 #### `options` (Object)
 
-- `id` (String) (required): The message id.
-- `folder` (String): `'inbox'` or `'sent'`. Default `'inbox'`. A message id is unique within a folder, so a sent message must be read with `folder: 'sent'`.
-- `raw` (Boolean): When `true`, resolve with the raw message `Blob` and skip parsing. Default `false`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `id` | `String` | Required. The message id. |
+| `folder` | `String` | Either `'inbox'` or `'sent'`. Default `'inbox'`. A message id is unique within a folder, so a sent message must be read with `folder: 'sent'`. |
+| `raw` | `Boolean` | When `true`, resolve with the raw message `Blob` and skip parsing. Default `false`. |
 
 ## Return value
 
@@ -45,7 +49,7 @@ Rejects with an object carrying a `code`:
 
 ## Examples
 
-<strong class="example-title">Read the newest message in the inbox</strong>
+### Read the newest message in the inbox
 
 ```html
 <html>
@@ -66,7 +70,7 @@ Rejects with an object carrying a `code`:
 </html>
 ```
 
-<strong class="example-title">Save every attachment of a message to the user's Documents</strong>
+### Save every attachment of a message to the user's Documents
 
 ```html
 <html>
@@ -89,7 +93,7 @@ Rejects with an object carrying a `code`:
 </html>
 ```
 
-<strong class="example-title">Download the raw message</strong>
+### Download the raw message
 
 ```html
 <html>

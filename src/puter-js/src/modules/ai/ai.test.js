@@ -171,6 +171,20 @@ describe('ai.chat driver payloads', () => {
         });
     });
 
+    it('chat(prompt, options) forwards the OpenAI prompt-cache options', async () => {
+        await ai.chat('hello', {
+            prompt_cache_key: 'ck',
+            prompt_cache_retention: '24h',
+            prompt_cache_options: { mode: 'explicit', ttl: '12h' },
+        });
+        expect(lastBody().args).toEqual({
+            messages: [{ content: 'hello' }],
+            prompt_cache_key: 'ck',
+            prompt_cache_retention: '24h',
+            prompt_cache_options: { mode: 'explicit', ttl: '12h' },
+        });
+    });
+
     it('chat(prompt, options) forwards temperature: 0 and max_tokens: 0', async () => {
         await ai.chat('hello', {
             temperature: 0,

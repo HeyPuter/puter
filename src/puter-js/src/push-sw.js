@@ -35,7 +35,6 @@
     const CHALLENGE_MESSAGE = 'puter-push-challenge';
     const CLICK_MESSAGE = 'puter-notification-click';
     const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-    const SHOW_MESSAGE = 'puter-push-show';
     const CHANGED_MESSAGE = 'puter-push-subscription-changed';
     const CLICK_PARAM = 'puter.notification';
     const SHOWN_FIELDS = ['title', 'body', 'icon', 'badge', 'image', 'tag', 'url'];
@@ -238,20 +237,6 @@
         }
     }
 
-    // A page that got a notification live while away; held back while another window of the app has focus.
-    async function showForPage (message, source) {
-        for ( const win of await windows({ topLevel: true }) ) {
-            if ( win.focused && win.id !== source?.id ) return false;
-        }
-        const options = message.options && typeof message.options === 'object' ? message.options : {};
-        try {
-            await self.registration.showNotification(str(message.title) ?? DEFAULT_TITLE, options);
-        } catch {
-            await self.registration.showNotification(DEFAULT_TITLE, { data: options.data });
-        }
-        return true;
-    }
-
     async function forgetOldClicks () {
         const cutoff = Date.now() - CLICK_KEEP_MS;
         await idb(CLICKS, 'readwrite', (s) => {
@@ -376,16 +361,6 @@
         if ( ! message || typeof message !== 'object' ) return;
         if ( message.type === CLICK_ACK_MESSAGE ) {
             pendingClickAcks.get(message.id)?.();
-        } else if ( message.type === SHOW_MESSAGE ) {
-            event.waitUntil((async () => {
-                let shown = false;
-                try {
-                    shown = await showForPage(message, event.source);
-                } catch ( err ) {
-                    console.warn('[puter] could not show a notification', err);
-                }
-                event.ports?.[0]?.postMessage({ shown });
-            })());
         }
     });
 

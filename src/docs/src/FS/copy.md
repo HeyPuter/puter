@@ -30,19 +30,27 @@ Relative paths resolve against the app's root directory. A relative name that lo
 
 The options for the `copy` operation. The following options are supported:
 
-- `source` (String) - Path to the file or directory to copy. Required when passing options as the only argument.
-- `destination` (String) - Path to the destination. Required when passing options as the only argument.
-- `overwrite` (Boolean) - Whether to overwrite the destination file or directory if it already exists. Defaults to `false`.
-- `dedupeName` (Boolean) - Whether to deduplicate the file or directory name if it already exists. Defaults to `false`.
-- `newName` (String) - The new name to use for the copied file or directory. Defaults to `undefined`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `source` | `String` | Path to the file or directory to copy. Required when passing options as the only argument. |
+| `destination` | `String` | Path to the destination. Required when passing options as the only argument. |
+| `overwrite` | `Boolean` | Whether to overwrite the destination file or directory if it already exists. Defaults to `false`. |
+| `newName` | `String` | The new name to use for the copied file or directory. Defaults to `undefined`. |
+| `dedupeName` | `Boolean` | Whether to deduplicate the file or directory name if it already exists. Defaults to `false`. |
 
 ## Return value
 
-A `Promise` that will resolve to the [`FSItem`](/Objects/fsitem) object of the copied file or directory. If the source file or directory does not exist, the promise will be rejected with an error.
+A `Promise` that will resolve to the [`FSItem`](/Objects/fsitem) object of the copied file or directory.
+
+## Errors
+
+If the source file or directory does not exist, the promise will be rejected with an error.
+
+If the destination already holds an item other than the source whose name differs from the new name only by accents or emoji, such as `😀.txt` for `😁.txt`, that item is never replaced. With `overwrite: true` the promise rejects with a `conflict` error, and otherwise with `item_with_same_name_exists`. To copy the item under a new name instead, set `dedupeName: true`.
 
 ## Examples
 
-<strong class="example-title"> Copy a file</strong>
+### Copy a file
 
 ```html;fs-copy
 <html>

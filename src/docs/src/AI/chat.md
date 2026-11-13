@@ -29,24 +29,25 @@ An object containing the following properties:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | String | The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from providers including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page. |
-| `stream` | Boolean | A boolean indicating whether you want to stream the completion. Defaults to `false`. |
-| `max_tokens` | Number | The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used. |
-| `temperature` | Number | A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. See [Model-specific features](#model-specific-features). |
-| `reasoning_effort` / `reasoning.effort` | String | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. OpenAI models, Moonshot's Kimi K3.1 Pro models, Meta's Muse Spark models, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only. See [Model-specific features](#model-specific-features). |
-| `thinking` | Object \| null | Extended-thinking control: `{ type: "adaptive" \| "enabled" \| "disabled" \| "between_tools", budgetTokens?, display? }`. Pass `null` to send no thinking configuration at all (the model's own default); leaving it unset falls back to the legacy derivation from `reasoning_effort`. `budgetTokens` only applies to `type: "enabled"`. |
-| `verbosity` / `text.verbosity` | String | Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only. |
-| `tools` | Array | Function definitions the AI can call. See [Function Calling](#function-calling) for details. |
-| `toolChoice` | String \| Object | Which tool, if any, the model must call. Pass `"auto"` (the model decides), `"none"` (never call a tool), `"required"` (call at least one), or an object naming a specific tool: `{ type: "tool", name: "..." }`. Requires `tools`. |
-| `parallelToolCalls` | Boolean | Whether the model may call more than one tool in a single turn. Left unset, tool calls run one at a time. |
-| `streamToolInput` | Boolean | Streaming only. When `true`, a tool call's arguments arrive incrementally as `tool_use_start` / `tool_input_delta` chunks instead of a single `tool_use` chunk once the call completes. |
-| `normalize` | Boolean | Controls the format of the non-streaming response. See [Response normalization](#response-normalization). |
-| `compaction` | Boolean \| Object | Opt into inline context compaction for long conversations. See [Compaction](#compaction). |
-| `signal` | AbortSignal | Abort the request, including while waiting for the next streamed chunk. Cancellation rejects with the signal reason (normally an `AbortError`). |
-| `provider` | String | Pin the request to a specific provider, for example `openrouter` or `infron`. Without it, Puter selects a provider for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given provider serves. See [Providers](#providers). |
-| `fallback` | Boolean | Set to `false` to fail the request when the first provider tried fails, instead of retrying it on another provider that serves the same model. Defaults to `true`. See [Providers](#providers). |
-| `outputFormat` | Object | Constrains the response to a JSON schema: `{ type: "json_schema", schema, name?, strict? }`. |
-| `stopSequences` | Array of String | Up to the model's limit of strings; generation stops the moment one of them appears in the output. |
+| `model` | `String` | The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from providers including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page. |
+| `serviceSpeed` | `String` | Preferred service speed, `"standard"`, `"fast"`, or `"ultrafast"`. Unavailable speeds fall back from ultrafast to fast, then standard. Omitting it preserves the model's default service. Faster service may cost more. See [Service speed](#service-speed) and [Model-specific features](#model-specific-features). |
+| `stream` | `Boolean` | A boolean indicating whether you want to stream the completion. Defaults to `false`. |
+| `max_tokens` | `Number` | The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used. |
+| `temperature` | `Number` | A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. See [Model-specific features](#model-specific-features). |
+| `reasoning_effort` / `reasoning.effort` | `String` | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. OpenAI models, Moonshot's Kimi K3.1 Pro models, Meta's Muse Spark models, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only. See [Model-specific features](#model-specific-features). |
+| `thinking` | `Object \| null` | Extended-thinking control: `{ type: "adaptive" \| "enabled" \| "disabled" \| "between_tools", budgetTokens?, display? }`. Pass `null` to send no thinking configuration at all (the model's own default); leaving it unset falls back to the legacy derivation from `reasoning_effort`. `budgetTokens` only applies to `type: "enabled"`. |
+| `verbosity` / `text.verbosity` | `String` | Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only. |
+| `tools` | `Array` | Function definitions the AI can call. See [Function Calling](#function-calling) for details. |
+| `toolChoice` | `String \| Object` | Which tool, if any, the model must call. Pass `"auto"` (the model decides), `"none"` (never call a tool), `"required"` (call at least one), or an object naming a specific tool: `{ type: "tool", name: "..." }`. Requires `tools`. |
+| `parallelToolCalls` | `Boolean` | Whether the model may call more than one tool in a single turn. Left unset, tool calls run one at a time. |
+| `streamToolInput` | `Boolean` | Streaming only. When `true`, a tool call's arguments arrive incrementally as `tool_use_start` / `tool_input_delta` chunks instead of a single `tool_use` chunk once the call completes. |
+| `normalize` | `Boolean` | Controls the format of the non-streaming response. See [Response normalization](#response-normalization). |
+| `compaction` | `Boolean \| Object` | Opt into inline context compaction for long conversations. See [Compaction](#compaction). |
+| `signal` | `AbortSignal` | Abort the request, including while waiting for the next streamed chunk. Cancellation rejects with the signal reason (normally an `AbortError`). |
+| `provider` | `String` | Pin the request to a specific provider, for example `openrouter` or `infron`. Without it, Puter selects a provider for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given provider serves. See [Providers](#providers). |
+| `fallback` | `Boolean` | Set to `false` to fail the request when the first provider tried fails, instead of retrying it on another provider that serves the same model. Defaults to `true`. See [Providers](#providers). |
+| `outputFormat` | `Object` | Constrains the response to a JSON schema: `{ type: "json_schema", schema, name?, strict? }`. |
+| `stopSequences` | `Array<String>` | Up to the model's limit of strings; generation stops the moment one of them appears in the output. |
 
 Some models accept additional options or handle these options differently. See [Model-specific features](#model-specific-features).
 
@@ -137,6 +138,8 @@ by a newline. Use the async iterator to receive every chunk as an object.
 ## Errors
 
 In case of an error, the `Promise` will reject with an error message.
+
+An unrecognized `serviceSpeed` value rejects with `invalid_service_speed`.
 
 For streaming responses, an error from the AI provider is returned as a chunk
 with `type: "error"` and a `message` describing the failure. This also happens
@@ -370,9 +373,23 @@ const response = await puter.ai.chat('Hello', {
 
 With `provider` set as well, the request is answered by that provider or fails. If that provider does not serve the model, the request fails with a `400` instead of going to another provider. The error is the same one you would get if every provider had failed, for example `400 upstream_provider_unavailable` or `429 upstream_rate_limited`.
 
+## Service speed
+
+The `serviceSpeed` option selects service capacity independently of reasoning effort. If the requested speed is unavailable for the selected model, the request uses the next supported speed in the order `ultrafast`, `fast`, `standard`.
+
+A faster tier that rejects a request because its capacity or access is unavailable can retry at a lower speed on the same provider. The `fallback` option controls retries on other providers separately. Once streaming output starts, a failed stream ends with an error instead of restarting at another speed.
+
+The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the tier or equivalent model that served the request. A provider downgrade is billed at the lower tier's rates. Response normalization follows the same rule as a request without this option, including when a faster equivalent model is selected.
+
 ## Model-specific features
 
 ### OpenAI models
+
+Passing `service_tier: "priority"` selects fast service, and `service_tier: "ultrafast"` selects ultrafast service. These requests use the same prices and supported-speed selection as `serviceSpeed`. An explicit `serviceSpeed` takes precedence.
+
+Input and reasoning tokens reported by a non-streaming Responses API call are billed even when its output is empty. These charges apply whether the request fails or retries another provider.
+
+Fast service is available on models with a published Fast rate card. Ultrafast is available for GPT-6.1 Sol and GPT-6 Astra. Other models fall back to fast or standard. Cache and long-context rates apply to the served tier.
 
 #### `temperature`
 
@@ -399,7 +416,26 @@ The code implementation is available in our [web search example](/playground/ai-
 
 List of OpenAI models that support the web search can be found in their [API compatibility documentation](https://platform.openai.com/docs/guides/tools-web-search#api-compatibility).
 
+#### Prompt Caching
+
+OpenAI models cache prompt prefixes on their own. Requests from the same app and user share one cache by default, and you can pick the cache with `prompt_cache_key`. Their `usage` reports the tokens read from the cache as `cached_tokens`.
+
+GPT-5.6 and later models charge for cache writes and let you choose how long an entry lives. Pass `prompt_cache_options` with a `ttl` of `"30m"` (the default) or `"12h"`. The `usage` reports the tokens written with the 30 minute lifetime as `cache_write_tokens` and the tokens written with the 12 hour lifetime as `cache_write_12h_tokens`. Writing a 30 minute entry costs 1.25 times the model's input rate, and writing a 12 hour entry costs 2.5 times the input rate. Reads cost the same for both lifetimes. To mark where a reusable prefix ends, add `prompt_cache_breakpoint: { mode: "explicit" }` to a content part. A breakpoint can carry its own `ttl`, which overrides the request's. OpenAI only takes a 12 hour lifetime, or a lifetime on a breakpoint, through its Responses API, so a request that uses either is sent there.
+
+```js
+puter.ai.chat('<your message>', {
+    model: 'gpt-6-luna',
+    prompt_cache_options: { ttl: '12h' }
+});
+```
+
+Older OpenAI models charge nothing for cache writes. Pass `prompt_cache_retention` with `"in_memory"` for an entry that lives a few minutes or `"24h"` for one that can live up to a day. The 24 hour option is the default, and GPT-5.5 and later models only support it.
+
+The `usageDetails` object on every result carries the same counts under provider-neutral names, with one field per lifetime, such as `cacheWrite30mTokens` and `cacheWrite12hTokens`. See the [ChatResponse](/Objects/chatresponse/) object for the full list.
+
 ### Anthropic models
+
+Fast service is available on Claude models with a Fast rate card. Ultrafast falls back to fast. When the account has no Fast quota, the request retries at standard speed. The upstream service tier and inference speed are separate fields.
 
 #### Prompt Caching
 
@@ -424,6 +460,8 @@ Pass in the `cache_control` parameter inside the object in the `messages` array.
 You can find the implementation in our [prompt caching example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
 
 ### Gemini models
+
+Fast service uses Priority inference on supported text and image requests. Other media use standard service to preserve input handling.
 
 #### `temperature`
 
@@ -526,6 +564,8 @@ for await (const part of resp) {
 
 ### Moonshot Kimi models
 
+Models with an equivalent Highspeed variant select that variant for fast service. Other models use standard service.
+
 #### `reasoning_effort`
 
 Kimi K3.1 Pro accepts `low`, `high` and `max`, uses `max` when you leave it unset, and fails with `400 bad_request` on any other value.
@@ -539,6 +579,32 @@ Moonshot's Kimi K3 and Kimi K3.1 Pro models cache prompt prefixes on their own a
 #### `reasoning_effort`
 
 Muse Spark always reasons, so `none` is ignored for it.
+
+### xAI models
+
+Fast service requests Priority processing. Token charges, including cached input and reasoning, follow the served tier.
+
+### MiniMax models
+
+MiniMax M3 uses Priority admission for fast service. Earlier models with an equivalent Highspeed variant use that variant. Other models use standard service.
+
+### Mistral models
+
+Fast service requests Priority when the account and model are eligible. The provider can serve the request at standard speed.
+
+Passing `service_tier: "auto"` selects fast service, with the same prices as `serviceSpeed: "fast"`. An explicit `serviceSpeed` takes precedence.
+
+### Alibaba Cloud models
+
+Models with an equivalent Prime or Fast variant select that variant for fast service. Other models use standard service.
+
+### OpenRouter models
+
+Faster tiers come from the selected model's endpoint catalog. A tier can fall back upstream. Billing uses the endpoint that serves the request.
+
+### Infron models
+
+Models with a Priority offering select that offering for fast service. Other models use standard service.
 
 ## Examples
 
@@ -1071,6 +1137,26 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
             analyzeBtn.disabled = false;
             analyzeBtn.textContent = 'Analyze My Resume';
         });
+    </script>
+</body>
+</html>
+```
+
+### Select service speed
+
+For example, request the fastest supported service:
+
+```html;ai-chat-service-speed
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script type="module">
+        const response = await puter.ai.chat('Explain closures in one paragraph.', {
+            model: 'gpt-6.1-sol',
+            serviceSpeed: 'ultrafast',
+        });
+        puter.print(response.message.content);
+        puter.print(response.usageDetails.serviceSpeed);
     </script>
 </body>
 </html>

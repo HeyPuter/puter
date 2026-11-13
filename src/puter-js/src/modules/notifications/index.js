@@ -23,10 +23,11 @@ import {
     takeClick,
 } from './lib/pushStore.js';
 import { closeNotification, reconcileDismissed } from './lib/osNotifications.js';
-import { ReceiptLog } from './lib/receipts.js';
+import { HANDLED_EVENT, ReceiptLog, handledHere } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
 import {
     currentWebPush,
+    forgetWebPushReceipt,
     removeWebPush,
     syncWebPush,
     unsubscribeWebPush,
@@ -41,7 +42,7 @@ import { listDevices } from './listDevices.js';
 import { markShown } from './markShown.js';
 import { notify } from './notify.js';
 import { onNotification } from './onNotification.js';
-import { onPush, shownFrom } from './onPush.js';
+import { onPush } from './onPush.js';
 import { removeDevice } from './removeDevice.js';
 import { hasPermission, requestPermission } from './requestPermission.js';
 import { status } from './status.js';
@@ -52,8 +53,6 @@ export const CLICK_BROADCAST = 'notificationClick';
 export const WORKER_CLICK_MESSAGE = 'puter-notification-click';
 /** What the page answers a tap with when a click handler took it. */
 export const WORKER_CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-/** What a page posts `push-sw.js` to show a notification it received live. */
-export const WORKER_SHOW_MESSAGE = 'puter-push-show';
 /** What a worker posts when the browser replaced the push subscription. */
 export const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 /** Query parameter `push-sw.js` adds to a page it opens for a tap. */
@@ -66,8 +65,6 @@ const PUSH_LOCK = 'puter-push';
 
 /** As long as `push-sw.js` gives a handler. */
 const HANDLER_TIMEOUT_MS = 5_000;
-/** How long an older `push-sw.js`, which never answers, is waited for. */
-const WORKER_SHOW_TIMEOUT_MS = 2_000;
 /** How long after load a page a tap opened waits for a `click` handler. */
 const UNREAD_TAP_MS = 10_000;
 /** How long a load only asks the server about a subscription it confirmed. */
@@ -155,12 +152,6 @@ const ifNoTabHolds = async (name, run) => {
     }
 };
 
-/** Hidden, or in a window without focus. */
-const pageAway = () => {
-    const doc = globalThis.document;
-    return doc?.visibilityState === 'hidden' || doc?.hasFocus?.() === false;
-};
-
 /** `promise`, or `push_handler_timeout` after the time a worker would give it. */
 const withinHandlerTime = async (promise) => {
     let timer;
@@ -185,17 +176,6 @@ const withinHandlerTime = async (promise) => {
     }
 };
 
-/** Where a tap goes: on `base`'s origin, with relative paths read from it. */
-export const tapUrl = (url, base) => {
-    const from = new URL(base);
-    try {
-        const resolved = new URL(url ?? '', from);
-        return resolved.origin === from.origin ? resolved.href : from.href;
-    } catch {
-        return from.href;
-    }
-};
-
 /** Where taps resolve: the worker's scope if this page is in it, else `/`. */
 const tapBaseFor = (worker, pageUrl) => {
     const scope = workerScope(worker);
@@ -203,48 +183,6 @@ const tapBaseFor = (worker, pageUrl) => {
         scope,
         base: pageUrl.startsWith(scope) ? scope : new URL('/', scope).href,
     };
-};
-
-/** The tap base a page saved for `scope`, else `scope`. */
-const savedTapBase = async (scope) => {
-    try {
-        const base = await idbGet(HANDLERS_STORE, TAP_BASE_PREFIX + scope);
-        if (
-            typeof base === 'string' &&
-            new URL(base).origin === new URL(scope).origin
-        )
-            return base;
-    } catch {
-        // Nothing saved, or IndexedDB is unavailable.
-    }
-    return scope;
-};
-
-/**
- * Hands the notification to `push-sw.js`, which shows it unless another window
- * of the app has focus. Resolves whether the worker answered.
- */
-const showThroughWorker = (registration, title, options) => {
-    const worker = registration.active;
-    if (!worker || typeof globalThis.MessageChannel !== 'function')
-        return Promise.resolve(false);
-    return new Promise((resolve) => {
-        const channel = new MessageChannel();
-        const done = (answered) => {
-            clearTimeout(timer);
-            channel.port1.close();
-            resolve(answered);
-        };
-        const timer = setTimeout(() => done(false), WORKER_SHOW_TIMEOUT_MS);
-        channel.port1.onmessage = () => done(true);
-        try {
-            worker.postMessage({ type: WORKER_SHOW_MESSAGE, title, options }, [
-                channel.port2,
-            ]);
-        } catch {
-            done(false);
-        }
-    });
 };
 
 /**
@@ -286,8 +224,6 @@ export class NotificationsModule extends EventListener {
     #stopWaitingForAuth = null;
     /** @type {{ url: string; scope?: string } | null} */
     #worker = null;
-    /** Whether the page's push worker is registered, as last looked up. */
-    #workerRegistered = false;
     /**
      * The load-time sync, per worker URL.
      *
@@ -304,14 +240,7 @@ export class NotificationsModule extends EventListener {
     /** This page's hold on each key's handler lock, with its handler count. */
     #handlerLocks = new Map();
     #watchingPageCache = false;
-    #receipts = new ReceiptLog(() => this.#showsOwn());
-    /**
-     * Whether the signed-in user turned push on here, as last read or set. A
-     * page shows notifications itself only while it is.
-     */
-    #optedIn = false;
-    /** Bumped on every change, so a read that started before one is dropped. */
-    #optInVersion = 0;
+    #receipts = new ReceiptLog();
     /** @type {BroadcastChannel | null} */
     #optInChannel = null;
     /**
@@ -464,11 +393,18 @@ export class NotificationsModule extends EventListener {
         };
     }
 
-    /** @internal This page received `uid` live, in a feed or the desktop. */
-    _noteReceived(uid, handler) {
+    /**
+     * @internal This page received `uid` live, in a feed or the desktop, over
+     * `socket` or else the events socket. While visible and focused, the page
+     * tells the server it handled it, so no push goes out for it.
+     */
+    _noteReceived(uid, handler, socket) {
         // A dismiss-only listener leaves postings for push delivery.
         if (handler === this.#pushListener && this.#pushHandlers.size === 0) return;
-        this.#receipts.note(uid);
+        const fresh = !this.#receipts.has(uid);
+        if (!handledHere(this.#receipts.note(uid)) || !fresh) return;
+        const via = socket ?? this.puter.events?.channel?.socket;
+        if (via?.connected) via.emit(HANDLED_EVENT, { uid });
     }
 
     /** @internal Closes this browser's copy even when the row was already dismissed. */
@@ -556,9 +492,12 @@ export class NotificationsModule extends EventListener {
      * failed confirmation is tried again on the next load.
      *
      * @param {{ url: string; scope?: string }} worker
+     * @param {{ background?: boolean }} [options] `background` is a call without
+     *   a click: a browser the user removed in Puter rejects with
+     *   `push_device_removed`, and a rejected token opens no sign-in.
      * @internal
      */
-    async _enableWebPush(worker) {
+    async _enableWebPush(worker, { background = false } = {}) {
         await this.#userChange;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
@@ -572,8 +511,8 @@ export class NotificationsModule extends EventListener {
             worker,
             onPending: pending,
             signal,
-            renewRemoved: true,
-            interactive: true,
+            renewRemoved: !background,
+            interactive: !background,
             withLock: withPushLock,
             onAnnounced: () => this.#recordOptIn(true),
             onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
@@ -594,7 +533,6 @@ export class NotificationsModule extends EventListener {
                 'push_verification_canceled',
             );
         }
-        this.#workerRegistered = true;
         void this.#finishSync(
             syncing,
             worker,
@@ -682,6 +620,16 @@ export class NotificationsModule extends EventListener {
         });
     }
 
+    /**
+     * Sign-out in the Puter GUI: forgets the receipt, so the next account to
+     * sign in confirms this browser itself. Never throws.
+     *
+     * @internal
+     */
+    async _forgetPushReceipt() {
+        await forgetWebPushReceipt(this.puter, workerFor('gui'));
+    }
+
     /** Another user signing in here ends push for the last one, as sign-out. */
     #watchUser() {
         /** @type {{ token: string; user: Promise<string | null> } | null} */
@@ -731,18 +679,6 @@ export class NotificationsModule extends EventListener {
     #useWorker(worker) {
         this.#worker = worker;
         if (this.puter.env === 'web') void this.#saveTapBase(worker);
-        void (async () => {
-            try {
-                const registration =
-                    await globalThis.navigator?.serviceWorker?.getRegistration(
-                        worker.scope ?? worker.url,
-                    );
-                if (this.#worker === worker)
-                    this.#workerRegistered = !!registration;
-            } catch {
-                if (this.#worker === worker) this.#workerRegistered = false;
-            }
-        })();
     }
 
     async #saveTapBase(worker) {
@@ -755,18 +691,6 @@ export class NotificationsModule extends EventListener {
         } catch {
             // Taps then open the worker's scope.
         }
-    }
-
-    /** Whether this page shows a browser notification itself while it is away. */
-    #showsOwn() {
-        return (
-            this.puter.env === 'web' &&
-            this.#optedIn &&
-            this.#pushFeed !== null &&
-            this.#pushHandlers.size > 0 &&
-            this.#workerRegistered &&
-            globalThis.Notification?.permission === 'granted'
-        );
     }
 
     async #userUuid() {
@@ -785,35 +709,26 @@ export class NotificationsModule extends EventListener {
 
     async #recordOptIn(on) {
         if (this.puter.env !== 'web') return;
-        this.#setOptedIn(on);
         try {
             const uuid = await this.#userUuid();
             if (uuid) await setOptIn(uuid, on);
         } catch (error) {
             warnStorage(error);
         }
-        this.#optInChanged();
     }
 
     async #forgetOptIns() {
-        this.#setOptedIn(false);
         try {
             await forgetPushState();
         } catch (error) {
             warnStorage(error);
         }
-        this.#optInChanged();
     }
 
-    #setOptedIn(on) {
-        this.#optedIn = on;
-        this.#optInVersion++;
-    }
-
-    /** The user's opt-in, read into `#optedIn`; null when it can't be read. */
+    /** The user's opt-in; null when it can't be read. */
     async #readOptIn() {
+        // A tab that syncs stops when another turns push off.
         this.#listenForOptInChanges();
-        const version = this.#optInVersion;
         /** @type {boolean | null} */
         let on = false;
         try {
@@ -825,12 +740,11 @@ export class NotificationsModule extends EventListener {
             warnStorage(error);
             on = null;
         }
-        if (version === this.#optInVersion) this.#optedIn = on === true;
         return on;
     }
 
-    /** Other tabs re-read the opt-in; `off` also stops their syncs. */
-    #optInChanged(kind = 'changed') {
+    /** Stops other tabs' syncs once push is turned off here. */
+    #optInChanged(kind) {
         this.#listenForOptInChanges();
         try {
             this.#optInChannel?.postMessage(kind);
@@ -848,7 +762,6 @@ export class NotificationsModule extends EventListener {
         this.#optInChannel = new BroadcastChannel(OPT_IN_CHANNEL);
         this.#optInChannel.onmessage = (event) => {
             if (event.data === 'off') this.#stopSyncs();
-            void this.#readOptIn();
         };
     }
 
@@ -931,7 +844,6 @@ export class NotificationsModule extends EventListener {
             !(await usesPuterKey(subscription, answer.publicKey))
         )
             return false;
-        this.#workerRegistered = true;
         return true;
     }
 
@@ -983,7 +895,6 @@ export class NotificationsModule extends EventListener {
     async #finishSync(syncing, worker, what) {
         try {
             await syncing;
-            this.#workerRegistered = true;
         } catch (error) {
             await this.#followRefusal(error, worker);
             if (QUIET_SYNC_ERRORS.has(error?.code)) return;
@@ -1011,6 +922,7 @@ export class NotificationsModule extends EventListener {
         } catch {
             // Already gone, or the browser can't tell.
         }
+        await forgetWebPushReceipt(this.puter, worker);
         await this.#recordOptIn(false);
     }
 
@@ -1096,7 +1008,6 @@ export class NotificationsModule extends EventListener {
             this.#restartOnAuthChange();
             return;
         }
-        if (this.puter.env === 'web') void this.#readOptIn();
         /** @type {Promise<{ off: () => Promise<void> } | null>} */
         const feed = (async () => {
             try {
@@ -1160,13 +1071,9 @@ export class NotificationsModule extends EventListener {
 
     async #dispatchPush(notification) {
         const entries = this.#pushHandlers.get(notification.channel ?? '');
-        let result;
         for (const { handler, onError } of entries ? [...entries] : []) {
             try {
-                result =
-                    (await withinHandlerTime(
-                        (async () => handler(notification))(),
-                    )) ?? result;
+                await withinHandlerTime((async () => handler(notification))());
             } catch (error) {
                 if (onError) onError(error);
                 else
@@ -1175,51 +1082,6 @@ export class NotificationsModule extends EventListener {
                         error,
                     );
             }
-        }
-        await this.#showIfAway(notification, result);
-    }
-
-    /**
-     * A website page that is hidden or in an unfocused window shows what the
-     * push would have, through `push-sw.js` so a focused window of the app
-     * holds it back. Inside the Puter desktop, the desktop's banner shows it.
-     */
-    async #showIfAway(notification, result) {
-        if (this.puter.env !== 'web' || !this.#optedIn || !pageAway() || this.#dismissed.has(notification.uid)) return;
-        if (globalThis.Notification?.permission !== 'granted') return;
-        try {
-            const worker = this.#worker ?? workerFor('web');
-            const registration =
-                await globalThis.navigator.serviceWorker?.getRegistration(
-                    worker.scope ?? worker.url,
-                );
-            this.#workerRegistered = !!registration;
-            if (!registration) return;
-            const { title, url, ...shown } = shownFrom(notification, result);
-            const scope =
-                registration.scope ?? `${globalThis.location.origin}/`;
-            const sensitive = notification.sensitive === true;
-            const options = {
-                ...shown,
-                renotify: shown.tag !== notification.uid,
-                data: {
-                    puter: {
-                        uid: notification.uid,
-                        target: sensitive ? null : notification.target,
-                        data: sensitive ? null : notification.data,
-                        url: tapUrl(url, await savedTapBase(scope)),
-                    },
-                },
-            };
-            if (this.#dismissed.has(notification.uid)) return;
-            if (!await showThroughWorker(registration, title, options))
-                await registration.showNotification(title, options);
-            if (this.#dismissed.has(notification.uid)) await this._closeNotification(notification.uid);
-        } catch (error) {
-            console.warn(
-                '[puter.notifications] could not show a notification',
-                error,
-            );
         }
     }
 

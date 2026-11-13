@@ -666,22 +666,22 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     h += '<div class="tfa-progress" style="display:none;">';
     h += '  <div class="tfa-progress-step">';
     h += '    <div class="tfa-progress-dot active" data-step="1">1</div>';
-    h += '    <span class="tfa-progress-label active">Scan</span>';
+    h += `    <span class="tfa-progress-label active">${i18n('setup2fa_step_scan')}</span>`;
     h += '  </div>';
     h += '  <div class="tfa-progress-line"><div class="tfa-progress-line-fill"></div></div>';
     h += '  <div class="tfa-progress-step">';
     h += '    <div class="tfa-progress-dot" data-step="2">2</div>';
-    h += '    <span class="tfa-progress-label">Backup</span>';
+    h += `    <span class="tfa-progress-label">${i18n('setup2fa_step_backup')}</span>`;
     h += '  </div>';
     h += '  <div class="tfa-progress-line"><div class="tfa-progress-line-fill"></div></div>';
     h += '  <div class="tfa-progress-step">';
     h += '    <div class="tfa-progress-dot" data-step="3">3</div>';
-    h += '    <span class="tfa-progress-label">Verify</span>';
+    h += `    <span class="tfa-progress-label">${i18n('setup2fa_step_verify')}</span>`;
     h += '  </div>';
     h += '  <div class="tfa-progress-line"><div class="tfa-progress-line-fill"></div></div>';
     h += '  <div class="tfa-progress-step">';
     h += `    <div class="tfa-progress-dot" data-step="4">${SVG_CHECK}</div>`;
-    h += '    <span class="tfa-progress-label">Done</span>';
+    h += `    <span class="tfa-progress-label">${i18n('done')}</span>`;
     h += '  </div>';
     h += '</div>';
 
@@ -703,7 +703,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     // Manual secret key, filled in once setup returns it
     h += '<div class="tfa-secret-row" style="display:none;">';
     h += '  <span class="tfa-secret-key"></span>';
-    h += `  <button class="tfa-copy-secret" title="Copy secret key">${SVG_COPY}</button>`;
+    h += `  <button class="tfa-copy-secret" title="${i18n('setup2fa_copy_secret')}" aria-label="${i18n('setup2fa_copy_secret')}">${SVG_COPY}</button>`;
     h += '</div>';
 
     h += `<button class="tfa-btn tfa-btn-primary tfa-scan-continue-btn">${i18n('continue')}</button>`;
@@ -747,7 +747,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     }
     h += '  </div>';
     h += '  <div class="tfa-code-error"></div>';
-    h += `  <div class="tfa-code-spinner"><div class="tfa-spinner-icon"></div><span>Enabling...</span></div>`;
+    h += `  <div class="tfa-code-spinner"><div class="tfa-spinner-icon"></div><span>${i18n('setup2fa_enabling')}</span></div>`;
     h += '</div>';
     h += '</div>'; // end screen 3
 
@@ -755,8 +755,8 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     h += '<div class="tfa-screen" data-screen="4">';
     h += `<div class="tfa-success-icon">${SVG_SHIELD_CHECK}</div>`;
     h += `<div class="tfa-success-title">${i18n('two_factor_enabled')}</div>`;
-    h += '<p class="tfa-success-text">Your account is now protected with two-factor authentication. You\'ll be asked for a verification code each time you sign in.</p>';
-    h += `<button class="tfa-btn tfa-btn-success tfa-done-btn">Done</button>`;
+    h += `<p class="tfa-success-text">${i18n('setup2fa_success_text')}</p>`;
+    h += `<button class="tfa-btn tfa-btn-success tfa-done-btn">${i18n('done')}</button>`;
     h += '</div>'; // end screen 4
 
     h += '</div>'; // end tfa-setup
@@ -782,7 +782,6 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         width: Math.min(480, window.innerWidth - 24),
         height: 'auto',
         dominant: true,
-        show_in_taskbar: false,
         is_draggable: false,
         backdrop: true,
         on_before_exit: async () => {
@@ -1019,7 +1018,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         navigator.clipboard.writeText(setup_data.codes.join('\n'));
         const $span = $(this).find('span');
         const orig = $span.text();
-        $span.text('Copied!');
+        $span.text(i18n('copied', [], false));
         $(this).addClass('copied');
         setTimeout(() => {
             $span.text(orig);
@@ -1031,7 +1030,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         const grid_html = $w.find('.tfa-codes-grid').get(0).outerHTML;
         const print_frame = $w.find('.tfa-print-frame').get(0);
         const style = '<style>body{font-family:monospace;padding:20px} .tfa-codes-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px} .tfa-code-item{padding:8px;font-size:14px;display:flex;gap:8px} .tfa-code-item-idx{color:#999}</style>';
-        print_frame.contentWindow.document.body.innerHTML = style + '<h2>Recovery Codes</h2>' + grid_html;
+        print_frame.contentWindow.document.body.innerHTML = `${style}<h2>${i18n('setup2fa_recovery_codes')}</h2>${grid_html}`;
         print_frame.contentWindow.focus();
         print_frame.contentWindow.print();
     });

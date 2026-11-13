@@ -37,7 +37,7 @@ import {
     postGeminiJson,
     geminiTokenCount as tokenCount,
 } from '../../../util/geminiRest.js';
-import { decodeStrictBase64 } from '../../../../util/mediaSniff.js';
+import { decodeStrictBase64InSlices } from '../../../../util/mediaSniff.js';
 import { isUpstreamTimeoutError } from '../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
 import type {
@@ -456,7 +456,8 @@ export class GeminiTTSProvider implements ITTSProvider {
                             },
                         );
                     }
-                    const { body, contentType } = this.#decodeAudio(audio);
+                    const { body, contentType } =
+                        await this.#decodeAudio(audio);
 
                     outputTokens = usageTokens(
                         usage?.output_tokens_by_modality,
@@ -474,7 +475,7 @@ export class GeminiTTSProvider implements ITTSProvider {
                         dataType: 'stream',
                         content_type: contentType,
                         chunked: true,
-                        stream: Readable.from(body),
+                        stream: Readable.from(body, { objectMode: false }),
                     };
                 } finally {
                     // Every outcome pays once for the counts it reports.
@@ -519,13 +520,15 @@ export class GeminiTTSProvider implements ITTSProvider {
     }
 
     /** WAV passes through byte for byte; raw PCM is wrapped in a WAV header. */
-    #decodeAudio(audio: InteractionContent): {
-        body: Buffer;
+    async #decodeAudio(audio: InteractionContent): Promise<{
+        body: Buffer[];
         contentType: string;
-    } {
+    }> {
         const { data, mime_type: mimeType } = audio;
         const bytes =
-            typeof data === 'string' ? decodeStrictBase64(data) : null;
+            typeof data === 'string'
+                ? await decodeStrictBase64InSlices(data)
+                : null;
         if (!bytes || typeof mimeType !== 'string') {
             throw upstreamFailure('Gemini TTS returned invalid audio data');
         }
@@ -541,7 +544,7 @@ export class GeminiTTSProvider implements ITTSProvider {
             ) {
                 throw upstreamFailure('Gemini TTS returned invalid audio data');
             }
-            return { body: bytes, contentType: 'audio/wav' };
+            return { body: [bytes], contentType: 'audio/wav' };
         }
         if (PCM_MIME_TYPES.has(essence) && bytes.length > 0) {
             const rate = Number(
@@ -551,8 +554,9 @@ export class GeminiTTSProvider implements ITTSProvider {
                 Number.isSafeInteger(rate) && rate > 0
                     ? rate
                     : DEFAULT_PCM_SAMPLE_RATE;
+            // Sent ahead of the samples, which are never copied behind it.
             return {
-                body: this.#wrapPcmInWav(bytes, sampleRate, 1, 16),
+                body: [this.#wavHeader(bytes.length, sampleRate, 1, 16), bytes],
                 contentType: 'audio/wav',
             };
         }
@@ -560,17 +564,15 @@ export class GeminiTTSProvider implements ITTSProvider {
     }
 
     /** Wrap raw PCM samples in a WAV container so browsers can play it. */
-    #wrapPcmInWav(
-        pcm: Buffer,
+    #wavHeader(
+        dataSize: number,
         sampleRate: number,
         channels: number,
         bitsPerSample: number,
     ): Buffer {
         const byteRate = (sampleRate * channels * bitsPerSample) / 8;
         const blockAlign = (channels * bitsPerSample) / 8;
-        const dataSize = pcm.length;
-        const headerSize = 44;
-        const buffer = Buffer.alloc(headerSize + dataSize);
+        const buffer = Buffer.alloc(44);
 
         // RIFF header
         buffer.write('RIFF', 0);
@@ -590,7 +592,6 @@ export class GeminiTTSProvider implements ITTSProvider {
         // data sub-chunk
         buffer.write('data', 36);
         buffer.writeUInt32LE(dataSize, 40);
-        pcm.copy(buffer, headerSize);
 
         return buffer;
     }

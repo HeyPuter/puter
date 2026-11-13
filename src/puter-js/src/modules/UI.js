@@ -2,7 +2,12 @@ import EventListener from '../lib/EventListener.js';
 import { PuterJSError } from '../lib/PuterJSError.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
+import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from '../lib/guiEmbed.js';
+import { hasUserActivation } from '../lib/auth-popup.js';
+import { appIDOf } from '../lib/upgradePrompt.js';
+import { topUpUrl, upgradeUrl } from './UsageLimitDialog.js';
 import { checkPermissions } from './perms/lib/holds.js';
+import { PUSH_NOTIFICATIONS_PERMISSION } from './perms/lib/permissionStrings.js';
 
 
 /**
@@ -89,7 +94,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  * minimize, and maximize buttons.
  * @property {number} [height] Height of the window in pixels.
  * @property {boolean} [is_resizable] If `true`, the user can resize the window.
- * @property {boolean} [show_in_taskbar] If `true`, the window is represented in the taskbar.
+ * @property {boolean} [show_in_taskbar] Deprecated and ignored.
  * @property {string} [title] Title of the window.
  * @property {number} [width] Width of the window in pixels.
  */
@@ -106,13 +111,12 @@ import { checkPermissions } from './perms/lib/holds.js';
  * @property {FSItem[]} [items] `FSItem` objects to open with the launched app.
  * @property {string} [pseudonym] A pseudonym to launch the app under.
  * @property {boolean} [background] If `true`, the app starts with its window hidden, for an app
- * launched to do work rather than to be looked at. It still appears in the taskbar, so the user can
- * show it (or close it) at any time, and it can show itself with `puter.ui.showWindow()`.
+ * launched to do work rather than to be looked at. It can show itself with `puter.ui.showWindow()`.
  * @property {(connection: AppConnection) => void} [callback]
  */
 
 /**
- * Theme data delivered with the `themeChanged` event.
+ * Theme data of the `themeChanged` event, which is deprecated and never sent.
  *
  * @typedef {Object} ThemeData
  * @property {{
@@ -169,7 +173,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  * Options that configure `showColorPicker()`.
  *
  * @typedef {Object} ColorPickerOptions
- * @property {string} [defaultColor] The color initially selected when the picker opens.
+ * @property {string} [defaultColor] The color initially selected when the picker opens, as a hex string. Alpha in an 8-digit hex is ignored.
  */
 
 /**
@@ -292,6 +296,12 @@ const getGUIOrigin = (origin) => {
         return null;
     }
 };
+
+/** Whether `params` carry a launch item: its name, uid and read URL. */
+const hasLaunchItemParams = (params) =>
+    params.has('puter.item.name') &&
+    params.has('puter.item.uid') &&
+    params.has('puter.item.read_url');
 
 const MAX_REQUESTED_PERMISSIONS = 16;
 
@@ -522,6 +532,21 @@ export class UIModule extends EventListener {
     #guiFeatures = new URLSearchParams(globalThis.location?.search ?? '')
         .get('puter.gui_features')?.split(',') ?? [];
 
+    // Set while the framed feedback dialog is open on a first-party page.
+    #feedbackEmbedOpen = false;
+
+    // The framed upgrade showing, which a call made while it's open joins.
+    #upgradeFrame = null;
+
+    // The top-up showing, framed or about to open in a tab, which a call made meanwhile joins.
+    #topUpFrame = null;
+
+    // The framed email confirmation showing, which a call made while it's open joins.
+    #emailConfirmationFrame = null;
+
+    // Whether the framed custom domain dialog is showing, or about to.
+    #customDomainFrameOpen = false;
+
     // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
     itemWatchCallbackFunctions = [];
@@ -570,6 +595,142 @@ export class UIModule extends EventListener {
         puter.trackOpenedWindow_?.(popup);
         // Null when the browser blocked the popup.
         if ( popup ) this.#pickerPopups.add(popup);
+    }
+
+    /** What a picker's consent dialog says, when the popup needs a click to open. */
+    static #PICKER_CONSENT = {
+        'show-open-file-picker': 'This website wants you to choose a file from your Puter account.',
+        'show-save-file-picker': 'This website wants to save a file to your Puter account.',
+        'show-directory-picker': 'This website wants you to choose a folder from your Puter account.',
+    };
+
+    /** Opens a picker's popup window, centered, at the pickers' size. */
+    #openPickerPopup (url, title) {
+        const w = 700;
+        const h = 400;
+        const left = (screen.width / 2) - (w / 2);
+        const top = (screen.height / 2) - (h / 2);
+        return window.open(
+            url,
+            title,
+            `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
+        );
+    }
+
+    /**
+     * Shows a picker on a `web` page. A first-party page one label under the
+     * Puter origin that is signed in gets it in a frame over the page; every
+     * other page, or a frame that can't serve this user, gets the popup.
+     * `onWindow` sees the window that will ask for and answer the picker, with
+     * `framed` set for a frame, and may return a function that stops listening
+     * to it.
+     *
+     * @param {Object} opts
+     * @param {'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker'} opts.action
+     * @param {number} opts.msgId
+     * @param {string} opts.url - the popup's URL
+     * @param {string} opts.title - the popup's window name, and the frame's accessible name
+     * @param {Record<string, string>} [opts.fragment] - the popup parameters the frame needs besides `msg_id`
+     * @param {(win: Window | null, how?: { framed: boolean }) => (() => void) | void} [opts.onWindow]
+     */
+    #showWebPicker ({ action, msgId, url, title, fragment = {}, onWindow }) {
+        if ( ! this.#canFrameForUser() ) {
+            // window.open() returns synchronously and the popup cannot post
+            // back until this function yields, so there is no race.
+            const popup = this.#openPickerPopup(url, title);
+            onWindow?.(popup);
+            this.#trackPickerPopup(popup);
+            return;
+        }
+        void (async () => {
+            if ( await this.#showPickerFrame({ action, msgId, title, fragment, onWindow }) ) return;
+            // The click that asked for the picker may have expired by now, so
+            // without it the user opens the popup from a consent dialog.
+            const launched = (popup) => {
+                onWindow?.(popup);
+                this.#trackPickerPopup(popup);
+            };
+            if ( hasUserActivation() ) {
+                const popup = this.#openPickerPopup(url, title);
+                if ( popup ) {
+                    launched(popup);
+                    return;
+                }
+            }
+            let consent = null;
+            try {
+                consent = PuterDialog.show({
+                    message: UIModule.#PICKER_CONSENT[action],
+                    onContinue: () => {
+                        launched(this.#openPickerPopup(url, title));
+                        consent?.remove();
+                    },
+                    onCancel: () => {
+                        consent?.remove();
+                        this.#settleCallback(msgId, PICKER_CANCELLED);
+                    },
+                });
+            } catch {
+                // No dialog either; as with a blocked popup, the picker never opens.
+            }
+        })();
+    }
+
+    /** Whether a picker or upgrade can show framed: a signed-in first-party page, not in a frame of another site. */
+    #canFrameForUser () {
+        return this.env === 'web' &&
+            !globalThis.crossOriginIsolated &&
+            !!globalThis.document?.body &&
+            canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin) &&
+            ancestorsAllowGuiEmbed(globalThis, puter.defaultGUIOrigin) &&
+            !!puter.auth?.isSignedIn?.();
+    }
+
+    /**
+     * The picker in a frame over the page, for the page's signed-in user. The
+     * GUI answers it as it would the popup, through the module's message
+     * handler. Resolves false when the popup has to take over.
+     *
+     * @returns {Promise<boolean>}
+     */
+    async #showPickerFrame ({ action, msgId, title, fragment, onWindow }) {
+        const user = await this.#frameUser();
+        if ( ! user ) return false;
+        let frame = null;
+        let stopListening;
+        // The frame only serves this page's own user, so the token it sends
+        // with the answer isn't adopted; the page keeps the one it has.
+        const closed = await showPopupFrame({
+            guiOrigin: puter.defaultGUIOrigin,
+            action,
+            fragment: { ...fragment, msg_id: String(msgId), user: user.uuid },
+            title,
+            closed: () => true,
+            onMessage: () => {},
+            onFrame: (win) => {
+                frame = win;
+                this.#pickerPopups.add(win);
+                stopListening = onWindow?.(win, { framed: true });
+            },
+        });
+        this.#pickerPopups.delete(frame);
+        stopListening?.();
+        if ( ! closed ) return false;
+        // Gone without an answer: dismissed, so it settles as a cancel.
+        this.#settleCallback(msgId, PICKER_CANCELLED);
+        return true;
+    }
+
+    /**
+     * The page's signed-in user that a frame is shown for, from the cached
+     * whoami when there is one, or null without a uuid.
+     *
+     * @returns {Promise<{ uuid: string, email_confirmed?: boolean } | null>}
+     */
+    async #frameUser () {
+        const known = await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null);
+        const user = known?.uuid ? known : await puter.auth.getUser().catch(() => null);
+        return typeof user?.uuid === 'string' && user.uuid ? user : null;
     }
 
     // Whether a message on the window may drive this module.
@@ -1076,13 +1237,17 @@ export class UIModule extends EventListener {
      */
     /**
      * The item the app was launched with, read from the `puter.item.*` URL
-     * params the host appends, or null when there is none.
+     * params the host appends (or, in a tab the GUI opened, the same params
+     * it handed over), or null when there is none.
      *
      * @returns {FSItem|null}
      */
-    #launchItemFromURL () {
-        const URLParams = new URLSearchParams(globalThis.location.search);
-        if ( !URLParams.has('puter.item.name') || !URLParams.has('puter.item.uid') || !URLParams.has('puter.item.read_url') ) {
+    #launchItem () {
+        let URLParams = new URLSearchParams(globalThis.location.search);
+        if ( !hasLaunchItemParams(URLParams) && puter.openerLaunchItem_ ) {
+            URLParams = puter.openerLaunchItem_;
+        }
+        if ( ! hasLaunchItemParams(URLParams) ) {
             return null;
         }
         let fpath = URLParams.get('puter.item.path');
@@ -1104,6 +1269,26 @@ export class UIModule extends EventListener {
         });
     }
 
+    /**
+     * Calls `callback` with the launch item, once a tab the GUI opened has
+     * received it. Nothing when the app wasn't launched with one.
+     *
+     * @param {(items: FSItem[]) => void} callback
+     */
+    #withLaunchItem (callback) {
+        const deliver = () => {
+            const launchItem = this.#launchItem();
+            if ( launchItem ) {
+                callback([launchItem]);
+            }
+        };
+        if ( puter.openerLaunch_ ) {
+            puter.openerLaunch_.then(deliver);
+        } else {
+            deliver();
+        }
+    }
+
     onItemsOpened (callback) {
         // DEPRECATED - this is also called when items are dropped on the app, which in new versions should be handled
         // with the 'drop' event.
@@ -1113,10 +1298,7 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onItemsOpened) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onItemsOpened ) {
-            const launchItem = this.#launchItemFromURL();
-            if ( launchItem ) {
-                callback([launchItem]);
-            }
+            this.#withLaunchItem(callback);
         }
 
         this.#onItemsOpened = callback;
@@ -1132,9 +1314,12 @@ export class UIModule extends EventListener {
      */
     wasLaunchedWithItems () {
         const URLParams = new URLSearchParams(globalThis.location.search);
-        return URLParams.has('puter.item.name') &&
-            URLParams.has('puter.item.uid') &&
-            URLParams.has('puter.item.read_url');
+        if ( hasLaunchItemParams(URLParams) || puter.openerLaunchItem_ ) {
+            return true;
+        }
+        // A tab the GUI opened marks an opened item with its uid alone; the
+        // rest is still on its way from the GUI.
+        return !!puter.openerLaunch_ && URLParams.has('puter.item.uid');
     };
 
     /**
@@ -1151,26 +1336,65 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onLaunchedWithItems) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onLaunchedWithItems ) {
-            const launchItem = this.#launchItemFromURL();
-            if ( launchItem ) {
-                callback([launchItem]);
-            }
+            this.#withLaunchItem(callback);
         }
 
         this.#onLaunchedWithItems = callback;
     };
 
     /**
-     * Asks the desktop to walk the user through confirming their email.
-     * Resolves once the dialog closes.
+     * Walks the user through confirming their email: a temporary account is
+     * saved first, then the user enters the code sent to their address.
+     * Resolves once they're done, or right away when the email is already
+     * confirmed.
      *
-     * @returns {Promise<unknown>}
+     * Inside an app the desktop shows it. On a signed-in first-party page one
+     * label under the Puter origin, it shows in a frame over the page, and
+     * `response` is false when the frame can't show it. Anywhere else the
+     * promise never settles, since a website has no desktop to ask.
+     *
+     * @returns {Promise<import('../lib/types.js').EmailConfirmationResult>}
      */
     requestEmailConfirmation () {
-        return new Promise((resolve, reject) => {
+        if ( this.#canFrameForUser() ) return this.#showEmailConfirmationFrame();
+        return new Promise((resolve) => {
             this.#postMessageWithCallback('requestEmailConfirmation', resolve, { });
         });
     };
+
+    /**
+     * The email confirmation in a frame over the page, for the page's
+     * signed-in user. A call made while one is showing settles with it, and
+     * an email the page already knows is confirmed resolves without one.
+     *
+     * @returns {Promise<import('../lib/types.js').EmailConfirmationResult>}
+     */
+    #showEmailConfirmationFrame () {
+        if ( this.#emailConfirmationFrame ) return this.#emailConfirmationFrame;
+        this.#emailConfirmationFrame = (async () => {
+            try {
+                const user = await this.#frameUser();
+                // A confirmed email never goes back to unconfirmed, so this
+                // skips the loading scrim the frame would show while it boots.
+                if ( user?.email_confirmed === true ) return { response: true };
+                const framed = user && await showPopupFrame({
+                    guiOrigin: puter.defaultGUIOrigin,
+                    action: 'request-email-confirmation',
+                    fragment: { user: user.uuid },
+                    title: 'Confirm your email',
+                    closed: (data) => ({ response: data?.confirmed === true }),
+                    onMessage: () => {},
+                });
+                // The page's cached whoami still reads it as unconfirmed,
+                // and would frame the next call too.
+                if ( framed?.response ) user.email_confirmed = true;
+                return framed || { response: false };
+            } finally {
+                this.#emailConfirmationFrame = null;
+            }
+        })();
+        return this.#emailConfirmationFrame;
+    }
 
     /**
      * Asks the desktop to walk the user through clearing an account
@@ -1351,20 +1575,12 @@ export class UIModule extends EventListener {
                     env: this.env,
                 }, '*');
             } else {
-                let w = 700;
-                let h = 400;
-                let title = 'Puter: Open Directory';
-                var left = (screen.width / 2) - (w / 2);
-                var top = (screen.height / 2) - (h / 2);
-                // Track the window we opened so the message listener accepts
-                // its reply. window.open() returns synchronously and the popup
-                // cannot post back until this function yields, so there is no
-                // race.
-                this.#trackPickerPopup(window.open(
-                    `${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`,
-                    title,
-                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                ));
+                this.#showWebPicker({
+                    action: 'show-directory-picker',
+                    msgId: msg_id,
+                    url: `${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`,
+                    title: 'Puter: Open Directory',
+                });
             }
 
             this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
@@ -1401,16 +1617,13 @@ export class UIModule extends EventListener {
                     env: this.env,
                 }, '*');
             } else {
-                let w = 700;
-                let h = 400;
-                let title = 'Puter: Open File';
-                var left = (screen.width / 2) - (w / 2);
-                var top = (screen.height / 2) - (h / 2);
-                this.#trackPickerPopup(window.open(
-                    `${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`,
-                    title,
-                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                ));
+                this.#showWebPicker({
+                    action: 'show-open-file-picker',
+                    msgId: msg_id,
+                    url: `${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`,
+                    title: 'Puter: Open File',
+                    fragment: { options: JSON.stringify(options ?? {}) },
+                });
             }
             this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
@@ -1457,12 +1670,13 @@ export class UIModule extends EventListener {
     };
 
     /**
-     * Shows a color picker. Resolves to the chosen color. Accepts either a
-     * default color or an options object. `default` and `defaultValue` are
-     * legacy aliases for `defaultColor`.
+     * Shows a color picker. Resolves to the chosen color as a lowercase
+     * 6-digit hex string (`#rrggbb`), or `null` if the user cancels. Accepts
+     * either a default color or an options object. `default` and
+     * `defaultValue` are legacy aliases for `defaultColor`.
      *
      * @param {string | (ColorPickerOptions & { default?: string, defaultValue?: string })} [options]
-     * @returns {Promise<string>}
+     * @returns {Promise<string | null>}
      */
     showColorPicker (options) {
         if ( this.messageTarget ) {
@@ -1554,15 +1768,172 @@ export class UIModule extends EventListener {
      * fills them in when a call is refused for want of credit, a plan, or
      * storage.
      *
+     * On a signed-in first-party page one label under the Puter origin, the
+     * upgrade shows in a frame over the page instead, and the promise
+     * resolves once it closes. When the frame can't show it, the upgrade
+     * opens in a new tab and the promise resolves `{ upgraded: false }`.
+     * Anywhere else the promise never settles: the desktop doesn't answer an
+     * app, and a website has no desktop to ask.
+     *
      * @param {import('../lib/types.js').UpgradeRequestDetails} [details]
-     * @returns {Promise<unknown>}
+     * @returns {Promise<import('../lib/types.js').UpgradeResult>}
      */
     requestUpgrade (details) {
         const { reason, method, message } = details ?? {};
+        if ( this.canShowUpgradeFrame_() ) return this.#showUpgradeFrame({ reason, method });
         return new Promise((resolve) => {
             this.#postMessageWithCallback('requestUpgrade', resolve, { reason, method, message });
         });
     };
+
+    /**
+     * Whether {@link requestUpgrade} shows the upgrade in a frame over this page.
+     *
+     * @internal
+     * @returns {boolean}
+     */
+    canShowUpgradeFrame_ () {
+        return this.#canFrameForUser();
+    }
+
+    /**
+     * Whether {@link requestUpgrade} is showing the upgrade in a frame, about
+     * to, or asking to open it in a tab instead.
+     *
+     * @internal
+     * @returns {boolean}
+     */
+    upgradeFrameShowing_ () {
+        return this.#upgradeFrame !== null;
+    }
+
+    /**
+     * The upgrade in a frame over the page, for the page's signed-in user, or
+     * in a new tab when the frame can't show it. A call made while one is
+     * showing settles with it, so a payment in progress isn't replaced, and
+     * one made while the top-up shows resolves `{ upgraded: false }` once
+     * that closes.
+     *
+     * @param {{ reason?: string, method?: string }} details
+     * @returns {Promise<import('../lib/types.js').UpgradeResult>}
+     */
+    #showUpgradeFrame ({ reason, method }) {
+        if ( this.#upgradeFrame ) return this.#upgradeFrame;
+        // A second full-page frame would cover the top-up, and a payment in it.
+        if ( this.#topUpFrame ) {
+            const notUpgraded = () => ({ upgraded: false });
+            return this.#topUpFrame.then(notUpgraded, notUpgraded);
+        }
+        this.#upgradeFrame = (async () => {
+            try {
+                const user = await this.#frameUser();
+                const framed = user && await showPopupFrame({
+                    guiOrigin: puter.defaultGUIOrigin,
+                    action: 'upgrade',
+                    fragment: {
+                        user: user.uuid,
+                        ...(reason ? { reason } : {}),
+                        ...(method ? { method } : {}),
+                    },
+                    title: 'Upgrade',
+                    closed: (data) => ({ upgraded: data?.upgraded === true }),
+                    onMessage: () => {},
+                });
+                // The page's cached whoami still reads it as having no plan,
+                // which is what the user menu offers Add credits by.
+                if ( framed?.upgraded ) user.subscribed = true;
+                if ( framed ) return framed;
+                await this.#openUpgradeTab(upgradeUrl({ reason, method, appID: appIDOf(puter) }));
+                return { upgraded: false };
+            } finally {
+                this.#upgradeFrame = null;
+            }
+        })();
+        return this.#upgradeFrame;
+    }
+
+    /**
+     * Whether {@link showTopUp_} is showing the top-up in a frame, about to,
+     * or asking to open it in a tab instead.
+     *
+     * @internal
+     * @returns {boolean}
+     */
+    topUpShowing_ () {
+        return this.#topUpFrame !== null;
+    }
+
+    /**
+     * Shows the top-up flow, where a user with a plan buys add-on credit. On
+     * a signed-in first-party page one label under the Puter origin, it shows
+     * in a frame over the page, and the promise resolves once it closes. When
+     * the frame can't show it, and on any other website, it opens on the
+     * dashboard in a new tab and the promise resolves `{ toppedUp: false }`.
+     * A call made while one is showing settles with it, so a payment in
+     * progress isn't replaced.
+     *
+     * @internal
+     * @returns {Promise<{ toppedUp: boolean }>}
+     */
+    showTopUp_ () {
+        if ( this.#topUpFrame ) return this.#topUpFrame;
+        const showing = (async () => {
+            // Not awaited where no frame can show, so the tab opens within the click.
+            const user = this.#canFrameForUser() ? await this.#frameUser() : null;
+            const framed = user && await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: 'top-up',
+                fragment: { user: user.uuid },
+                title: 'Add credits',
+                closed: (data) => ({ toppedUp: data?.toppedUp === true }),
+                onMessage: () => {},
+            });
+            if ( framed ) return framed;
+            await this.#openUpgradeTab(topUpUrl(puter.defaultGUIOrigin), 'This website wants to open the Puter top-up page.');
+            return { toppedUp: false };
+        })();
+        this.#topUpFrame = showing;
+        // Cleared from outside: the steps above can fail before their first
+        // await, which is before the field is set.
+        const done = () => {
+            if ( this.#topUpFrame === showing ) this.#topUpFrame = null;
+        };
+        showing.then(done, done);
+        return showing;
+    }
+
+    /**
+     * Opens the upgrade or top-up page in a new tab. The click that asked for
+     * it may have expired by now, so without it the user opens it from a
+     * consent dialog. Resolves once the tab opens or the user answers the dialog.
+     *
+     * @param {string} url
+     * @param {string} [message] - what the consent dialog asks
+     * @returns {Promise<void>}
+     */
+    #openUpgradeTab (url, message = 'This website wants to open the Puter upgrade page.') {
+        if ( hasUserActivation() && window.open(url, '_blank') ) return Promise.resolve();
+        return new Promise((resolve) => {
+            let consent = null;
+            const answered = () => {
+                consent?.remove();
+                resolve();
+            };
+            try {
+                consent = PuterDialog.show({
+                    message,
+                    onContinue: () => {
+                        window.open(url, '_blank');
+                        answered();
+                    },
+                    onCancel: answered,
+                });
+            } catch {
+                // No dialog either; as with a blocked tab, the page never opens.
+                resolve();
+            }
+        });
+    }
 
     /**
      * Shows a picker for choosing where to save a file, and saves `content`
@@ -1608,47 +1979,43 @@ export class UIModule extends EventListener {
                 // Create an object URL for the Blob
                 let objectUrl = URL.createObjectURL(blob);
 
-                let w = 700;
-                let h = 400;
-                let title = 'Puter: Save File';
-                var left = (screen.width / 2) - (w / 2);
-                var top = (screen.height / 2) - (h / 2);
-
-                // Open the picker popup first so we can bind the data handler to the
-                // exact window we opened. window.open() returns synchronously and the
-                // popup cannot post back until this function yields, so there is no race.
-                const popup = window.open(
-                    `${puter.defaultGUIOrigin}/action/show-save-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&blobUrl=${encodeURIComponent(objectUrl)}`,
-                    title,
-                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                );
-
-                // Only hand the file content to the trusted Puter GUI popup we just
-                // opened. Without this, any framing parent or sibling iframe could post
+                // Only hand the file content to the Puter GUI window that shows
+                // the picker (its popup, or its frame on a first-party page).
+                // Without this, any framing parent or sibling iframe could post
                 // { msg: 'sendMeFileData' } and receive the content the page meant to save.
-                const onSendMeFileData = (e) => {
-                    if ( e.data?.msg !== 'sendMeFileData' ) return;
-                    // Reject anything that isn't our popup on the trusted GUI origin.
-                    if ( e.origin !== puter.defaultGUIOrigin ) return;
-                    if ( ! popup || e.source !== popup ) return;
+                // A frame that reloads asks again, so it's answered until it
+                // closes; a popup is answered once.
+                const sendFileDataTo = (picker, { framed = false } = {}) => {
+                    const onSendMeFileData = (e) => {
+                        if ( e.data?.msg !== 'sendMeFileData' ) return;
+                        // Reject anything that isn't our picker on the trusted GUI origin.
+                        if ( e.origin !== puter.defaultGUIOrigin ) return;
+                        if ( ! picker || e.source !== picker ) return;
 
-                    // Send the file data to the popup, targeting the trusted origin only.
-                    e.source.postMessage({
-                        msg: 'showSaveFilePickerPopup',
-                        content: url ? undefined : content,
-                        url: url ? url.toString() : undefined,
-                        suggestedName: suggestedName ?? '',
-                        env: this.env,
-                        uuid: msg_id,
-                    }, puter.defaultGUIOrigin);
+                        // Send the file data to the picker, targeting the trusted origin only.
+                        e.source.postMessage({
+                            msg: 'showSaveFilePickerPopup',
+                            content: url ? undefined : content,
+                            url: url ? url.toString() : undefined,
+                            suggestedName: suggestedName ?? '',
+                            env: this.env,
+                            uuid: msg_id,
+                        }, puter.defaultGUIOrigin);
 
-                    // The trusted popup has the data; remove this exact listener.
-                    window.removeEventListener('message', onSendMeFileData);
+                        // A popup has the data now; remove this exact listener.
+                        if ( ! framed ) window.removeEventListener('message', onSendMeFileData);
+                    };
+                    window.addEventListener('message', onSendMeFileData);
+                    return () => window.removeEventListener('message', onSendMeFileData);
                 };
-                window.addEventListener('message', onSendMeFileData);
 
-                // Same window, for the picker's own reply on the main listener.
-                this.#trackPickerPopup(popup);
+                this.#showWebPicker({
+                    action: 'show-save-file-picker',
+                    msgId: msg_id,
+                    url: `${puter.defaultGUIOrigin}/action/show-save-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&blobUrl=${encodeURIComponent(objectUrl)}`,
+                    title: 'Puter: Save File',
+                    onWindow: sendFileDataTo,
+                });
             }
             this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
@@ -1879,6 +2246,8 @@ export class UIModule extends EventListener {
             || requested.some(p => typeof p !== 'string' || p === '') ) {
             return false;
         }
+        // A desktop that says so answers push itself: it tells a website's own grant apart.
+        if ( this.desktopAnswersPush_() && requested.includes(PUSH_NOTIFICATIONS_PERMISSION) ) return false;
         let expiry;
         try {
             const held = await Promise.race([
@@ -1906,7 +2275,9 @@ export class UIModule extends EventListener {
      * One prompt may cover several scopes: pass `permissions` instead of
      * `permission` and the user answers for the whole list at once.
      *
-     * Access already granted resolves `true` without prompting.
+     * Access already granted resolves `true` without prompting. The exception
+     * is `notifications:push` inside a Puter desktop that answers push requests
+     * itself: there, a grant held only from the app's own website is asked for.
      *
      * @param {{ permission?: string, permissions?: string[], create?: boolean | 'dir' | 'file' }} options
      *   `create`: for an `fs:` permission naming a path that doesn't exist,
@@ -2222,9 +2593,12 @@ export class UIModule extends EventListener {
      * have opted in by setting `feedbackEnabled` on the app — otherwise the
      * dialog tells the user feedback is unavailable.
      *
-     * In the `app` environment the Puter desktop renders the dialog; in the
-     * `web` environment a puter.com popup hosts it (signing the user in first
-     * if needed). Every other environment resolves `false`.
+     * In the `app` environment the Puter desktop renders the dialog. In the
+     * `web` environment a first-party page one label under the Puter origin
+     * shows it in a frame over the page when the user's Puter session is the
+     * one the page is signed in as; otherwise a puter.com popup hosts it
+     * (signing the user in first if needed). Every other environment
+     * resolves `false`.
      *
      * @returns {Promise<boolean>} `true` when the user submitted feedback,
      *   `false` when the dialog was dismissed or feedback is unavailable.
@@ -2249,6 +2623,10 @@ export class UIModule extends EventListener {
         if ( this.env !== 'web' ) {
             return false;
         }
+        const embedded = await this.#showFeedbackEmbed();
+        if ( embedded ) {
+            return embedded.sent;
+        }
         // The app's identity is deliberately NOT in the popup URL: the GUI
         // derives it from the browser-attested opener origin, so a link
         // can't open a feedback dialog in another app's name.
@@ -2259,6 +2637,28 @@ export class UIModule extends EventListener {
         });
         return result?.sent === true;
     };
+
+    /**
+     * The framed feedback dialog for a first-party page that is signed in, or
+     * null when the popup has to host it. One at a time: a call while one is
+     * open resolves `{ sent: false }`, as the desktop does.
+     *
+     * @returns {Promise<{ sent: boolean } | null>}
+     */
+    async #showFeedbackEmbed () {
+        if ( ! globalThis.document?.body ) return null;
+        if ( ! canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin) ) return null;
+        if ( ! puter.auth?.isSignedIn?.() ) return null;
+        if ( this.#feedbackEmbedOpen ) return { sent: false };
+        this.#feedbackEmbedOpen = true;
+        try {
+            const user = await this.#frameUser();
+            if ( ! user ) return null;
+            return await showFeedbackEmbed({ guiOrigin: puter.defaultGUIOrigin, userUuid: user.uuid });
+        } finally {
+            this.#feedbackEmbedOpen = false;
+        }
+    }
 
     /**
      * Opens `/action/<action>` on the GUI origin in a popup and waits for
@@ -2412,6 +2812,11 @@ export class UIModule extends EventListener {
                 'not_available',
             );
         }
+        // Not awaited where no frame can show, so the popup opens within the click.
+        if ( this.#canFrameForUser() ) {
+            const framed = await this.#showCustomDomainFrame(subdomain);
+            if ( framed ) return framed.domain;
+        }
         const result = await this.#runGuiActionPopup({
             action: 'attach-custom-domain',
             params: { subdomain },
@@ -2421,9 +2826,45 @@ export class UIModule extends EventListener {
         return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
     }
 
-    /** Whether the host GUI lists this IPC dialog in `puter.gui_features` on the app iframe's URL (see launchApp.js); a GUI without the handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
+    /**
+     * The custom domain dialog in a frame over the page, for the page's
+     * signed-in user, or null when the popup has to host it. One at a time: a
+     * call while one is open resolves no domain, as the desktop does.
+     *
+     * @param {string} subdomain
+     * @returns {Promise<{ domain: import('./hosting/types.js').CustomDomain | null } | null>}
+     */
+    async #showCustomDomainFrame (subdomain) {
+        if ( this.#customDomainFrameOpen ) return { domain: null };
+        this.#customDomainFrameOpen = true;
+        try {
+            const user = await this.#frameUser();
+            if ( ! user ) return null;
+            const msgId = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
+            return await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: 'attach-custom-domain',
+                fragment: { user: user.uuid, subdomain, msg_id: msgId },
+                title: 'Connect a custom domain',
+                closed: () => ({ domain: null }),
+                onMessage: (data, finish) => {
+                    if ( data.msg !== 'customDomainAttached' || data.original_msg_id !== msgId ) return;
+                    finish({ domain: /** @type {import('./hosting/types.js').CustomDomain | null} */ (data.domain ?? null) });
+                },
+            });
+        } finally {
+            this.#customDomainFrameOpen = false;
+        }
+    }
+
+    /** Whether the host GUI lists this feature in `puter.gui_features` on the app iframe's URL (see appLaunchUrl.js); a GUI without a dialog's handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
     #guiOffers (feature) {
         return this.#guiFeatures.includes(feature);
+    }
+
+    /** Whether the host desktop settles a held `notifications:push` itself; one that doesn't say so would prompt for it. @internal @returns {boolean} */
+    desktopAnswersPush_ () {
+        return this.env === 'app' && this.#guiOffers('push-permission');
     }
 
     /** Backs `puter.notifications.status()` inside the desktop: this browser's push state for this app, or null from a desktop that can't answer. @internal @returns {Promise<string | null>} */
@@ -2733,6 +3174,11 @@ export class UIModule extends EventListener {
     authenticateWithPuter () {
         if ( this.env !== 'web' ) {
             return;
+        }
+
+        // The GUI that opened this tab may be about to hand over a token.
+        if ( puter.openerLaunch_ ) {
+            return puter.openerLaunch_.then(() => this.authenticateWithPuter());
         }
 
         // if authToken is already present, resolve immediately
@@ -3162,7 +3608,7 @@ export class UIModule extends EventListener {
      * replayed to the handler immediately with its most recent value.
      *
      * - `localeChanged` — on startup and when the user's locale changes.
-     * - `themeChanged` — on startup and when the desktop theme changes.
+     * - `themeChanged` — deprecated and never sent.
      * - `connection` — when another app asks to connect to this one.
      *
      * @param {string} eventName

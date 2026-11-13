@@ -4290,6 +4290,498 @@ describe('MeteringService', () => {
         });
     });
 
+    describe('reserveCreditsIfAffordable', () => {
+        const BUDGET = 20_000_000;
+        const HOLD = 16_200_000;
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        /** Spends the fresh actor's allowance down to exactly `balance`. */
+        const withBalance = async (balance: number) => {
+            const { remaining } = await target.getAllowedUsage(actor);
+            if (remaining > balance) {
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    remaining - balance,
+                );
+            }
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                balance,
+            );
+        };
+
+        it('admits exactly one of two concurrent holds that only fit alone', async () => {
+            await withBalance(BUDGET);
+            const holds = await Promise.all([
+                target.reserveCreditsIfAffordable(actor, HOLD),
+                target.reserveCreditsIfAffordable(actor, HOLD),
+            ]);
+
+            expect(holds.filter((h) => h !== null)).toHaveLength(1);
+            expect(await target.getOutstandingHolds(actor)).toBe(HOLD);
+            await Promise.all(holds.map((h) => h?.release()));
+        });
+
+        it('compares against the gross balance, counting live holds once', async () => {
+            await withBalance(BUDGET);
+            const other = await target.reserveCredits(actor, 5_000_000);
+
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 15_000_001),
+            ).toBeNull();
+            const fits = await target.reserveCreditsIfAffordable(
+                actor,
+                15_000_000,
+            );
+            expect(fits).not.toBeNull();
+            expect(await target.getOutstandingHolds(actor)).toBe(BUDGET);
+
+            // A release gives the headroom back for a retry.
+            await other.release();
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 5_000_000),
+            ).not.toBeNull();
+        });
+
+        it('counts allowance and purchased credit together', async () => {
+            await withBalance(1_000_000);
+            await target.updateAddonCredit(actor.user.uuid!, 2_000_000);
+
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 3_000_001),
+            ).toBeNull();
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 3_000_000),
+            ).not.toBeNull();
+        });
+
+        it('reads the balance again when usage lands and a hold is released after the read', async () => {
+            await withBalance(BUDGET);
+            // A request still running, about to record its usage and release.
+            const running = await target.reserveCredits(actor, HOLD);
+            const settle = async () => {
+                await target.incrementUsage(actor, 'kv:read', 1, HOLD);
+                await running.release();
+            };
+            // The admission's balance read finishes first, then the
+            // settlement lands before its reservation runs.
+            const read = target.getAllowedUsage.bind(target);
+            let settled = false;
+            vi.spyOn(target, 'getAllowedUsage').mockImplementation(
+                async (...args) => {
+                    const balance = await read(...args);
+                    if (!settled) {
+                        settled = true;
+                        await settle();
+                    }
+                    return balance;
+                },
+            );
+
+            expect(await target.reserveCreditsIfAffordable(actor, HOLD)).toBe(
+                null,
+            );
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('would over-admit that interleaving without the version check', async () => {
+            await withBalance(BUDGET);
+            const running = await target.reserveCredits(actor, HOLD);
+            const read = target.getAllowedUsage.bind(target);
+            let settled = false;
+            vi.spyOn(target, 'getAllowedUsage').mockImplementation(
+                async (...args) => {
+                    const balance = await read(...args);
+                    if (!settled) {
+                        settled = true;
+                        await target.incrementUsage(actor, 'kv:read', 1, HOLD);
+                        await running.release();
+                    }
+                    return balance;
+                },
+            );
+            vi.spyOn(server.stores.creditHold, 'version').mockResolvedValue('');
+
+            const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
+            expect(hold).not.toBeNull();
+            await hold?.release();
+        });
+
+        it('marks the balance changed once a usage write lands', async () => {
+            const before = await server.stores.creditHold.version(
+                actor.user.uuid!,
+            );
+            await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+            expect(
+                await server.stores.creditHold.version(actor.user.uuid!),
+            ).not.toBe(before);
+        });
+
+        it('lets the balance decide, holding nothing, when the cache is unavailable', async () => {
+            await withBalance(BUDGET);
+            vi.spyOn(server.stores.creditHold, 'reserve').mockResolvedValue({
+                outcome: 'unavailable',
+            });
+
+            const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
+            expect(hold).not.toBeNull();
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+            expect(
+                await target.reserveCreditsIfAffordable(actor, BUDGET + 1),
+            ).toBeNull();
+        });
+
+        it('reads the balance again while it keeps changing, then refuses', async () => {
+            await withBalance(BUDGET);
+            const reserve = vi
+                .spyOn(server.stores.creditHold, 'reserve')
+                .mockResolvedValue({ outcome: 'stale' });
+
+            expect(await target.reserveCreditsIfAffordable(actor, HOLD)).toBe(
+                null,
+            );
+            expect(reserve).toHaveBeenCalledTimes(5);
+            // Every attempt checks the version; none falls back to skipping it.
+            expect(reserve.mock.calls.every(([, , , v]) => v !== '')).toBe(
+                true,
+            );
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('admits once the balance holds still', async () => {
+            await withBalance(BUDGET);
+            const reserve = vi.spyOn(server.stores.creditHold, 'reserve');
+            reserve
+                .mockResolvedValueOnce({ outcome: 'stale' })
+                .mockResolvedValueOnce({ outcome: 'stale' });
+
+            const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
+            expect(hold).not.toBeNull();
+            expect(reserve).toHaveBeenCalledTimes(3);
+            await hold?.release();
+        });
+
+        it('reads purchased credit consistently only while some is left', async () => {
+            await withBalance(BUDGET);
+            const get = vi.spyOn(server.stores.kv, 'get');
+            const consistentAddonReads = () =>
+                get.mock.calls.filter(
+                    ([args]) =>
+                        args.consistentRead &&
+                        String(args.key).endsWith(':addons'),
+                ).length;
+            // With none, the cached record that says so answers.
+            await target.getAllowedUsage(actor);
+            get.mockClear();
+            await (
+                await target.reserveCreditsIfAffordable(actor, 1000)
+            )?.release();
+            expect(consistentAddonReads()).toBe(0);
+
+            await target.updateAddonCredit(actor.user.uuid!, 5_000);
+            get.mockClear();
+            await (
+                await target.reserveCreditsIfAffordable(actor, 1000)
+            )?.release();
+            expect(consistentAddonReads()).toBe(1);
+        });
+
+        it('marks the balance changed on credit, allowance and manual usage changes', async () => {
+            const uuid = actor.user.uuid!;
+            const versions = [await server.stores.creditHold.version(uuid)];
+            await target.updateAddonCredit(uuid, 1_000);
+            versions.push(await server.stores.creditHold.version(uuid));
+            await target.setActorCurrentMonthUsageTotal(actor, 5_000);
+            versions.push(await server.stores.creditHold.version(uuid));
+            expect(new Set(versions).size).toBe(3);
+        });
+
+        it('treats the system actor, a userless actor and amounts it can’t hold as the plain check does', async () => {
+            for (const [who, amount] of [
+                [SYSTEM_ACTOR, HOLD],
+                [actor, 0],
+                [actor, -5],
+            ] as const) {
+                const hold = await target.reserveCreditsIfAffordable(
+                    who,
+                    amount,
+                );
+                expect(hold).not.toBeNull();
+            }
+            for (const amount of [Number.NaN, Number.POSITIVE_INFINITY]) {
+                expect(
+                    await target.reserveCreditsIfAffordable(actor, amount),
+                ).toBeNull();
+            }
+            await expect(
+                target.reserveCreditsIfAffordable({ user: {} } as Actor, HOLD),
+            ).rejects.toThrow();
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('passes the hold lifetime through and renews it', async () => {
+            await withBalance(BUDGET);
+            const hold = await target.reserveCreditsIfAffordable(actor, 750, {
+                ttlMs: 500,
+            });
+            await new Promise((r) => setTimeout(r, 620));
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+            await hold?.extend?.();
+            expect(await target.getOutstandingHolds(actor)).toBe(750);
+            await hold?.release();
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+    });
+
+    describe('settling a charge while a flush is out', () => {
+        it('splits a charge over the allowance using usage a flush has claimed', async () => {
+            const uuid = actor.user.uuid!;
+            const { monthUsageAllowance: allowance } =
+                await target.getActorSubscription(actor);
+            await target.updateAddonCredit(uuid, 1_000_000);
+            const Service = target.constructor as typeof MeteringService;
+            const threshold = Service.PRECISION_THRESHOLD;
+            // Keeps the first charge buffered instead of read exactly.
+            Service.PRECISION_THRESHOLD = 2;
+            await target.incrementUsage(actor, 'kv:read', 1, allowance - 5);
+            Service.PRECISION_THRESHOLD = threshold;
+
+            // A flush claims it and stalls before writing it onward.
+            const kv = server.stores.kv;
+            const realIncr = kv.incr.bind(kv);
+            let release: () => void = () => {};
+            const gate = new Promise<void>((r) => (release = r));
+            const write = vi
+                .spyOn(kv, 'incr')
+                .mockImplementation(async (...args) => {
+                    await gate;
+                    return realIncr(...args);
+                });
+            const flushing = server.stores.meteringBuffer.flushCycle();
+            await vi.waitFor(() => expect(write).toHaveBeenCalled());
+            write.mockImplementation(realIncr);
+
+            // 5 µ¢ of this is left in the allowance; the rest is credit.
+            await target.incrementUsage(actor, 'kv:read', 1, 10);
+            release();
+            await flushing;
+            write.mockRestore();
+            await waitFor(async () => {
+                const addons = await target.getActorAddons(actor, {
+                    consistentRead: true,
+                });
+                expect(addons.consumedPurchaseCredits).toBe(5);
+            });
+        });
+    });
+
+    describe('settling when a balance read fails', () => {
+        const monthKey = (a: Actor) =>
+            `${METRICS_V2_PREFIX}:actor:${a.user!.uuid}:${currentMonthString()}`;
+
+        /** Rejects the next `times` reads `match` picks; the rest go through. */
+        const failReads = (
+            match: (args: {
+                key: unknown;
+                consistentRead?: boolean;
+            }) => boolean,
+            times = Infinity,
+        ) => {
+            const kv = server.stores.kv;
+            const realGet = kv.get.bind(kv);
+            let left = times;
+            return vi
+                .spyOn(kv, 'get')
+                .mockImplementation(
+                    async (...args: Parameters<typeof realGet>) => {
+                        if (left > 0 && match(args[0] as never)) {
+                            left--;
+                            throw new Error(
+                                'ProvisionedThroughputExceededException',
+                            );
+                        }
+                        return realGet(...args);
+                    },
+                );
+        };
+        const isAddonsRead = ({ key }: { key: unknown }) =>
+            typeof key === 'string' && key.endsWith(':addons');
+
+        const pools = async (a: Actor) => {
+            await server.stores.meteringBuffer.flushCycle();
+            const { usage } = await target.getActorCurrentMonthUsageDetails(a);
+            const addons = await target.getActorAddons(a, {
+                consistentRead: true,
+            });
+            return {
+                total: usage.total,
+                allowanceUsed: usage.allowanceUsed ?? 0,
+                consumed: addons.consumedPurchaseCredits ?? 0,
+            };
+        };
+
+        it('charges the allowance when the purchased-credit read fails', async () => {
+            await target.updateAddonCredit(actor.user.uuid!, 1_000_000);
+            await target.incrementUsage(actor, 'ai:chat', 1, 1000);
+            const before = await target.getAllowedUsage(actor);
+
+            const get = failReads(isAddonsRead);
+            const result = await target.incrementUsage(
+                actor,
+                'ai:chat',
+                1,
+                5000,
+            );
+            get.mockRestore();
+
+            expect(result.total).toBe(6000);
+            expect(await pools(actor)).toEqual({
+                total: 6000,
+                allowanceUsed: 6000,
+                consumed: 0,
+            });
+            const after = await target.getAllowedUsage(actor);
+            expect(before.remaining - after.remaining).toBe(5000);
+        });
+
+        it('charges only the allowance share past the allowance, and nothing later charges the rest', async () => {
+            const { monthUsageAllowance: allowance } =
+                await target.getActorSubscription(actor);
+            await target.updateAddonCredit(actor.user.uuid!, 1_000_000);
+            await target.incrementUsage(actor, 'ai:chat', 1, allowance - 100);
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+
+            const alarm = vi.spyOn(server.clients.alarm, 'create');
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            const get = failReads(isAddonsRead);
+            await target.incrementUsage(actor, 'ai:chat', 1, 1000);
+            get.mockRestore();
+
+            // 100 fits the allowance; the 900 credit would cover isn't drawn.
+            expect(await pools(actor)).toEqual({
+                total: allowance + 900,
+                allowanceUsed: allowance,
+                consumed: 0,
+            });
+            expect(alarm).toHaveBeenCalledWith(
+                'metering_settle_read_failed',
+                expect.any(String),
+                expect.objectContaining({
+                    userId: actor.user.uuid,
+                    unchargedCost: 900,
+                }),
+                'info',
+            );
+            expect(
+                alarm.mock.calls.some(([id]) =>
+                    String(id).startsWith('metering service error'),
+                ),
+            ).toBe(false);
+            // The unread credit isn't taken as spent.
+            expect(
+                emit.mock.calls.some(
+                    ([name]) => name === 'metering.credit-state',
+                ),
+            ).toBe(false);
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+            alarm.mockRestore();
+            emit.mockRestore();
+
+            // The next settle charges its own cost once, and only that.
+            await target.incrementUsage(actor, 'ai:chat', 1, 700);
+            expect(await pools(actor)).toEqual({
+                total: allowance + 1600,
+                allowanceUsed: allowance,
+                consumed: 700,
+            });
+        });
+
+        it('charges the allowance from the buffered total when the exact read fails', async () => {
+            const Service = target.constructor as typeof MeteringService;
+            const interval = Service.EXACT_READ_MIN_INTERVAL_MS;
+            Service.EXACT_READ_MIN_INTERVAL_MS = 0;
+            try {
+                const { monthUsageAllowance: allowance } =
+                    await target.getActorSubscription(actor);
+                await target.incrementUsage(
+                    actor,
+                    'ai:chat',
+                    1,
+                    allowance - 3000,
+                );
+                await server.stores.meteringBuffer.flushCycle();
+
+                const key = monthKey(actor);
+                const alarm = vi.spyOn(server.clients.alarm, 'create');
+                const get = failReads(
+                    (args) => args.key === key && !!args.consistentRead,
+                );
+                const result = await target.incrementUsage(
+                    actor,
+                    'ai:chat',
+                    1,
+                    1000,
+                );
+                const failedReads = get.mock.calls.length;
+                get.mockRestore();
+
+                expect(failedReads).toBeGreaterThan(0);
+                expect(result.total).toBe(allowance - 2000);
+                expect(await pools(actor)).toEqual({
+                    total: allowance - 2000,
+                    allowanceUsed: allowance - 2000,
+                    consumed: 0,
+                });
+                expect(alarm).toHaveBeenCalledWith(
+                    'metering_settle_read_failed',
+                    expect.any(String),
+                    expect.objectContaining({ unchargedCost: 0 }),
+                    'info',
+                );
+                alarm.mockRestore();
+            } finally {
+                Service.EXACT_READ_MIN_INTERVAL_MS = interval;
+            }
+        });
+
+        it('charges each of two racing calls once when one of their reads fails', async () => {
+            await target.updateAddonCredit(actor.user.uuid!, 1_000_000);
+            await target.incrementUsage(actor, 'ai:chat', 1, 1000);
+
+            const get = failReads(isAddonsRead, 1);
+            await Promise.all([
+                target.incrementUsage(actor, 'ai:chat', 1, 2000),
+                target.incrementUsage(actor, 'ai:chat', 1, 3000),
+            ]);
+            get.mockRestore();
+
+            expect(await pools(actor)).toEqual({
+                total: 6000,
+                allowanceUsed: 6000,
+                consumed: 0,
+            });
+        });
+
+        it('charges a failed call and the calls after it exactly once each', async () => {
+            await target.updateAddonCredit(actor.user.uuid!, 1_000_000);
+            const costs = [1000, 2000, 3000, 4000];
+            for (const [i, cost] of costs.entries()) {
+                const get = failReads(isAddonsRead, i % 2 === 0 ? 1 : 0);
+                await target.incrementUsage(actor, 'ai:chat', 1, cost);
+                get.mockRestore();
+            }
+            expect(await pools(actor)).toEqual({
+                total: 10_000,
+                allowanceUsed: 10_000,
+                consumed: 0,
+            });
+        });
+    });
+
     // ── Resolver registration ────────────────────────────────────────
 
     describe('resolver registration', () => {

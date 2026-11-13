@@ -26,6 +26,8 @@
 
 export type ModelCost = Record<string, number>;
 
+export type ServiceSpeed = 'standard' | 'fast' | 'ultrafast';
+
 export interface ModelModalities {
     input: string[];
     output: string[];
@@ -67,6 +69,22 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
         output_multiplier: number;
     };
     pricingOverrides?: ModelPricingOverride[];
+    /**
+     * A token-rate multiplier or explicit per-key rates merged with standard
+     * costs.
+     */
+    serviceSpeedRates?: Partial<
+        Record<'fast' | 'ultrafast', number | ModelCost>
+    >;
+    serviceSpeedVariants?: { fast?: string };
+    /** Request-local pricing snapshot; never part of the model catalog. */
+    serviceSpeedPricing?: {
+        speed: ServiceSpeed;
+        standardCosts: ModelCost;
+        standardOverrides?: ModelPricingOverride[];
+        fastCosts?: ModelCost;
+        ultrafastCosts?: ModelCost;
+    };
     context?: number;
     max_tokens: number;
     subscriberOnly?: boolean;
@@ -76,6 +94,8 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     tool_call?: boolean;
     responses_api?: boolean;
     responses_api_only?: boolean;
+    /** Restricts service speeds for deployments with a limited API dialect. */
+    serviceSpeeds?: ServiceSpeed[];
     /**
      * Omitted preserves sampling; reasoningDisabled requires explicit effort
      * none.
@@ -145,18 +165,25 @@ export type StopReason =
     | 'model_context_window_exceeded'
     | (string & {});
 
-/** Provider-neutral usage breakdown. `inputTokens` excludes cache reads/writes. */
+/**
+ * Provider-neutral usage breakdown. `inputTokens` excludes cache reads/writes.
+ * Cache writes are keyed by the lifetime the entry was written with: Claude and
+ * Moonshot write 5m and 1h entries, OpenAI writes 30m and 12h entries.
+ */
 export interface UsageDetails {
     inputTokens: number;
     outputTokens: number; // includes reasoning
     cacheReadTokens?: number;
     cacheWrite5mTokens?: number;
+    cacheWrite30mTokens?: number;
     cacheWrite1hTokens?: number;
+    cacheWrite12hTokens?: number;
     reasoningTokens?: number;
     webSearchRequests?: number;
     webFetchRequests?: number;
     speed?: 'fast' | 'standard';
     serviceTier?: string;
+    serviceSpeed?: ServiceSpeed;
     /**
      * Per-pass breakdown when the upstream ran several passes (compaction,
      * advisor).
@@ -168,8 +195,20 @@ export interface UsageDetails {
         outputTokens: number;
         cacheReadTokens?: number;
         cacheWrite5mTokens?: number;
+        cacheWrite30mTokens?: number;
         cacheWrite1hTokens?: number;
+        cacheWrite12hTokens?: number;
     }>;
+}
+
+/**
+ * OpenAI `prompt_cache_options`, GPT-5.6 and later. `ttl` is the minimum
+ * lifetime of every cache entry the request writes; `12h` entries cost twice
+ * what `30m` entries do to write and only the Responses API writes them.
+ */
+export interface PromptCacheOptions {
+    mode?: 'implicit' | 'explicit';
+    ttl?: '30m' | '12h';
 }
 
 export interface ICompleteArguments {
@@ -180,6 +219,7 @@ export interface ICompleteArguments {
      * request on another provider that serves the same model.
      */
     fallback?: boolean;
+    serviceSpeed?: ServiceSpeed;
     stream?: boolean;
     model: string;
     test_mode?: boolean;
@@ -199,10 +239,7 @@ export interface ICompleteArguments {
     taskBudget?: { total: number; remaining?: number };
     /** Claude only: top-level automatic `cache_control`. */
     cacheControl?: CacheControl;
-    /**
-     * Claude only; forwarded only when the model's catalog entry has
-     * `fast_output_tokens`.
-     */
+    /** Claude only; fast is forwarded when the catalog declares fast rates. */
     speed?: 'fast' | 'standard';
     /** Claude only. */
     safeguards?: SafeguardRequest[];
@@ -234,13 +271,23 @@ export interface ICompleteArguments {
     metadata?: Record<string, string>;
     prompt?: unknown;
     prompt_cache_key?: string;
-    prompt_cache_retention?: 'in-memory' | '24h' | undefined;
+    /** `in-memory` is accepted as a spelling of OpenAI's `in_memory`. */
+    prompt_cache_retention?: 'in-memory' | 'in_memory' | '24h' | undefined;
+    prompt_cache_options?: PromptCacheOptions;
     store?: boolean;
     top_p?: number;
     truncation?: 'auto' | 'disabled' | undefined;
     background?: boolean;
     service_tier?:
-        'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
+        | 'auto'
+        | 'default'
+        | 'flex'
+        | 'scale'
+        | 'priority'
+        | 'fast'
+        | 'ultrafast'
+        | 'standard'
+        | undefined;
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: ReasoningEffort } | undefined;
@@ -308,6 +355,10 @@ export interface IChatMessageResult {
 export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;
 
 export interface IChatProvider {
+    /** Account/catalog-specific speed offerings, fetched before the credit hold. */
+    serviceSpeedModels?(
+        model: IChatModel,
+    ): Promise<Partial<Record<'fast' | 'ultrafast', IChatModel>>>;
     models(extra_params?: unknown): IChatModel[] | Promise<IChatModel[]>;
     getDefaultModel(): string;
     /**

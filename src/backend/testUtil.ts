@@ -154,6 +154,9 @@ export const setupTestServer = async (
             redis: { useMock: true },
             // Suites run system jobs themselves, not on the poll timer.
             jobs: { enabled: false },
+            // The health loop's timed `SELECT 1` would land in tests that
+            // count queries.
+            server_health: { disabled_checks: ['database-liveness'] },
             s3: { localConfig: { inMemory: true } },
             no_default_user: true,
             no_devwatch: true,

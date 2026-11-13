@@ -37,6 +37,9 @@ const repoRoot = path.resolve(backendDir, '../..');
 const isPgmockMode =
     (process.env.PUTER_TEST_DB_ENGINE ?? '').toLowerCase() === 'postgres';
 const pgmockTimeoutMs = 600_000;
+// Loaded CI runners stall timers well past the 5 s / 10 s defaults; a real
+// hang still fails, just later.
+const ciTimeouts = { testTimeout: 20_000, hookTimeout: 60_000 };
 
 // Tests that always boot pgmock regardless of PUTER_TEST_DB_ENGINE. Too slow
 // for CI; run locally or via `npm run test:backend:postgres`.
@@ -103,9 +106,11 @@ export const lowerDecoratorsPlugin = {
             loader: 'ts',
             target: 'es2024',
             sourcefile: id,
-            sourcemap: 'inline',
+            sourcemap: 'external',
         });
-        return { code: result.code, map: null };
+        // Without the map, coverage and stack traces report esbuild's
+        // output lines instead of the source's.
+        return { code: result.code, map: result.map };
     },
 };
 
@@ -145,7 +150,9 @@ export default defineConfig(({ mode }) => ({
                   hookTimeout: pgmockTimeoutMs,
                   fileParallelism: false,
               }
-            : {}),
+            : isCi
+              ? ciTimeouts
+              : {}),
         coverage: {
             provider: 'v8',
             reporter: isCi

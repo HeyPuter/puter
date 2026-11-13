@@ -28,19 +28,20 @@ The path of the directory to upload the items to. If not set, the items will be 
 
 A set of key/value pairs that configure the upload process. The following options are supported:
 
-- `overwrite` (Boolean) - Whether to overwrite the destination file if it already exists. Defaults to `false`.
-- `dedupeName` (Boolean) - Whether to deduplicate the file name if it already exists. Defaults to `true`. Ignored when `overwrite` is `true`.
-- `createMissingParents` (Boolean) - Whether to create missing parent directories. Defaults to `false`.
-- `generateThumbnails` (Boolean) - Generate image thumbnails in the browser before uploading. Defaults to `false`. Unsupported files and generation failures are skipped.
-- `thumbnailGenerator` (Function) - Optional `(file, context) => string | undefined` callback (which may also return a promise), called once per file instead of the built-in image generator. Return a thumbnail data URL or URL, or `undefined` to skip. Exceptions are ignored. `context.defaultGenerator(file)` delegates to the built-in image generator; `context.signal` is an `AbortSignal` for upload preparation cancellation. Existing one-argument callbacks continue to work. A custom generator enables thumbnail preparation even when `generateThumbnails` is omitted.
-- `thumbnail` (String) - Optional thumbnail data URL or URL to use when a file has no generated thumbnail. Data URLs exceeding 2 MiB are discarded.
+| Option | Type | Description |
+|--------|------|-------------|
+| `overwrite` | `Boolean` | Whether to overwrite the destination file if it already exists. Defaults to `false`. |
+| `progress` | `Function` | Called with `(operationId, progress)` as bytes are sent, where `progress` is a percentage between `0` and `100`. |
+| `createMissingParents` | `Boolean` | Whether to create missing parent directories. Defaults to `false`. |
+| `dedupeName` | `Boolean` | Whether to deduplicate the file name if it already exists. Defaults to `true`. Ignored when `overwrite` is `true`. |
+| `generateThumbnails` | `Boolean` | Generate image thumbnails in the browser before uploading. Defaults to `false`. Unsupported files and generation failures are skipped. |
+| `thumbnail` | `String` | Optional thumbnail data URL or URL to use when a file has no generated thumbnail. Data URLs exceeding 2 MiB are discarded. |
+| `thumbnailGenerator` | `Function` | Optional `(file, context) => string \| undefined` callback (which may also return a promise), called once per file instead of the built-in image generator. Return a thumbnail data URL or URL, or `undefined` to skip. Exceptions are ignored. Call `context.defaultGenerator(file)` to use the built-in image generator. The `context.signal` property is an `AbortSignal` for upload preparation cancellation. Existing one-argument callbacks continue to work. A custom generator enables thumbnail preparation even when `generateThumbnails` is omitted. |
+| `init` | `Function` | Called with `(operationId, xhr)` once the request has been created, before it is sent. The `XMLHttpRequest` is passed so you can abort the upload yourself. |
+| `start` | `Function` | Called with no arguments when the upload starts sending. |
+| `abort` | `Function` | Called with `(operationId)` if the upload is aborted. |
 
-The following callbacks report on the upload as it runs. `operationId` identifies the upload, so a page running several uploads at once can tell them apart:
-
-- `init` (Function) - Called with `(operationId, xhr)` once the request has been created, before it is sent. The `XMLHttpRequest` is passed so you can abort the upload yourself.
-- `start` (Function) - Called with no arguments when the upload starts sending.
-- `progress` (Function) - Called with `(operationId, progress)` as bytes are sent, where `progress` is a percentage between `0` and `100`.
-- `abort` (Function) - Called with `(operationId)` if the upload is aborted.
+The `init`, `start`, `progress`, and `abort` callbacks report on the upload as it runs. Their `operationId` argument identifies the upload, so a page running several uploads at once can tell them apart.
 
 Cancelling through the `init` request handle during thumbnail preparation rejects with `{ code: 'upload_aborted', message: 'Upload aborted.' }` and prevents the upload from starting. Custom generators should stop their work when `context.signal` aborts and impose their own time and resource budgets; the SDK awaits thumbnail preparation before sending files.
 
@@ -58,6 +59,8 @@ Returns a `Promise` that resolves to:
 
 - A single [`FSItem`](/Objects/fsitem/) object if `items` parameter contains one item
 - An array of [`FSItem`](/Objects/fsitem/) objects if `items` parameter contains multiple items
+
+## Errors
 
 If any part of the upload fails, the promise is rejected — it never resolves to a mix of items and errors. The rejection value always carries a `message`, and a `failedItems` array when individual items failed rather than the request as a whole. Each entry in `failedItems` carries the `path`, `message`, and — when the server gave one — the `code` and `status` for that item. A partially failed upload is not rolled back: the items that were written stay written.
 
@@ -85,7 +88,7 @@ When using signed uploads, a separate thumbnail transfer that fails or exceeds f
 
 ## Examples
 
-<strong class="example-title">Upload a file from a file input</strong>
+### Upload a file from a file input
 
 ```html;fs-upload
 <html>

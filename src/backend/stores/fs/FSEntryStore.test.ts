@@ -444,7 +444,7 @@ describe('FSEntryStore cache invalidation', () => {
             store.batchCreateEntries([
                 {
                     userId: user.userId,
-                    uuid: uuidv4(),
+                    uuid: file.uuid,
                     path: file.path,
                     size: 7,
                     overwrite: true,
@@ -1185,7 +1185,7 @@ describe('FSEntryStore entry creation', () => {
         const [updated] = await store.batchCreateEntries([
             {
                 userId: user.userId,
-                uuid: uuidv4(),
+                uuid: original.uuid,
                 path: `${user.home}/Documents/ow.txt`,
                 size: 42,
                 overwrite: true,
@@ -1202,6 +1202,33 @@ describe('FSEntryStore entry creation', () => {
         expect(updated?.isPublic).toBe(true);
         expect(updated?.immutable).toBe(true);
         expect(updated?.thumbnail).toBe('data:image/png;base64,AA');
+    });
+
+    it('leaves the row alone when an overwrite brings a different object key', async () => {
+        const user = await makeUser();
+        const original = await createFile(
+            user,
+            `${user.home}/Documents/otherkey.txt`,
+            { size: 1 },
+        );
+
+        // The bytes for this write sit under a key the row doesn't name, so
+        // repointing bucket or size would describe an object that isn't there.
+        const returned = await createFile(user, original.path, {
+            size: 42,
+            overwrite: true,
+            bucket: 'elsewhere',
+            bucketRegion: 'eu-central-1',
+        });
+
+        expect(returned.uuid).toBe(original.uuid);
+        await expect(
+            store.getEntryByPath(original.path),
+        ).resolves.toMatchObject({
+            uuid: original.uuid,
+            size: 1,
+            bucket: 'puter-local',
+        });
     });
 
     it('refuses to clobber an existing entry without overwrite, or a directory with it', async () => {
@@ -1227,7 +1254,10 @@ describe('FSEntryStore entry creation', () => {
 
     it('propagates the underlying failure when an overwrite update fails', async () => {
         const user = await makeUser();
-        await createFile(user, `${user.home}/Documents/upfail.txt`);
+        const existing = await createFile(
+            user,
+            `${user.home}/Documents/upfail.txt`,
+        );
 
         const db = server.clients.db;
         const originalWrite = (Object.getPrototypeOf(db) as typeof db).write;
@@ -1243,6 +1273,7 @@ describe('FSEntryStore entry creation', () => {
         await expect(
             createFile(user, `${user.home}/Documents/upfail.txt`, {
                 overwrite: true,
+                uuid: existing.uuid,
             }),
         ).rejects.toThrow('update rejected');
 
@@ -3801,7 +3832,7 @@ describe('FSEntryStore lost-insert recovery', () => {
         spy.mockRestore();
     });
 
-    it('updates the race winner in place when overwrite was requested', async () => {
+    it('hands back the race winner untouched when overwrite was requested', async () => {
         const user = await makeUser();
         const uuid = uuidv4();
         const spy = loseInsertRace(uuid, () =>
@@ -3827,13 +3858,14 @@ describe('FSEntryStore lost-insert recovery', () => {
         ]);
         spy.mockRestore();
 
-        // The winner's row survived; our payload was written onto it.
+        // Our object is under `uuid`, not the winner's key, so the winner's
+        // row is returned as it stands for the caller to move the bytes onto.
         expect(entry?.uuid).not.toBe(uuid);
-        expect(entry?.size).toBe(77);
-        expect(entry?.thumbnail).toBe('thumb');
+        expect(entry?.size).not.toBe(77);
+        expect(entry?.thumbnail).not.toBe('thumb');
         await expect(
             store.getEntryByPath(`${user.home}/Documents/recovered.txt`),
-        ).resolves.toMatchObject({ size: 77, uuid: entry?.uuid });
+        ).resolves.toMatchObject({ size: entry?.size, uuid: entry?.uuid });
     });
 });
 
@@ -3977,6 +4009,21 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
             });
     };
 
+    it('reads nothing at a name only the collation matches', async () => {
+        const user = await makeUser();
+        await store.getEntryByPath(`${user.home}/Desktop`);
+        await server.clients.redis.flushall?.();
+
+        const spy = matchNamesLeniently('Deßktop', 'Desktop');
+        try {
+            await expect(
+                store.getEntryByPath(`${user.home}/Deßktop`),
+            ).resolves.toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
     it('writes the stored path, not the requested spelling', async () => {
         const user = await makeUser();
         const desktop = (await store.getEntryByPath(`${user.home}/Desktop`))!;
@@ -3984,7 +4031,10 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
 
         const spy = matchNamesLeniently('Deßktop', 'Desktop');
         try {
-            const resolved = await store.getEntryByPath(`${user.home}/Deßktop`);
+            const resolved = await store.getEntryByPath(
+                `${user.home}/Deßktop`,
+                { foldedNames: true },
+            );
             expect(resolved?.uuid).toBe(desktop.uuid);
             expect(resolved?.path).toBe(`${user.home}/Desktop`);
         } finally {
@@ -4002,7 +4052,9 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
 
         const spy = matchNamesLeniently('Deßktop', 'Desktop');
         try {
-            await store.getEntryByPath(`${user.home}/Deßktop`);
+            await store.getEntryByPath(`${user.home}/Deßktop`, {
+                foldedNames: true,
+            });
         } finally {
             spy.mockRestore();
         }

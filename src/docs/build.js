@@ -247,10 +247,10 @@ function generateTableOfContentsHTML (htmlContent, title) {
     html += '<nav class="toc-nav">';
 
     const cleanTitle = removeTags(title);
-    html += `<a href="#" class="toc-link toc-level-1" data-level="1">${cleanTitle}</a>`;
+    html += `<a href="#" class="toc-link toc-level-1" data-level="1">${breakAfterDots(cleanTitle)}</a>`;
 
     for ( const heading of headings ) {
-        html += `<a href="#${heading.slug}" class="toc-link toc-level-${heading.level}" data-level="${heading.level}">${heading.text}</a>`;
+        html += `<a href="#${heading.slug}" class="toc-link toc-level-${heading.level}" data-level="${heading.level}">${breakAfterDots(heading.text)}</a>`;
     }
 
     html += '</nav>';
@@ -457,10 +457,12 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     html += '</div>';
     // content
     html += `<div id="docs-content-${page.slug ?? ''}" class="docs-content col-xl-7 col-lg-7 col-md-12 col-sm-12 col-xs-12">`;
-    // context menu
+    // title, with the context menu beside it
+    const pageTitle = breakAfterDots(page.page_title ?? page.title);
+    html += '<div class="page-title-row">';
+    html += `<h1>${page.icon ? `<img src="/${baseURL}${page.icon}" style="opacity:0.5; width: 24px; height: 24px; margin-right: 10px;">` : '' }${pageTitle}</h1>`;
     html += generateMenuHTML();
-
-    html += `<h1>${page.icon ? `<img src="/${baseURL}${page.icon}" style="opacity:0.5; width: 24px; height: 24px; margin-right: 10px;">` : '' }${page.page_title ?? page.title}</h1>`;
+    html += '</div>';
     // Platform compatibility badges
     html += generatePlatformCompatibilityHTML(frontMatter);
     html += '<hr class="hr-inset">';
@@ -850,6 +852,12 @@ function generateLLMs () {
 
 function removeTags (html) {
     return html.replace(/<[^>]*>?/gm, '');
+}
+
+// Let a long title wrap after a dot, so `puter.auth.getDetailedAppUsage()`
+// never splits inside the method name.
+function breakAfterDots (html) {
+    return html.replace(/\.(?=\w)/g, '.<wbr>');
 }
 
 // Replace '/path/to/root-directory' with the path to your root directory

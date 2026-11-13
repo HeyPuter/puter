@@ -4,7 +4,9 @@ description: Convert text to speech with AI using multiple languages, voices, an
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Converts text into speech using AI. Supports multiple languages and voices.
+Converts text into speech using AI.
+
+It supports multiple languages and voices.
 
 ## Syntax
 

@@ -37,6 +37,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-max-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 160,
@@ -60,6 +61,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-plus-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -81,6 +83,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-plus-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -102,6 +105,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.6-plus-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 50,
@@ -123,6 +127,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.6-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 19,
@@ -143,6 +148,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.7-plus-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 50,
@@ -164,6 +170,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.7-max-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 250,
@@ -188,6 +195,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.8-max-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -210,6 +218,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.8-max-0902-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -234,6 +243,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 5,
@@ -257,6 +267,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3-coder-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
@@ -282,6 +293,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-397b-a17b-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 60,
@@ -305,6 +317,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-122b-a10b-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -328,6 +341,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-35b-a3b-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 25,
@@ -351,6 +365,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-27b-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
@@ -376,6 +391,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.6-35b-a3b-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 24.8,
@@ -399,6 +415,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.6-27b-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 60,
@@ -422,6 +439,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3-vl-plus-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 20,
@@ -447,6 +465,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3-omni-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 43,
@@ -469,6 +488,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-mt-plus-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 246,
@@ -491,6 +511,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-plus-2025-01-25-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -511,6 +532,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-plus-2025-04-28-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -531,6 +553,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-plus-2025-07-14-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -553,6 +576,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-plus-2025-12-01-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -574,6 +598,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.7-max-2026-05-20-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 250,
@@ -594,6 +619,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.7-max-2026-06-08-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 250,
@@ -614,6 +640,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.7-max-2026-05-17-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 250,
@@ -635,6 +662,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.7-max-preview-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 250,
@@ -657,6 +685,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-plus-2026-02-15-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -678,6 +707,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-plus-2026-04-20-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -700,6 +730,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 10,
@@ -722,6 +753,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.7-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 3,
@@ -743,6 +775,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.8-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 15,
@@ -765,6 +798,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.8-27b-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 50,
@@ -785,6 +819,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.8-2.4t-a95b-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -809,6 +844,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-omni-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -832,6 +868,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.5-omni-plus-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 140,
@@ -855,6 +892,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen3.8-omni-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 15,
@@ -877,6 +915,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-mt-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 16,
@@ -897,6 +936,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen-mt-lite-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 12,
@@ -919,6 +959,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'glm-5.1-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 140,
@@ -938,6 +979,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'glm-5.2-fast-preview' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 140,
@@ -958,6 +1000,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'glm-5.2-fast-preview-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 280,
@@ -981,6 +1024,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'deepseek-v4-flash-0731-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 44,
@@ -1003,6 +1047,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'deepseek-v4.1-flash-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
@@ -1023,6 +1068,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'deepseek-v4-pro-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 240,
@@ -1045,6 +1091,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'deepseek-v4-pro-0813-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 132,
@@ -1065,6 +1112,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'kimi-k2.7-code-prime' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 95,

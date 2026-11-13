@@ -44,8 +44,24 @@ export interface PageMeta {
     app?: { name?: string; [k: string]: unknown } | null;
 }
 
-export interface LaunchOptions {
-    on_initialized?: Array<Record<string, unknown>>;
+/**
+ * A GUI popup a first-party page frames at `/embed/<action>`. `hostOrigin` is
+ * that page, read from the referrer and pinned with frame-ancestors; null when
+ * no allowed page frames it.
+ */
+export interface PopupFrame {
+    hostOrigin: string | null;
+}
+
+export interface ShellContext {
+    req: Request;
+    res: Response;
+    actor?: Actor | null;
+    /**
+     * `AuthService.guiTokenDigest` for the request's session cookie, or null
+     * when it carries none. Omitted when the caller doesn't work it out.
+     */
+    guiTokenDigest?: string | null;
 }
 
 interface PuterGuiAddonsEvent {
@@ -167,6 +183,91 @@ export class PuterHomepageService extends PuterService {
         this.#guiParams[key] = val;
     }
 
+    /** `guestApps` is what the embed shows a visitor without a session. */
+    renderAppBrowserEmbed({
+        guestApps = [],
+    }: { guestApps?: Array<Record<string, unknown>> } = {}): string {
+        return this.#renderEmbed({
+            rootId: 'app-browser',
+            rootClass: 'dashboard',
+            stylesheet: 'apps-embed.css',
+            script: 'apps-embed.min.js',
+            config: {
+                apiOrigin: this.config.api_base_url,
+                sdkUrl:
+                    this.config.env === 'dev'
+                        ? '/sdk/puter.dev.js'
+                        : (this.config.gui_puterjs_bundle ??
+                          'https://js.puter.com/v2/'),
+                guestApps,
+            },
+        });
+    }
+
+    /**
+     * `hostOrigin` is the first-party page framing the dialog, which the
+     * feedback is sent for; null when no allowed page frames it.
+     */
+    renderFeedbackEmbed({ hostOrigin }: { hostOrigin: string | null }): string {
+        return this.#renderEmbed({
+            rootId: 'feedback-embed',
+            stylesheet: 'feedback-embed.css',
+            script: 'feedback-embed.min.js',
+            config: { apiOrigin: this.config.api_base_url, hostOrigin },
+        });
+    }
+
+    #renderEmbed({
+        rootId,
+        rootClass,
+        stylesheet,
+        script,
+        config,
+    }: {
+        rootId: string;
+        rootClass?: string;
+        stylesheet: string;
+        script: string;
+        config: Record<string, unknown>;
+    }): string {
+        const configJson = JSON.stringify(config).replace(/</g, '\\u003c');
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>${encode(String(this.config.gui_params?.title ?? 'Puter'))}</title>
+    <link rel="stylesheet" href="/css/normalize.css">
+    <link rel="stylesheet" href="/css/dashboard.css">
+    <link rel="stylesheet" href="/css/${stylesheet}">
+</head>
+<body>
+    <main id="${rootId}"${rootClass ? ` class="${rootClass}"` : ''}></main>
+    <script type="application/json" id="${rootId}-config">${configJson}</script>
+    <script defer src="${encode(this.#embedScript(script))}"></script>
+</body>
+</html>`;
+    }
+
+    /**
+     * Embed scripts are built beside the GUI bundle, so they are served from
+     * wherever `gui_bundle` is (a CDN in production), with the same query.
+     */
+    #embedScript(name: string): string {
+        const base = 'http://relative.invalid';
+        const bundle = new URL(
+            this.config.gui_bundle ?? '/dist/bundle.min.js',
+            base,
+        );
+        const script = new URL(name, bundle);
+        script.search = bundle.search;
+        return script.origin === base
+            ? `${script.pathname}${script.search}`
+            : script.href;
+    }
+
     /** `scriptPath` is a same-origin absolute path, like `/ext/push/worker.js`. */
     registerServiceWorkerScript(scriptPath: string): void {
         if (
@@ -215,11 +316,11 @@ export class PuterHomepageService extends PuterService {
      * called on the happy path.
      */
     async send(
-        ctx: { req: Request; res: Response; actor?: Actor | null },
+        ctx: ShellContext,
         meta: PageMeta,
-        launchOptions: LaunchOptions = {},
+        popupFrame?: PopupFrame,
     ): Promise<void> {
-        const { req, res, actor } = ctx;
+        const { req, res, actor, guiTokenDigest } = ctx;
 
         // Easter egg: puter-in-puter detection → render error page instead.
         if (
@@ -239,9 +340,9 @@ export class PuterHomepageService extends PuterService {
         }
 
         const html = await this.#renderShell(
-            { req, actor: actor ?? null },
+            { req, actor: actor ?? null, guiTokenDigest },
             meta,
-            launchOptions,
+            popupFrame,
         );
         res.send(html);
     }
@@ -249,11 +350,13 @@ export class PuterHomepageService extends PuterService {
     // -- Internals ----------------------------------------------------
 
     async #renderShell(
-        ctx: { req: Request; actor: Actor | null },
+        ctx: Pick<ShellContext, 'req' | 'guiTokenDigest'> & {
+            actor: Actor | null;
+        },
         meta: PageMeta,
-        launchOptions: LaunchOptions,
+        popupFrame?: PopupFrame,
     ): Promise<string> {
-        const { req, actor } = ctx;
+        const { req, actor, guiTokenDigest } = ctx;
         const env = this.config.env ?? 'prod';
         const bundled = env !== 'dev' || this.config.use_bundled_gui === true;
         const assetDir = env === 'dev' ? '/src' : '/dist';
@@ -296,8 +399,13 @@ export class PuterHomepageService extends PuterService {
             // instead of the socket wire.
             eventsNotifications: notificationsFoldInEnabled(this.config),
             ...meta,
-            launch_options: launchOptions,
+            // After `meta`, so nothing page-specific can name the opener.
+            ...(popupFrame ? { embed_host_origin: popupFrame.hostOrigin } : {}),
         };
+        // Only ever this request's; without one the GUI asks for its token as
+        // it always has.
+        if (guiTokenDigest === undefined) delete guiParams.guiTokenDigest;
+        else guiParams.guiTokenDigest = guiTokenDigest;
 
         const event: PuterGuiAddonsEvent = {
             req,
@@ -417,8 +525,6 @@ export class PuterHomepageService extends PuterService {
     <meta name="msapplication-TileImage" content="${assetDir}/favicons/ms-icon-144x144.png">
     <meta name="theme-color" content="#ffffff">
     ${bundled ? `<link rel="stylesheet" href="${guiCss}">` : ''}
-
-    <link rel="preload" as="image" href="https://puter-assets.b-cdn.net/wallpaper.webp">
 
     <script>
         if ( ! window.service_script ) {

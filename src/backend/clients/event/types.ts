@@ -117,7 +117,7 @@ export type EventMap = {
         model_used: string;
         service_used: string;
         intended_service: string;
-        model_details: {
+        model_details?: {
             id: string;
             provider: string;
             input_cost_key: string;
@@ -420,7 +420,11 @@ export type EventMap = {
         old_username: string;
         new_username: string;
     };
-    'user.email-changed': { user_id: number; new_email: string };
+    'user.email-changed': {
+        user_id: number;
+        old_email: string | null;
+        new_email: string;
+    };
     /** An account was suspended, or its suspension lifted. Local events. */
     'user.suspended': { userId: number };
     'user.unsuspended': { userId: number };
@@ -636,6 +640,18 @@ export type EventMap = {
         /** A peer region holds a socket for the user. */
         peerRegions: boolean;
         responders: NotifDeliveryResponder[];
+        /** A page here got it live while visible and focused. */
+        handled: boolean;
+    };
+    /**
+     * A page reported that it got a notification live while visible and
+     * focused. Node-local; `appUid` is the reporting socket's app, absent for
+     * the desktop.
+     */
+    'notif.handled': {
+        userId: number;
+        appUid?: string;
+        uid: string;
     };
 
     // ---- Metering ----
@@ -720,6 +736,8 @@ export type EventMap = {
     'outer.permission.flatInvalidated': {
         entries: Array<{ holderUserId: number; permission: string }>;
     };
+    /** Links on these nodes were removed; read them from the primary. */
+    'outer.share.linksRevoked': { fsentryIds: number[]; uuids: string[] };
     /**
      * A user's subscription set changed, so every process must drop its cached
      * "does this user have any subscriptions" answer. Carries the counter the
@@ -858,8 +876,17 @@ export type EventMap = {
         session_uids: string[];
     };
 
-    /** One access token was revoked; only its own connections should drop. */
-    'auth.access-token.revoked': { token_uid: string };
+    /**
+     * One access token was revoked; only its own connections should drop.
+     * `outer.*` for the same reason as `outer.auth.sessions.revoked`.
+     */
+    'outer.auth.access-token.revoked': { token_uid: string };
+
+    /** Same-cluster eviction for raw realtime WebSockets. */
+    'pubsub.realtime.auth-revoked': {
+        sessionUids?: string[];
+        tokenUid?: string;
+    };
 
     /**
      * A grant was withdrawn, so whatever was standing on it has to be settled
@@ -1082,11 +1109,6 @@ export interface NotifDeliveryResponder {
     visibilityState: 'visible' | 'hidden' | 'unknown';
     /** The page's window has focus. Absent from older clients. */
     focused?: boolean;
-    /**
-     * The page shows its own browser notification while hidden or unfocused.
-     * Absent from older clients.
-     */
-    showsOwn?: boolean;
 }
 
 export type EventMetadata = {

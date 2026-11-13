@@ -924,6 +924,7 @@ async function sendWithRetry(
             return shapeStream(outcome.lineStream, outcome.xhr);
         const decision = await classifyRetry(outcome, ctx);
         if (decision) {
+            spec.onRetry?.();
             const before = Date.now();
             await sleep(decision.delayMs, spec.signal);
             if (
@@ -1012,6 +1013,8 @@ function dedupe(key, factory, { windowMs = 2000 } = {}) {
  *   the 401 surfaces to the caller instead. Default is `true`
  * @param {number} [opts.timeout] - Idle limit in ms, replacing the defaults
  *   (see `watchIdle`); `0` turns it off.
+ * @param {() => void} [opts.onRetry] - Called each time an attempt fails and
+ *   the request is about to be sent again.
  * @param {Object} [opts.paginate] - Reserved for a later sprint step (ignored).
  * @returns {Promise<PuterResponse>}
  */
@@ -1032,6 +1035,7 @@ function fetchUrl(url, opts = {}) {
         dedupe: dedupeOpt,
         interactiveReauth = true,
         timeout,
+        onRetry,
     } = opts;
 
     const logId = logContext ?? {
@@ -1054,6 +1058,7 @@ function fetchUrl(url, opts = {}) {
         logId,
         interactiveReauth,
         timeout,
+        onRetry,
     };
 
     // Read-safety: idempotent methods auto-retry; a POST read opts in with
@@ -1149,15 +1154,18 @@ const DRIVER_CONTENT_TYPE = 'text/plain;actually=json';
 
 const callInstance = (call) => call.puter ?? globalThis.puter;
 
-/** The wire body. Fields left `undefined` drop out of the JSON. */
+/**
+ * The wire body. Fields left `undefined` drop out of the JSON. The token goes
+ * first, where the server can read it before it has the rest of a large body.
+ */
 const callBody = (call, puter) =>
     JSON.stringify({
+        auth_token: puter.authToken,
         interface: call.iface,
         driver: call.driver,
         test_mode: call.testMode,
         method: call.method,
         args: call.args,
-        auth_token: puter.authToken,
     });
 
 const logCall = (call, fields) => {

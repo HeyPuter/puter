@@ -97,7 +97,7 @@ vi.mock('../../inputImage.js', async (orig) => ({
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
 >;
@@ -126,7 +126,7 @@ beforeEach(() => {
     editMock.mockReset();
     fetchImageAsBase64Mock.mockReset();
     openAICtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
         'batchIncrementUsages',
@@ -150,9 +150,9 @@ describe('OpenAiImageProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('OpenAiImageProvider model catalog', () => {
-    it('returns gpt-image-2 as the default', () => {
+    it('returns gpt-image-2.6-flare as the default', () => {
         const provider = makeProvider();
-        expect(provider.getDefaultModel()).toBe('gpt-image-2');
+        expect(provider.getDefaultModel()).toBe('gpt-image-2.6-flare');
     });
 
     it('drops the deprecated gpt-image-1 family and chatgpt-image-latest', () => {
@@ -195,7 +195,7 @@ describe('OpenAiImageProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     });
 });
@@ -253,7 +253,8 @@ describe('OpenAiImageProvider.generate credit gate', () => {
         });
         let blocked = false;
         vi.spyOn(redis, 'meterIncr').mockImplementation(async (...args) => {
-            if (!blocked && args[5].includes(`:actor:${actor.user!.uuid}:`)) {
+            const actorKey = `:actor:${actor.user!.uuid}:`;
+            if (!blocked && args.some((arg) => arg.includes(actorKey))) {
                 blocked = true;
                 await held;
             }
@@ -287,7 +288,7 @@ describe('OpenAiImageProvider.generate credit gate', () => {
 
     it('throws 402 BEFORE hitting OpenAI when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         await expect(
             withTestActor(() =>
                 provider.generate({
@@ -323,7 +324,7 @@ describe('OpenAiImageProvider.generate credit gate', () => {
             actor,
         );
 
-        const [, estimate] = hasCreditsSpy.mock.calls[0]!;
+        const [, estimate] = admitSpy.mock.calls[0]!;
         expect(estimate).toBeGreaterThan(0);
         expect(heldDuringCall).toBe(Math.ceil(estimate));
         // The hold stays until the usage write lands.
@@ -727,8 +728,8 @@ describe('OpenAiImageProvider gpt-image-2.5 models', () => {
         );
 
         // Latent factor 48 vs 24 at the medium tier.
-        const gptImage2Estimate = hasCreditsSpy.mock.calls[0]![1];
-        const gptImage25Estimate = hasCreditsSpy.mock.calls[1]![1];
+        const gptImage2Estimate = admitSpy.mock.calls[0]![1];
+        const gptImage25Estimate = admitSpy.mock.calls[1]![1];
         expect(gptImage25Estimate).toBeLessThan(gptImage2Estimate);
     });
 
@@ -753,8 +754,8 @@ describe('OpenAiImageProvider gpt-image-2.5 models', () => {
             }),
         );
 
-        const highEstimate = hasCreditsSpy.mock.calls[0]![1];
-        const maxEstimate = hasCreditsSpy.mock.calls[1]![1];
+        const highEstimate = admitSpy.mock.calls[0]![1];
+        const maxEstimate = admitSpy.mock.calls[1]![1];
         expect(maxEstimate).toBeGreaterThan(highEstimate);
     });
 });
@@ -906,4 +907,65 @@ it('keeps a landscape aspect hint landscape at gpt-image-2 sizes', async () => {
     const { w, h } = sentSize();
     expect(w).toBeGreaterThan(h);
     expect(Math.abs(w / h - 1.7)).toBeLessThan(0.1);
+});
+
+
+describe('OpenAiImageProvider GPT Image 2.6', () => {
+    it.each(['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])(
+        '%s generates and edits with token-based billing', async (model) => {
+            const provider = makeProvider();
+            const response = {
+                data: [{ b64_json: 'AAAA' }],
+                usage: {
+                    input_tokens: 100,
+                    output_tokens: 800,
+                    input_tokens_details: { text_tokens: 100, image_tokens: 0 },
+                },
+            };
+            generateMock.mockResolvedValue(response);
+            editMock.mockResolvedValue(response);
+            for (const input_image of [undefined, 'data:image/png;base64,AAAA']) {
+                const result = await withTestActor(() => provider.generate({
+                    model, prompt: 'hi', quality: 'xhigh',
+                    ratio: { w: 1024, h: 1024 }, input_image,
+                }));
+                expect(result).toBe('data:image/png;base64,AAAA');
+            }
+            for (const mock of [generateMock, editMock]) {
+                expect(mock.mock.calls[0]![0]).toMatchObject({
+                    model, quality: 'xhigh', size: '1024x1024',
+                });
+            }
+            const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+            expect(entries).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    usageType: `openai:${model}:xhigh:1024x1024:output`,
+                    costOverride: 2_400_000,
+                }),
+            ]));
+        },
+    );
+
+    it.each([
+        ['low', 1024, 1024, 823],
+        ['medium', 1024, 1024, 1449],
+        ['high', 1024, 1024, 1756],
+        ['xhigh', 1024, 1024, 3122],
+        ['max', 1024, 1024, 7024],
+        ['auto', 1024, 1024, 1449],
+        ['low', 2048, 1088, 571],
+    ])('estimates %s at %sx%s from the 2.6 calculator', async (quality, w, h, tokens) => {
+        generateMock.mockResolvedValue({ data: [{ b64_json: 'AAAA' }] });
+        await withTestActor(() => makeProvider().generate({
+            model: 'gpt-image-2.6-flare', prompt: 'hi', quality: String(quality),
+            ratio: { w: Number(w), h: Number(h) },
+        }));
+        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+        const output = (entries as Array<{ usageType: string; costOverride: number }>)
+            .find((entry) => entry.usageType.endsWith(':output'))!;
+        expect(output.usageType).toBe(`openai:gpt-image-2.6-flare:${quality}:${w}x${h}:output`);
+        // The metering conversion rounds fractional microcents upward.
+        expect(output.costOverride).toBeGreaterThanOrEqual(Number(tokens) * 3000);
+        expect(output.costOverride).toBeLessThanOrEqual(Number(tokens) * 3000 + 1);
+    });
 });

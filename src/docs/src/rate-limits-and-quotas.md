@@ -91,7 +91,7 @@ Gemini speech-to-text first counts the audio's tokens, which times out after 30 
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
-Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtime`) require a paid plan, like the other OpenAI-compatible endpoints, and are capped at 20 open at once per account. An account without a plan gets an `error` event with code `subscription_required`. A session over the cap gets `rate_limit_exceeded`. Both close with 1008.
+Realtime sessions ([`puter.ai.realtime()`](/AI/realtime/), `/puterai/openai/v1/realtime`) require a paid plan, like the other OpenAI-compatible endpoints, and are capped at 20 open at once per account. An account without a plan gets an `error` event with code `subscription_required`. A session over the cap gets `rate_limit_exceeded`. Both close with 1008.
 
 | Realtime transport limit | Value | Behavior at the limit |
 | --- | --- | --- |
@@ -102,24 +102,36 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Event type length | 1–128 characters | Invalid client envelopes receive `invalid_event` and close with 1008. Invalid upstream envelopes close with 1011. |
 | Client message rate | 100/s, burst 100 | Error `rate_limit_exceeded`, close 1008. Ping and pong frames count toward this allowance. |
 | Client upload rate | 128 KiB/s, burst 64 KiB | Reads pause to refill the budget. More than 64 KiB of overdraft closes with `rate_limit_exceeded`. |
-| Input pending session setup | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
+| Client events waiting for forwarding | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
 | Forwarding queue in either direction | Reads pause at 128 KiB. Admission stops above 192 KiB toward the provider and above 4 MiB plus 128 KiB toward the client. | A full queue closes with `rate_limit_exceeded`. |
 | Client that stops reading | 30 seconds of paused upstream reads | Close 1008. |
-| Pending usage records | 32 | Error `rate_limit_exceeded`, close 1008. Records already received are still billed. |
+| Pending usage records | 32 | Error `rate_limit_exceeded`, close 1013. Records already received are still billed. |
 | Numeric usage fields | Finite, nonnegative, at most 1 billion | Invalid upstream usage closes with 1011. A `null` usage counts as none. |
 | Session setup timeout | 15 seconds | Error `connection_timeout`, close 1011. |
 | Upstream handshake timeout | 10 seconds | Close 1011. |
 | Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
-| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. Overlapping sweeps are skipped. |
-| Session attempts per credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. A check that fails at connection gets `internal_error` and closes with 1011. Once failures have continued for 60 seconds from the first failed lookup, the next failed check closes with `internal_error` and 1011. Subscription eligibility is checked independently on each sweep and after a plan invalidation. Revocation events close the affected credentials. Overlapping sweeps are skipped. |
+| Session attempts per signature-verified credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Pre-auth attempts | 120 per client IP and 600 per node per minute | Local memory admission runs before the WebSocket handshake and signature verification. Exceeding either rate returns HTTP 429. Client IP follows the configured proxy trust policy. The shared memory limiter caps its state at 10,000 keys with a 1-hour retention floor and a 60-second sweep. |
+| Unauthenticated upgrade sockets, including closing sockets | 64 per node | Further upgrades receive HTTP 503. The slot is retained until successful admission or transport closure. |
+| Authentication setups in progress | 64 per node | Further upgrades receive HTTP 503. |
+| Presented credential | 8192 UTF-8 bytes | Longer or malformed credentials receive `invalid_api_key`. Unverified credentials allocate no distributed credential limiter state. Limiter lookup failures close with `internal_error` and 1011. |
+| Credit held per transcription item | The selected model's budget for 8,000 audio input, 8,000 text input and 4,096 text output tokens, or 160 seconds for duration-priced models, at that model's cost factor. Before cost factors: `gpt-4o-transcribe` 10,896,000 micro-cents, `gpt-4o-mini-transcribe` 5,448,000, `whisper-1` 1,600,000, `gpt-transcribe` 1,200,000, and 10,896,000 for any other model | Two spare items are reserved before transcription configuration or audio is forwarded, and replenished as the provider commits items. Enabling `gpt-4o-transcribe` therefore holds 21,792,000 micro-cents, or $0.21792, before cost factors. A model change releases the spare items and reserves new ones at the new price. The hold is a budget rather than a cap on reported usage. |
+| Transcription credit exhausted | When the account can't cover another item | Client reads pause while the session still holds items that may free credit. Once it holds none, error `insufficient_funds`, close 1008. |
+| Pending transcription identity | 64 items, spare items included | Reaching the cap pauses client reads until items settle. Provider commits beyond the cap close the connection with `rate_limit_exceeded` and 1013, and bill unresolved work conservatively. Unresolved item identities are retained. |
+| Transcription usage timeout | 30 seconds per committed item | Missing usage, transcription failure, or an upstream close bills the item's model budget before cost factors. A late or duplicate completion is ignored. |
+| Transcription reservation lifetime | 90 seconds, renewed on the 30-second heartbeat | Credit stays held until accepted usage is recorded. Unused reservation credit is released when the connection ends. |
+| Audio awaiting a commit acknowledgement | One held item per 160 seconds, at the session's input format | Counts all audio since the last commit or clear without turn detection, or only detected speech with server turn detection. Longer audio holds more items rather than closing the session. If the connection closes before the commit is acknowledged, each held item is billed. |
+| Completed transcription identity history | 128 items | Recent duplicate commits are ignored. Pending identities have a separate lifetime. |
+| Replacement attempts marked `purpose=handover` | 20 per credential per minute | This shared limit is checked before the general 60-attempt limit. A refused probe consumes no general attempt. Initial and dropped-session recovery attempts retain their general budget. |
 | Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. A response whose usage never arrives because the provider connection closed first is billed the full hold. |
 | Restart notice (`puter.reconnect`) | At most once a minute per session | Repeated announcements within the minute aren't sent. |
 | In-flight response drain at shutdown | 5 seconds | Close 1012. |
-| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. A response that doesn't report its usage within the 5 seconds is billed the credit held for it. |
+| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. Pending input transcriptions share this settlement window. Audio whose commit was not acknowledged is committed during settlement. Accepted work without final usage is billed conservatively. A response that does not report its usage within the 5 seconds is billed the credit held for it. |
 
 Send audio as a stream of small chunks. The message cap applies to text, configuration, tool output, and audio alike.
 
-The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sending or retaining data.
+The [`puter.ai.realtime()`](/AI/realtime/) SDK also applies these limits before sending or retaining data.
 
 | Conversation SDK limit | Value | Behavior at the limit |
 | --- | --- | --- |
@@ -129,6 +141,7 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | PCM chunk | 12000 samples at 24 kHz, or 500 ms | Throws `input_too_large`. |
 | Native JSON traversal | Depth 16, 2048 visited values, 2048 array entries or object fields | Throws `input_too_large` before serialization. |
 | Outbound buffered data | 128 KiB for audio, 192 KiB for other events | Throws `queue_full`. The built-in microphone drops the chunk instead. |
+| Incoming server event | 4 MiB of UTF-8 | The conversation closes with code 4009 and doesn't reconnect. |
 | Pending acknowledgments | 8 | Rejects with `operation_in_progress`. |
 | Concurrent configuration updates | 1 | Rejects with `operation_in_progress`. |
 | Authentication and provider acknowledgment timeout | 10 seconds | Rejects preparation or the pending operation. |
@@ -137,16 +150,16 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | Capture chunk duration | 20 ms | AudioWorklet sends 480 PCM16 samples per chunk. |
 | Unacknowledged capture chunks | 25, or 500 ms | Further chunks are dropped until the page catches up. |
 | Queued playback | 300 seconds | Further audio for the reply is dropped and `queue_full` is reported once. |
-| Reconnection attempts | 10, backing off from 500 ms to 10 seconds, each delay randomized between half and one and a half times its value | The conversation closes with the original close code. |
-| Replacement session after a restart notice | Opened within 3 seconds of the notice, then retried from 1 second, backing off to 10 seconds, each delay randomized between half and one and a half times its value. Settings on a held replacement are acknowledged within 3 seconds. | The current session keeps working until the conversation switches or the server closes it. A refusal that retrying can't fix stops the attempts. |
+| Connection and reconnection attempts | 10, backing off from 500 ms to 10 seconds, each delay randomized between half and one and a half times its value | Initial transient failures retry through the original connection Promise. Terminal credential, model, funds, normal-close and oversized-event failures stop retries. An established conversation closes with the original close code after retries are exhausted. |
+| Replacement session after a restart notice | Opened within 3 seconds of the notice, then retried from 1 second, backing off to 10 seconds, each delay randomized between half and one and a half times its value. Settings on a held replacement are acknowledged within 3 seconds. | The current session keeps working until the conversation switches or the server closes it. Probes stop after 3 attempts or 30 seconds. Conversations sharing one SDK instance and credential share a budget of 20 probes per minute. Dropped-session recovery uses its separate attempt loop. A refusal that retrying cannot fix stops the probes. |
 | Offline wait while reconnecting | 2 minutes per reconnection, in browsers that report being offline | Attempts continue after the wait. |
-| Context restored after a reconnection | The 40 most recent restorable items, 48 KiB in total | Older items are left out. |
+| Context restored after a reconnection | The 40 most recent restorable items, 48 KiB in total | Restoration uses a contiguous suffix of restorable items. If the newest item exceeds the byte budget, the suffix is empty. Omitted items fire a nonfatal `context_trimmed` event with `omittedItems`. `context_restore_failed` is reserved for a provider refusal or a failed send. Text, function arguments and function results are preserved without truncation. |
 | Remembered canceled responses | 32 | Older response IDs are evicted from the suppression set. |
 
 
 `/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.
 
-Chat requests accept JSON bodies up to 128 MiB (134,217,728 bytes), including `text/plain;actually=json` bodies. That covers `puter-chat-completion` calls through `/drivers/call`, which `puter.ai.chat()` uses, and POSTs to `/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages` and `/puterai/anthropic/v1/messages/count_tokens`. A body over 50 MiB needs a `Content-Length` header and a token in the `Authorization` or `x-api-key` header (or a session cookie); an `auth_token` inside the body isn't read until the body is, so it only works up to 50 MiB. Larger bodies, and bodies over 50 MiB for other drivers, return HTTP 413. One account can have up to 128 MiB of these large bodies in flight at once; past that, requests get `429` with `Retry-After`. A server handling too many large bodies at once returns `503` with `Retry-After`. Retry either after the given number of seconds. Other routes accept JSON bodies up to 50 MiB.
+Chat requests accept JSON bodies up to 128 MiB (134,217,728 bytes), including `text/plain;actually=json` bodies. That covers `puter-chat-completion` calls through `/drivers/call`, which `puter.ai.chat()` uses, and POSTs to `/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages` and `/puterai/anthropic/v1/messages/count_tokens`. A body over 50 MiB needs a `Content-Length` header and a credential that can be read before the rest of the body. That is a token in the `Authorization` or `x-api-key` header, a session cookie, or an `auth_token` that is the first field of the body, which is where Puter.js sends it. An `auth_token` after other fields isn't read until the body is, so it only works up to 50 MiB. Larger bodies, and bodies over 50 MiB for other drivers, return HTTP 413. One account can have up to 128 MiB of these large bodies in flight at once; past that, requests get `429` with `Retry-After`. A server handling too many large bodies at once returns `503` with `Retry-After`. Retry either after the given number of seconds. Other routes accept JSON bodies up to 50 MiB. A JSON body in a charset other than UTF-8 is accepted up to 1 MiB. A JSON body over 32 KiB can nest arrays and objects up to 10,000 levels deep, and deeper nesting returns HTTP 400.
 
 Claude's server-executed tools are clamped so a request can't reserve an unbounded amount of credit:
 
@@ -212,6 +225,11 @@ Image and video inputs to [`txt2img()`](/AI/txt2img/) and [`txt2vid()`](/AI/txt2
 | Source video file | See the model's source video limits above |
 
 puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary Puter file for the call. It counts against the user's storage until puter.js deletes it after the call.
+
+
+### Chat service speed catalogs
+
+OpenRouter speed endpoint catalogs are cached for 15 minutes, with at most 256 model entries per backend process. A catalog fetch times out after 10 seconds and accepts at most 2 MiB. Failed fetches are remembered for 30 seconds. If no usable speed offering is available, the request uses standard service.
 
 ### Remote chat image inlining
 
@@ -284,6 +302,8 @@ Each call is also capped, the same for every account:
 
 A `get()` or batch `set()` over its cap, or an `offset` over 5,000, is rejected with `bad_request` and nothing is read or written. A `limit` over 1,000 is lowered to 1,000, and the page's `cursor` picks up from there.
 
+Internal metering reads check up to 20 counters in Redis concurrently per call. Store-backed metering reads make up to 3 attempts when a flush overlaps the read. Each metering flush writes up to 20 counters concurrently.
+
 ### Filesystem
 
 Per minute unless stated:
@@ -324,6 +344,7 @@ Per minute unless stated:
 | Thumbnail read URLs | Valid for at least 6 days and 23 hours, refreshed hourly | Per URL |
 | `getReadURL()` (shared with all access-token creation) | 20/hour | |
 | `revokeReadURL()` | 60/min | |
+| File downloaded by [`showSaveFilePicker()`](/UI/showSaveFilePicker/) from a URL | 100 MiB, stopped after 60 s without data | Per call |
 
 Non-write operations (mkdir/shortcut/move/delete) inside a legacy `/batch` request also count against the Mutations limits above.
 
@@ -398,7 +419,7 @@ For long-lived mounts, sign in with a `-token` username and an API token as the 
 | ------------------------------------------------------------------ | ------------------------------- | ----------- |
 | `nameAvailable`                                                    | 60/min                          |             |
 | App icon                                                           | 12,000/min                      | Per network |
-| App landing page (`/app/<name>`, `/desktop/app/<name>`)            | 600/min                         | Per network |
+| App landing page (`/app/<name>`)                                   | 600/min                         | Per network |
 | Names per batch app lookup (`GET /apps/:names`, `POST /query/app`) | 200, up to 200 characters each  |             |
 | `metadata`                                                         | 16 KiB, measured as JSON        |             |
 | `filetypeAssociations`                                             | 200 entries, 60 characters each |             |
@@ -494,7 +515,7 @@ The notification limits count notifications written. A notification that replace
 
 Notifications one side of a KV share sends the other through its handle count against the recipient's `app.message` limits, and also against the limit for that sender, recipient and app, across all their shares in that app. Over either one, the call fails with the same error, so the sender can't tell which limit it hit. A call that the recipient's limits refuse still counts against the share limit. The pushes count against the recipient's push limits and are billed to the recipient.
 
-A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count only pushes sent, and a replacement that goes out as a push counts like any other. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit, the call still succeeds and the notification still reaches the app live, but it isn't pushed.
+A notification goes out as a push only when no open page of the app is visible and focused when it arrives. The push limits count only pushes sent, and a replacement that goes out as a push counts like any other. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit, the call still succeeds and the notification still reaches the app live, but it isn't pushed.
 
 A push carries about 4 KB, and one that doesn't fit has its text shortened. Turning pushes on in another browser past the app's browser limit removes that app's least recently seen one. A browser is also removed when its push service answers `404` or `410`, after 10 failed sends and over 3 days without receiving a push or renewing its registration, or after 60 days without either. A page that calls [`onPush()`](/Notifications/onPush/) renews it on load.
 
@@ -603,6 +624,8 @@ Counted per event, per region:
 Calls over any of these fail with `too_many_requests`. A share over the `kv.share.received` limit is still made, without notifying the holder. Listing pages hold up to 200 items, and a `fetch()` page defaults to 50 events and holds up to 200.
 
 A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients, and each one counts toward the named-recipient limit. A recipient who doesn't already have the share also counts toward the new-recipient limit, including a username that doesn't exist and a user the share is refused for. The call counts once toward the mint limit when it makes a share, changes one, or has any recipient who counts as new. A call where every recipient already has the share at the same access level and label counts only toward the named-recipient limit. When the recipients don't all fit in a limit, the whole call fails with `too_many_requests`, and the part that did fit still counts.
+
+A client that runs a function `handler` for [`onPersistent()`](/Events/onPersistent/) tells the server which ones it runs when it connects and each time one is added or removed. Each of those counts as one acknowledgement. One refused with `too_many_requests` is sent again after 10 seconds.
 
 Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit. Creating a [schedule](#schedules), or storing a notification with [`notify()`](/Notifications/notify/#send-it-later) and a `sendAt` more than 5 seconds ahead, counts toward the `subscribe` limit. Removing one counts toward `unsubscribe`, and listing or reading one toward the subscription listings.
 

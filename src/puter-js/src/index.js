@@ -8,12 +8,12 @@ import { isFramedDocument } from './lib/appModeGate.js';
 import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
+    requestLaunchFromOpener,
     urlWithoutQueryParam,
 } from './lib/launchToken.js';
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
-import * as utils from './lib/utils.js';
 import { AI } from './modules/ai/index.js';
 import { Apps } from './modules/apps/index.js';
 import Auth from './modules/Auth.js';
@@ -257,6 +257,25 @@ export class Puter {
         // sharing one slot.
         resolvers: [],
     };
+
+    /**
+     * Pending while a tab the GUI opened for this app waits for its launch
+     * (token and opened item); sign-in and the launched-with-items handlers
+     * wait on it. Null otherwise.
+     *
+     * @internal
+     * @type {Promise<void> | null}
+     */
+    openerLaunch_ = null;
+
+    /**
+     * `puter.item.*` params of the item the GUI opened this tab with, standing
+     * in for the URL params a framed launch carries.
+     *
+     * @internal
+     * @type {URLSearchParams | null}
+     */
+    openerLaunchItem_ = null;
 
     // Holds the unique app instance ID that is provided by the host environment
     appInstanceID;
@@ -628,6 +647,8 @@ export class Puter {
         // The in-flight boot `/whoami`, awaited by anything that wants the
         // cached user without issuing its own request.
         this.whoamiCache_ = null;
+        /** @internal The boot `/whoami` while in flight, for `getUser()` to join. */
+        this.whoamiInFlight_ = null;
 
         // A user session token must never be adopted from storage, and an
         // earlier boot may have left one behind.
@@ -761,6 +782,28 @@ export class Puter {
 
             this.initSubmodules();
 
+            // A top-level tab the GUI opened for an app launch. Its URL params
+            // aren't trusted here (see isFramedDocument), and secrets stay out
+            // of its URL, so the token and opened item come from the GUI tab
+            // that opened it instead.
+            const openerLaunch = this.appInstanceID
+                ? requestLaunchFromOpener({
+                    guiOrigin: this.defaultGUIOrigin,
+                    appInstanceID: this.appInstanceID,
+                })
+                : null;
+            if (openerLaunch) {
+                this.openerLaunch_ = openerLaunch.then((launch) => {
+                    this.openerLaunch_ = null;
+                    if (launch?.item) {
+                        this.openerLaunchItem_ = new URLSearchParams(
+                            launch.item,
+                        );
+                    }
+                    if (launch?.token) this.setAuthToken(launch.token);
+                });
+            }
+
             // Print a CTA for developers to publish their app on the Puter App Store
             this.printDevCTA();
 
@@ -878,25 +921,44 @@ export class Puter {
         // use for a cached user and shouldn't pay for the request.
         if (!this.authToken || !this.socketEnabled) return null;
         const issuedUnder = this.authToken;
+        // `user` settles with the user, or null at the first failed attempt.
+        let settle;
+        const inFlight = {
+            token: issuedUnder,
+            origin: this.APIOrigin,
+            user: new Promise((resolve) => {
+                settle = resolve;
+            }),
+            refusal: null,
+        };
+        this.whoamiInFlight_ = inFlight;
         try {
             const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
                 authToken: this.authToken,
                 interactiveReauth: false,
+                onRetry: () => settle(null),
                 logContext: {
                     service: 'auth',
                     operation: 'whoami',
                     params: {},
                 },
             });
-            if (!resp.ok) return null;
+            if (!resp.ok) {
+                inFlight.refusal = await resp.json().catch(() => null);
+                return null;
+            }
             const body = await resp.json();
             // The answer belongs to the token that asked for it.
             if (this.authToken !== issuedUnder) return null;
             this.whoami = body;
+            settle(body);
             return this.whoami;
         } catch (e) {
             // Best-effort cache — a network failure leaves it unset.
             return null;
+        } finally {
+            settle(null);
+            if (this.whoamiInFlight_ === inFlight) this.whoamiInFlight_ = null;
         }
     }
 
@@ -1123,6 +1185,7 @@ export class Puter {
     _dropIdentityCaches = function () {
         this.whoami = undefined;
         this.whoamiCache_ = null;
+        this.whoamiInFlight_ = null;
         try {
             this._cache.flushall();
         } catch (e) {
@@ -1668,24 +1731,7 @@ export class Puter {
             };
         }
 
-        return new Promise((resolve, reject) => {
-            const xhr = utils.initXhr(
-                '/whoami',
-                this.APIOrigin,
-                this.authToken,
-                'get',
-            );
-            // set up event handlers for load and error events
-            utils.setupXhrEventHandlers(
-                xhr,
-                options.success,
-                options.error,
-                resolve,
-                reject,
-            );
-
-            xhr.send();
-        });
+        return this.auth.requestUser_(options);
     };
 
     print = function (...args) {

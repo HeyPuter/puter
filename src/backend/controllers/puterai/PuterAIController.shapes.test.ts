@@ -201,6 +201,7 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
                     context_management: [{ type: 'compaction' }],
                     prompt_cache_key: 'ck',
                     prompt_cache_retention: '24h',
+                    prompt_cache_options: { ttl: '12h', prewarm: true },
                     store: true,
                     truncation: 'auto',
                     service_tier: 'default',
@@ -226,6 +227,9 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
             context_management: [{ type: 'compaction' }],
             prompt_cache_key: 'ck',
             prompt_cache_retention: '24h',
+            // Forwarded as sent; the provider keeps only the fields it
+            // accepts.
+            prompt_cache_options: { ttl: '12h', prewarm: true },
             // forced false regardless of the client's request.
             store: false,
             truncation: 'auto',
@@ -359,13 +363,18 @@ describe('PuterAIController.openaiResponses input normalization', () => {
                 role: 'user',
                 content: [
                     'a bare string part',
-                    { type: 'input_text', text: 'typed text' },
+                    {
+                        type: 'input_text',
+                        text: 'typed text',
+                        prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' },
+                    },
                     { type: 'output_text', text: 'echoed text' },
                     {
                         type: 'input_image',
                         detail: 'high',
                         image_url: 'https://img.test/a.png',
                         file_id: 'file_img',
+                        prompt_cache_breakpoint: { mode: 'explicit' },
                     },
                     { type: 'input_audio', input_audio: { data: 'AAA' } },
                     {
@@ -386,13 +395,18 @@ describe('PuterAIController.openaiResponses input normalization', () => {
                 role: 'user',
                 content: [
                     { type: 'text', text: 'a bare string part' },
-                    { type: 'text', text: 'typed text' },
+                    {
+                        type: 'text',
+                        text: 'typed text',
+                        prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' },
+                    },
                     { type: 'text', text: 'echoed text' },
                     {
                         type: 'image_url',
                         detail: 'high',
                         image_url: { url: 'https://img.test/a.png' },
                         file_id: 'file_img',
+                        prompt_cache_breakpoint: { mode: 'explicit' },
                     },
                     { type: 'input_audio', input_audio: { data: 'AAA' } },
                     {
@@ -639,6 +653,33 @@ describe('PuterAIController.openaiResponses output items', () => {
 // -- /openai/v1/chat/completions edges -------------------------------
 
 describe('PuterAIController.openaiChatCompletions translation edges', () => {
+    it('forwards the prompt-cache fields to the driver', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'ok' },
+        });
+
+        const { res } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    prompt_cache_key: 'ck',
+                    prompt_cache_retention: 'in_memory',
+                    prompt_cache_options: { ttl: '30m' },
+                },
+            }),
+            res,
+        );
+
+        const args = completeSpy.mock.calls[0]![0] as Record<string, unknown>;
+        expect(args).toMatchObject({
+            prompt_cache_key: 'ck',
+            prompt_cache_retention: 'in_memory',
+            prompt_cache_options: { ttl: '30m' },
+        });
+    });
+
     it('derives tool_calls from tool_use content blocks when the message has none', async () => {
         stubChatComplete({
             message: {

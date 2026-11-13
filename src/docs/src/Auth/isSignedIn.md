@@ -20,7 +20,9 @@ None
 
 Returns `true` if the user is signed in, `false` otherwise.
 
-## Example
+## Examples
+
+### Check whether the user is signed in
 
 ```html;auth-is-signed-in
 <html>

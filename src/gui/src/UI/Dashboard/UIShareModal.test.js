@@ -43,6 +43,7 @@ globalThis.def = globalThis.def ?? (value => value);
 globalThis.use = globalThis.use ?? (() => class {});
 
 const { default: UIShareModal } = await import('./UIShareModal.js');
+const { unshareAnswering, allRefused, refusing } = await import('../../../tests/fixtures/sdkUnshare.js');
 
 const settle = async () => {
     for ( let i = 0; i < 5; i++ ) await new Promise(resolve => setTimeout(resolve, 0));
@@ -80,6 +81,126 @@ describe('UIShareModal general access', () => {
         await settle();
         expect(puter.fs.unshare).toHaveBeenCalledTimes(2);
         expect($('.share-modal-link-access').val()).toBe('restricted');
+    });
+
+    it('shows the error when closing the link is refused', async () => {
+        puter.fs.getShares = vi.fn(async () => [{ holder: null, anyone: true, mode: 'read', issuer: 'alice' }]);
+        puter.fs.unshare = unshareAnswering(allRefused);
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+        expect($('.share-modal-link-access').val()).toBe('anyone');
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe('Held through a team');
+        expect($('.share-modal-link-access').val()).toBe('anyone');
+    });
+
+    it('says how many items the link was closed on when some were refused', async () => {
+        puter.fs.getShares = vi.fn(async () => [{ holder: null, anyone: true, mode: 'read', issuer: 'alice' }]);
+        puter.fs.unshare = unshareAnswering((request) => refusing(
+            request,
+            (path) => path === '/alice/f1.txt',
+            { code: 'forbidden', message: 'Not allowed' },
+        ));
+        UIShareModal({ items: items(3) });
+        await settle();
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe(
+            'Only people with access can open 2 of 3 items now. Not allowed',
+        );
+    });
+
+    it('keeps the count on screen when a refused item no longer lists, closing the link', async () => {
+        let gone = false;
+        puter.fs.getShares = vi.fn(async (path) => {
+            if ( gone && path === '/alice/f1.txt' ) throw { message: 'Subject does not exist' };
+            return [{ holder: null, anyone: true, mode: 'read', issuer: 'alice' }];
+        });
+        puter.fs.unshare = unshareAnswering((request) => refusing(
+            request,
+            (path) => path === '/alice/f1.txt',
+            { code: 'subject_does_not_exist', message: 'Subject does not exist' },
+        ));
+        UIShareModal({ items: items(3) });
+        await settle();
+        gone = true;
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect($('.share-modal-status').text()).toBe(
+            'Only people with access can open 2 of 3 items now. Subject does not exist',
+        );
+    });
+
+    it('goes on past a run that was refused whole, and counts every refused item', async () => {
+        const requests = [];
+        // Runs of 50: the second is refused whole, the third loses one item.
+        puter.fs.unshare = unshareAnswering((request) => {
+            requests.push(request.items.length);
+            const run = requests.length;
+            return refusing(
+                request,
+                (path) => run === 2 || path === '/alice/f119.txt',
+                { code: 'forbidden', message: 'Not allowed' },
+            );
+        });
+        UIShareModal({ items: items(120) });
+        await settle();
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect(requests).toEqual([50, 50, 20]);
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe(
+            'Only people with access can open 69 of 120 items now. Not allowed',
+        );
+        expect($('.share-modal-link-access')[0].value).toBe('mixed');
+    });
+
+    it('stops at a run the server turned away whole, and counts only what was closed before it', async () => {
+        const requests = [];
+        // Runs of 50: the second is rate limited, so the third is never sent.
+        puter.fs.unshare = unshareAnswering((request, xhr) => {
+            requests.push(request.items.length);
+            if ( requests.length === 2 ) {
+                xhr.status = 429;
+                return { message: 'Too many requests', code: 'too_many_requests' };
+            }
+            return refusing(request, () => false);
+        });
+        UIShareModal({ items: items(120) });
+        await settle();
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect(requests).toEqual([50, 50]);
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe(
+            'Only people with access can open 50 of 120 items now. Too many requests',
+        );
+        expect($('.share-modal-link-access')[0].value).toBe('mixed');
+    });
+
+    it('reports a failed request as it is, with no item counted as refused', async () => {
+        const requests = [];
+        puter.fs.unshare = unshareAnswering((request, xhr) => {
+            requests.push(request.items.length);
+            xhr.status = 429;
+            return { message: 'Too many requests', code: 'too_many_requests' };
+        });
+        UIShareModal({ items: items(120) });
+        await settle();
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect(requests).toEqual([50]);
+        expect($('.share-modal-status').text()).toBe('Too many requests');
+        expect($('.share-modal-link-access')[0].value).toBe('unchecked');
     });
 
     it('shows a listed selection as the listings say', async () => {
@@ -154,6 +275,67 @@ describe('UIShareModal removing access', () => {
         expect(puter.fs.unshare).toHaveBeenCalledWith({ paths: ['/alice/a.txt'], recipient: 'bob' });
     });
 
+    it('keeps the row and shows the error when the removal is refused', async () => {
+        puter.fs.getShares = vi.fn(async () => [{ holder: 'bob', mode: 'read', issuer: 'alice' }]);
+        puter.fs.unshare = unshareAnswering(allRefused);
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+
+        $('.share-modal-row-mode').val('__remove').trigger('change');
+        $('.share-modal-confirm-remove').trigger('click');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe('Held through a team');
+        expect($('.share-modal-row-mode').attr('data-key')).toBeTruthy();
+        expect($('.share-modal-row-mode').val()).toBe('read');
+    });
+
+    it('says how many items a person was removed from when one was refused', async () => {
+        puter.fs.getShares = vi.fn(async () => [{ holder: 'bob', mode: 'read', issuer: 'alice' }]);
+        puter.fs.unshare = unshareAnswering((request) => refusing(
+            request,
+            (path) => path === '/alice/f2.txt',
+            { code: 'forbidden', message: 'Not allowed' },
+        ));
+        UIShareModal({ items: [0, 1, 2].map((i) => ({ path: `/alice/f${i}.txt` })) });
+        await settle();
+
+        $('.share-modal-row-mode').val('__remove').trigger('change');
+        $('.share-modal-confirm-remove').trigger('click');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe('Removed bob from 2 of 3 items. Not allowed');
+        expect($('.share-modal-row-mode').length).toBe(1);
+    });
+
+    it('keeps the count on screen when a refused item no longer lists', async () => {
+        let removed = false;
+        puter.fs.getShares = vi.fn(async (path) => {
+            if ( removed && path === '/alice/f2.txt' ) throw { message: 'Subject does not exist' };
+            return removed ? [] : [{ holder: 'bob', mode: 'read', issuer: 'alice' }];
+        });
+        const answering = unshareAnswering((request) => refusing(
+            request,
+            (path) => path === '/alice/f2.txt',
+            { code: 'subject_does_not_exist', message: 'Subject does not exist' },
+        ));
+        puter.fs.unshare = async (...args) => {
+            removed = true;
+            return answering(...args);
+        };
+        UIShareModal({ items: [0, 1, 2].map((i) => ({ path: `/alice/f${i}.txt` })) });
+        await settle();
+
+        $('.share-modal-row-mode').val('__remove').trigger('change');
+        $('.share-modal-confirm-remove').trigger('click');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe(
+            'Removed bob from 2 of 3 items. Subject does not exist',
+        );
+        expect($('.share-modal-row-mode').length).toBe(0);
+    });
+
     it('offers cancelling an invitation from its menu', async () => {
         puter.fs.getShares = vi.fn(async () => [
             { holder: null, recipientEmail: 'carol@example.com', pending: true, mode: 'write', issuer: 'alice' },
@@ -225,5 +407,29 @@ describe('UIShareModal adding people', () => {
         finish([{ path: '/alice/a.txt' }]);
         await settle();
         expect($('.share-modal-submit').prop('disabled')).toBe(false);
+    });
+
+    it('says how many items were shared when a later run fails, and badges those rows', async () => {
+        const selection = Array.from({ length: 60 }, (_, i) => ({ path: `/alice/f${i}.txt` }));
+        document.body.insertAdjacentHTML('beforeend', selection
+            .map(item => `<div class="item" data-path="${item.path}" data-is_shared="0"></div>`).join(''));
+        let call = 0;
+        puter.fs.share = vi.fn(async ({ paths }) => {
+            if ( ++call === 2 ) throw { message: 'Daily share limit reached', code: 'share_daily_limit_reached' };
+            return paths.map(p => ({ path: p }));
+        });
+        UIShareModal({ items: selection });
+        await settle();
+        picked.recipient = { value: 'bob', label: 'bob' };
+        picked.onChange();
+
+        $('.share-modal-add').trigger('submit');
+        await settle();
+
+        expect(puter.fs.share).toHaveBeenCalledTimes(2);
+        const status = $('.share-modal-status').text();
+        expect(status).toContain('Shared with bob on 50 of 60 items');
+        expect(status).toContain('Daily share limit reached');
+        expect($('.item[data-is_shared="1"]')).toHaveLength(50);
     });
 });

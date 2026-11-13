@@ -29,15 +29,14 @@ const resolveBundle = (): string => {
     );
 };
 
-// In coverage mode every vm context is retained so its `__coverage__`
-// counters can be merged after the run (each test loads a fresh SDK).
-const coverageContexts: Array<Record<string, unknown>> = [];
+// In coverage mode every vm context is handed the first context's
+// `__coverage__`: istanbul reuses a file entry whose hash matches, so all
+// contexts count into one object instead of each holding a ~6 MB copy.
+let nodeCoverage: IstanbulCoverage | undefined;
 
 /** Coverage counters from every SDK context created so far. */
-export const collectNodeCoverage = (): Array<IstanbulCoverage | undefined> =>
-    coverageContexts.map(
-        (context) => context.__coverage__ as IstanbulCoverage | undefined,
-    );
+export const collectNodeCoverage = (): IstanbulCoverage | undefined =>
+    nodeCoverage;
 
 // Compile the ~MB bundle once; isolation comes from a fresh context per
 // call, not a fresh parse. The filename ties stack traces and V8 coverage
@@ -76,9 +75,12 @@ export const loadNodePuter = (env: EnvManifest, token: string): PuterSDK => {
     // The SDK's nodejs branch only shims localStorage when it's absent;
     // clear any inherited one so instances never share auth state.
     delete context.localStorage;
+    if (nodeCoverage) context.__coverage__ = nodeCoverage;
 
     sdkScript().runInContext(vm.createContext(context));
-    if (coverageEnabled()) coverageContexts.push(context);
+    if (coverageEnabled()) {
+        nodeCoverage ??= context.__coverage__ as IstanbulCoverage | undefined;
+    }
 
     const puter = context.puter as PuterSDK;
     puter.setAuthToken(token);

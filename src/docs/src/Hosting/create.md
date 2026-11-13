@@ -4,7 +4,9 @@ description: Create and host a website from a directory on Puter.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Will create a new subdomain that will be served by the hosting service. You must specify a path to a directory that will be served by the subdomain.
+Creates a new subdomain that will be served by the hosting service.
+
+You must specify a path to a directory that will be served by the subdomain.
 
 ## Syntax
 
@@ -29,16 +31,22 @@ The directory must be one you own. Hosting serves everything under it publicly, 
 
 Alternative way to create hosting via options.
 
-- `subdomain` (String) - Name of the subdomain you want to create.
-- `root_dir` (String) (required) - Absolute path to the directory you want to serve. Unlike `dirPath`, this value is not resolved against the app's root directory, so it must be an absolute path.
+| Option | Type | Description |
+|--------|------|-------------|
+| `subdomain` | `String` | Name of the subdomain you want to create. |
+| `root_dir` | `String` | Required. Absolute path to the directory you want to serve. Unlike `dirPath`, this value is not resolved against the app's root directory, so it must be an absolute path. |
 
 ## Return value
 
-A `Promise` that will resolve to a [`Subdomain`](/Objects/subdomain/) object when the subdomain has been created. If a subdomain with the given name already exists, the promise will be rejected with an error. If the path does not exist, the promise will be rejected with an error.
+A `Promise` that will resolve to a [`Subdomain`](/Objects/subdomain/) object when the subdomain has been created.
+
+## Errors
+
+If a subdomain with the given name already exists, the promise will be rejected with an error. If the path does not exist, the promise will be rejected with an error.
 
 ## Examples
 
-<strong class="example-title">Create a simple website displaying "Hello world!"</strong>
+### Create a simple website displaying "Hello world!"
 
 ```html;hosting-create
 <html>

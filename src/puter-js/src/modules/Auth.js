@@ -1,8 +1,9 @@
 import * as utils from '../lib/utils.js';
-import { fetchUrl } from '../lib/networkUtils.js';
+import { fetchUrl, resolveReauth } from '../lib/networkUtils.js';
 import { PuterModule } from '../lib/PuterModule.js';
 import PuterDialog from './PuterDialog.js';
 import { hasOpaqueOrigin } from '../lib/auth-popup.js';
+import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showPopupFrame } from '../lib/guiEmbed.js';
 
 /**
  * Puter user details, as returned by `getUser()`.
@@ -115,11 +116,18 @@ export class AuthModule extends PuterModule {
     /** @internal */
     pendingSignInMessageIds_ = new Set();
 
+    /** The framed sign-in in progress, which a repeated call joins. */
+    #framedSignIn = null;
+
     /**
      * Signs the user in, opening a popup with the appropriate authentication
      * method. Must be called from a user gesture (such as a click) — without
      * one, a consent dialog is shown first so the popup can be opened from the
      * user's click on it. Resolves once the user has signed in.
+     *
+     * On a page one label under the Puter origin, the sign-in shows in a frame
+     * over the page instead, and continues in the popup when the user picks a
+     * federated provider or the frame can't be shown.
      *
      * Rejects with `{ error: 'popup_blocked' }` if the browser blocked the
      * popup, `{ error: 'auth_window_closed' }` if the user closed it, `{ error:
@@ -160,12 +168,136 @@ export class AuthModule extends PuterModule {
             });
         }
 
+        // A tab the GUI opened is signed in by the token the GUI hands over.
+        if (puter.openerLaunch_) {
+            return puter.openerLaunch_.then(() =>
+                puter.authToken
+                    ? { success: true, token: puter.authToken }
+                    : this.signIn(options));
+        }
+
+        if (this.#canSignInInFrame(options)) {
+            // A second call, such as from a double click or a `puter.*` call
+            // asking for implicit auth, waits on the first rather than
+            // replacing its frame, which would reject the first.
+            if (this.#framedSignIn) return this.#framedSignIn;
+            const promise = this.#signInInFrame(options).then((result) =>
+                result ?? this.#signInWithPopup(options));
+            const done = () => {
+                if (this.#framedSignIn === promise) this.#framedSignIn = null;
+            };
+            this.#framedSignIn = promise;
+            promise.then(done, done);
+            return promise;
+        }
+        return this.#signInWithPopup(options);
+    };
+
+    /**
+     * Whether this page can show the sign-in framed: a first-party page one
+     * label under the GUI origin, not in a frame of another site. Only the
+     * popup creates a temporary account, so a sign-in that asks for one keeps
+     * it.
+     */
+    #canSignInInFrame (options) {
+        return !options.attempt_temp_user_creation &&
+            !globalThis.crossOriginIsolated &&
+            !!globalThis.document?.body &&
+            canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin) &&
+            ancestorsAllowGuiEmbed(globalThis, puter.defaultGUIOrigin);
+    }
+
+    /** Runs `puter.onAuth`, if set, with the user just signed in. */
+    #notifyAuth () {
+        if (typeof puter.onAuth !== 'function') return;
+        void (async () => {
+            try {
+                const user = await puter.whoamiCache_;
+                puter.onAuth(user ?? (await puter.getUser()));
+            } catch (error) {
+                console.error(error);
+            }
+        })();
+    }
+
+    /**
+     * The sign-in in a frame over the page. Settles as the popup would, or
+     * resolves null when the popup has to take over.
+     *
+     * @returns {Promise<SignInResult | null>}
+     */
+    async #signInInFrame (options) {
+        const msg_id = crypto.randomUUID();
+        this.pendingSignInMessageIds_.add(msg_id);
+        const fragment = { msg_id };
+        if (options.request_auth) fragment.request_auth = 'true';
+        let outcome;
+        try {
+            outcome = await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: 'sign-in',
+                fragment,
+                title: 'Sign in to Puter',
+                closeLabel: 'Close',
+                closed: () => ({ closed: true }),
+                onMessage: (data, finish) => {
+                    if (data.msg === 'puterPopupFrame' && data.state === 'provider') {
+                        if (this.#isProviderStart(data.url, msg_id)) finish({ providerUrl: data.url });
+                        return;
+                    }
+                    if (data.msg !== 'puter.token' || data.msg_id != msg_id) return;
+                    finish({ reply: data });
+                },
+            });
+        } finally {
+            this.pendingSignInMessageIds_.delete(msg_id);
+        }
+        if (!outcome) return null;
+        // A provider won't load in a frame, so its sign-in continues in the
+        // popup, which the provider returns as this attempt's sign-in popup.
+        if (outcome.providerUrl) {
+            return this.#signInWithPopup(options, { url: outcome.providerUrl, msgId: msg_id });
+        }
+        if (outcome.closed) {
+            throw {
+                error: 'auth_window_closed',
+                msg: 'Authentication window was closed by the user without completing the process.',
+            };
+        }
+        const { msg: _msg, msg_id: _msgId, ...result } = outcome.reply;
+        if (!result.success) throw result;
+        puter.setAuthToken(result.token);
+        this.#notifyAuth();
+        return result;
+    }
+
+    /**
+     * Whether `url` is the GUI's start of a provider sign-in that returns as
+     * the popup for sign-in `msgId`.
+     */
+    #isProviderStart (url, msgId) {
+        try {
+            const start = new URL(url);
+            return start.origin === new URL(puter.defaultGUIOrigin).origin &&
+                /^\/auth\/oidc\/[^/]+\/start$/.test(start.pathname) &&
+                start.searchParams.get('embedded_in_popup') === 'true' &&
+                start.searchParams.get('msg_id') === msgId;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * The sign-in in a popup window, opened at `start.url` for sign-in
+     * `start.msgId` when a framed sign-in hands one over.
+     */
+    #signInWithPopup (options, start = {}) {
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
-            const msg_id = signinsession;
+            const msg_id = start.msgId ?? signinsession;
             this.pendingSignInMessageIds_.add(msg_id);
             const popupName = `Puter-sign-in-${signinsession}`;
-            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
+            const url = start.url ?? `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
 
             // Guards against settling the promise more than once across the
             // message, popup-closed, and dialog-cancel code paths.
@@ -188,17 +320,7 @@ export class AuthModule extends PuterModule {
                 consentDialog = null;
             };
 
-            const notifyAuth = () => {
-                if (typeof puter.onAuth !== 'function') return;
-                void (async () => {
-                    try {
-                        const user = await puter.whoamiCache_;
-                        puter.onAuth(user ?? (await puter.getUser()));
-                    } catch (error) {
-                        console.error(error);
-                    }
-                })();
-            };
+            const notifyAuth = () => this.#notifyAuth();
 
             if (window.crossOriginIsolated) {
                 (async () => {
@@ -358,7 +480,7 @@ export class AuthModule extends PuterModule {
                 rejectBlocked();
             }
         });
-    };
+    }
 
     /**
      * Whether the user is currently signed in.
@@ -389,6 +511,10 @@ export class AuthModule extends PuterModule {
      * }}
      */
     getUser = function (...args) {
+        // A tab the GUI opened gets its token moments after loading.
+        if (!puter.authToken && puter.openerLaunch_) {
+            return puter.openerLaunch_.then(() => puter.auth.getUser(...args));
+        }
         if (!puter.authToken) {
             // Fake the server response for backwards compatibility
             // We already know this will fail
@@ -410,26 +536,81 @@ export class AuthModule extends PuterModule {
             };
         }
 
-        return new Promise((resolve, reject) => {
-            const xhr = utils.initXhr(
-                '/whoami',
-                puter.APIOrigin,
-                puter.authToken,
-                'get',
-            );
-
-            // set up event handlers for load and error events
-            utils.setupXhrEventHandlers(
-                xhr,
-                options.success,
-                options.error,
-                resolve,
-                reject,
-            );
-
-            xhr.send();
-        });
+        return puter.auth.requestUser_(options);
     };
+
+    /** @internal `/whoami` for `getUser()` and `puter.getUser()`. */
+    requestUser_(options) {
+        return new Promise((resolve, reject) => {
+            const send = () => {
+                const xhr = utils.initXhr(
+                    '/whoami',
+                    this.puter.APIOrigin,
+                    this.puter.authToken,
+                    'get',
+                );
+                utils.setupXhrEventHandlers(
+                    xhr,
+                    options.success,
+                    options.error,
+                    resolve,
+                    reject,
+                );
+                xhr.send();
+            };
+            const joined = this.joinBootLookup_();
+            if (!joined) return send();
+            joined.then(
+                (user) => {
+                    if (!user) return send();
+                    try {
+                        if (typeof options.success === 'function') {
+                            options.success(user);
+                        }
+                    } finally {
+                        resolve(user);
+                    }
+                },
+                (error) => utils.handle_error(options.error, reject, error),
+            );
+        });
+    }
+
+    /**
+     * @internal Joins the boot `/whoami` in flight for the live token at this
+     * origin: a promise of the caller's own copy of its user, or of null when
+     * the caller should send its own request. Null when there is none to join.
+     *
+     * @param {(reauth: { error: unknown }, body: Record<string, any>) => unknown} [refusalError]
+     * What to reject with when the user declines the sign-in a refused lookup
+     * asks for. Defaults to the sign-in's own error.
+     */
+    joinBootLookup_(refusalError = (reauth) => reauth.error) {
+        const { puter } = this;
+        const inFlight = puter.whoamiInFlight_;
+        if (
+            !inFlight ||
+            inFlight.token !== puter.authToken ||
+            inFlight.origin !== puter.APIOrigin
+        ) {
+            return null;
+        }
+        return inFlight.user.then(async (user) => {
+            // The body is parsed JSON, so this copies all of it.
+            if (user) return JSON.parse(JSON.stringify(user));
+            if (inFlight.refusal) {
+                // Ask the user to sign in, as the caller's own 401 would.
+                const reauth = await resolveReauth(inFlight.refusal, {
+                    sentToken: inFlight.token,
+                });
+                if (reauth?.action === 'reject') {
+                    throw refusalError(reauth, inFlight.refusal);
+                }
+            }
+            if (!puter.authToken) throw { status: 401, message: 'Unauthorized' };
+            return null;
+        });
+    }
 
     /**
      * A user's profile, or `null` when none is available: the user does not
@@ -442,6 +623,9 @@ export class AuthModule extends PuterModule {
      */
     async getProfile(username) {
         try {
+            if (!this.authToken && this.puter.openerLaunch_) {
+                await this.puter.openerLaunch_;
+            }
             if (username === undefined) {
                 if (!this.authToken) return null;
             } else if (
@@ -550,6 +734,9 @@ export class AuthModule extends PuterModule {
      * @returns {Promise<User>}
      */
     async whoami() {
+        if (!this.authToken && this.puter.openerLaunch_) {
+            await this.puter.openerLaunch_;
+        }
         if (!this.authToken) {
             // Fake the server response for backwards compatibility
             // We already know this will fail
@@ -559,20 +746,33 @@ export class AuthModule extends PuterModule {
             };
         }
 
+        // Not always 'Unauthorized': a 502 with an HTML body is not a 401.
+        const refused = (status, body) => ({
+            status,
+            message: body?.message ?? body?.error
+                ?? `whoami failed with status ${status}`,
+            ...(body?.code ? { code: body.code } : {}),
+        });
+
+        // A declined sign-in rejects as this call's own refused request would.
+        const joined = await this.joinBootLookup_(
+            (_reauth, body) => refused(401, body),
+        );
+        if (joined) return joined;
+
         const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
             includePuterAuth: true,
             logContext: { service: 'auth', operation: 'whoami', params: {} },
         });
         // Unchecked, an expired token resolves to an error body typed as a user.
         if (!resp.ok) {
-            const body = await resp.json().catch(() => ({}));
-            // Not always 'Unauthorized': a 502 with an HTML body is not a 401.
-            throw {
-                status: resp.status,
-                message: body?.message ?? body?.error
-                    ?? `whoami failed with status ${resp.status}`,
-                ...(body?.code ? { code: body.code } : {}),
-            };
+            let body = {};
+            try {
+                body = await resp.json();
+            } catch {
+                // No JSON body; the status alone describes the failure.
+            }
+            throw refused(resp.status, body);
         }
         return await resp.json();
     }

@@ -4,9 +4,11 @@ description: List and destroy the events worker a published handler set stands u
 platforms: [websites, apps, nodejs, workers]
 ---
 
+An **events worker** runs published [handlers](/Events/handlers/), the app's own or one user's in a [user scope](/Events/handlers/#user-scope).
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-An **events worker** runs published [handlers](/Events/handlers/), the app's own or one user's in a [user scope](/Events/handlers/#user-scope). It runs them for every event on a subscription with a `handlerName`, whether or not a client is connected, for a [`queue`](/Events/onPersistent/#choosing-a-mode) delivery once no connected client takes it, and for every run of a [schedule](/Events/onSchedule/). Each app has at most one for its own handlers, created when it publishes its first handler. Each user scope is a unit of its own, created when the user's first handler in an app is published, whether by publishing it or by passing an inline `handler`.
+It runs them for every event on a subscription with a `handlerName`, whether or not a client is connected, for a [`queue`](/Events/onPersistent/#choosing-a-mode) delivery once no connected client takes it, and for every run of a [schedule](/Events/onSchedule/). Each app has at most one for its own handlers, created when it publishes its first handler. Each user scope is a unit of its own, created when the user's first handler in an app is published, whether by publishing it or by passing an inline `handler`.
 
 A hosted Puter server may bill each app's events worker as a monthly cost, even if nothing ever delivers to it, and bills a user scope to the user the same way. Use this API to see which apps and scopes have one and remove the ones you don't need.
 
@@ -28,8 +30,12 @@ puter.events.workers.list()
 puter.events.workers.list(options)
 ```
 
-- `options.limit` (Number): Apps per page.
-- `options.cursor` (String): The `cursor` from a previous page. Leave it off to start from the first page.
+The `options` object takes these options:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `limit` | `Number` | Apps per page. |
+| `cursor` | `String` | The `cursor` from a previous page. Leave it off to start from the first page. |
 
 Resolves to `{ items, cursor, deployable }`:
 
@@ -44,7 +50,13 @@ puter.events.workers.destroy(appUid)
 puter.events.workers.destroy(appUid, options)
 ```
 
-- `options.scope` (String): `'app'` or `'user'`. Defaults to `'app'`. `'user'` removes the signed-in user's own scope of the app. Inside an app, `appUid` can only name that app. With an account session, outside an app such as the desktop or Node.js with your account token, `appUid` can name any app you hold a user scope in, and it works even when the server has user-scope handlers turned off.
+The `options` object takes these options:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `scope` | `String` | Either `'app'` or `'user'`. Defaults to `'app'`. With `'user'`, it removes the signed-in user's own scope of the app. |
+
+Inside an app, `appUid` can only name that app. With an account session, outside an app such as the desktop or Node.js with your account token, `appUid` can name any app you hold a user scope in, and it works even when the server has user-scope handlers turned off.
 
 Removes every handler the app has published, or every handler in the user's scope with `scope: 'user'`, the same as calling [`puter.events.handlers.remove()`](/Events/handlers/) on each. Their subscriptions and schedules are suspended with `handler_not_found`, not deleted, and publishing the handlers again resumes them.
 
@@ -66,9 +78,9 @@ Both methods reject with `{ message, code }`:
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |
 
-## Example
+## Examples
 
-<strong class="example-title">List your events workers, and destroy one you no longer need</strong>
+### List your events workers, and destroy one you no longer need
 
 This runs in Node.js signed in with your account token.
 
@@ -83,7 +95,7 @@ const destroyed = await puter.events.workers.destroy(appUid);   // an app you ow
 console.log(`removed ${destroyed.removed}, suspended ${destroyed.suspended}`);
 ```
 
-<strong class="example-title">Remove the signed-in user's scope of your app</strong>
+### Remove the signed-in user's scope of your app
 
 The user scope belongs to the user, so it needs no owner step. In your app, name the app itself. With an account session outside an app, name any app you hold a scope in.
 

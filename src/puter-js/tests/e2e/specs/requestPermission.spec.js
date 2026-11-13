@@ -479,6 +479,80 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
     });
 });
 
+test.describe('puter.perms.request for push the app already holds (env=app)', () => {
+    const PUSH_AND_BACKGROUND = [{ resource: 'pushNotifications' }, { resource: 'backgroundEvents' }];
+
+    // Asked without waiting, since the answer may sit behind the desktop's dialog.
+    const ask = (appFrame, wanted) => appFrame.locator('body').evaluate((_body, request) => {
+        window.__pushRequest = puter.perms.request(request);
+    }, wanted);
+    const answer = (appFrame) => appFrame.locator('body').evaluate(() => window.__pushRequest);
+
+    test('resolves true with no dialog', async ({ page }) => {
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+            const dialog = page.locator('dialog.perm-dialog');
+
+            await ask(appFrame, 'pushNotifications');
+            await expect(dialog).toBeVisible();
+            await dialog.locator('.perm-dialog-allow').click();
+            expect(await answer(appFrame)).toBe(true);
+            await expect(dialog).toHaveCount(0);
+
+            await ask(appFrame, 'pushNotifications');
+            expect(await answer(appFrame)).toBe(true);
+            await expect(dialog).toHaveCount(0);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+
+    test('is not asked again beside access the app is missing', async ({ page }) => {
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+            const dialog = page.locator('dialog.perm-dialog');
+
+            await ask(appFrame, 'pushNotifications');
+            await expect(dialog).toBeVisible();
+            await dialog.locator('.perm-dialog-allow').click();
+            expect(await answer(appFrame)).toBe(true);
+            await expect(dialog).toHaveCount(0);
+
+            // Only the background access is left to ask about.
+            await ask(appFrame, PUSH_AND_BACKGROUND);
+            await expect(dialog).toBeVisible();
+            await expect(dialog.locator('.perm-dialog-permission')).toHaveCount(1);
+            await dialog.locator('.perm-dialog-allow').click();
+            expect(await answer(appFrame)).toEqual([true, true]);
+            await expect(dialog).toHaveCount(0);
+
+            await ask(appFrame, PUSH_AND_BACKGROUND);
+            expect(await answer(appFrame)).toEqual([true, true]);
+            await expect(dialog).toHaveCount(0);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+
+    test('is asked with the other access when the app holds neither', async ({ page }) => {
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+            const dialog = page.locator('dialog.perm-dialog');
+
+            await ask(appFrame, PUSH_AND_BACKGROUND);
+            await expect(dialog).toBeVisible();
+            await expect(dialog.locator('.perm-dialog-permission')).toHaveCount(2);
+            await dialog.locator('.perm-dialog-deny').click();
+            expect(await answer(appFrame)).toEqual([false, false]);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+});
+
 test.describe('puter.ui.requestPermission creates a missing path by default (env=app)', () => {
     test('deny creates nothing; allow creates the directory and resolves true', async ({ page }) => {
         const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });

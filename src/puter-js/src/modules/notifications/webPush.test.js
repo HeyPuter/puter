@@ -21,6 +21,7 @@ vi.mock('./lib/pushStore.js', () => {
         SERVER_KEYS_ENTRY: 'puter:server-keys',
         SYNCED_PREFIX: 'puter:synced:',
         SUBSCRIPTION_CHANGED_PREFIX: 'puter:subscription-changed:',
+        RECEIPT_PREFIX: 'puter:receipt:',
         TAP_BASE_PREFIX: 'puter:tap-base:',
         CLICK_KEEP_MS: 5 * 60 * 1000,
         takeClick: stored(async (uid, id) => {
@@ -60,11 +61,15 @@ vi.mock('./lib/pushStore.js', () => {
     };
 });
 
-const { syncWebPush, removeWebPush, fromBase64Url, workerFor } =
-    await import('./lib/webPush.js');
-const { NotificationsModule, tapUrl } = await import('./index.js');
+const {
+    syncWebPush,
+    removeWebPush,
+    unsubscribeWebPush,
+    fromBase64Url,
+    workerFor,
+} = await import('./lib/webPush.js');
+const { NotificationsModule } = await import('./index.js');
 const { PuterJSError } = await import('../../lib/PuterJSError.js');
-const { shownFrom } = await import('./onPush.js');
 
 const ORIGIN = 'https://app.example';
 const SCRIPT = `${ORIGIN}/puter-sw.js`;
@@ -886,93 +891,6 @@ describe('workerFor', () => {
         expect(workerFor('gui')).toEqual({ url: '/sw.js', scope: '/' });
         expect(workerFor('web')).toEqual({ url: '/puter-sw.js' });
         expect(workerFor('web', '/js/sw.js')).toEqual({ url: '/js/sw.js' });
-    });
-});
-
-describe('shownFrom', () => {
-    const notification = {
-        uid: 'n1',
-        title: 'Hi',
-        text: 'body',
-        icon: null,
-        target: '/chat/1',
-        group: null,
-        app: { uid: 'app-1', name: 'Chat' },
-    };
-
-    it('defaults to the notification`s own fields', () => {
-        expect(shownFrom(notification, undefined)).toEqual({
-            title: 'Hi',
-            body: 'body',
-            tag: 'n1',
-            url: '/chat/1',
-        });
-    });
-
-    it('takes only the shown fields a handler returns as strings', () => {
-        expect(
-            shownFrom(notification, { title: 'New', body: 7, onclick: 'x' }),
-        ).toEqual({ title: 'New', body: 'body', tag: 'n1', url: '/chat/1' });
-    });
-
-    it('keeps the first two valid buttons and only their display fields', () => {
-        expect(shownFrom(notification, { actions: [
-            null, {}, { action: '', title: 'Empty' },
-            { action: ' ', title: 'Blank' }, { action: 1, title: 'Number' },
-            { action: 'x'.repeat(65), title: 'Long id' },
-            { action: 'bad', title: '' }, { action: 'bad', title: ' ' },
-            { action: 'bad', title: 1 }, { action: 'bad', title: 'x'.repeat(65) },
-            { action: 'accept', title: 'Accept', icon: '/accept.png', extra: 'dropped' },
-            { action: 'd'.repeat(64), title: 'D'.repeat(64), icon: 3 },
-            { action: 'third', title: 'Third' },
-        ] }).actions).toEqual([
-            { action: 'accept', title: 'Accept', icon: '/accept.png' },
-            { action: 'd'.repeat(64), title: 'D'.repeat(64) },
-        ]);
-    });
-
-    it.each([null, 'accept', { action: 'accept', title: 'Accept' }])(
-        'ignores non-array actions: %s', (actions) => {
-            expect(shownFrom(notification, { actions })).not.toHaveProperty('actions');
-        },
-    );
-
-    it('tags a grouped notification as the server tags its push', () => {
-        expect(shownFrom({ ...notification, group: 'room-1' }).tag).toBe(
-            'app-1:room-1',
-        );
-    });
-
-    it('falls back to the app`s icon', () => {
-        const app = { ...notification.app, icon: 'https://cdn.test/app.png' };
-        expect(shownFrom({ ...notification, app }).icon).toBe(
-            'https://cdn.test/app.png',
-        );
-    });
-
-    it('names only the app for a sensitive notification, whatever the handler says', () => {
-        expect(
-            shownFrom(
-                { ...notification, group: 'room-1', sensitive: true },
-                { title: 'Secret', body: 'secret', actions: [{ action: 'secret', title: 'Secret' }] },
-            ),
-        ).toEqual({
-            title: 'Chat',
-            body: 'New notification from Chat',
-            tag: 'n1',
-        });
-    });
-});
-
-describe('tapUrl', () => {
-    it('reads relative paths from the worker`s scope and stays on its origin', () => {
-        const scope = `${ORIGIN}/app/`;
-        expect(tapUrl(undefined, scope)).toBe(`${ORIGIN}/app/`);
-        expect(tapUrl('chat/1', scope)).toBe(`${ORIGIN}/app/chat/1`);
-        expect(tapUrl('/chat/1', scope)).toBe(`${ORIGIN}/chat/1`);
-        expect(tapUrl('https://elsewhere.example/x', scope)).toBe(
-            `${ORIGIN}/app/`,
-        );
     });
 });
 
@@ -1862,12 +1780,11 @@ describe('onPush', () => {
         });
     });
 
-    describe('live delivery while the user is elsewhere', () => {
+    describe('live delivery', () => {
         let nav;
         const page = ({ visibilityState = 'visible', focused = true } = {}) => {
             globalThis.document = { visibilityState, hasFocus: () => focused };
         };
-        const away = () => page({ visibilityState: 'hidden', focused: false });
 
         beforeEach(() => {
             store.set(OPT_IN, true);
@@ -1882,383 +1799,37 @@ describe('onPush', () => {
         });
 
         it.each([
+            ['focused', {}],
             ['hidden', { visibilityState: 'hidden', focused: false }],
             ['visible in an unfocused window', { focused: false }],
         ])(
-            'shows the handler`s result when the page is %s',
+            'runs the handler and leaves showing it to the push when the page is %s',
             async (_, state) => {
                 page(state);
+                const handler = vi.fn(() => ({ title: 'From the handler' }));
                 const { module, feed } = makeModule();
-                await module.onPush('chat', () => ({
-                    title: 'From the handler',
-                }));
+                await module.onPush('chat', handler);
                 await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-                expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                    'From the handler',
-                    expect.objectContaining({
-                        tag: 'n1',
-                        renotify: false,
-                        data: {
-                            puter: expect.objectContaining({
-                                uid: 'n1',
-                                url: `${ORIGIN}/`,
-                            }),
-                        },
-                    }),
+                expect(handler).toHaveBeenCalledWith(
+                    expect.objectContaining({ uid: 'n1' }),
                 );
+                expect(nav.registration.showNotification).not.toHaveBeenCalled();
             },
         );
 
-        it.each([true, false, 'true', 1, null, undefined])(
-            'passes only a boolean requireInteraction to the browser: %s',
-            async (requireInteraction) => {
-                away();
-                const { module, feed } = makeModule();
-                await module.onPush('chat', () => ({ requireInteraction }));
-                await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-                const options =
-                    nav.registration.showNotification.mock.calls[0][1];
-                if (typeof requireInteraction === 'boolean')
-                    expect(options.requireInteraction).toBe(requireInteraction);
-                else expect(options).not.toHaveProperty('requireInteraction');
-            },
-        );
-
-        it('passes action buttons through the page display path', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({
-                actions: [{ action: 'accept', title: 'Accept' }],
-            }));
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).toHaveBeenCalledWith('Hi', expect.objectContaining({
-                actions: [{ action: 'accept', title: 'Accept' }],
-            }));
-        });
-
-        it('closes the OS notification this page showed when its uid is dismissed', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            const { data } = nav.registration.showNotification.mock.calls[0][1];
-            const close = vi.fn();
-            nav.registration.getNotifications = vi.fn(async () => [{ data, close }]);
-            await module._receiveDismissal('n1');
-            expect(close).toHaveBeenCalledOnce();
-        });
-
-        it('keeps a late live posting from reopening a dismissed notification', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await module._receiveDismissal('n1');
-            module._noteReceived('n1');
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Late' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('keeps a slow handler from showing an already dismissed notification', async () => {
-            away();
-            const { module, feed } = makeModule();
-            let finish;
-            await module.onPush('chat', () => new Promise((resolve) => { finish = resolve; }));
-            const delivery = feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            await module._receiveDismissal('n1');
-            finish({ title: 'Too late' });
-            await delivery;
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows a notification no handler takes, as sent', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({ title: 'not this one' }));
-            await feed.deliver({
-                uid: 'n1',
-                channel: null,
-                title: 'Hi',
-                text: 'there',
-                target: '/c/1',
-            });
-            expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                'Hi',
-                expect.objectContaining({
-                    body: 'there',
-                    data: {
-                        puter: expect.objectContaining({
-                            url: `${ORIGIN}/c/1`,
-                        }),
-                    },
-                }),
-            );
-        });
-
-        it('tags a grouped notification as its push and alerts again', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await feed.deliver({
-                uid: 'n1',
-                channel: 'chat',
-                title: 'Hi',
-                group: 'room-1',
-                app: { uid: 'app-1', name: 'Chat' },
-            });
-            expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                'Hi',
-                expect.objectContaining({
-                    tag: 'app-1:room-1',
-                    renotify: true,
-                }),
-            );
-        });
-
-        it('names only the app for a sensitive notification', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({ title: 'Secret' }));
-            await feed.deliver({
-                uid: 'n1',
-                channel: 'chat',
-                title: 'Secret',
-                target: '/secret',
-                data: { id: 1 },
-                sensitive: true,
-                app: { uid: 'app-1', name: 'Chat' },
-            });
-            expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                'Chat',
-                {
-                    body: 'New notification from Chat',
-                    tag: 'n1',
-                    renotify: false,
-                    data: {
-                        puter: {
-                            uid: 'n1',
-                            target: null,
-                            data: null,
-                            url: `${ORIGIN}/`,
-                        },
-                    },
-                },
-            );
-        });
-
-        it('shows the notification when its handler outlasts 5 seconds', async () => {
-            vi.useFakeTimers();
-            away();
-            const onError = vi.fn();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => new Promise(() => {}), {
-                onError,
-            });
-            const delivered = feed.deliver({
-                uid: 'n1',
-                channel: 'chat',
-                title: 'Hi',
-            });
-            await vi.advanceTimersByTimeAsync(5_000);
-            await delivered;
-            expect(onError).toHaveBeenCalledWith(
-                expect.objectContaining({ code: 'push_handler_timeout' }),
-            );
-            expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                'Hi',
-                expect.any(Object),
-            );
-        });
-
-        it('looks up the registration of the worker it was given', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {}, {
-                serviceWorker: '/js/sw.js',
-            });
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.serviceWorker.getRegistration).toHaveBeenLastCalledWith(
-                '/js/sw.js',
-            );
-        });
-
-        it('reads the tap URL from the saved tap base', async () => {
-            away();
-            nav.registration.scope = `${ORIGIN}/puter/`;
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({ url: 'chat/1' }), {
-                serviceWorker: '/puter/puter-sw.js',
-            });
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(
-                nav.registration.showNotification.mock.calls[0][1].data.puter
-                    .url,
-            ).toBe(`${ORIGIN}/chat/1`);
-        });
-
-        it('reads the tap URL from the worker`s scope', async () => {
-            away();
-            nav.registration.scope = `${ORIGIN}/app/`;
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(
-                nav.registration.showNotification.mock.calls[0][1].data.puter
-                    .url,
-            ).toBe(`${ORIGIN}/app/`);
-        });
-
-        it('hands the notification to push-sw.js, which may hold it back', async () => {
-            away();
-            const posted = [];
-            nav.registration.active = {
-                scriptURL: SCRIPT,
-                postMessage: (message, [port]) => {
-                    posted.push(message);
-                    port.postMessage({ shown: false });
-                },
-            };
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({ actions: [{ action: 'accept', title: 'Accept' }] }));
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(posted).toEqual([
-                {
-                    type: 'puter-push-show',
-                    title: 'Hi',
-                    options: expect.objectContaining({ tag: 'n1', actions: [{ action: 'accept', title: 'Accept' }] }),
-                },
-            ]);
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows it itself when an older push-sw.js never answers', async () => {
-            vi.useFakeTimers();
-            away();
-            nav.registration.active = {
-                scriptURL: SCRIPT,
-                postMessage: vi.fn(),
-            };
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            const delivered = feed.deliver({
-                uid: 'n1',
-                channel: 'chat',
-                title: 'Hi',
-            });
-            await vi.advanceTimersByTimeAsync(2_000);
-            await delivered;
-            expect(nav.registration.active.postMessage).toHaveBeenCalled();
-            expect(nav.registration.showNotification).toHaveBeenCalledTimes(1);
-        });
-
-        it('shows nothing while push is off here for the user', async () => {
-            store.delete(OPT_IN);
-            away();
-            const { module, feed } = makeModule();
+        it('never says it shows its own notification', async () => {
+            page({ visibilityState: 'hidden', focused: false });
+            const { module } = makeModule();
             await module.onPush('chat', () => {});
             await flush();
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows nothing after disable()', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await flush();
-            await module.disable();
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows nothing while the page has focus', async () => {
-            page();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows nothing inside the Puter desktop, which shows its own banner', async () => {
-            page({ focused: false });
-            const { module, feed } = makeModule({ env: 'app' });
-            await module.onPush('chat', () => {});
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-    });
-
-    describe('receipts', () => {
-        const answer = (module) => {
             const ack = vi.fn();
             module._noteReceived('n1');
             module._answerReceipt({ uid: 'n1' }, ack);
-            return ack.mock.calls[0][0];
-        };
-
-        it('says the page shows its own notification while its push feed runs', async () => {
-            store.set(OPT_IN, true);
-            withBrowser(makeNav());
-            const { module } = makeModule();
-            expect(answer(module).showsOwn).toBe(false);
-            const listener = await module.onPush('chat', () => {});
-            await flush();
-            expect(answer(module).showsOwn).toBe(true);
-            await listener.off();
-            expect(answer(module).showsOwn).toBe(false);
-        });
-
-        it('says it does not while push is off here, so pushes reach other devices', async () => {
-            withBrowser(makeNav({ existing: makeSubscription() }));
-            mockRequest.mockResolvedValue({ removed: true });
-            const { module } = makeModule();
-            await module.onPush('chat', () => {});
-            await flush();
-            expect(answer(module).showsOwn).toBe(false);
-
-            store.set(OPT_IN, true);
-            const { module: optedIn } = makeModule();
-            await optedIn.onPush('chat', () => {});
-            await flush();
-            expect(answer(optedIn).showsOwn).toBe(true);
-            await optedIn.disable();
-            expect(answer(optedIn).showsOwn).toBe(false);
-        });
-
-        it('hears another tab turn push off or on', async () => {
-            store.set(OPT_IN, true);
-            withBrowser(makeNav({ existing: makeSubscription() }));
-            server((route) =>
-                route === '/push/web/subscriptions'
-                    ? { status: 'active', device: { uid: 'd1' } }
-                    : { removed: true },
-            );
-            const { module: hidden } = makeModule();
-            await hidden.onPush('chat', () => {});
-            await vi.waitFor(() => expect(answer(hidden).showsOwn).toBe(true));
-
-            const { module: other } = makeModule();
-            await other.disable();
-            await vi.waitFor(() => expect(answer(hidden).showsOwn).toBe(false));
-
-            await other.enable();
-            await vi.waitFor(() => expect(answer(hidden).showsOwn).toBe(true));
-        });
-
-        it('says it does not without a registered worker or permission', async () => {
-            store.set(OPT_IN, true);
-            const nav = makeNav();
-            nav.serviceWorker.getRegistration.mockResolvedValue(undefined);
-            withBrowser(nav);
-            const { module } = makeModule();
-            await module.onPush('chat', () => {});
-            await flush();
-            expect(answer(module).showsOwn).toBe(false);
-
-            withBrowser(makeNav(), 'denied');
-            const { module: denied } = makeModule();
-            await denied.onPush('chat', () => {});
-            await flush();
-            expect(answer(denied).showsOwn).toBe(false);
+            expect(ack).toHaveBeenCalledWith({
+                received: true,
+                visibilityState: 'hidden',
+                focused: false,
+            });
         });
     });
 });
@@ -2570,14 +2141,14 @@ describe('enable', () => {
         );
     });
 
-    it('rejects user_gesture_required outside a click, without prompting', async () => {
+    it('rejects user_gesture_required outside a click in the Puter GUI, without prompting', async () => {
         withBrowser(makeNav(), 'default');
         Object.defineProperty(globalThis.navigator, 'userActivation', {
             value: { isActive: false },
             configurable: true,
         });
         try {
-            const { module } = makeModule();
+            const { module } = makeModule({ env: 'gui' });
             await expect(module.enable()).rejects.toMatchObject({
                 code: 'user_gesture_required',
             });
@@ -2669,6 +2240,77 @@ describe('enable after the user removed this browser in Puter', () => {
         expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
         expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(1);
         expect(store.get(OPT_IN)).toBe(true);
+    });
+
+    describe('in the Puter GUI', () => {
+        const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
+        /** A browser holding a removed subscription and its receipt. */
+        const removedHere = () => {
+            const removed = makeSubscription(
+                undefined,
+                'https://push.example/1',
+            );
+            store.set(RECEIPT, {
+                endpoint: 'https://push.example/1',
+                receipt: 'r-1',
+            });
+            const nav = makeNav({
+                existing: removed,
+                active: { scriptURL: `${ORIGIN}/sw.js` },
+            });
+            nav.pushManager.subscribe.mockResolvedValue(
+                makeSubscription(undefined, 'https://push.example/2'),
+            );
+            withBrowser(nav);
+            server((route, body) => {
+                if (body.subscription.endpoint === 'https://push.example/1')
+                    throw new PuterJSError('removed', 'push_device_removed');
+                return { status: 'active', device: { uid: 'd2' } };
+            });
+            return { removed, nav };
+        };
+        const announced = () =>
+            mockRequest.mock.calls
+                .filter(([, , route]) => route === '/push/web/subscriptions')
+                .map(([, , , body]) => body);
+        /** Whether each call to `route` could open Puter's sign-in. */
+        const reauthOf = (route) =>
+            mockRequest.mock.calls
+                .filter(([, , r]) => r === route)
+                .map(([, , , , options]) => options?.interactiveReauth);
+
+        it('replaces the removed subscription for a click', async () => {
+            const { removed, nav } = removedHere();
+            const { module } = makeModule({ env: 'gui' });
+            await expect(module.enable()).resolves.toBe(true);
+            expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(1);
+            expect(reauthOf('/push/web/key')).toEqual([true]);
+        });
+
+        it('leaves it removed in the background, and forgets its receipt', async () => {
+            const { removed, nav } = removedHere();
+            const { module } = makeModule({ env: 'gui' });
+            await expect(
+                module._enableWebPush(workerFor('gui'), { background: true }),
+            ).rejects.toMatchObject({ code: 'push_device_removed' });
+            expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+            expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(announced()).toEqual([
+                expect.objectContaining({ receipt: 'r-1' }),
+            ]);
+            expect(store.has(RECEIPT)).toBe(false);
+        });
+
+        it('opens no sign-in for a rejected token in the background', async () => {
+            removedHere();
+            const { module } = makeModule({ env: 'gui' });
+            await module
+                ._enableWebPush(workerFor('gui'), { background: true })
+                .catch(() => {});
+            expect(reauthOf('/push/web/key')).toEqual([false]);
+            expect(reauthOf('/push/web/subscriptions')).toEqual([false]);
+        });
     });
 });
 
@@ -3307,5 +2949,308 @@ describe('a different user signing in', () => {
         await flush();
         host.setAuthToken('token-b');
         await vi.waitFor(() => expect(deletes()).toHaveLength(1));
+    });
+});
+
+
+describe('receipts for a confirmed subscription', () => {
+    const ENDPOINT = 'https://push.example/send/abc';
+    const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
+    const gui = { ...puter, env: 'gui' };
+    const guiWorker = workerFor('gui');
+    const guiNav = (over = {}) =>
+        makeNav({ active: { scriptURL: `${ORIGIN}/sw.js` }, ...over });
+    const sync = (nav, options = {}) =>
+        syncWebPush(gui, { worker: guiWorker, nav, ...options });
+    const announced = () =>
+        mockRequest.mock.calls
+            .filter(([, , route]) => route === '/push/web/subscriptions')
+            .map(([, , , body]) => body);
+    /** Answers `active` only to an announce that carries `r-1`. */
+    const serverWithReceipts = (nav) =>
+        server((route, body) => {
+            if (route === '/push/web/subscriptions') {
+                if (body.receipt === 'r-1')
+                    return {
+                        status: 'active',
+                        device: { uid: 'd1' },
+                        receipt: 'r-2',
+                    };
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            return { device: { uid: 'd2' }, receipt: 'r-3' };
+        });
+
+    it('sends the kept receipt with the announce when it is for this endpoint', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        serverWithReceipts(nav);
+        await expect(sync(nav)).resolves.toEqual({ uid: 'd1' });
+        expect(announced()).toEqual([
+            {
+                subscription: {
+                    endpoint: ENDPOINT,
+                    keys: { p256dh: 'p', auth: 'a' },
+                },
+                receipt: 'r-1',
+            },
+        ]);
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-2',
+        });
+    });
+
+    it('leaves out and forgets a receipt kept for another endpoint', async () => {
+        store.set(RECEIPT, {
+            endpoint: 'https://push.example/other',
+            receipt: 'r-1',
+        });
+        const nav = guiNav({ existing: makeSubscription() });
+        let keptAtAnnounce;
+        server((route) => {
+            if (route === '/push/web/subscriptions') {
+                keptAtAnnounce = store.has(RECEIPT);
+                return { status: 'active', device: { uid: 'd1' } };
+            }
+        });
+        await sync(nav);
+        expect(announced()[0]).not.toHaveProperty('receipt');
+        expect(keptAtAnnounce).toBe(false);
+    });
+
+    it('keeps the receipt the verify answer gives', async () => {
+        const nav = guiNav();
+        serverWithReceipts(nav);
+        await sync(nav);
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-3',
+        });
+    });
+
+    it('forgets a receipt the server answers pending to', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-0' });
+        const nav = guiNav({ existing: makeSubscription() });
+        let keptAtVerify;
+        server((route) => {
+            if (route === '/push/web/subscriptions') {
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            keptAtVerify = store.has(RECEIPT);
+            return { device: { uid: 'd2' } };
+        });
+        await sync(nav);
+        expect(announced()[0].receipt).toBe('r-0');
+        expect(keptAtVerify).toBe(false);
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('keeps a receipt when the announce fails', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        server(() => {
+            throw new PuterJSError('later', 'too_many_requests');
+        });
+        await expect(sync(nav)).rejects.toMatchObject({
+            code: 'too_many_requests',
+        });
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-1',
+        });
+    });
+
+    it('keeps the new receipt when push is turned off during the announce', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        const stop = new AbortController();
+        server(() => {
+            stop.abort();
+            return { status: 'active', device: { uid: 'd1' }, receipt: 'r-2' };
+        });
+        await expect(sync(nav, { signal: stop.signal })).rejects.toThrow();
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-2',
+        });
+    });
+
+    it('is neither sent nor kept outside the Puter GUI', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = makeNav({ existing: makeSubscription() });
+        server(() => ({
+            status: 'active',
+            device: { uid: 'd1' },
+            receipt: 'r-2',
+        }));
+        await syncWebPush(puter, { worker, nav });
+        expect(announced()[0]).not.toHaveProperty('receipt');
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-1',
+        });
+    });
+
+    it('works as before with a server that gives no receipts', async () => {
+        const nav = guiNav();
+        server((route) => {
+            if (route === '/push/web/subscriptions') {
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            return { device: { uid: 'd2' } };
+        });
+        await expect(sync(nav)).resolves.toEqual({ uid: 'd2' });
+        expect(store.has(RECEIPT)).toBe(false);
+        mockRequest.mockClear();
+        nav.pushManager.getSubscription.mockResolvedValue(makeSubscription());
+        server();
+        await expect(sync(nav)).resolves.toEqual({ uid: 'd1' });
+        expect(announced()[0]).not.toHaveProperty('receipt');
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten when a subscription made with another key is replaced', async () => {
+        store.set(RECEIPT, {
+            endpoint: 'https://push.example/old',
+            receipt: 'r-1',
+        });
+        const stale = makeSubscription(
+            fromBase64Url(OLD_KEY),
+            'https://push.example/old',
+        );
+        const nav = guiNav({ existing: stale });
+        stale.unsubscribe.mockImplementation(async () => {
+            return true;
+        });
+        server();
+        await sync(nav);
+        expect(stale.unsubscribe).toHaveBeenCalled();
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten when a removed subscription is renewed', async () => {
+        store.set(RECEIPT, {
+            endpoint: 'https://push.example/1',
+            receipt: 'r-1',
+        });
+        const removed = makeSubscription(undefined, 'https://push.example/1');
+        const nav = guiNav({ existing: removed });
+        nav.pushManager.subscribe.mockResolvedValue(
+            makeSubscription(undefined, 'https://push.example/2'),
+        );
+        server((route, body) => {
+            if (body.subscription.endpoint === 'https://push.example/1')
+                throw new PuterJSError('removed', 'push_device_removed');
+            return { status: 'active', device: { uid: 'd6' } };
+        });
+        await sync(nav, { renewRemoved: true });
+        expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten by removeWebPush', async () => {
+        store.set(SERVER_KEY, KEY);
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        mockRequest.mockResolvedValue({ removed: true });
+        await removeWebPush(gui, {
+            worker: guiWorker,
+            nav: guiNav({ existing: makeSubscription() }),
+        });
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten by disable() in the Puter GUI', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        mockRequest.mockResolvedValue({ removed: true });
+        await makeModule({ env: 'gui' }).module.disable();
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten once status() hears the subscription is removed', async () => {
+        store.set(OPT_IN, true);
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        mockRequest.mockResolvedValue({ state: 'removed' });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.status()).resolves.toBe('off');
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is kept when status() hears this account turned the app off in Puter', async () => {
+        store.set(OPT_IN, true);
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        mockRequest.mockResolvedValue({ state: 'revoked' });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.status()).resolves.toBe('off');
+        expect(store.has(RECEIPT)).toBe(true);
+    });
+
+    it('is kept when enable() hears this account turned the app off in Puter', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        server(() => {
+            throw new PuterJSError('off', 'push_revoked');
+        });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.enable()).rejects.toMatchObject({
+            code: 'push_revoked',
+        });
+        expect(store.has(RECEIPT)).toBe(true);
+    });
+
+    it('is forgotten by _forgetPushReceipt, at the registration`s scope', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        const { module } = makeModule({ env: 'gui' });
+        await module._forgetPushReceipt();
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('_forgetPushReceipt never throws without service workers', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser({});
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module._forgetPushReceipt()).resolves.toBeUndefined();
+    });
+
+    it('lets the Puter GUI turn push on for the next account at once, without a confirmation push', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server((route, body) =>
+            route === '/push/web/subscriptions' && body.receipt === 'r-1'
+                ? { status: 'active', device: { uid: 'd1' }, receipt: 'r-2' }
+                : { status: 'pending' },
+        );
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.enable()).resolves.toBe(true);
+        expect(
+            mockRequest.mock.calls.map(([, , route]) => route),
+        ).not.toContain('/push/web/subscriptions/verify');
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-2',
+        });
     });
 });
