@@ -129,9 +129,9 @@ describe('pipeStreamResult', () => {
         expect(warn).not.toHaveBeenCalled();
     });
 
-    it('adds at most two close listeners to the response', async () => {
-        // The response already carries close listeners from metering,
-        // compression and tracing; Node warns past ten.
+    it('adds no close listener beyond the one pipe adds', async () => {
+        // The response already carries close listeners from middleware and
+        // request tracing; Node warns past ten.
         let added = -1;
         server = createServer((_req, res) => {
             const before = res.listenerCount('close');
@@ -146,8 +146,7 @@ describe('pipeStreamResult', () => {
                 res.on('end', () => resolve());
             }),
         );
-        expect(added).toBeGreaterThan(0);
-        expect(added).toBeLessThanOrEqual(2);
+        expect(added).toBe(1);
     });
 
     it('drops the source, without throwing, when the client left before the result was ready', async () => {

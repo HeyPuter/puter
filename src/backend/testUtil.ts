@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { ServerResponse, type IncomingMessage } from 'node:http';
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -522,6 +523,59 @@ export const lagReadReplica = async (
             });
             frozen?.onServerShutdown();
             if (frozenDir) rmSync(frozenDir, { recursive: true, force: true });
+        },
+    };
+};
+
+/**
+ * The most `close` listeners the backend may leave on one response. Request
+ * tracing adds up to five of its own, and Node warns past ten.
+ */
+export const RESPONSE_CLOSE_LISTENER_BUDGET = 5;
+
+/**
+ * Records the most `close` listeners each server response held at once. The
+ * hook is process-wide, so call `restore` when done.
+ */
+export const trackResponseCloseListeners = () => {
+    const peaks = new Map<ServerResponse, number>();
+    const proto = ServerResponse.prototype as unknown as Record<
+        string,
+        (
+            this: ServerResponse,
+            event: string | symbol,
+            listener: unknown,
+        ) => unknown
+    >;
+    const methods = ['on', 'addListener', 'prependListener'];
+    const own = methods.map((m) => Object.getOwnPropertyDescriptor(proto, m));
+    for (const method of methods) {
+        const original = proto[method]!;
+        proto[method] = function (event, listener) {
+            const result = original.call(this, event, listener);
+            if (event === 'close') {
+                const count = this.listenerCount('close');
+                peaks.set(this, Math.max(peaks.get(this) ?? 0, count));
+            }
+            return result;
+        };
+    }
+    return {
+        /** The highest count on any response to a request `match` accepts. */
+        peak: (match: (req: IncomingMessage) => boolean): number =>
+            Math.max(
+                0,
+                ...[...peaks]
+                    .filter(([res]) => match(res.req))
+                    .map(([, count]) => count),
+            ),
+        restore: () => {
+            methods.forEach((method, i) => {
+                const descriptor = own[i];
+                if (descriptor)
+                    Object.defineProperty(proto, method, descriptor);
+                else delete proto[method];
+            });
         },
     };
 };
