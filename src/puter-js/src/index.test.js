@@ -286,6 +286,76 @@ describe('web-mode stored token', () => {
     });
 });
 
+describe('godmode app in a tab the GUI opened', () => {
+    const TAB = '?puter.app_instance_id=i';
+
+    /** Boots a top-level tab whose GUI opener hands it `token`. */
+    const bootTab = async (token) => {
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) =>
+                window.dispatchEvent(
+                    new MessageEvent('message', {
+                        origin: guiOrigin,
+                        source: opener,
+                        data: {
+                            msg: 'puter.launch',
+                            appInstanceID: data.appInstanceID,
+                            token,
+                        },
+                    }),
+                ),
+        };
+        Object.defineProperty(globalThis, 'opener', {
+            value: opener,
+            configurable: true,
+            writable: true,
+        });
+        const puter = await bootWeb(TAB);
+        await puter.openerLaunch_;
+        return puter;
+    };
+
+    afterEach(() => {
+        globalThis.opener = null;
+    });
+
+    it('keeps the handed-over token in sessionStorage, so a reload has it', async () => {
+        const puter = await bootTab(GODMODE_TOKEN);
+        expect(puter.env).toBe('web');
+        expect(puter.authToken).toBe(GODMODE_TOKEN);
+        expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBe(GODMODE_TOKEN);
+
+        // The opener was cut off, so the reload has only what it stored.
+        expect(globalThis.opener).toBeNull();
+        const reloaded = await bootWeb(TAB);
+        expect(reloaded.authToken).toBe(GODMODE_TOKEN);
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBe(GODMODE_TOKEN);
+    });
+
+    it('reloads on the godmode token over an app token stored earlier', async () => {
+        localStorage.setItem(STORAGE_KEY, APP_TOKEN);
+        localStorage.setItem(ORIGIN_KEY, 'https://api.puter.com');
+        await bootTab(GODMODE_TOKEN);
+
+        const reloaded = await bootWeb(TAB);
+        expect(reloaded.authToken).toBe(GODMODE_TOKEN);
+    });
+
+    it('drops the sessionStorage copy on sign-out', async () => {
+        const puter = await bootTab(GODMODE_TOKEN);
+        puter.resetAuthToken();
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+
+    it('still keeps an app token in localStorage only', async () => {
+        await bootTab(APP_TOKEN);
+        expect(localStorage.getItem(STORAGE_KEY)).toBe(APP_TOKEN);
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+});
+
 describe('GUI cache refresh', () => {
     it('keeps one refresh loop however often the token is set', async () => {
         const puter = await bootApp(`${LAUNCH}${APP_TOKEN}`);
