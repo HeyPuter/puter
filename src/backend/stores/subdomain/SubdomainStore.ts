@@ -625,7 +625,9 @@ export class SubdomainStore extends PuterStore {
         /** A system site nobody may delete or rename; see `protected` above. */
         isProtected?: boolean;
     }) {
-        if (!userId || !subdomain) {
+        // Stored the way lookups ask for it.
+        const name = normalizeName(subdomain ?? '');
+        if (!userId || !name) {
             throw new Error('create: userId and subdomain are required');
         }
         await this.clients.db.write(
@@ -634,7 +636,7 @@ export class SubdomainStore extends PuterStore {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 uuid,
-                subdomain,
+                name,
                 userId,
                 rootDirId ?? null,
                 associatedAppId,
@@ -646,7 +648,7 @@ export class SubdomainStore extends PuterStore {
 
         const row = {
             uuid,
-            subdomain,
+            subdomain: name,
             user_id: userId,
             root_dir_id: rootDirId ?? null,
             associated_app_id: associatedAppId,

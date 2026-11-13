@@ -184,6 +184,22 @@ describe('SubdomainStore cache coherency', () => {
         expect((await store.getBySubdomains([spelled])).size).toBe(0);
     });
 
+    it('stores a name the way lookups ask for it', async () => {
+        const userId = await makeUser();
+        const subdomain = `sds-stored-${Math.random().toString(36).slice(2, 8)}`;
+        const row = await store.create({
+            userId,
+            subdomain: ` ${subdomain.toUpperCase()} `,
+            rootDirId: 6,
+        });
+        expect(row.subdomain).toBe(subdomain);
+
+        // From the database, not the row `create` cached.
+        const read = await store.getBySubdomain(subdomain, { primary: true });
+        expect(read?.uuid).toBe(row.uuid);
+        expect(read?.subdomain).toBe(subdomain);
+    });
+
     it('a create clears a miss cached under another spelling', async () => {
         const userId = await makeUser();
         const subdomain = `sds-miss-${Math.random().toString(36).slice(2, 8)}`;
