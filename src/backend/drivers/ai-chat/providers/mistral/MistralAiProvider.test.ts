@@ -83,7 +83,10 @@ let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
 
 beforeAll(async () => {
-    server = await setupTestServer();
+    // The key puts Mistral on the server's own chat driver.
+    server = await setupTestServer({
+        providers: { mistral: { apiKey: 'test-key' } },
+    });
 });
 
 afterAll(async () => {
@@ -224,7 +227,7 @@ describe('MistralAIProvider model catalog', () => {
             modalities: { input: ['text', 'image'], output: ['text'] },
             tool_call: true,
             context: 1_000_000,
-            max_tokens: 1_000_000,
+            max_tokens: 262_144,
             open_weights: true,
             costs_currency: 'usd-cents',
             costs: {
@@ -235,6 +238,36 @@ describe('MistralAIProvider model catalog', () => {
             },
         });
     });
+
+    it.each(['mistral-large-4', 'mistral-large-latest'])(
+        'asks for no more output from %s than Mistral accepts',
+        async (model) => {
+            // Credit for far more output than the context window holds.
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 1e12, held: 0 });
+            completeMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: { content: 'hi', role: 'assistant' },
+                        finishReason: 'stop',
+                    },
+                ],
+                usage: { promptTokens: 1, completionTokens: 1 },
+            });
+
+            await withTestActor(() =>
+                server.drivers.aiChat.complete({
+                    model,
+                    provider: 'mistral',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            expect(completeMock.mock.calls[0]![0].maxTokens).toBe(262_144);
+        },
+    );
 });
 
 // ── Request shape (Mistral-specific quirks) ─────────────────────────

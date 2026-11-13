@@ -38,7 +38,8 @@ export const MISTRAL_MODELS: IChatModel[] = [
             'mistralai/mistral-large-latest',
         ],
         context: 1_000_000,
-        max_tokens: 1_000_000,
+        // Mistral rejects a request for more completion tokens than this.
+        max_tokens: 262_144,
         description:
             'State-of-the-art, open-weight, general-purpose multimodal model for reasoning, coding, and agentic workflows.',
         provider: 'mistral',
