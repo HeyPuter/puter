@@ -1082,6 +1082,7 @@ export class ShareNotificationService extends PuterService {
                             origin: this.#appLink(),
                             unsubscribe_uuid: first.recipientUuid ?? null,
                         },
+                        { stream: 'notify' },
                     );
                 } else {
                     await this.clients.email.send(
@@ -1095,6 +1096,7 @@ export class ShareNotificationService extends PuterService {
                             shares: digestLines(entries),
                             link: this.#appLink(),
                         },
+                        { stream: 'notify' },
                     );
                 }
                 console.log('[share-notify] digest sent:', {

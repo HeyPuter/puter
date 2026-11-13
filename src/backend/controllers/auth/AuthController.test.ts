@@ -4766,14 +4766,24 @@ describe('AuthController.handleSendConfirmEmail', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('rotates the email_confirm_code and returns {} on success', async () => {
+    it('rotates the email_confirm_code and reports the send', async () => {
         const { user, actor } = await makeUserAndActor();
         const before = await server.stores.user.getById(user.id, {
             force: true,
         });
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue({ messageId: 'm' } as never);
         const res = makeRes();
-        await controller.handleSendConfirmEmail(makeReq({}, { actor }), res);
-        expect(res.body).toEqual({});
+        try {
+            await controller.handleSendConfirmEmail(
+                makeReq({}, { actor }),
+                res,
+            );
+        } finally {
+            send.mockRestore();
+        }
+        expect(res.body).toEqual({ sent: true });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -4783,7 +4793,7 @@ describe('AuthController.handleSendConfirmEmail', () => {
 
     // The resend is the recovery path for a lost code, so it must not fail
     // silently either.
-    it('alarms — and still returns {} — when the resend send throws', async () => {
+    it('alarms, and still answers 200 with sent: false, when the resend send throws', async () => {
         const { actor } = await makeUserAndActor();
         const alarm = vi
             .spyOn(server.clients.alarm, 'create')
@@ -4798,7 +4808,8 @@ describe('AuthController.handleSendConfirmEmail', () => {
                 res,
             );
             // Not the caller's fault; still a 200.
-            expect(res.body).toEqual({});
+            expect(res.statusCode).toBe(200);
+            expect(res.body).toEqual({ sent: false });
 
             const raised = alarm.mock.calls.find(
                 (c) => c[0] === 'auth:confirmation-email-send-failed:resend',
@@ -7519,6 +7530,46 @@ describe('AuthController.handleSaveAccount', () => {
         };
     };
 
+    it('sends the confirmation code on the account confirmation stream', async () => {
+        const { user, actor } = await makeTempActor();
+        await server.stores.user.updateMetadata(user.id, {
+            emailStream: 'review',
+        });
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue(null);
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        try {
+            const username = `s_${uniq()}`;
+            await controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username,
+                        email: `${username}@test.local`,
+                        password: 'correct-horse-battery',
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                `${username}@test.local`,
+                'email_verification_code',
+                expect.anything(),
+                { stream: 'review' },
+            );
+            // The dropped send is reported under its own stage.
+            expect(alarm.mock.calls.map((c) => c[0])).toEqual([
+                'auth:confirmation-email-send-failed:save-account',
+            ]);
+        } finally {
+            send.mockRestore();
+            alarm.mockRestore();
+        }
+    });
+
     it('rejects non-temp accounts with 400', async () => {
         const { actor } = await makeUserAndActor();
         await expect(
@@ -9510,14 +9561,18 @@ describe('AuthController.handleSignup additional branches', () => {
                 },
                 async () => {
                     const username = `cefail_${uniq()}`;
+                    const res = makeRes();
                     await controller.handleSignup(
                         makeReq({
                             username,
                             email: `${username}@test.local`,
                             password: 'correct-horse-battery',
                         }),
-                        makeRes(),
+                        res,
                     );
+                    expect(res.body).toMatchObject({
+                        confirmation_email_sent: false,
+                    });
                 },
             );
 
@@ -9535,6 +9590,93 @@ describe('AuthController.handleSignup additional branches', () => {
         } finally {
             alarm.mockRestore();
         }
+    });
+});
+
+describe('AuthController.handleSignup confirmation email outcome', () => {
+    const signupWithSend = async (send: () => Promise<unknown>) => {
+        const spy = vi
+            .spyOn(server.clients.email, 'send')
+            .mockImplementation(send as never);
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = makeRes();
+        const username = `ceo_${uniq()}`;
+        let alarms: string[] = [];
+        try {
+            await withSignupValidateOverride(
+                (event) => {
+                    event.requires_email_confirmation = true;
+                },
+                () =>
+                    controller.handleSignup(
+                        makeReq({
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        }),
+                        res,
+                    ),
+            );
+            alarms = alarm.mock.calls.map((c) => String(c[0]));
+        } finally {
+            spy.mockRestore();
+            alarm.mockRestore();
+        }
+        return {
+            body: res.body as {
+                proceed: boolean;
+                confirmation_email_sent?: boolean;
+                user: { requires_email_confirmation: boolean };
+            },
+            alarms,
+        };
+    };
+
+    it('reports a send that throws and still completes the signup', async () => {
+        const { body, alarms } = await signupWithSend(async () => {
+            throw new Error('refused');
+        });
+        expect(body.proceed).toBe(true);
+        expect(body.confirmation_email_sent).toBe(false);
+        expect(body.user.requires_email_confirmation).toBeTruthy();
+        expect(alarms).toContain('auth:confirmation-email-send-failed:signup');
+    });
+
+    it('reports a send the transport accepted', async () => {
+        const { body } = await signupWithSend(async () => ({ messageId: 'm' }));
+        expect(body.confirmation_email_sent).toBe(true);
+    });
+
+    it('keeps the confirmation stream out of the returned user details', async () => {
+        const res = makeRes();
+        const username = `ces_${uniq()}`;
+        await withSignupValidateOverride(
+            (event) => {
+                (event as Record<string, unknown>).email_stream = 'review';
+            },
+            () =>
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `${username}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    res,
+                ),
+        );
+        const stored = await server.stores.user.getByUsername(username);
+        expect(stored!.metadata?.emailStream).toBe('review');
+        const details = (res.body as { user: { metadata?: object } }).user;
+        expect(details.metadata ?? {}).not.toHaveProperty('emailStream');
+    });
+
+    it('leaves the field out when no confirmation email is due', async () => {
+        const res = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), res);
+        expect(res.body).toMatchObject({ proceed: true });
+        expect(res.body).not.toHaveProperty('confirmation_email_sent');
     });
 });
 
@@ -11484,5 +11626,102 @@ describe('AuthController — a seat address nobody confirmed', () => {
         );
         expect(await emailOf(tempRow!.id)).toBe(seat.email);
         expect(await emailOf(seat.id)).toBeNull();
+    });
+});
+
+describe('AuthController account mail streams', () => {
+    const spySend = () =>
+        vi.spyOn(server.clients.email, 'send').mockResolvedValue(null);
+
+    it('sends password recovery on the auth stream', async () => {
+        const { user } = await makeUserAndActor();
+        const send = spySend();
+        try {
+            await controller.handleSendPassRecoveryEmail(
+                makeReq({ email: user.email! }),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'email_password_recovery',
+                expect.anything(),
+                { stream: 'auth' },
+            );
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('sends the password change notice on the auth stream', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const req = makeReq({ new_pass: 'a-fresh-password-456' }, { actor });
+        (req as unknown as { userProtected: unknown }).userProtected = { user };
+        const send = spySend();
+        try {
+            await controller.handleChangePassword(req, makeRes());
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'password_change_notification',
+                expect.anything(),
+                { stream: 'auth' },
+            );
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('sends both change-email messages on the auth stream', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const newEmail = `cs_${uniq()}@test.local`;
+        const send = spySend();
+        const sendRaw = vi
+            .spyOn(server.clients.email, 'sendRaw')
+            .mockResolvedValue(null);
+        try {
+            await controller.handleChangeEmail(
+                makeReq({ new_email: newEmail }, { actor }),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                newEmail,
+                'email_verification_link',
+                expect.anything(),
+                { stream: 'auth' },
+            );
+            expect(sendRaw).toHaveBeenCalledWith(
+                expect.objectContaining({ to: user.email, stream: 'auth' }),
+            );
+        } finally {
+            send.mockRestore();
+            sendRaw.mockRestore();
+        }
+    });
+
+    it('sends the 2FA enable and disable notices on the auth stream', async () => {
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
+        const send = spySend();
+        try {
+            const { secret } = await setup2fa(actor);
+            await enable2fa(actor, { code: liveTotp(user.username, secret) });
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'enabled_2fa',
+                { username: user.username },
+                { stream: 'auth' },
+            );
+
+            await controller.handleDisable2fa(
+                makeReq({ code: liveTotp(user.username, secret) }, { actor }),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'disabled_2fa',
+                { username: user.username },
+                { stream: 'auth' },
+            );
+        } finally {
+            send.mockRestore();
+        }
     });
 });

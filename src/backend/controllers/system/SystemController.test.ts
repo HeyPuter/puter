@@ -547,6 +547,7 @@ describe('SystemController POST /contactUs — attachments', () => {
 
             expect(sendRaw).toHaveBeenCalledTimes(1);
             const sent = sendRaw.mock.calls[0][0] as {
+                stream: string;
                 text: string;
                 attachments: Array<{
                     filename: string;
@@ -555,6 +556,7 @@ describe('SystemController POST /contactUs — attachments', () => {
                     contentDisposition: string;
                 }>;
             };
+            expect(sent.stream).toBe('notify');
             expect(sent.attachments).toHaveLength(1);
             expect(sent.attachments[0].filename).toBe('payload.png');
             expect(sent.attachments[0].contentType).toBe('image/png');
