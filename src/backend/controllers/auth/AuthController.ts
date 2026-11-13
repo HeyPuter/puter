@@ -71,6 +71,7 @@ import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { parsePhone } from '../../util/phone.js';
+import { deleteIfEqual } from '../../util/redisLock.js';
 import {
     bonusCodeInvalidError,
     checkSignupBonus,
@@ -142,6 +143,12 @@ const GRANT_EXTRA_MAX_BYTES = 4096;
 const DISPATCH_ID_MAX_LENGTH = 128;
 // One name for the flag, so the write and the read cannot drift apart.
 const APP_AUTHENTICATED_FLAG = 'flag:app-is-authenticated';
+
+// Long enough to span the gap between one `/login/wait` and the client's next.
+const LOGIN_RELAY_TTL_SECONDS = 120;
+// Keyed by app too, so a token for one app never replaces another app's.
+const loginRelayKey = (session: string, appUid: string) =>
+    `login:relay:${session}:${appUid}`;
 
 // -- Post-login route limits -----------------------------------------
 //
@@ -345,36 +352,43 @@ export class AuthController extends PuterController {
         const expectedAppUid =
             await this.services.auth.appUidFromOrigin(reqOrigin);
 
-        const { resolve, promise } = Promise.withResolvers<void>();
-
-        let token: string | null = null;
-        const listener = (_key: string, value: { authtoken: string }) => {
-            token = value.authtoken;
-            resolve();
-        };
-        this.clients.event.on(`pubsub.login.${session}`, listener);
-
-        const timeout = new Promise<void>((resolve) =>
-            setTimeout(resolve, 10000),
-        );
-        await Promise.race([promise, timeout]);
-        this.clients.event.off(`pubsub.login.${session}`, listener);
-        if (!token) {
-            throw new HttpError(408, 'Request timeout.', {
-                legacyCode: 'request_timeout',
-            });
-        }
+        const relayKey = loginRelayKey(session, expectedAppUid);
+        const { resolve, promise } = Promise.withResolvers<string>();
 
         // Audience check. The postMessage hand-off this relay stands in for
         // is origin-bound for free — it posts with `targetOrigin`, so a page
         // can only ever receive a token minted for *itself*. Delivering
-        // server-side dropped that binding; this restores it. Without it a
-        // popup talked into minting for app X (see `trustsOpenerOriginParam`
-        // in the GUI) hands X's token to whoever holds the session id.
-        if (!this.#tokenIsForApp(token, expectedAppUid)) {
-            // Deliberately the same 408 the no-token path returns: a caller
-            // learns only that nothing arrived for them, not that a token
-            // for a different app went past.
+        // server-side dropped that binding; this restores it. Any other token
+        // is passed over and the wait runs on, so a caller learns only that
+        // nothing arrived for them.
+        const listener = (_key: string, value: { authtoken: string }) => {
+            if (this.#relayedTokenAppUid(value.authtoken) === expectedAppUid) {
+                resolve(value.authtoken);
+            }
+        };
+        this.clients.event.on(`pubsub.login.${session}`, listener);
+        let token: string | null;
+        try {
+            // Read after subscribing, so a token set before this wait is still delivered.
+            token = await this.#takeStoredLoginToken(relayKey, expectedAppUid);
+            if (!token) {
+                const timeout = new Promise<null>((resolve) =>
+                    setTimeout(resolve, 10000, null),
+                );
+                token = await Promise.race([promise, timeout]);
+                // A wait whose client went away leaves the copy for the next one.
+                if (token && !req.socket?.destroyed) {
+                    await deleteIfEqual(
+                        this.clients.redis,
+                        relayKey,
+                        token,
+                    ).catch(() => false);
+                }
+            }
+        } finally {
+            this.clients.event.off(`pubsub.login.${session}`, listener);
+        }
+        if (!token) {
             throw new HttpError(408, 'Request timeout.', {
                 legacyCode: 'request_timeout',
             });
@@ -386,24 +400,46 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Whether a relayed token is an app-under-user token minted for
-     * `expectedAppUid`. Verifies the signature — an unverified decode would let
-     * a caller relay a token whose claims it wrote itself.
+     * Take the copy `/login/set` kept for this app, once. Null when there is
+     * none, another wait took it, or Redis fails; the wait then just listens.
      */
-    #tokenIsForApp(token: string, expectedAppUid: string): boolean {
+    async #takeStoredLoginToken(
+        relayKey: string,
+        expectedAppUid: string,
+    ): Promise<string | null> {
+        try {
+            const kept = await this.clients.redis.get(relayKey);
+            if (!kept || this.#relayedTokenAppUid(kept) !== expectedAppUid) {
+                return null;
+            }
+            const took = await deleteIfEqual(
+                this.clients.redis,
+                relayKey,
+                kept,
+            );
+            return took ? kept : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * The app a relayed app-under-user token was minted for, or null. Verifies
+     * the signature — an unverified decode would let a caller relay a token
+     * whose claims it wrote itself.
+     */
+    #relayedTokenAppUid(token: string): string | null {
         try {
             const payload = this.services.token.verify<{
                 type?: string;
                 app_uid?: string;
             }>('auth', token);
-            return (
-                payload.type === 'app-under-user' &&
-                !!payload.app_uid &&
-                payload.app_uid === expectedAppUid
-            );
+            return payload.type === 'app-under-user' && payload.app_uid
+                ? payload.app_uid
+                : null;
         } catch {
             // Malformed, expired, or signed with a key we don't hold.
-            return false;
+            return null;
         }
     }
     @Post('/login/set', {
@@ -418,12 +454,34 @@ export class AuthController extends PuterController {
     })
     async loginSet(req: Request, res: Response) {
         const { session, auth_token } = req.body ?? {};
-        if (!session || !auth_token || !validateUuid(session)) {
+        if (
+            !session ||
+            typeof auth_token !== 'string' ||
+            !auth_token ||
+            !validateUuid(session)
+        ) {
             throw new HttpError(400, 'session and auth_token are required.', {
                 legacyCode: 'bad_request',
             });
         }
 
+        // Only a token a wait could deliver is kept: one this server signed for an app.
+        const appUid = this.#relayedTokenAppUid(auth_token);
+        if (appUid) {
+            try {
+                await this.clients.redis.set(
+                    loginRelayKey(session, appUid),
+                    auth_token,
+                    'EX',
+                    LOGIN_RELAY_TTL_SECONDS,
+                );
+            } catch (e) {
+                console.warn(
+                    '[login-set] storing the relayed token failed:',
+                    e instanceof Error ? e.message : String(e),
+                );
+            }
+        }
         this.clients.event.emit(
             `pubsub.login.${session}`,
             {
