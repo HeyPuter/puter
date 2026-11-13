@@ -504,9 +504,10 @@ export class NotificationsModule extends EventListener {
      *
      * @param {{ url: string; scope?: string }} worker
      * @param {{ background?: boolean }} [options] `background` is a call without
-     *   a click: a browser the user removed in Puter rejects with
-     *   `push_device_removed`, a rejected token opens no sign-in, and a website
-     *   whose user hasn't opted in here resolves false.
+     *   a click. A browser the user removed in Puter rejects with
+     *   `push_device_removed` and a rejected token opens no sign-in. On a website
+     *   it resolves false without the user's opt-in here, and rejects with
+     *   `push_verification_canceled` when the opt-in goes while it runs.
      * @returns {Promise<boolean>} Whether this browser was registered.
      * @internal
      */
@@ -514,8 +515,8 @@ export class NotificationsModule extends EventListener {
         await this.#userChange;
         const signal = this.#stopVerifying.signal;
         const needsOptIn = background && this.puter.env === 'web';
-        const optedIn = async () => (await this.#readOptIn()) === true;
-        if (needsOptIn && (!(await optedIn()) || signal.aborted)) return false;
+        if (needsOptIn && (!(await this.#optedIn()) || signal.aborted))
+            return false;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
         /** @type {() => void} */
@@ -529,7 +530,7 @@ export class NotificationsModule extends EventListener {
             signal,
             renewRemoved: !background,
             interactive: !background,
-            ...(needsOptIn ? { stillWanted: optedIn } : {}),
+            ...(needsOptIn ? { stillWanted: () => this.#optedIn() } : {}),
             withLock: withPushLock,
             onAnnounced: () => this.#recordOptIn(true),
             onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
@@ -761,6 +762,11 @@ export class NotificationsModule extends EventListener {
         return on;
     }
 
+    /** Whether the user's opt-in here is known to be on. */
+    async #optedIn() {
+        return (await this.#readOptIn()) === true;
+    }
+
     /** Stops other tabs' syncs once push is turned off here. */
     #optInChanged(kind) {
         this.#listenForOptInChanges();
@@ -793,7 +799,7 @@ export class NotificationsModule extends EventListener {
             syncWebPush(this.puter, {
                 worker,
                 signal: this.#stopVerifying.signal,
-                stillWanted: async () => (await this.#readOptIn()) === true,
+                stillWanted: () => this.#optedIn(),
                 withLock: withPushLock,
                 onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
             }),

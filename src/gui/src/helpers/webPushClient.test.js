@@ -19,8 +19,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
-    RECEIPT_PREFIX as STORED_RECEIPT_PREFIX,
-    SUBSCRIPTION_CHANGED_PREFIX as STORED_CHANGED_PREFIX,
+    RECEIPT_PREFIX,
+    SUBSCRIPTION_CHANGED_PREFIX,
 } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import { cachedPushApps } from './notificationApi.js';
 import { registerPushClient } from './pushClient.js';
@@ -29,7 +29,7 @@ import { LAST_ENDPOINT_PREFIX, ON_KEPT_MS, webPushClient } from './webPushClient
 
 const SCOPE = 'https://puter.test/';
 const LAST_ENDPOINT_KEY = `${LAST_ENDPOINT_PREFIX}u-1`;
-const CHANGED = `${STORED_CHANGED_PREFIX}${SCOPE}`;
+const CHANGED = `${SUBSCRIPTION_CHANGED_PREFIX}${SCOPE}`;
 
 /** `localStorage` over a Map. */
 const fakeStorage = (entries = {}) => {
@@ -379,7 +379,7 @@ describe('webPushClient and a browser removed from another device', () => {
     });
 
     it('forgets the removed endpoint`s receipt when it stays off', async () => {
-        const RECEIPT = `${STORED_RECEIPT_PREFIX}${SCOPE}`;
+        const RECEIPT = `${RECEIPT_PREFIX}${SCOPE}`;
         const made = removedElsewhere({ idb: fakeIdb({ [CHANGED]: { at: 1, oldEndpoint: OLD }, [RECEIPT]: { endpoint: OLD, receipt: 'r.sig' } }) });
         await expect(sync(made.storage)).resolves.toBe('removed');
         expect(made.idb.map.has(RECEIPT)).toBe(false);

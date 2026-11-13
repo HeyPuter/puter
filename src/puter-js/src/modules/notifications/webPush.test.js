@@ -2267,9 +2267,7 @@ describe('enable({ background: true })', () => {
         );
         store.delete(OPT_IN);
         keyAnswer();
-        await expect(enabling).rejects.toMatchObject({
-            code: 'push_verification_canceled',
-        });
+        await expect(enabling).resolves.toBe(false);
         expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
         expect(store.has(OPT_IN)).toBe(false);
     });

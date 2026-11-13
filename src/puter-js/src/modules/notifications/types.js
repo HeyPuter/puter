@@ -195,8 +195,9 @@
  * @property {boolean} [background] Turn pushes on without a click, only where
  *   the browser already granted permission and, on a website, the signed-in
  *   user turned pushes on here with a click and hasn't turned them off since.
- *   Opens no prompt, dialog or sign-in, and a removal or turn-off in Puter
- *   rejects once (`push_device_removed`, `push_revoked`), then resolves false.
+ *   Opens no prompt, dialog or sign-in. Resolves false when pushes are turned
+ *   off here or elsewhere while it runs. A removal or turn-off in Puter rejects
+ *   once (`push_device_removed`, `push_revoked`), then resolves false.
  */
 
 /**
