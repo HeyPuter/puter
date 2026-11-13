@@ -114,6 +114,7 @@ const makeProvider = (
 const ARGON = GEMINI_MODELS.find((m) => m.id === 'gemini-4-argon')!;
 const LAUNCH = new Date('2026-10-14T12:00:00Z');
 const NATIVE_IDS = [
+    'gemini-4-hydrogen',
     'gemini-4-carbon',
     'gemini-4-argon',
     'gemini-3.1-flash-lite',
@@ -1647,4 +1648,89 @@ describe('Gemini 4 Carbon', () => {
             });
         },
     );
+
+    it.each([
+        ['no max_tokens', undefined],
+        ['a larger max_tokens', 65_536],
+    ])(
+        'caps a non-streamed request with %s at 32,768 output tokens',
+        async (_label, maxTokens) => {
+            generateContent.mockResolvedValueOnce(textResponse('OK'));
+            await complete({ model: 'gemini-4-carbon', max_tokens: maxTokens });
+            expect(requestOf().config.maxOutputTokens).toBe(32_768);
+        },
+    );
+
+    it('sends a stream the max_tokens it asked for', async () => {
+        generateContentStream.mockResolvedValueOnce(
+            asAsyncIterable([textResponse('OK')]),
+        );
+        await runStream({ model: 'gemini-4-carbon', max_tokens: 65_536 });
+        expect(requestOf(generateContentStream).config.maxOutputTokens).toBe(
+            65_536,
+        );
+    });
+});
+
+describe('Gemini 4 Hydrogen', () => {
+    const hydrogen = (args: Partial<ICompleteArguments>) =>
+        complete(
+            { model: 'gemini-4-hydrogen', ...args },
+            new Date('2026-12-01T00:00:00.000Z'),
+        );
+
+    it('routes natively and meters thinking at its own rates', async () => {
+        generateContent.mockResolvedValueOnce(
+            textResponse('OK', { ...LIVE_USAGE, cachedContentTokenCount: 6 }),
+        );
+        await hydrogen({ model: 'google/gemini-4-hydrogen', temperature: 0.5 });
+        expect(requestOf().model).toBe('gemini-4-hydrogen');
+        expect(requestOf().config).not.toHaveProperty('temperature');
+        expect(requestOf().config).not.toHaveProperty('thinkingConfig');
+        expect(openAICreate).not.toHaveBeenCalled();
+        expect(recordSpy.mock.calls[0]![2]).toBe('gemini:gemini-4-hydrogen');
+        expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+            prompt_tokens: 30 * 150,
+            completion_tokens: 5 * 750,
+            thinking_tokens: 69 * 750,
+            cached_tokens: 6 * 7.5,
+        });
+    });
+
+    it.each([
+        ['low', 'LOW'],
+        ['medium', 'MEDIUM'],
+        ['high', 'HIGH'],
+        ['xhigh', 'XHIGH'],
+    ])('sends reasoning_effort %s as thinkingLevel %s', async (effort, level) => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await hydrogen({
+            reasoning_effort: effort as ICompleteArguments['reasoning_effort'],
+        });
+        expect(requestOf().config.thinkingConfig).toEqual({
+            thinkingLevel: level,
+        });
+    });
+
+    it.each(['none', 'minimal', 'max'])(
+        'rejects reasoning_effort %s before calling Google',
+        async (effort) => {
+            await expect(
+                hydrogen({
+                    reasoning_effort:
+                        effort as ICompleteArguments['reasoning_effort'],
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(generateContent).not.toHaveBeenCalled();
+        },
+    );
+
+    it('sends a non-streamed request the max_tokens it asked for', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await hydrogen({ max_tokens: 65_536 });
+        expect(requestOf().config.maxOutputTokens).toBe(65_536);
+    });
 });

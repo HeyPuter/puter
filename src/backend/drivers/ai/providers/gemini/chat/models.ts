@@ -29,11 +29,20 @@ export interface GeminiNativeOptions {
     reasoningEfforts: ReadonlySet<ReasoningEffort>;
     /** False where Google ignores temperature, so it isn't sent. */
     temperature: boolean;
+    /** Output cap of a response that isn't streamed, where Google's is lower. */
+    unaryMaxTokens?: number;
 }
 
 const FLASH_NATIVE_OPTIONS: GeminiNativeOptions = {
     reasoningEfforts: new Set(['minimal', 'low', 'medium', 'high']),
     temperature: true,
+};
+
+// Google's model metadata reports the unary cap; streaming keeps the catalog cap.
+const ARGON_CARBON_NATIVE_OPTIONS: GeminiNativeOptions = {
+    reasoningEfforts: new Set(['low', 'medium', 'high']),
+    temperature: false,
+    unaryMaxTokens: 32_768,
 };
 
 /**
@@ -42,17 +51,12 @@ const FLASH_NATIVE_OPTIONS: GeminiNativeOptions = {
  */
 export const GEMINI_NATIVE_MODELS: ReadonlyMap<string, GeminiNativeOptions> =
     new Map([
+        ['gemini-4-argon', ARGON_CARBON_NATIVE_OPTIONS],
+        ['gemini-4-carbon', ARGON_CARBON_NATIVE_OPTIONS],
         [
-            'gemini-4-argon',
+            'gemini-4-hydrogen',
             {
-                reasoningEfforts: new Set(['low', 'medium', 'high']),
-                temperature: false,
-            },
-        ],
-        [
-            'gemini-4-carbon',
-            {
-                reasoningEfforts: new Set(['low', 'medium', 'high']),
+                reasoningEfforts: new Set(['low', 'medium', 'high', 'xhigh']),
                 temperature: false,
             },
         ],
@@ -126,9 +130,6 @@ const PRO_LONG_CONTEXT_PRICING: ModelPricingOverride[] = [
     },
 ];
 
-// Google's unary model metadata reports this cap; streaming keeps the catalog cap.
-export const GEMINI_ARGON_NON_STREAM_MAX_TOKENS = 32_768;
-
 export const GEMINI_MODELS: IChatModel[] = [
     {
         puterId: 'google:google/gemini-4-argon',
@@ -181,6 +182,34 @@ export const GEMINI_MODELS: IChatModel[] = [
             '2026-12-01T00:00:00Z',
             GEMINI_4_LAUNCH_COSTS,
         ),
+    },
+    {
+        puterId: 'google:google/gemini-4-hydrogen',
+        id: 'gemini-4-hydrogen',
+        // The native adapter forwards only text and image parts.
+        modalities: {
+            input: ['text', 'image'],
+            output: ['text'],
+        },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-11-12',
+        name: 'Gemini 4 Hydrogen',
+        aliases: ['google/gemini-4-hydrogen'],
+        // One window shared by input, thinking and output.
+        context: 1_048_576,
+        max_tokens: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 150,
+            completion_tokens: 750,
+            thinking_tokens: 750,
+            cached_tokens: 7.5,
+        },
     },
     {
         puterId: 'google:google/gemini-3.5-flash',

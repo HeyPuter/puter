@@ -81,9 +81,9 @@ The standard chat timeout is 10 minutes for a response to start, or to finish if
 
 GPT-6.1 Terra has a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
 
-Gemini 4 Carbon accepts text and images within a shared 1,048,576-token window and generates up to 65,536 tokens, including thinking.
+Gemini 4 Carbon and Gemini 4 Hydrogen accept text and images within a shared 1,048,576-token window and generate up to 65,536 tokens, including thinking.
 
-A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
+A `gemini-4-argon` or `gemini-4-carbon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
 Text-to-speech calls to ElevenLabs, xAI, Speechify, Kling and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
 
