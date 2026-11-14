@@ -41,7 +41,10 @@ const WORKER_HOST_SUFFIX = 'workers.puter.localhost';
 // importing Miniflare's classes into the HTTP layer.
 interface FetchResponse {
     status: number;
-    headers: { forEach(cb: (value: string, key: string) => void): void };
+    headers: {
+        forEach(cb: (value: string, key: string) => void): void;
+        getSetCookie(): string[];
+    };
     body: ReadableStream<Uint8Array> | null;
 }
 
@@ -96,8 +99,12 @@ function sendFetchResponse(
         // response (double content-length, stale transfer-encoding).
         const lower = key.toLowerCase();
         if (lower === 'content-length' || lower === 'transfer-encoding') return;
+        // Set separately below: setHeader per entry would keep only the last.
+        if (lower === 'set-cookie') return;
         res.setHeader(key, value);
     });
+    const cookies = response.headers.getSetCookie();
+    if (cookies.length) res.setHeader('set-cookie', cookies);
 
     if (!response.body) {
         res.end();
