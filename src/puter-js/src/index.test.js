@@ -240,6 +240,88 @@ describe('app-mode launch token', () => {
     });
 });
 
+describe('GUI origin of an app', () => {
+    const DESKTOP = 'https://desktop.puter.com';
+    const launchedBy = (origin) =>
+        bootApp(
+            `${LAUNCH}${APP_TOKEN}&puter.origin=${encodeURIComponent(origin)}`,
+        );
+
+    /** Sends `data` to the app as its parent at `origin` would. */
+    const fromParent = async (origin, data) => {
+        window.dispatchEvent(
+            new MessageEvent('message', {
+                origin,
+                source: globalThis.parent,
+                data,
+            }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+
+    const closeAnswers = () =>
+        globalThis.parent.postMessage.mock.calls
+            .map(([message]) => message)
+            .filter((message) => message?.original_msg_id === 'close-1');
+
+    it('is the first-party desktop that launched it', async () => {
+        expect((await launchedBy(DESKTOP)).defaultGUIOrigin).toBe(DESKTOP);
+        expect((await launchedBy('https://puter.com')).defaultGUIOrigin).toBe(
+            'https://puter.com',
+        );
+    });
+
+    it('stays puter.com for any other launcher', async () => {
+        for (const origin of [
+            'https://evil.example',
+            'https://desktop.puter.com.evil.example',
+            'https://x.desktop.puter.com',
+            'http://desktop.puter.com',
+            'not a url',
+        ]) {
+            expect((await launchedBy(origin)).defaultGUIOrigin).toBe(
+                'https://puter.com',
+            );
+        }
+        expect((await bootApp(`${LAUNCH}${APP_TOKEN}`)).defaultGUIOrigin).toBe(
+            'https://puter.com',
+        );
+    });
+
+    it('yields to an explicit PUTER_ORIGIN', async () => {
+        globalThis.PUTER_ORIGIN = 'https://self-hosted.test';
+        try {
+            expect((await launchedBy(DESKTOP)).defaultGUIOrigin).toBe(
+                'https://self-hosted.test',
+            );
+        } finally {
+            delete globalThis.PUTER_ORIGIN;
+        }
+    });
+
+    it('is not taken from the URL of a top-level page', async () => {
+        const puter = await bootWeb(
+            `?puter.app_instance_id=i&puter.origin=${encodeURIComponent(DESKTOP)}`,
+        );
+        expect(puter.env).not.toBe('app');
+        expect(puter.defaultGUIOrigin).toBe('https://puter.com');
+    });
+
+    it('answers windowWillClose from that desktop and no other', async () => {
+        await launchedBy(DESKTOP);
+        const willClose = { msg: 'windowWillClose', msg_id: 'close-1' };
+
+        await fromParent('https://evil.example', willClose);
+        await fromParent('https://puter.com', willClose);
+        expect(closeAnswers()).toEqual([]);
+
+        await fromParent(DESKTOP, willClose);
+        expect(closeAnswers()).toEqual([
+            expect.objectContaining({ msg: true, original_msg_id: 'close-1' }),
+        ]);
+    });
+});
+
 describe('token adoption on a top-level page', () => {
     it('takes a token from a window it opened, and from nothing else', async () => {
         const puter = await bootWeb('');
