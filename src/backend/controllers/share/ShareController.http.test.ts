@@ -1277,4 +1277,243 @@ describe('share endpoints over HTTP', () => {
             expect(text).not.toContain(email);
         });
     });
+
+    describe('request shapes', () => {
+        type Outcome = {
+            status: string;
+            recipient: string;
+            code?: string;
+            uid?: string;
+            path?: string;
+        };
+        const outcomes = async (res: Response) => {
+            expect(res.status).toBe(200);
+            return (await res.json()) as {
+                status: string;
+                revoked?: number;
+                results: Outcome[];
+            };
+        };
+
+        it('reports each revoke on its own, and totals only what was withdrawn', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner);
+            await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: file.uid }],
+                mode: 'read',
+            });
+
+            const mixed = await outcomes(
+                await post('/share/revoke', owner.token, {
+                    recipients: [recipient.username, 'nosuchuser-zzz'],
+                    items: [{ uid: file.uid }],
+                }),
+            );
+            expect(mixed.status).toBe('mixed');
+            expect(mixed.revoked).toBeGreaterThan(0);
+            expect(mixed.results).toEqual([
+                { recipient: recipient.username, uid: file.uid, status: 'success' },
+                expect.objectContaining({
+                    recipient: 'nosuchuser-zzz',
+                    uid: file.uid,
+                    status: 'error',
+                    code: expect.any(String),
+                    message: expect.any(String),
+                }),
+            ]);
+
+            const aborted = await outcomes(
+                await post('/share/revoke', owner.token, {
+                    recipients: ['nosuchuser-zzz'],
+                    items: [file.path],
+                }),
+            );
+            expect(aborted).toMatchObject({ status: 'aborted', revoked: 0 });
+            expect(aborted.results[0]).toMatchObject({
+                recipient: 'nosuchuser-zzz',
+                path: file.path,
+                status: 'error',
+            });
+        });
+
+        it('takes a single item named by `path`, `uid` or `item`', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const byPath = await makeFile(owner);
+            const byUid = await makeFile(owner);
+            const byItem = await makeFile(owner);
+
+            for (const [body, file] of [
+                [{ path: byPath.path }, byPath],
+                [{ uid: byUid.uid }, byUid],
+                [{ item: { path: byItem.path } }, byItem],
+            ] as const) {
+                const shared = await outcomes(
+                    await post('/share', owner.token, {
+                        recipient: recipient.username,
+                        mode: 'read',
+                        ...body,
+                    }),
+                );
+                expect(shared.status).toBe('success');
+                expect(shared.results).toHaveLength(1);
+                expect(shared.results[0]).toMatchObject({
+                    recipient: recipient.username,
+                    status: 'success',
+                });
+                const listed = await get('/share/shares', owner.token, {
+                    uid: file.uid,
+                });
+                expect(await listed.text()).toContain(recipient.username);
+            }
+        });
+
+        it('skips blank recipients and items, and refuses a request left with none', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner);
+
+            const shared = await outcomes(
+                await post('/share', owner.token, {
+                    recipients: ['  ', {}, { username: ` ${recipient.username} ` }],
+                    items: ['', {}, file.uid],
+                    mode: 'read',
+                }),
+            );
+            expect(shared.results).toHaveLength(1);
+            expect(shared.results[0]).toMatchObject({
+                recipient: recipient.username,
+                status: 'success',
+            });
+
+            for (const body of [
+                { recipients: ['  ', {}], items: [file.uid] },
+                { recipients: [recipient.username], items: ['', {}] },
+            ]) {
+                const res = await post('/share', owner.token, {
+                    ...body,
+                    mode: 'read',
+                });
+                expect(res.status).toBe(400);
+                expect(await res.json()).toMatchObject({ code: 'bad_request' });
+            }
+        });
+
+        it('labels a link share `anyone`, and only for the object form', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner);
+
+            const link = await outcomes(
+                await post('/share', owner.token, {
+                    recipients: [{ anyone: true }],
+                    items: [{ uid: file.uid }],
+                    mode: 'read',
+                }),
+            );
+            // A free account cannot mint a link; the refusal still names it.
+            expect(link.results).toEqual([
+                expect.objectContaining({
+                    recipient: 'anyone',
+                    status: 'error',
+                    code: expect.any(String),
+                }),
+            ]);
+
+            // A typed "anyone" is a username like any other.
+            const typed = await outcomes(
+                await post('/share', owner.token, {
+                    recipients: ['anyone'],
+                    items: [{ uid: file.uid }],
+                    mode: 'read',
+                }),
+            );
+            expect(typed.results[0]).toMatchObject({
+                recipient: 'anyone',
+                status: 'error',
+            });
+            expect(typed.results[0].code).not.toBe(link.results[0].code);
+        });
+
+        it('addresses a team by uid or handle, never both', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner);
+            const teamUid = crypto.randomUUID();
+
+            const named = await outcomes(
+                await post('/share', owner.token, {
+                    recipients: [{ team: teamUid }, { teamHandle: 'design' }],
+                    items: [{ uid: file.uid }],
+                    mode: 'read',
+                }),
+            );
+            expect(named.status).toBe('aborted');
+            expect(named.results).toEqual([
+                expect.objectContaining({
+                    recipient: teamUid,
+                    status: 'error',
+                    code: 'team_not_found',
+                }),
+                expect.objectContaining({
+                    recipient: 'design',
+                    status: 'error',
+                    code: 'team_not_found',
+                }),
+            ]);
+
+            const both = await post('/share', owner.token, {
+                recipients: [{ team: teamUid, teamHandle: 'design' }],
+                items: [{ uid: file.uid }],
+                mode: 'read',
+            });
+            expect(both.status).toBe(400);
+            expect(await both.json()).toMatchObject({ code: 'bad_request' });
+        });
+
+        it('requires an item to list who can reach it', async () => {
+            const res = await get('/share/shares', env.users.user.token, {});
+            expect(res.status).toBe(400);
+            expect(await res.json()).toMatchObject({ code: 'bad_request' });
+        });
+
+        it('reads the audit trail of an item named by a tilde path', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner);
+            await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: file.uid }],
+                mode: 'read',
+            });
+
+            const res = await get('/share/audit', owner.token, {
+                path: `~/${file.name}`,
+            });
+            expect(res.status).toBe(200);
+            const trail = (await res.json()) as {
+                items: Array<Record<string, unknown>>;
+            };
+            expect(trail.items).toEqual([
+                expect.objectContaining({
+                    action: 'grant',
+                    entryUid: file.uid,
+                    holder: recipient.username,
+                }),
+            ]);
+        });
+
+        it('requires a username to unblock', async () => {
+            const res = await fetch(new URL('/share/blocks', env.apiOrigin), {
+                method: 'DELETE',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${env.users.other.token}`,
+                },
+                body: JSON.stringify({}),
+            });
+            expect(res.status).toBe(400);
+            expect(await res.json()).toMatchObject({ code: 'bad_request' });
+        });
+    });
 });

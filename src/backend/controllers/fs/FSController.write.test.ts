@@ -2754,3 +2754,393 @@ describe('FSController upload session access re-checks', () => {
         }
     });
 });
+
+describe('FSController write metadata spellings', () => {
+    const writeWith = async (name: string, extra: Record<string, unknown>) => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/${name}`;
+        await withActor(actor, () =>
+            controller.write(
+                makeReq<WriteRequest>({
+                    body: {
+                        fileMetadata: { path, size: 2, ...extra },
+                        fileContent: 'hi',
+                    } as unknown as WriteRequest,
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        return (await server.stores.fsEntry.getEntryByPath(path))!;
+    };
+
+    it('reads word and number flags, and the snake_case names', async () => {
+        const flagged = await writeWith('flags-on.txt', {
+            immutable: 'yes',
+            is_public: 'off',
+            checksum_sha256: 'abc123',
+        });
+        expect(flagged.immutable).toBe(true);
+        expect(flagged.isPublic).toBe(false);
+        expect(JSON.parse(flagged.metadata!)).toMatchObject({
+            checksumSha256: 'abc123',
+        });
+
+        const zero = await writeWith('flags-zero.txt', { is_public: 0 });
+        expect(zero.isPublic).toBe(false);
+    });
+
+    it('passes a requested part size through to the signed upload', async () => {
+        const { actor, username } = await makeUser();
+        const partSize = server.services.fs.getMaxSingleUploadSize() * 2;
+        const start = makeRes();
+        await withActor(actor, () =>
+            controller.startWrite(
+                makeReq<SignedWriteRequest>({
+                    body: {
+                        fileMetadata: {
+                            path: `/${username}/Documents/part-size.bin`,
+                            size: partSize * 3,
+                            multipart_part_size: partSize,
+                        },
+                        uploadMode: 'multipart',
+                    } as unknown as SignedWriteRequest,
+                    actor,
+                }),
+                start.res,
+            ),
+        );
+        const body = start.captured.body as ClientSignedWriteResponse;
+
+        expect(body.multipartPartSize).toBe(partSize);
+        expect(body.multipartPartCount).toBe(3);
+
+        await withActor(actor, () =>
+            controller.abortWrite(
+                makeReq<AbortWriteRequest>({
+                    body: { uploadId: body.sessionId },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+    });
+});
+
+describe('FSController write request extras', () => {
+    it('reads GUI fields sent at the top level of a start request', async () => {
+        const { actor, userId, username } = await makeUser();
+        const events: Array<Record<string, unknown>> = [];
+        const listener = (_key: string, data: unknown) => {
+            events.push(data as Record<string, unknown>);
+        };
+        server.clients.event.on('outer.gui.item.pending', listener as never);
+        let sessionId: string;
+        try {
+            const start = makeRes();
+            await withActor(actor, () =>
+                controller.startWrite(
+                    makeReq<SignedWriteRequest>({
+                        body: {
+                            fileMetadata: {
+                                path: `/${username}/Documents/top-level.bin`,
+                                size: 3,
+                            },
+                            operation_id: 'op-top',
+                            socket_id: 'sock-1',
+                        } as unknown as SignedWriteRequest,
+                        actor,
+                    }),
+                    start.res,
+                ),
+            );
+            sessionId = (start.captured.body as ClientSignedWriteResponse)
+                .sessionId;
+        } finally {
+            server.clients.event.off(
+                'outer.gui.item.pending',
+                listener as never,
+            );
+        }
+
+        expect(events).toHaveLength(1);
+        expect(events[0]).toMatchObject({
+            user_id_list: [userId],
+            response: { operation_id: 'op-top', pending_upload: true },
+        });
+
+        await withActor(actor, () =>
+            controller.abortWrite(
+                makeReq<AbortWriteRequest>({
+                    body: { uploadId: sessionId },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+    });
+
+    describe('signed thumbnail targets', () => {
+        type PrepareItem = {
+            index: number;
+            uploadUrl?: string;
+            thumbnailUrl?: string;
+        };
+        /** Starts a write while `fill` answers the thumbnail listeners. */
+        const startWithThumbnail = async (
+            name: string,
+            thumbnailMetadata: Record<string, unknown>,
+            fill: (item: PrepareItem) => void,
+        ) => {
+            const { actor, username } = await makeUser();
+            let asked = 0;
+            const listener = (_key: string, data: unknown) => {
+                for (const item of (data as { items: PrepareItem[] }).items) {
+                    asked++;
+                    fill(item);
+                }
+            };
+            server.clients.event.on(
+                'thumbnail.upload.prepare',
+                listener as never,
+            );
+            try {
+                const start = makeRes();
+                await withActor(actor, () =>
+                    controller.startWrite(
+                        makeReq<SignedWriteRequest>({
+                            body: {
+                                fileMetadata: {
+                                    path: `/${username}/Documents/${name}`,
+                                    size: 4,
+                                },
+                                thumbnailMetadata,
+                            } as unknown as SignedWriteRequest,
+                            actor,
+                        }),
+                        start.res,
+                    ),
+                );
+                return {
+                    asked,
+                    body: start.captured.body as ClientSignedWriteResponse,
+                };
+            } finally {
+                server.clients.event.off(
+                    'thumbnail.upload.prepare',
+                    listener as never,
+                );
+            }
+        };
+
+        it('asks no listener for a thumbnail with no declared size', async () => {
+            const { asked, body } = await startWithThumbnail(
+                'thumb-nosize.bin',
+                { contentType: 'image/png' },
+                (item) => {
+                    item.uploadUrl = 'https://thumbs.test/put';
+                    item.thumbnailUrl = 'https://thumbs.test/get';
+                },
+            );
+
+            expect(asked).toBe(0);
+            expect(body.sessionId).toEqual(expect.any(String));
+            expect(body.thumbnailUploadUrl).toBeUndefined();
+        });
+
+        it('attaches nothing when the listener publishes only half a target', async () => {
+            const uploadOnly = await startWithThumbnail(
+                'thumb-upload-only.bin',
+                { contentType: 'image/png', size: 64 },
+                (item) => {
+                    item.uploadUrl = 'https://thumbs.test/put';
+                },
+            );
+            const none = await startWithThumbnail(
+                'thumb-none.bin',
+                { contentType: 'image/png', size: 64 },
+                () => {},
+            );
+
+            for (const { asked, body } of [uploadOnly, none]) {
+                expect(asked).toBe(1);
+                expect(body.thumbnailUploadUrl).toBeUndefined();
+                expect(body.thumbnailUrl).toBeUndefined();
+            }
+        });
+    });
+
+    it('resolves one appUID shared by several batch items for each of them', async () => {
+        const { actor, username } = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`index_url\`, \`owner_user_id\`, \`is_private\`)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [appUid, appUid, 'Shared App', 'https://shared-app.test/', null, 0],
+        );
+        const [appRow] = (await server.clients.db.read(
+            'SELECT id FROM apps WHERE uid = ?',
+            [appUid],
+        )) as Array<{ id: number }>;
+        const paths = [
+            `/${username}/Documents/app-a.txt`,
+            `/${username}/Documents/app-b.txt`,
+        ];
+        const lookups = vi.spyOn(server.stores.app, 'getByUid');
+
+        try {
+            await withActor(actor, () =>
+                controller.batchWrites(
+                    makeReq<WriteRequest[]>({
+                        body: paths.map((path) => ({
+                            fileMetadata: { path, size: 1 },
+                            fileContent: 'x',
+                            appUID: appUid,
+                        })) as unknown as WriteRequest[],
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+            expect(
+                lookups.mock.calls.filter(([uid]) => uid === appUid),
+            ).toHaveLength(1);
+        } finally {
+            lookups.mockRestore();
+        }
+
+        for (const path of paths) {
+            const stored = await server.stores.fsEntry.getEntryByPath(path);
+            expect(stored?.associatedAppId).toBe(appRow!.id);
+        }
+    });
+});
+
+describe('FSController.batchWrites (multipart) part naming', () => {
+    const manifestFor = (paths: string[]) =>
+        JSON.stringify({
+            items: paths.map((path, index) => ({
+                index,
+                fileMetadata: { path, size: 0 },
+            })),
+        });
+    const file = (name: string, content: string): MultipartPart => ({
+        kind: 'file',
+        name,
+        filename: `${name}.txt`,
+        content,
+    });
+    const sizeAt = async (path: string) =>
+        (await server.stores.fsEntry.getEntryByPath(path))?.size;
+
+    it('reads a zero-padded number as the manifest index', async () => {
+        const { actor, username } = await makeUser();
+        const paths = [
+            `/${username}/Documents/pad-a.txt`,
+            `/${username}/Documents/pad-b.txt`,
+        ];
+        await withActor(actor, () =>
+            controller.batchWrites(
+                makeMultipartReq(
+                    [
+                        // Fields other than the manifest are ignored.
+                        { kind: 'field', name: 'note', value: 'ignored' },
+                        {
+                            kind: 'field',
+                            name: 'manifest',
+                            value: manifestFor(paths),
+                        },
+                        file('01', 'second!'),
+                        file('00', 'one'),
+                    ],
+                    actor,
+                ),
+                makeRes().res,
+            ),
+        );
+
+        expect(await sizeAt(paths[0]!)).toBe(3);
+        expect(await sizeAt(paths[1]!)).toBe(7);
+    });
+
+    it('pairs parts with unrecognised names to manifest items by position', async () => {
+        const { actor, username } = await makeUser();
+        const paths = [
+            `/${username}/Documents/pos-a.txt`,
+            `/${username}/Documents/pos-b.txt`,
+        ];
+        await withActor(actor, () =>
+            controller.batchWrites(
+                makeMultipartReq(
+                    [
+                        {
+                            kind: 'field',
+                            name: 'manifest',
+                            value: manifestFor(paths),
+                        },
+                        file('upload', 'first'),
+                        file('attachment', 'second!!'),
+                    ],
+                    actor,
+                ),
+                makeRes().res,
+            ),
+        );
+
+        expect(await sizeAt(paths[0]!)).toBe(5);
+        expect(await sizeAt(paths[1]!)).toBe(8);
+    });
+
+    it('rejects a part that no manifest item accounts for', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/extra-a.txt`;
+        await expect(
+            withActor(actor, () =>
+                controller.batchWrites(
+                    makeMultipartReq(
+                        [
+                            {
+                                kind: 'field',
+                                name: 'manifest',
+                                value: manifestFor([path]),
+                            },
+                            file('file-0', 'kept'),
+                            file('stray', 'extra'),
+                        ],
+                        actor,
+                    ),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message:
+                'Batch write file part "stray" does not map to manifest metadata',
+        });
+        expect(await server.stores.fsEntry.getEntryByPath(path)).toBeNull();
+    });
+
+    it('rejects a manifest item that is not an object', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                controller.batchWrites(
+                    makeMultipartReq(
+                        [
+                            {
+                                kind: 'field',
+                                name: 'manifest',
+                                value: JSON.stringify({ items: [null] }),
+                            },
+                        ],
+                        actor,
+                    ),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Batch write manifest item at position 0 is invalid',
+        });
+    });
+});

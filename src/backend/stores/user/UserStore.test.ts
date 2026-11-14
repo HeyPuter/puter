@@ -532,6 +532,151 @@ describe('UserStore batched and uncached lookups', () => {
         ).resolves.toBeUndefined();
     });
 
+    it('getSuspendedByIds reads the primary, not a cached row', async () => {
+        const active = await makeUser();
+        const suspended = await makeUser();
+        // Warm the cache, then suspend behind the store's back.
+        await server.stores.user.getById(suspended.id);
+        await server.clients.db.write(
+            'UPDATE `user` SET `suspended` = 1 WHERE `id` = ?',
+            [suspended.id],
+        );
+
+        const found = await server.stores.user.getSuspendedByIds([
+            active.id,
+            suspended.id,
+            suspended.id,
+            999_999_999,
+            'not-a-number' as unknown as number,
+        ]);
+
+        expect(found).toEqual(
+            new Map([
+                [active.id, false],
+                [suspended.id, true],
+            ]),
+        );
+        // The cached copy still predates the suspension.
+        expect(
+            (await server.stores.user.getById(suspended.id))?.suspended,
+        ).not.toBe(true);
+    });
+
+    it('getSuspendedByIds tolerates empty and non-array input', async () => {
+        expect((await server.stores.user.getSuspendedByIds([])).size).toBe(0);
+        expect(
+            (await server.stores.user.getSuspendedByIds(null as never)).size,
+        ).toBe(0);
+    });
+
+    it('consumes a recovery code once and keeps the others', async () => {
+        const user = await makeUser();
+        await server.stores.user.update(user.id, {
+            otp_recovery_codes: 'hash-a,hash-b,hash-c',
+        });
+
+        expect(
+            await server.stores.user.consumeOtpRecoveryCode(user.id, 'hash-b'),
+        ).toBe(true);
+        expect(
+            (await server.stores.user.getById(user.id, { force: true }))
+                ?.otp_recovery_codes,
+        ).toBe('hash-a,hash-c');
+
+        // Already spent, never issued.
+        expect(
+            await server.stores.user.consumeOtpRecoveryCode(user.id, 'hash-b'),
+        ).toBe(false);
+        expect(
+            await server.stores.user.consumeOtpRecoveryCode(user.id, 'hash-z'),
+        ).toBe(false);
+        expect(
+            (await server.stores.user.getById(user.id, { force: true }))
+                ?.otp_recovery_codes,
+        ).toBe('hash-a,hash-c');
+    });
+
+    it('consumes no recovery code for an account without any, or a missing one', async () => {
+        const user = await makeUser();
+        expect(
+            await server.stores.user.consumeOtpRecoveryCode(user.id, 'hash-a'),
+        ).toBe(false);
+        expect(
+            await server.stores.user.consumeOtpRecoveryCode(
+                999_999_999,
+                'hash-a',
+            ),
+        ).toBe(false);
+    });
+
+    it('clearUnconfirmedEmail removes an unconfirmed address and its demand', async () => {
+        const user = await makeUser();
+        await server.stores.user.update(user.id, {
+            requires_email_confirmation: true,
+            email_confirm_code: '123456',
+            email_confirm_token: 'tok',
+        });
+
+        expect(await server.stores.user.clearUnconfirmedEmail(user.id)).toBe(
+            true,
+        );
+
+        const row = await server.stores.user.getById(user.id, { force: true });
+        expect(row).toMatchObject({
+            email: null,
+            clean_email: null,
+            requires_email_confirmation: false,
+            email_confirm_code: null,
+            email_confirm_token: null,
+        });
+        expect(await server.stores.user.getByEmail(user.email!)).toBeNull();
+    });
+
+    it('clearUnconfirmedEmail leaves a confirmed address, and an account with none', async () => {
+        const confirmed = await makeUser();
+        await server.stores.user.update(confirmed.id, {
+            email_confirmed: true,
+        });
+        expect(
+            await server.stores.user.clearUnconfirmedEmail(confirmed.id),
+        ).toBe(false);
+        expect(
+            (await server.stores.user.getById(confirmed.id, { force: true }))
+                ?.email,
+        ).toBe(confirmed.email);
+
+        const noEmail = await makeUser({ email: null });
+        expect(await server.stores.user.clearUnconfirmedEmail(noEmail.id)).toBe(
+            false,
+        );
+    });
+
+    it('markDeletedById tombstones every key the cached copy names', async () => {
+        const user = await makeUser();
+        const redis = server.clients.redis;
+        await server.stores.user.getByUsername(user.username);
+        expect(await redis.get(`users:id:${user.id}`)).not.toBeNull();
+
+        await server.stores.user.markDeletedById(user.id);
+
+        expect(await redis.get(`users:id:${user.id}`)).toBeNull();
+        expect(await redis.get(`users:username:${user.username}`)).toBeNull();
+        expect(await redis.get(`users:id:${user.id}:deleted`)).not.toBeNull();
+        expect(
+            await redis.get(`users:username:${user.username}:deleted`),
+        ).not.toBeNull();
+    });
+
+    it('markDeletedById tombstones the id key when nothing is cached', async () => {
+        const redis = server.clients.redis;
+        const id = 987_654_321;
+        expect(await redis.get(`users:id:${id}`)).toBeNull();
+
+        await server.stores.user.markDeletedById(id);
+
+        expect(await redis.get(`users:id:${id}:deleted`)).not.toBeNull();
+    });
+
     describe('referral codes', () => {
         it('claims a code once and resolves it back to the account', async () => {
             const user = await makeUser();

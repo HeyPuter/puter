@@ -20,7 +20,7 @@
 import MockRedis from 'ioredis-mock';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { makeActor, type Actor } from '../../core/actor.js';
+import { makeActor, SYSTEM_ACTOR, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
@@ -477,6 +477,85 @@ describe('PermissionService (integration)', () => {
             });
         });
 
+        it('grants an app a foreign path the user was given access to', async () => {
+            const { user, actor } = await makeUserActor();
+            const app = await makeApp(user.id);
+            const other = await makeUserActor();
+            const entryUid = uuidv4();
+            const path = `/${other.user.username}/shared-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO fsentries (uuid, parent_uid, user_id, name, path, is_dir, size, created, accessed, modified) ' +
+                    'VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    entryUid,
+                    other.user.id,
+                    path.split('/').pop(),
+                    path,
+                    1,
+                    0,
+                    Date.now(),
+                    Date.now(),
+                    Date.now(),
+                ],
+            );
+            const held = `fs:${entryUid}:read`;
+            await server.stores.permission.setFlatUserPerm(user.id, held, {
+                permission: held,
+                deleted: false,
+                issuer_user_id: other.user.id,
+            } as never);
+
+            await runWithContext({ actor }, () =>
+                permService.grantUserAppPermission(
+                    actor,
+                    app.uid,
+                    `fs:${path}:read`,
+                ),
+            );
+
+            // Stored against the node, not the path it was asked as.
+            expect(
+                await server.stores.permission.hasUserAppPerm(
+                    user.id,
+                    app.id,
+                    held,
+                ),
+            ).toBe(true);
+        });
+
+        it('surfaces a failed write that is not a missing parent, tombstoning nothing', async () => {
+            const { user, actor } = await makeUserActor();
+            const app = await makeApp(user.id);
+            const permission = `zztest:gua-fail-${uuidv4()}:ii:read`;
+
+            const spy = vi
+                .spyOn(server.stores.permission, 'upsertUserAppPerm')
+                .mockRejectedValue(new Error('simulated db failure'));
+            try {
+                await expect(
+                    runWithContext({ actor }, () =>
+                        permService.grantUserAppPermission(
+                            actor,
+                            app.uid,
+                            permission,
+                        ),
+                    ),
+                ).rejects.toThrow('simulated db failure');
+            } finally {
+                spy.mockRestore();
+            }
+
+            expect(await server.stores.user.getById(user.id)).toBeTruthy();
+            expect(await server.stores.app.resolveApp(app.uid)).toBeTruthy();
+            expect(
+                await server.stores.permission.hasUserAppPerm(
+                    user.id,
+                    app.id,
+                    permission,
+                ),
+            ).toBe(false);
+        });
+
         it('persists a user→app grant and is idempotent', async () => {
             const { user, actor } = await makeUserActor();
             const app = await makeApp(user.id);
@@ -770,21 +849,26 @@ describe('PermissionService (integration)', () => {
 
     describe('check on a system actor (universal grant)', () => {
         it('checkMany returns true for every permission when actor is system', async () => {
-            // The system actor short-circuits checkMany — its actor is the
-            // hardcoded sys-issued shape exposed by the server.
-            const systemActor = {
-                user: {
-                    id: 0,
-                    uuid: 'system',
-                    username: 'system',
-                },
-            } as unknown as Actor;
-            // We can't easily fabricate the system flag without importing
-            // internals — but the production system actor is exposed via
-            // server.systemActor (if available). Fall back to skipping.
-            void systemActor;
-            // No assertion if we can't get a real system actor — keep this
-            // test as a placeholder for future coverage.
+            const permissions = [
+                `zztest:sys-${uuidv4()}:ii:read`,
+                `zztest:sys-${uuidv4()}:ii:write`,
+            ];
+            const result = await permService.checkMany(SYSTEM_ACTOR, [
+                ...permissions,
+                permissions[0],
+            ]);
+            expect(result).toEqual(
+                new Map(permissions.map((permission) => [permission, true])),
+            );
+        });
+
+        it('check grants a system actor a permission nobody holds', async () => {
+            expect(
+                await permService.check(
+                    SYSTEM_ACTOR,
+                    `zztest:sys-${uuidv4()}:ii:read`,
+                ),
+            ).toBe(true);
         });
     });
 
@@ -861,6 +945,33 @@ describe('PermissionService (integration)', () => {
             expect(
                 await server.stores.permission.getCacheGeneration(aUid),
             ).toBe(g + 1);
+        });
+
+        it('bumpPermissionCacheForUsernames bumps each known user once and skips the rest', async () => {
+            const { user } = await makeUserActor();
+            const before = await server.stores.permission.getCacheGeneration(
+                `user:${user.uuid}`,
+            );
+            const bump = vi.spyOn(
+                server.stores.permission,
+                'bumpCacheGeneration',
+            );
+            try {
+                await permService.bumpPermissionCacheForUsernames([
+                    user.username,
+                    user.username,
+                    '',
+                    `no-such-user-${uuidv4()}`,
+                ]);
+                expect(bump.mock.calls).toEqual([[`user:${user.uuid}`]]);
+            } finally {
+                bump.mockRestore();
+            }
+            expect(
+                await server.stores.permission.getCacheGeneration(
+                    `user:${user.uuid}`,
+                ),
+            ).toBe(before + 1);
         });
 
         it('grant is visible immediately — a cached "denied" reading is not served', async () => {
@@ -1396,6 +1507,26 @@ describe('PermissionService (integration)', () => {
             expect(flat.filter((v) => !v.deleted)).toHaveLength(0);
         });
 
+        it('revokeUserUserPermissions removes nothing for an empty list, before looking the holder up', async () => {
+            const { actor } = await makeUserActor();
+            const bump = vi.spyOn(
+                server.stores.permission,
+                'bumpCacheGeneration',
+            );
+            try {
+                expect(
+                    await permService.revokeUserUserPermissions(
+                        actor,
+                        `does-not-exist-${uuidv4()}`,
+                        [],
+                    ),
+                ).toEqual([]);
+                expect(bump).not.toHaveBeenCalled();
+            } finally {
+                bump.mockRestore();
+            }
+        });
+
         it('revokeUserUserPermissions refuses an issuer who may not manage one of them, removing nothing', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target } = await makeUserActor();
@@ -1521,6 +1652,144 @@ describe('PermissionService (integration)', () => {
             expect(
                 await permService.check(targetActor, permission),
             ).toBeFalsy();
+        });
+
+        it('revokeUserUserPermissions keeps the flat entry of a permission another issuer still grants', async () => {
+            const { user: issuerA, actor: actorA } = await makeUserActor();
+            const { user: issuerB, actor: actorB } = await makeUserActor();
+            const { user: target, actor: targetActor } = await makeUserActor();
+            const tag = uuidv4();
+            const shared = `zztest:many-issuers-${tag}:shared:read`;
+            const solo = `zztest:many-issuers-${tag}:solo:read`;
+            await grantManage(issuerA, shared);
+            await grantManage(issuerA, solo);
+            await grantManage(issuerB, shared);
+            const grants: Array<[Actor, string]> = [
+                [actorA, shared],
+                [actorA, solo],
+                [actorB, shared],
+            ];
+            for (const [actor, permission] of grants) {
+                await runWithContext({ actor }, () =>
+                    permService.grantUserUserPermission(
+                        actor,
+                        target.username,
+                        permission,
+                    ),
+                );
+            }
+
+            const removed = await runWithContext({ actor: actorA }, () =>
+                permService.revokeUserUserPermissions(actorA, target.username, [
+                    shared,
+                    solo,
+                ]),
+            );
+
+            expect([...removed].sort()).toEqual([shared, solo].sort());
+            const flat = await server.stores.permission.getFlatUserPerms(
+                target.id,
+                [shared, solo],
+            );
+            expect(
+                flat.filter((v) => !v.deleted).map((v) => v.permission),
+            ).toEqual([shared]);
+            expect(await permService.check(targetActor, shared)).toBe(true);
+            expect(await permService.check(targetActor, solo)).toBeFalsy();
+        });
+
+        it('revokeUserUserPermissionSubtree takes several roots and everything beneath them', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target, actor: targetActor } = await makeUserActor();
+            const base = `zztest:subtree-${uuidv4()}`;
+            const granted = [
+                `${base}:a`,
+                `${base}:a:deep:read`,
+                `${base}:b:read`,
+            ];
+            const kept = `${base}:c:read`;
+            for (const permission of [...granted, kept]) {
+                await grantManage(issuer, permission);
+                await runWithContext({ actor: issuerActor }, () =>
+                    permService.grantUserUserPermission(
+                        issuerActor,
+                        target.username,
+                        permission,
+                    ),
+                );
+            }
+
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            let removed: string[];
+            try {
+                removed = await runWithContext({ actor: issuerActor }, () =>
+                    permService.revokeUserUserPermissionSubtree(
+                        issuerActor,
+                        target.username,
+                        [`${base}:a`, `${base}:b:read`],
+                        { reason: 'region withdrawn' },
+                    ),
+                );
+                expect(
+                    emit.mock.calls
+                        .filter(([key]) => key === 'permission.revoked')
+                        .map(
+                            ([, data]) =>
+                                (data as { permission: string }).permission,
+                        )
+                        .sort(),
+                ).toEqual([...granted].sort());
+            } finally {
+                emit.mockRestore();
+            }
+
+            expect([...removed].sort()).toEqual([...granted].sort());
+            for (const permission of granted) {
+                expect(
+                    await permService.check(targetActor, permission),
+                ).toBeFalsy();
+            }
+            expect(await permService.check(targetActor, kept)).toBe(true);
+            await vi.waitFor(async () => {
+                const rows = await server.clients.db.read(
+                    'SELECT `permission` FROM `audit_user_to_user_permissions` ' +
+                        'WHERE `holder_user_id` = ? AND `action` = ? AND `reason` = ?',
+                    [target.id, 'revoke', 'region withdrawn'],
+                );
+                expect(rows.map((row) => row.permission).sort()).toEqual(
+                    [...granted].sort(),
+                );
+            });
+        });
+
+        it('hasUserUserGrant finds a grant among the named permissions, and none in an empty list', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `zztest:has-grant-${uuidv4()}:ii:read`;
+            const never = `zztest:has-grant-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            expect(
+                await permService.hasUserUserGrant(target.id, issuer.id, [
+                    never,
+                    permission,
+                ]),
+            ).toBe(true);
+            expect(
+                await permService.hasUserUserGrant(target.id, issuer.id, [
+                    never,
+                ]),
+            ).toBe(false);
+            expect(
+                await permService.hasUserUserGrant(target.id, issuer.id, []),
+            ).toBe(false);
         });
 
         it('reports whether a grant was actually removed', async () => {

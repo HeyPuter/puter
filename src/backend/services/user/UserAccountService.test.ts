@@ -380,6 +380,182 @@ describe('UserAccountService', () => {
             expect(await server.stores.user.getById(user.id)).toBeNull();
         });
 
+        // Each teardown step is stepped over: a half-deleted account is worse
+        // than whatever the failed step leaves behind.
+        it.each([
+            {
+                step: 'file cleanup',
+                target: () => server.services.fs,
+                method: 'removeAllForUser',
+                warning: '[cascade-delete-user] fs cleanup failed:',
+            },
+            {
+                step: 'site cleanup',
+                target: () => server.stores.subdomain,
+                method: 'listByUserId',
+                warning: '[cascade-delete-user] subdomain cleanup failed:',
+            },
+            {
+                step: 'owned-app lookup',
+                target: () => server.stores.app,
+                method: 'list',
+                warning: '[cascade-delete-user] owned-app lookup failed:',
+            },
+            {
+                step: 'kv share retirement',
+                target: () => server.services.kvShare,
+                method: 'retireForDeletedHolder',
+                warning: '[cascade-delete-user] kv share retire failed:',
+            },
+            {
+                step: 'issued-grant lookup',
+                target: () => server.stores.permission,
+                method: 'listUserUserPermRefsIssuedBy',
+                warning: '[cascade-delete-user] issued-grant lookup failed:',
+            },
+            {
+                step: 'held-grant purge',
+                target: () => server.stores.permission,
+                method: 'purgeFlatUserPermsHeldBy',
+                warning: '[cascade-delete-user] held-grant flat purge failed:',
+            },
+        ])(
+            'still deletes the account when $step fails',
+            async ({ target, method, warning }) => {
+                const user = await seedUser();
+                const failing = vi
+                    .spyOn(target() as never, method as never)
+                    .mockRejectedValue(new Error('dependency down') as never);
+                const warn = vi
+                    .spyOn(console, 'warn')
+                    .mockImplementation(() => {});
+                const deleted: unknown[] = [];
+                const emitSpy = vi.spyOn(server.clients.event, 'emit');
+                try {
+                    await server.services.userAccount.cascadeDelete(user.id);
+                    expect(failing).toHaveBeenCalled();
+                    expect(warn).toHaveBeenCalledWith(
+                        warning,
+                        expect.any(Error),
+                    );
+                    deleted.push(
+                        ...emitSpy.mock.calls
+                            .filter(([key]) => key === 'user.delete')
+                            .map(([, payload]) => payload),
+                    );
+                } finally {
+                    failing.mockRestore();
+                    warn.mockRestore();
+                    emitSpy.mockRestore();
+                }
+                expect(
+                    await server.stores.user.getById(user.id, { force: true }),
+                ).toBeNull();
+                expect(deleted).toEqual([
+                    expect.objectContaining({
+                        user_id: user.id,
+                        user_uuid: user.uuid,
+                    }),
+                ]);
+            },
+        );
+
+        it('still deletes the account when purging its issued flat grants fails', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                `zztest:del-${uuidv4()}:ii:read`,
+                {},
+            );
+            const failing = vi
+                .spyOn(server.stores.permission, 'delFlatUserPerms')
+                .mockRejectedValue(new Error('dependency down'));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                await server.services.userAccount.cascadeDelete(issuer.id);
+                expect(warn).toHaveBeenCalledWith(
+                    '[cascade-delete-user] issued-grant flat purge failed:',
+                    expect.any(Error),
+                );
+            } finally {
+                failing.mockRestore();
+                warn.mockRestore();
+            }
+            expect(
+                await server.stores.user.getById(issuer.id, { force: true }),
+            ).toBeNull();
+        });
+
+        it('deletes the account, announcing it without identifiers, when they cannot be read', async () => {
+            const user = await seedUser();
+            // Warm the id-keyed entry: with no row to name the keys, it is what
+            // the delete falls back on.
+            await server.stores.user.getById(user.id);
+            const pread = server.clients.db.pread.bind(server.clients.db);
+            const failing = vi
+                .spyOn(server.clients.db, 'pread')
+                .mockImplementation(async (sql: string, ...rest: never[]) => {
+                    if (sql === 'SELECT * FROM `user` WHERE `id` = ?')
+                        throw new Error('primary down');
+                    return (pread as (...args: unknown[]) => never)(
+                        sql,
+                        ...rest,
+                    );
+                });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const emitSpy = vi.spyOn(server.clients.event, 'emit');
+            let announced: unknown[] = [];
+            try {
+                await server.services.userAccount.cascadeDelete(user.id);
+                expect(warn).toHaveBeenCalledWith(
+                    '[cascade-delete-user] identifier lookup failed:',
+                    expect.any(Error),
+                );
+                announced = emitSpy.mock.calls
+                    .filter(([key]) => key === 'user.delete')
+                    .map(([, payload]) => payload);
+            } finally {
+                failing.mockRestore();
+                warn.mockRestore();
+                emitSpy.mockRestore();
+            }
+            expect(announced).toEqual([
+                {
+                    user_id: user.id,
+                    user_uuid: undefined,
+                    stripe_customer_id: null,
+                    appUids: [],
+                },
+            ]);
+            expect(await server.stores.user.getById(user.id)).toBeNull();
+        });
+
+        it('finishes when a user.delete listener throws', async () => {
+            const user = await seedUser();
+            const emit = server.clients.event.emit.bind(server.clients.event);
+            const emitSpy = vi
+                .spyOn(server.clients.event, 'emit')
+                .mockImplementation(((key: string, ...rest: unknown[]) => {
+                    if (key === 'user.delete') throw new Error('bus down');
+                    return (emit as (...args: unknown[]) => unknown)(
+                        key,
+                        ...rest,
+                    );
+                }) as never);
+            try {
+                await expect(
+                    server.services.userAccount.cascadeDelete(user.id),
+                ).resolves.toBeUndefined();
+            } finally {
+                emitSpy.mockRestore();
+            }
+            expect(
+                await server.stores.user.getById(user.id, { force: true }),
+            ).toBeNull();
+        });
+
         it("records the account's apps as deleted", async () => {
             const user = await seedUser();
             const app = await server.stores.app.create(

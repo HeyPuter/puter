@@ -133,6 +133,23 @@ describe('AppStore creating-app marker', () => {
         expect(plain.metadata).toEqual({ a: 1 });
     });
 
+    it('records the creating app when the supplied metadata is not valid JSON', async () => {
+        const owner = freshOwner();
+        const parent = await createApp(owner);
+        const child = await createApp(
+            owner,
+            { metadata: 'not json' },
+            { appOwner: parent.id },
+        );
+
+        expect(child.created_by_app).toBe(parent.uid);
+        expect(child.metadata).toBeNull();
+        expect(await rawMetadata(child.id)).toEqual({
+            _createdByApp: parent.uid,
+            _metadataNull: true,
+        });
+    });
+
     it('ignores a caller-supplied marker on create and update', async () => {
         const owner = freshOwner();
         const app = await createApp(owner, {

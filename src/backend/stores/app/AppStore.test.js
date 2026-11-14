@@ -441,6 +441,29 @@ describe('AppStore filetype associations', () => {
         expect(apps.map((a) => a.id)).toContain(app.id);
     });
 
+    it('getAppsByFiletype serves its cached list until an association write for that extension', async () => {
+        const first = await createApp();
+        const second = await createApp();
+        const ext = freshExt();
+        const listIds = async () =>
+            (await appStore.getAppsByFiletype(ext)).map((a) => a.id).sort();
+        await appStore.setFiletypeAssociations(first.id, [ext]);
+        expect(await listIds()).toEqual([first.id]);
+        // The read does not wait for its own cache write.
+        await vi.waitFor(async () => {
+            expect(
+                await server.clients.redis.exists(`apps:by-filetype:${ext}`),
+            ).toBe(1);
+        });
+
+        // A row the store did not write leaves the cached list in place.
+        await insertRawAssociation(second.id, ext);
+        expect(await listIds()).toEqual([first.id]);
+
+        await appStore.setFiletypeAssociations(second.id, [ext]);
+        expect(await listIds()).toEqual([first.id, second.id].sort());
+    });
+
     it('getAppsByFiletype returns [] when the extension normalizes to nothing', async () => {
         expect(await appStore.getAppsByFiletype('')).toEqual([]);
         expect(await appStore.getAppsByFiletype('.')).toEqual([]);
@@ -999,6 +1022,22 @@ describe('AppStore CRUD and cache invalidation', () => {
             { excludeAppId: older.id },
         );
         expect(excluded.id).toBe(newer.id);
+    });
+
+    it('matches a punycode candidate against a row stored with the unicode host', async () => {
+        const app = await createApp();
+        // Rows written before index_urls were normalized can hold the
+        // unicode spelling.
+        await db.write('UPDATE `apps` SET `index_url` = ? WHERE `id` = ?', [
+            'https://m\u00fcnchen-apps.example/',
+            app.id,
+        ]);
+
+        const found = await appStore.findByIndexUrlCandidates([
+            'https://xn--mnchen-apps-thb.example/',
+        ]);
+
+        expect(found.id).toBe(app.id);
     });
 
     it('returns null for an empty or non-array candidate list', async () => {
@@ -1692,6 +1731,43 @@ describe('AppStore detailed stats', () => {
             expect(stats.referral_count).toBeNull();
         },
     );
+
+    it('bounds `last_week` to the week before the current one', async () => {
+        const uid = `app-lastweek-${Date.now()}`;
+        // One open five days back (last week in any time zone), one today.
+        for (const [userId, offset] of [
+            [1, 5 * 86400],
+            [2, 60],
+        ]) {
+            await db.write(
+                'INSERT INTO app_opens (app_uid, user_id, ts) VALUES (?, ?, ?)',
+                [uid, userId, nowSeconds - offset],
+            );
+        }
+
+        const lastWeek = await appStore.getAppStatsDetailed(uid, {
+            period: 'last_week',
+        });
+        const allTime = await appStore.getAppStatsDetailed(uid);
+
+        expect(lastWeek.open_count).toBe(1);
+        expect(lastWeek.user_count).toBe(1);
+        expect(allTime.open_count).toBe(2);
+    });
+
+    it('numbers week buckets by ISO week in a year that does not start on a Thursday', async () => {
+        const stats = await appStore.getAppStatsDetailed(APP_UID, {
+            period: '12m',
+            grouping: 'week',
+        });
+
+        // The window opens on 2025-06-17 and closes on 2026-06-17, both in
+        // ISO week 25 of their year.
+        const periods = stats.grouped_stats.open_count.map((b) => b.period);
+        expect(periods.at(0)).toBe('2025-25');
+        expect(periods.at(-1)).toBe('2026-25');
+        expect(periods).toHaveLength(53);
+    });
 
     it('still reports week-grouped totals even when bucket keys do not line up', async () => {
         // SQLite's `%Y-%U` week numbering differs from the ISO week the

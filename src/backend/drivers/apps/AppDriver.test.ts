@@ -19,7 +19,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../core/actor.js';
+import { SYSTEM_ACTOR, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { extensionStore } from '../../extensions.js';
 import { PuterServer } from '../../server.js';
@@ -2748,5 +2748,281 @@ describe('AppDriver.read prefetched-param isolation', () => {
             expect.arrayContaining(['puter']),
         );
         expect(result.filetype_associations).not.toContain('x');
+    });
+});
+
+// -- Actor and lookup edge cases --------------------------------------
+
+describe('AppDriver actor and lookup edge cases', () => {
+    const createApp = (actor: Actor, object: Record<string, unknown> = {}) =>
+        withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('edge'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    ...object,
+                },
+            }),
+        );
+
+    it('refuses writes from an actor that acts for no user with 403', async () => {
+        const appOnly = { app: { uid: `app-${uuidv4()}` } } as unknown as Actor;
+        await expect(createApp(appOnly)).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'forbidden',
+        });
+    });
+
+    it('reads by a bare uid string passed as `id`', async () => {
+        const { actor } = await makeUser();
+        const created = await createApp(actor);
+
+        const read = await withActor(actor, () =>
+            driver.read({ id: created.uid }),
+        );
+
+        expect(read.uid).toBe(created.uid);
+    });
+
+    it('returns 404 when `id` carries nothing to look up', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () => driver.read({ id: {} })),
+        ).rejects.toMatchObject({ statusCode: 404, legacyCode: 'not_found' });
+    });
+
+    it('hides a protected app from a user with no access grant', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const created = await createApp(owner.actor);
+        const row = await server.stores.app.getByUid(created.uid as string);
+        // `protected` is read-only through the store, so set it directly.
+        await server.clients.db.write(
+            'UPDATE `apps` SET `protected` = 1 WHERE `id` = ?',
+            [row!.id],
+        );
+        await server.stores.app.invalidateByUid(created.uid as string);
+
+        await expect(
+            withActor(stranger.actor, () => driver.read({ uid: created.uid })),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+        const ownRead = await withActor(owner.actor, () =>
+            driver.read({ uid: created.uid }),
+        );
+        expect(ownRead.uid).toBe(created.uid);
+    });
+
+    it('lets the system actor update an app it does not own', async () => {
+        const owner = await makeUser();
+        const created = await createApp(owner.actor);
+
+        const updated = await withActor(SYSTEM_ACTOR, () =>
+            driver.update({
+                uid: created.uid,
+                object: { title: 'Retitled by system' },
+            }),
+        );
+
+        expect(updated.title).toBe('Retitled by system');
+        const stored = await server.stores.app.getByUid(created.uid as string);
+        expect(stored?.title).toBe('Retitled by system');
+        expect(stored?.owner_user_id).toBe(owner.userId);
+    });
+
+    it('stores `feedback_enabled` as a flag on create and update', async () => {
+        const { actor } = await makeUser();
+        const created = await createApp(actor, { feedback_enabled: true });
+        const uid = created.uid as string;
+        expect(
+            Number((await server.stores.app.getByUid(uid))?.feedback_enabled),
+        ).toBe(1);
+
+        await withActor(actor, () =>
+            driver.update({ uid, object: { feedback_enabled: false } }),
+        );
+
+        expect(
+            Number((await server.stores.app.getByUid(uid))?.feedback_enabled),
+        ).toBe(0);
+    });
+
+    it('gives up deduping a name when every candidate is taken', async () => {
+        const { actor } = await makeUser();
+        const name = uniqueName('dd');
+        await createApp(actor, { name });
+        // Every candidate suffix comes out the same, so the first taken one
+        // is taken on each retry.
+        const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        const suffix = (0.5).toString(36).slice(2, 6);
+        try {
+            await server.stores.app.create(
+                {
+                    name: `${name}-${suffix}`,
+                    title: 't',
+                    index_url: 'https://dedupe-taken.test/',
+                },
+                { ownerUserId: actor.user!.id },
+            );
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name,
+                            title: 't',
+                            index_url: uniqueIndexUrl(),
+                        },
+                        options: { dedupe_name: true },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'app_name_already_in_use',
+            });
+        } finally {
+            randomSpy.mockRestore();
+        }
+    });
+});
+
+// -- index_url equivalence ----------------------------------------------
+
+describe('AppDriver index_url equivalence', () => {
+    const driverConfig = () =>
+        (driver as unknown as { config: Record<string, unknown> }).config;
+    const hostedUrl = (sub: string, path = '/') =>
+        `https://${sub}.site.puter.localhost${path}`;
+    const createAt = (actor: Actor, indexUrl: string) =>
+        withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('eq'),
+                    title: 't',
+                    index_url: indexUrl,
+                },
+            }),
+        );
+
+    it('treats a hosted path with and without a trailing slash as one URL', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = uniqueName('pathsite');
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const first = await createAt(actor, hostedUrl(sub, '/app'));
+
+        await expect(
+            createAt(actor, hostedUrl(sub, '/app/')),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'app_index_url_already_in_use',
+            fields: { app_uid: first.uid },
+        });
+        const other = await createAt(actor, hostedUrl(sub, '/other'));
+        expect(other.uid).not.toBe(first.uid);
+    });
+
+    it('lets several apps share the coming-soon placeholder URL', async () => {
+        driverConfig().app_origin_aliases = [['dev-center.puter.com']];
+        try {
+            const a = await makeUser();
+            const b = await makeUser();
+            const placeholder = 'https://dev-center.puter.com/coming-soon';
+
+            const first = await createAt(a.actor, placeholder);
+            const second = await createAt(b.actor, placeholder);
+
+            expect(second.uid).not.toBe(first.uid);
+            expect(first.index_url).toBe(placeholder);
+            expect(second.index_url).toBe(placeholder);
+        } finally {
+            delete driverConfig().app_origin_aliases;
+        }
+    });
+
+    it('accepts a browser-extension index_url without resolving it as a custom domain', async () => {
+        const resolved: string[] = [];
+        const resolveHost = (_key: unknown, data: { host: string }) => {
+            resolved.push(data.host);
+        };
+        driverConfig().custom_domains_enabled = true;
+        server.clients.event.on('site.resolveHost', resolveHost);
+        try {
+            const { actor } = await makeUser();
+            const created = await createAt(
+                actor,
+                'chrome-extension://abcdefghijklmnop/index.html',
+            );
+            expect(created.index_url).toBe(
+                'chrome-extension://abcdefghijklmnop/index.html',
+            );
+            expect(resolved).toEqual([]);
+        } finally {
+            delete driverConfig().custom_domains_enabled;
+            server.clients.event.off('site.resolveHost', resolveHost);
+        }
+    });
+});
+
+// -- Update merges ----------------------------------------------------
+
+describe('AppDriver update merging into a bootstrap row', () => {
+    const aliasHost = `alias-m-${Math.random().toString(36).slice(2, 10)}.test`;
+    const driverConfig = () =>
+        (driver as unknown as { config: Record<string, unknown> }).config;
+
+    beforeAll(() => {
+        driverConfig().app_origin_aliases = [[aliasHost]];
+    });
+
+    afterAll(() => {
+        delete driverConfig().app_origin_aliases;
+    });
+
+    it('keeps every merged uid resolving to the joined row, and applies a requested rename last', async () => {
+        const { actor } = await makeUser();
+        const stubUid = `app-${uuidv4()}`;
+        await server.stores.app.createFromOrigin(
+            stubUid,
+            `https://${aliasHost}`,
+        );
+        const makeSource = () =>
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('src'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            );
+        const first = await makeSource();
+        const second = await makeSource();
+        const finalName = uniqueName('joined');
+
+        await withActor(actor, () =>
+            driver.update({
+                uid: first.uid,
+                object: { index_url: `https://${aliasHost}/` },
+            }),
+        );
+        const merged = await withActor(actor, () =>
+            driver.update({
+                uid: second.uid,
+                object: { index_url: `https://${aliasHost}/`, name: finalName },
+            }),
+        );
+
+        expect(merged.uid).toBe(stubUid);
+        expect(merged.name).toBe(finalName);
+        for (const oldUid of [first.uid, second.uid]) {
+            expect(await server.stores.app.getByUid(oldUid as string)).toBeNull();
+            const viaOld = await withActor(actor, () =>
+                driver.read({ uid: oldUid }),
+            );
+            expect(viaOld.uid).toBe(stubUid);
+        }
+        const { res: aliases } = await server.stores.kv.get({
+            key: `app:canonicalUidAliasReverse:${stubUid}`,
+        });
+        expect(aliases).toEqual([first.uid, second.uid]);
     });
 });

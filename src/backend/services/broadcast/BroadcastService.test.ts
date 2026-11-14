@@ -1095,6 +1095,154 @@ describe('BroadcastService — peer configuration', () => {
     });
 });
 
+// -- Addressed peer channel --------------------------------------------
+
+describe('BroadcastService — addressed peer channel', () => {
+    let server: PuterServer;
+    let broadcast: BroadcastService;
+
+    beforeAll(async () => {
+        server = await setupTestServer({
+            protocol: 'http',
+            broadcast: {
+                webhook: { peerId: SELF_PEER_ID, secret: SELF_SECRET },
+                peers: [
+                    {
+                        peerId: PEER_ID,
+                        webhook: true,
+                        webhook_url: PEER_URL,
+                        webhook_secret: PEER_SECRET,
+                    },
+                    {
+                        peerId: 'peer-bad-url',
+                        webhook: true,
+                        webhook_url: 'http://[not-a-host/hook',
+                        webhook_secret: 'bad-url-secret',
+                    },
+                ],
+                outbound_flush_ms: 60_000,
+            },
+        } as never);
+        broadcast = server.services.broadcast as unknown as BroadcastService;
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    beforeEach(() => {
+        axiosRequestMock.mockReset();
+    });
+
+    afterEach(() => {
+        axiosRequestMock.mockReset();
+    });
+
+    it('names itself by its webhook peer id and lists the peers it can address', () => {
+        expect(broadcast.regionId).toBe(SELF_PEER_ID);
+        expect(broadcast.addressablePeers).toEqual([PEER_ID, 'peer-bad-url']);
+    });
+
+    it('refuses a peer it has no config for, without posting', async () => {
+        await expect(
+            broadcast.postToPeer('nobody', '/broadcast/events', {}),
+        ).rejects.toThrow('unknown broadcast peer nobody');
+        expect(axiosRequestMock).not.toHaveBeenCalled();
+    });
+
+    it('signs one POST to the given path on the peer and returns its parsed answer', async () => {
+        axiosRequestMock.mockResolvedValue({
+            status: 200,
+            statusText: 'OK',
+            data: '{"ok":true,"noWatch":[]}',
+        });
+        const payload = { from: SELF_PEER_ID, items: [] };
+
+        const answer = await broadcast.postToPeer(
+            PEER_ID,
+            '/broadcast/events',
+            payload,
+        );
+
+        expect(answer).toEqual({ ok: true, noWatch: [] });
+        expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+        const request = axiosRequestMock.mock.calls[0][0] as {
+            method: string;
+            url: string;
+            data: string;
+            headers: Record<string, string>;
+        };
+        expect(request.method).toBe('POST');
+        // The path replaces the configured webhook path.
+        expect(request.url).toBe(
+            'http://broadcast-peer.invalid/broadcast/events',
+        );
+        expect(request.data).toBe(JSON.stringify(payload));
+        expect(request.headers['X-Broadcast-Peer-Id']).toBe(SELF_PEER_ID);
+        expect(request.headers['X-Broadcast-Signature']).toBe(
+            sign(
+                SELF_SECRET,
+                Number(request.headers['X-Broadcast-Timestamp']),
+                Number(request.headers['X-Broadcast-Nonce']),
+                request.data,
+            ),
+        );
+    });
+
+    it('returns null when the peer answers with something that is not JSON', async () => {
+        axiosRequestMock.mockResolvedValue({
+            status: 200,
+            statusText: 'OK',
+            data: 'ok',
+        });
+        expect(
+            await broadcast.postToPeer(PEER_ID, '/broadcast/events', {}),
+        ).toBeNull();
+    });
+
+    it('throws when the peer refuses, so the caller can tell it from an answer', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        axiosRequestMock.mockResolvedValue({
+            status: 503,
+            statusText: 'Service Unavailable',
+            data: 'down',
+        });
+        try {
+            await expect(
+                broadcast.postToPeer(PEER_ID, '/broadcast/events', {}),
+            ).rejects.toThrow('Webhook POST failed: 503 Service Unavailable');
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    it('never posts to a peer whose webhook url cannot be parsed', async () => {
+        expect(
+            await broadcast.postToPeer('peer-bad-url', '/broadcast/events', {}),
+        ).toBeNull();
+        expect(axiosRequestMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('BroadcastService — unconfigured deployment', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('falls back to the default region id and addresses no peers', () => {
+        const broadcast = server.services
+            .broadcast as unknown as BroadcastService;
+        expect(broadcast.regionId).toBe('local');
+        expect(broadcast.addressablePeers).toEqual([]);
+    });
+});
+
 // -- Redis pub/sub fan-out ---------------------------------------------
 
 describe('BroadcastService — same-cluster pub/sub fan-out', () => {
@@ -1147,6 +1295,44 @@ describe('BroadcastService — same-cluster pub/sub fan-out', () => {
         } finally {
             publishSpy.mockRestore();
         }
+    });
+
+    it('re-emits another node\'s message locally, and skips its own', async () => {
+        const seen: { key: string; data: unknown; meta: object }[] = [];
+        server.clients.event.on(
+            'pubsub.inbound.*' as never,
+            ((key: string, data: unknown, meta: object) => {
+                seen.push({ key, data, meta });
+            }) as never,
+        );
+
+        // Published by this node, so its own subscriber must not echo it.
+        server.clients.event.emit(
+            'pubsub.inbound.own' as never,
+            { n: 1 } as never,
+            {},
+        );
+        await server.clients.redis.publish(
+            'pubsub',
+            JSON.stringify({
+                key: 'pubsub.inbound.foreign',
+                data: { n: 2 },
+                meta: { tag: 'x' },
+                source: 'another-node:1',
+            }),
+        );
+        await waitForFlush(() =>
+            seen.some((event) => event.key === 'pubsub.inbound.foreign'),
+        );
+
+        expect(seen.map((event) => event.key)).toEqual([
+            'pubsub.inbound.own',
+            'pubsub.inbound.foreign',
+        ]);
+        expect(seen[1]).toMatchObject({
+            data: { n: 2 },
+            meta: { tag: 'x', from_fanout: true, from_outside: true },
+        });
     });
 });
 
