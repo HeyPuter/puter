@@ -40,8 +40,40 @@ export const seededRandom = (seed: number): Random => {
     };
 };
 
+/** A case's own sequence, so a case does not depend on the ones before it. */
+export const caseRandom = (seed: number, index: number): Random =>
+    seededRandom(Math.imul(seed ^ index, 0x9e3779b1));
+
 export const pick = <T>(random: Random, values: readonly T[]): T =>
     values[Math.floor(random() * values.length)]!;
+
+/**
+ * Picks by rendezvous hashing: a value added to or removed from `values` moves
+ * only the cases it wins, so a catalog change leaves every other case alone.
+ */
+export const pickStable = <T>(
+    random: Random,
+    values: readonly T[],
+    key: (value: T) => string,
+): T => {
+    const salt = (random() * 0x100000000) >>> 0;
+    let best = values[0]!;
+    let bestScore = -1;
+    for (const value of values) {
+        let hash = salt;
+        for (const char of key(value)) {
+            hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193);
+        }
+        hash = Math.imul(hash ^ (hash >>> 16), 0x85ebca6b);
+        hash = Math.imul(hash ^ (hash >>> 13), 0xc2b2ae35);
+        const score = (hash ^ (hash >>> 16)) >>> 0;
+        if (score > bestScore) {
+            best = value;
+            bestScore = score;
+        }
+    }
+    return best;
+};
 
 const STRINGS = [
     '',
@@ -276,9 +308,9 @@ export const fuzzCalls = async (options: {
     pinned?: (random: Random) => Record<string, unknown>;
     call: (args: Record<string, unknown>) => Promise<unknown>;
 }): Promise<Findings> => {
-    const random = seededRandom(options.seed);
     const findings = new Findings();
     for (let index = 0; index < options.cases; index++) {
+        const random = caseRandom(options.seed, index);
         const args = {
             ...mutate(
                 pick(random, options.corpus),
@@ -411,6 +443,9 @@ export const upstream = {
     /** Requests `respond` had no reply for. */
     unanswered: new Set<string>(),
 
+    /** How many requests reached `respond`. */
+    asked: 0,
+
     /**
      * Routes global `fetch` here and makes `https.request` throw, so an SDK
      * with its own client fails the suite instead of calling its vendor.
@@ -443,6 +478,7 @@ export const upstream = {
         const text =
             init?.body ??
             (input instanceof Request ? await input.clone().text() : undefined);
+        upstream.asked++;
         const reply = upstream.respond({ url, method, json: parseJson(text) });
         // Stainless SDKs sleep between retries unless told not to.
         const headers: Record<string, string> = { 'x-should-retry': 'false' };
@@ -496,6 +532,7 @@ export const upstream = {
         method?: string;
         data?: unknown;
     }): Promise<{ status: number; data: unknown }> {
+        upstream.asked++;
         const reply = upstream.respond({
             url: new URL(config.url ?? 'http://unknown.test'),
             method: (config.method ?? 'GET').toUpperCase(),

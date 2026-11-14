@@ -131,10 +131,11 @@ What the suites assert:
 - A malformed request never fails with an error that has no status, which `/drivers/call` would report as an unclassified 500.
 - For chat, with the vendors answering, a malformed request also never fails with a 5xx and never marks a route unhealthy.
 - When the upstream misbehaves, chat ends with an answer or an `HttpError`. A stream only has to end: the error line a stream carries isn't checked, so a malformed event can still end one with a 500.
+- Requests reach the vendors, and with the vendors answering some chat requests are answered, so a suite that stops exercising the providers fails.
 
 The vendors are played at the HTTP boundary by `upstream` in [shared/fuzzTestUtil.ts](../src/backend/drivers/ai/shared/fuzzTestUtil.ts), which stands in for global `fetch`, undici `fetch` and axios, and makes `https.request` throw so an SDK with its own client fails the suite. The vendors' SDKs run, except Groq's, which is swapped for the OpenAI SDK, and the AWS clients, whose `send` is stubbed. The media suite calls the drivers as a user with unlimited metering, so a request gets past file input and the credit hold to the vendor. A provider that loads its catalog from the vendor registers no models there, so the suites skip it.
 
-A failure lists each distinct finding with its case number and input. The random source is seeded, so the same case fails again on the next run. To search further, raise the case count:
+A failure lists each distinct finding with its case number and input. Each case is generated from the seed and its own number, so the same case fails again on the next run. Routes are picked by rendezvous hashing: a model added to a catalog takes only the cases it wins, and every other case keeps its route. To search further, raise the case count:
 
 ```sh
 PUTER_FUZZ_CASES=100000 npx vitest run --config src/backend/vitest.config.ts src/backend/drivers/ai/interfaces/chat/ChatCompletionDriver.fuzz.test.ts
