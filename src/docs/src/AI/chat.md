@@ -443,13 +443,15 @@ Pass `speed: "fast"` to request Fast mode, or `speed: "standard"` for standard i
 
 A Claude model can decline a request. A declined request ends with `stopReason` set to `"refusal"`, and `stopDetails` says why.
 
-When Claude Fable 5.2, Fable 5.1, Fable 5, Opus 5.5, Opus 5, or Sonnet 5.5 declines, the same request runs on another Claude model that Anthropic recommends for that kind of refusal, and the response carries that model's answer. Some kinds of refusal have no recommended model, and the response then ends with `stopReason` set to `"refusal"`.
+When Claude Fable 5.2, Fable 5.1, Fable 5, Opus 5.5, Opus 5, or Sonnet 5.5 declines, the same request runs on an earlier Claude model, and the response carries that model's answer. Fable 5.2, Fable 5.1, Fable 5 and Opus 5.5 fall back to Opus 5, and then to Opus 4.8 if Opus 5 declines too. Opus 5 falls back to Opus 4.8. Sonnet 5.5 falls back to Sonnet 5. If the request is still declined, the response ends with `stopReason` set to `"refusal"`.
 
 When another model answers, `usageDetails.fallbackModel` holds its ID, and `usageDetails.iterations` has one entry for each model that ran. A streamed response also has a `refusal_fallback` chunk at the point where the models switched, with the two models in `from.model` and `to.model`. The `reasoning_detail` chunks before a `refusal_fallback` chunk belong to the model that declined, so leave them out of `reasoning_details` when you send the turn back. See the [ChatResponse](/Objects/chatresponse/) and [ChatResponseChunk](/Objects/chatresponsechunk/) objects for these fields.
 
 A request that a model declines before it produces any output is charged only when Anthropic charges for it, which depends on the refusal category in `stopDetails.category`. A request declined after it produced output is charged for its prompt and that output.
 
-Each model that ran is charged at its own rates. The `usage` object holds the tokens of the model that answered under its usual keys, and the tokens of a model that declined under keys that start with `declined_`, such as `declined_input_tokens`. Credit is reserved for a full run on both models before the request starts, so the request needs enough balance for both.
+Each model that ran is charged at its own rates. The `usage` object holds the tokens of the model that answered under its usual keys, and the tokens of a model that declined under keys that start with `declined_`, such as `declined_input_tokens`. Credit is reserved for a full run on the requested model and on each model it can fall back to before the request starts, so the request needs enough balance for all of them.
+
+After a model declines a turn of a conversation, later calls for that conversation run on the model that answered, and the declined model isn't tried again. A call belongs to the conversation when it asks for the same `model` and its `messages` start with the messages of the declined call. The response keeps the format of the model you asked for. This lasts until the page is reloaded.
 
 To get the refusal as it is, pass `refusalFallback: false`.
 

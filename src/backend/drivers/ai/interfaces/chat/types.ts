@@ -111,8 +111,8 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
      */
     midConversationSystem?: boolean;
     /**
-     * Claude only: the models Anthropic may rerun a declined request on. A
-     * model without the list has no server-side fallback.
+     * Claude only: the models Anthropic reruns a declined request on, in the
+     * order tried. A model without the list has no server-side fallback.
      */
     refusalFallbackModels?: string[];
 }
@@ -125,7 +125,13 @@ export type PuterMessage = any;
  * `output_config.effort`.
  */
 export type ReasoningEffort =
-    'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    | 'none'
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'xhigh'
+    | 'max';
 
 /** Normalized tool choice, Anthropic vocabulary. */
 export type ToolChoice =
@@ -263,6 +269,12 @@ export interface ICompleteArguments {
      * instead of letting Anthropic rerun the request on another model.
      */
     refusalFallback?: boolean;
+    /**
+     * Claude only: one of the requested model's fallback models, sent by a
+     * caller whose conversation that model already answered for a declined
+     * turn. The request runs on it and is presented as the requested model.
+     */
+    refusalFallbackModel?: string;
     /** Claude only: the Anthropic route's native `fallbacks` value. */
     anthropicFallbacks?: 'default' | Array<{ model: string }>;
     /** Emit `tool_use_start` / `tool_input_delta` chunks while streaming. */

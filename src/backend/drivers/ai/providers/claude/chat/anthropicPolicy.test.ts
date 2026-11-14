@@ -93,8 +93,13 @@ const noFeatures: BetaFeatures = {
 describe('resolveRefusalFallbacks', () => {
     const [haiku, opus] = models as [IChatModel, IChatModel];
 
-    it('uses default routing on a model with fallback targets', () => {
-        expect(resolveRefusalFallbacks({}, opus, models)).toBe('default');
+    it('names the chain of a model with fallback targets', () => {
+        expect(resolveRefusalFallbacks({}, opus, models)).toEqual(
+            opus.refusalFallbackModels!.map((model) => ({ model })),
+        );
+    });
+
+    it('uses default routing when the caller asks for it', () => {
         expect(
             resolveRefusalFallbacks(
                 { anthropicFallbacks: 'default' },

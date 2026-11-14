@@ -2748,13 +2748,26 @@ describe('ClaudeProvider.requestPricing', () => {
         expect(provider.requestPricing({} as never, haiku, { promptTokenEstimate: 10 })).toEqual({});
     });
 
-    it('reserves a rerun on the priciest fallback target of default routing', () => {
+    it('reserves a rerun on every model of the chain', () => {
         const { provider } = makeProvider();
-        const opus48 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')!;
         const model = { ...opus55, provider: 'claude' };
         const pricing = provider.requestPricing({} as never, model, {
             promptTokenEstimate: 10,
         });
+        expect(pricing.rerunModels!.map((rerun) => rerun.id)).toEqual(
+            opus55.refusalFallbackModels,
+        );
+    });
+
+    it('reserves a rerun on the priciest fallback target of default routing', () => {
+        const { provider } = makeProvider();
+        const opus48 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')!;
+        const model = { ...opus55, provider: 'claude' };
+        const pricing = provider.requestPricing(
+            { anthropicFallbacks: 'default' } as never,
+            model,
+            { promptTokenEstimate: 10 },
+        );
         // Opus 4.8 and Opus 5 list the same rates; one rerun is reserved.
         expect(pricing.rerunModels).toHaveLength(1);
         expect(pricing.rerunModels![0]).toMatchObject({
@@ -3133,7 +3146,7 @@ describe('ClaudeProvider refusal fallback', () => {
             'claude-opus-5-5',
             'claude-opus-5',
             'claude-sonnet-5-5',
-        ])('asks for default fallback routing on %s', async (model) => {
+        ])('names the fallback chain of %s', async (model) => {
             const { provider } = makeProvider();
             messagesCreateMock.mockResolvedValueOnce(plainResponse);
             messagesStreamMock.mockReturnValueOnce(makeStreamLike([]));
@@ -3145,7 +3158,11 @@ describe('ClaudeProvider refusal fallback', () => {
                 messagesCreateMock.mock.calls[0]!,
                 messagesStreamMock.mock.calls[0]!,
             ]) {
-                expect(params.fallbacks).toBe('default');
+                expect(params.fallbacks).toEqual(
+                    CLAUDE_MODELS.find(
+                        (m) => m.id === model,
+                    )!.refusalFallbackModels!.map((id) => ({ model: id })),
+                );
                 expect(params.betas).toContain(FALLBACK_BETA);
             }
         });
@@ -3259,7 +3276,10 @@ describe('ClaudeProvider refusal fallback', () => {
                 await complete(provider, { model: 'claude-opus-5-5', stream });
 
                 expect(mock).toHaveBeenCalledTimes(2);
-                expect(mock.mock.calls[0]![0].fallbacks).toBe('default');
+                expect(mock.mock.calls[0]![0].fallbacks).toEqual([
+                    { model: 'claude-opus-5' },
+                    { model: 'claude-opus-4-8' },
+                ]);
                 const [retry] = mock.mock.calls[1]!;
                 expect('fallbacks' in retry).toBe(false);
                 expect(retry.betas ?? []).not.toContain(FALLBACK_BETA);
@@ -3844,7 +3864,7 @@ describe('ClaudeProvider refusal fallback', () => {
     describe('through the driver', () => {
         const messages = [{ role: 'user', content: 'hi' }];
 
-        it('holds both attempts and reports what both cost', async () => {
+        const makeDriver = async () => {
             const driver = new ChatCompletionDriver(
                 {
                     providers: {
@@ -3857,6 +3877,70 @@ describe('ClaudeProvider refusal fallback', () => {
                 server.services,
             );
             await driver.onServerStart();
+            return driver;
+        };
+
+        it('runs a pinned conversation on the fallback model, in the requested model\'s format', async () => {
+            const driver = await makeDriver();
+            messagesCreateMock.mockResolvedValueOnce(plainResponse);
+
+            const result = (await withTestActor(() =>
+                driver.complete({
+                    model: 'claude-opus-5-5',
+                    refusalFallbackModel: 'claude-opus-4-8',
+                    messages,
+                }),
+            )) as Record<string, any>;
+
+            const [params] = messagesCreateMock.mock.calls[0]!;
+            expect(params.model).toBe('claude-opus-4-8');
+            expect('fallbacks' in params).toBe(false);
+            // Opus 5.5 answers in the OpenAI shape by default; Opus 4.8 on
+            // its own does not.
+            expect(result.normalized).toBe(true);
+            expect(result.message.content).toBe('hi');
+        });
+
+        it.each(['claude-haiku-5-5', 'gpt-6.1-sol', 'no-such-model'])(
+            'ignores a pinned model that is not a fallback of the requested one: %s',
+            async (refusalFallbackModel) => {
+                const driver = await makeDriver();
+                messagesCreateMock.mockResolvedValueOnce(plainResponse);
+
+                await withTestActor(() =>
+                    driver.complete({
+                        model: 'claude-opus-5-5',
+                        refusalFallbackModel,
+                        messages,
+                    }),
+                );
+
+                expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+                    'claude-opus-5-5',
+                );
+            },
+        );
+
+        it('ignores a pinned model when the caller turned the fallback off', async () => {
+            const driver = await makeDriver();
+            messagesCreateMock.mockResolvedValueOnce(plainResponse);
+
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'claude-opus-5-5',
+                    refusalFallbackModel: 'claude-opus-4-8',
+                    refusalFallback: false,
+                    messages,
+                }),
+            );
+
+            expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+                'claude-opus-5-5',
+            );
+        });
+
+        it('holds both attempts and reports what both cost', async () => {
+            const driver = await makeDriver();
             vi.spyOn(
                 server.services.metering,
                 'getUsageHeadroom',
@@ -3881,11 +3965,11 @@ describe('ClaudeProvider refusal fallback', () => {
                 }),
             )) as Record<string, any>;
 
-            // One attempt on Opus 5.5 (400/2000) and one on its priciest
-            // fallback target (500/2500).
+            // One attempt on Opus 5.5 (400/2000) and one on each model of its
+            // chain (500/2500 each).
             expect(reserve.mock.calls[0]![1]).toBe(
-                estimatePromptTokens(messages) * (400 + 500) +
-                    100 * (2000 + 2500),
+                estimatePromptTokens(messages) * (400 + 500 + 500) +
+                    100 * (2000 + 2500 + 2500),
             );
             const cost = 535 * 400 + 412 * 500 + 264 * 2500;
             expect(result.usage.cost).toBe(cost);

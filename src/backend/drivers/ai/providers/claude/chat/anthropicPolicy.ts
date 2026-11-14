@@ -486,10 +486,10 @@ const usesCompactEdit = (contextManagement: unknown): boolean => {
 export type AnthropicFallbacks = 'default' | Array<{ model: string }>;
 
 /**
- * The `fallbacks` value for a request: the caller's own chain, or Anthropic's
- * default routing. Undefined when the caller opted out or the model has no
- * server-side fallback. Per-entry overrides are dropped, so a fallback attempt
- * runs under the request's own `max_tokens` and speed.
+ * The `fallbacks` value for a request: the caller's own chain or default
+ * routing, otherwise the model's own chain. Undefined when the caller opted out
+ * or the model has no server-side fallback. Per-entry overrides are dropped, so
+ * a fallback attempt runs under the request's own `max_tokens` and speed.
  */
 export const resolveRefusalFallbacks = (
     args: { refusalFallback?: unknown; anthropicFallbacks?: unknown },
@@ -499,7 +499,12 @@ export const resolveRefusalFallbacks = (
     if (args.refusalFallback === false) return undefined;
     if (!model.refusalFallbackModels?.length) return undefined;
     const requested = args.anthropicFallbacks;
-    if (requested === undefined || requested === 'default') return 'default';
+    // Default routing leaves some refusal categories declined, so the model's
+    // chain is named in full.
+    if (requested === undefined) {
+        return model.refusalFallbackModels.map((id) => ({ model: id }));
+    }
+    if (requested === 'default') return 'default';
     if (!Array.isArray(requested)) {
         throw new HttpError(
             400,

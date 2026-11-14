@@ -443,9 +443,9 @@ export class ClaudeProvider implements IChatProvider {
     }
 
     /**
-     * The models a declined request can run again on: every model of a chain
-     * the caller named, or the priciest target of Anthropic's default routing,
-     * which reruns the request once. Each is priced at the request's speed.
+     * The models a declined request can run again on: every model of the chain,
+     * or the priciest target of Anthropic's default routing, which reruns the
+     * request once. Each is priced at the request's speed.
      */
     #rerunModels(args: ICompleteArguments, model: IChatModel): IChatModel[] {
         const fallbacks = resolveRefusalFallbacks(args, model, this.models());

@@ -183,7 +183,12 @@ export const COUNT_TOKENS = Symbol('aiChat.countTokens');
 const HOLD_RENEW_INTERVAL_MS = 5 * 60 * 1000;
 
 // Options that reach error messages and request headers as text.
-const SCALAR_OPTIONS = ['model', 'provider', 'service_tier'];
+const SCALAR_OPTIONS = [
+    'model',
+    'provider',
+    'service_tier',
+    'refusalFallbackModel',
+];
 
 /**
  * A moderation refusal is a completion that was produced and charged, then
@@ -748,6 +753,10 @@ export class ChatCompletionDriver extends PuterDriver {
                 { legacyCode: 'bad_request' },
             );
         }
+        // A conversation the requested model already declined runs on the
+        // model that answered it, and keeps the requested model's format.
+        const pinnedFallback = await this.#pinnedRefusalFallback(args, model);
+        if (pinnedFallback) model = pinnedFallback;
 
         args.messages = normalizeMediaParts(normalize_messages(args.messages));
         if (args.tools) {
@@ -1475,7 +1484,12 @@ export class ChatCompletionDriver extends PuterDriver {
             }
             // Internal-only; never reaches the caller.
             delete messageRes.usageCosts;
-            if (shouldPresentAsOpenAI(args, model.release_date)) {
+            if (
+                shouldPresentAsOpenAI(
+                    args,
+                    (pinnedFallback ? initialModel : model).release_date,
+                )
+            ) {
                 return {
                     ...normalizeResultToOpenAI(messageRes),
                     normalized: true,
@@ -2191,6 +2205,30 @@ export class ChatCompletionDriver extends PuterDriver {
      * asked for, that isn't in it yet may be in a catalog still loading at
      * boot, so that waits for the first build before giving up.
      */
+    /**
+     * The fallback model a caller pinned for this conversation, when it is one
+     * of the requested model's own. Anything else is ignored: a stale pin must
+     * not fail the request.
+     */
+    async #pinnedRefusalFallback(
+        args: ICompleteArguments,
+        requested: IChatModel,
+    ): Promise<IChatModel | null> {
+        const pinnedId = args.refusalFallbackModel;
+        if (pinnedId === undefined || args.refusalFallback === false) {
+            return null;
+        }
+        const pinned = await this.#resolveLoadedModel(
+            pinnedId,
+            requested.provider,
+        );
+        return pinned &&
+            pinned.provider === requested.provider &&
+            requested.refusalFallbackModels?.includes(pinned.id)
+            ? pinned
+            : null;
+    }
+
     async #resolveLoadedModel(
         modelId: string,
         provider?: string,

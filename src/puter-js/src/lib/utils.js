@@ -254,6 +254,7 @@ function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_
  *   responseType?: '' | 'text' | 'blob',
  *   preprocess?: (args: Record<string, unknown>) => Record<string, unknown>,
  *   transform?: (result: unknown) => unknown,
+ *   onLine?: (line: unknown) => void,
  *   upgradePrompt?: import('./types.js').UpgradePromptContext,
  * }} spec `iface`/`driver`/`method`/`testMode` address the driver call itself
  *   (see `driverCall`); the rest configures this wrapper. `upgradePrompt`
@@ -263,7 +264,7 @@ function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_
  */
 function makeDriverMethod (spec) {
     const { iface, method, argNames = [], driver, puter, testMode } = spec;
-    const { readonly, responseType, preprocess, transform, upgradePrompt } = spec;
+    const { readonly, responseType, preprocess, transform, onLine, upgradePrompt } = spec;
 
     return async function (...args) {
         let driverArgs = {};
@@ -300,7 +301,7 @@ function makeDriverMethod (spec) {
 
         return await driverCall(
             { iface, driver, method, args: driverArgs, testMode, puter },
-            { readonly, responseType, transform, onError, upgradePrompt, signal: spec.signal },
+            { readonly, responseType, transform, onLine, onError, upgradePrompt, signal: spec.signal },
         );
     };
 }
