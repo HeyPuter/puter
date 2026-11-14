@@ -33,9 +33,9 @@ type ResponseSink = NodeJS.WritableStream & {
  * than a clean end, and the failure is logged once instead of surfacing as an
  * unhandled stream error. A client that hangs up stops the source.
  *
- * `pipe` rather than `pipeline`: pipeline puts seven close listeners on the
- * response, and with the ones metering, compression and tracing add, every
- * streamed response tripped Node's ten-listener warning.
+ * `pipe` rather than `pipeline`, and `unpipe` rather than `close`: Node warns
+ * past ten close listeners on the response, and other middleware and request
+ * tracing add their own.
  */
 export function pipeStreamResult(
     stream: Readable,
@@ -52,11 +52,10 @@ export function pipeStreamResult(
         if (!res.destroyed) res.destroy();
         console.warn(`[drivers] ${label} stream failed mid-response:`, err);
     });
-    // A response that closes before the source ended is a client hanging up.
-    res.once('close', () => {
-        if (stream.readableEnded) return;
-        stream.unpipe(res);
-        stream.destroy();
+    // `pipe` unpipes once the response finishes, closes or fails; a source
+    // that hasn't ended by then has a client that hung up.
+    res.once('unpipe', () => {
+        if (!stream.readableEnded) stream.destroy();
     });
     res.once('error', () => stream.destroy());
     stream.pipe(res);

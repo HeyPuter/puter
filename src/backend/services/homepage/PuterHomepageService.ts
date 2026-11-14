@@ -399,8 +399,11 @@ export class PuterHomepageService extends PuterService {
             // instead of the socket wire.
             eventsNotifications: notificationsFoldInEnabled(this.config),
             ...meta,
-            // After `meta`, so nothing page-specific can name the opener.
+            // After `meta`, so nothing page-specific can name the opener or
+            // the pages a sign-in popup hands a session.
             ...(popupFrame ? { embed_host_origin: popupFrame.hostOrigin } : {}),
+            first_party_session_origins:
+                this.config.first_party_session_origins ?? [],
         };
         // Only ever this request's; without one the GUI asks for its token as
         // it always has.

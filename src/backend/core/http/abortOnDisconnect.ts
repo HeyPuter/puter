@@ -19,6 +19,7 @@
 
 import type { Response } from 'express';
 import { HttpError } from './HttpError.js';
+import { onResponseClose } from './onResponseClose.js';
 
 /**
  * A signal that fires when the caller hangs up before its response is done, so
@@ -38,6 +39,6 @@ export const abortOnDisconnect = (res: Response): AbortSignal => {
         }
     };
     if (res.destroyed) onClose();
-    else res.once('close', onClose);
+    else onResponseClose(res, onClose);
     return abort.signal;
 };

@@ -18,6 +18,7 @@
  */
 
 import type { Response } from 'express';
+import { onResponseClose } from './onResponseClose.js';
 
 // Under the concurrency store's one-hour orphan TTL.
 const SLOT_RENEW_MS = 10 * 60 * 1000;
@@ -46,7 +47,7 @@ export class CallSlot {
             this.#maybeRelease();
         };
         res.once('finish', responded);
-        res.once('close', responded);
+        onResponseClose(res, responded);
         if (res.destroyed || res.writableFinished) responded();
         if (!this.#released && this.#work.size > 0) this.#startRenewing();
     }

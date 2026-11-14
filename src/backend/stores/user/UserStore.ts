@@ -75,6 +75,8 @@ export interface UserRow {
      * "verified a card".
      */
     card_fingerprint?: string | null;
+    /** TLS fingerprint of the request that created the account, if known. */
+    signup_tls_fingerprint?: string | null;
     /**
      * Home region this account's data belongs in - a node id from
      * `IConfig.servers`, not a storage region. Null for accounts that predate
@@ -531,6 +533,7 @@ export class UserStore extends PuterStore {
         signup_ip?: string | null;
         signup_ip_forwarded?: string | null;
         signup_user_agent?: string | null;
+        signup_tls_fingerprint?: string | null;
         signup_origin?: string | null;
         signup_server?: string | null;
         referrer?: string | null;
@@ -557,6 +560,7 @@ export class UserStore extends PuterStore {
              signup_ip,
              signup_ip_forwarded,
              signup_user_agent,
+             signup_tls_fingerprint,
              signup_origin,
              signup_server,
              referrer,
@@ -565,7 +569,7 @@ export class UserStore extends PuterStore {
              phone,
              requires_phone_verification,
              requires_card_verification)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
             [
                 fields.username,
                 fields.email,
@@ -585,6 +589,7 @@ export class UserStore extends PuterStore {
                 fields.signup_ip ?? null,
                 fields.signup_ip_forwarded ?? null,
                 fields.signup_user_agent ?? null,
+                fields.signup_tls_fingerprint ?? null,
                 fields.signup_origin ?? null,
                 fields.signup_server ?? null,
                 fields.referrer ?? null,

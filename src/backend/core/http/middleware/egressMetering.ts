@@ -28,6 +28,7 @@ import {
 } from '../../../services/metering/costs.js';
 import type { UsageInput } from '../../../services/metering/types';
 import '../expressAugmentation';
+import { onResponseClose } from '../onResponseClose';
 
 /**
  * Subset of the metering service this middleware needs. Metering is optional
@@ -195,7 +196,7 @@ export const createEgressMeteringMiddleware = (
         // 'close' rather than 'finish': it fires for a response that completed
         // AND for one whose connection died mid-stream, and an aborted download
         // still sent whatever it sent.
-        res.once('close', () => {
+        onResponseClose(res, () => {
             try {
                 if (!isMeteredHost(req)) return;
                 const actor = resolveEgressActor(req);

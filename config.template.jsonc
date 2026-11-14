@@ -62,6 +62,10 @@
     // direct socket peer. NEVER set to `true` in prod — it trusts every hop
     // and makes X-Forwarded-For forgeable.
     "trust_proxy": false,
+    // Request header a TLS-terminating proxy in front of the server sets to
+    // the client's TLS fingerprint (JA3/JA4). Only set it when that proxy
+    // overwrites any value the client sends. Unset disables it.
+    // "tlsFingerprintHeader": "x-tls-fingerprint",
     "no_browser_launch": false,
 
     // ── Dev watcher (devWatcher extension) ──────────────────────────────
