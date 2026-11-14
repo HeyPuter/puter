@@ -1504,6 +1504,68 @@ describe('WorkerDriver on subdomain.delete', () => {
     });
 });
 
+// -- owner suspension ------------------------------------------------
+
+describe('WorkerDriver on an owner suspension', () => {
+    const suspend = async (userId: number) => {
+        await server.stores.user.update(userId, { suspended: 1 });
+        await waitFor(() => deleteCalls().length > 0, 'suspension takedown');
+    };
+
+    it('takes the script down and keeps the row', async () => {
+        const { user, name } = await deployWorker('susp');
+        fetchSpy.mockClear();
+
+        await suspend(user.id);
+
+        expect(deleteCalls().map(([url]) => url)).toEqual([
+            `${SCRIPTS_BASE}/${name}/`,
+        ]);
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+                { primary: true },
+            ),
+        ).toBeTruthy();
+    });
+
+    it('does not hot-reload the worker while its owner is suspended', async () => {
+        const { user, actor } = await deployWorker('suspwrite');
+        await suspend(user.id);
+        fetchSpy.mockClear();
+
+        await writeSource(
+            actor,
+            user.id,
+            `/${user.username}/suspwrite.js`,
+            'v2',
+        );
+
+        await new Promise((r) => setTimeout(r, 100));
+        expect(putCalls()).toEqual([]);
+    });
+
+    it('redeploys from source, without a notification, once the suspension lifts', async () => {
+        const { user, name } = await deployWorker('unsusp');
+        await suspend(user.id);
+        await server.services.auth.revokeAllSessionsForUserId(user.id);
+        fetchSpy.mockClear();
+        const notifySpy = vi.spyOn(server.services.notification, 'notify');
+
+        await server.stores.user.update(user.id, { suspended: 0 });
+
+        await waitFor(() => putCalls().length > 0, 'unsuspension redeploy');
+        const [url, init] = putCalls()[0]!;
+        expect(url).toBe(`${SCRIPTS_BASE}/${name}/`);
+        const form = (init as RequestInit).body as FormData;
+        const code = await (form.get('swCode') as Blob).text();
+        expect(code.endsWith('src')).toBe(true);
+        const auth = await server.services.auth.authenticate(deployedToken());
+        expect(auth.actor?.user?.id).toBe(user.id);
+        expect(notifySpy).not.toHaveBeenCalled();
+    });
+});
+
 // -- getFilePaths ----------------------------------------------------
 
 describe('WorkerDriver.getFilePaths source resolution', () => {
