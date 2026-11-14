@@ -54,7 +54,9 @@ import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
+import { ChatCompletionDriver } from '../../../interfaces/chat/ChatCompletionDriver.js';
 import { normalize_messages } from '../../../interfaces/chat/utils/Messages.js';
+import { estimatePromptTokens } from '../../../interfaces/chat/utils/usageEstimate.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { FILES_API_BETA } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
@@ -2687,11 +2689,14 @@ describe('ClaudeProvider.requestPricing', () => {
 
     it('leaves token reservation keys to the selected catalog rate card', () => {
         const { provider } = makeProvider();
-        expect(
-            provider.requestPricing({ speed: 'fast', tools: [] } as never, opus55, {
-                promptTokenEstimate: 10,
-            }),
-        ).toEqual({});
+        const pricing = provider.requestPricing(
+            { speed: 'fast', tools: [] } as never,
+            opus55,
+            { promptTokenEstimate: 10 },
+        );
+        expect(pricing).not.toHaveProperty('inputKey');
+        expect(pricing).not.toHaveProperty('outputKey');
+        expect(pricing).not.toHaveProperty('extraCost');
         expect(
             provider.requestPricing({ speed: 'fast', tools: [] } as never, haiku, {
                 promptTokenEstimate: 10,
@@ -2741,6 +2746,70 @@ describe('ClaudeProvider.requestPricing', () => {
     it('returns {} for a request with no tools and no fast mode', () => {
         const { provider } = makeProvider();
         expect(provider.requestPricing({} as never, haiku, { promptTokenEstimate: 10 })).toEqual({});
+    });
+
+    it('reserves a rerun on the priciest fallback target of default routing', () => {
+        const { provider } = makeProvider();
+        const opus48 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')!;
+        const model = { ...opus55, provider: 'claude' };
+        const pricing = provider.requestPricing({} as never, model, {
+            promptTokenEstimate: 10,
+        });
+        // Opus 4.8 and Opus 5 list the same rates; one rerun is reserved.
+        expect(pricing.rerunModels).toHaveLength(1);
+        expect(pricing.rerunModels![0]).toMatchObject({
+            provider: 'claude',
+            costs: {
+                input_tokens: opus48.costs.input_tokens,
+                output_tokens: opus48.costs.output_tokens,
+            },
+        });
+        expect(opus55.refusalFallbackModels).toContain(pricing.rerunModels![0]!.id);
+    });
+
+    it('reserves a rerun on every model of a chain the caller named', () => {
+        const { provider } = makeProvider();
+        const pricing = provider.requestPricing(
+            {
+                anthropicFallbacks: [
+                    { model: 'claude-opus-5' },
+                    { model: 'claude-opus-4-8' },
+                ],
+            } as never,
+            { ...opus55, provider: 'claude' },
+            { promptTokenEstimate: 10 },
+        );
+        expect(pricing.rerunModels!.map((m) => m.id)).toEqual([
+            'claude-opus-5',
+            'claude-opus-4-8',
+        ]);
+    });
+
+    it('reserves the rerun at fast rates for a fast request', () => {
+        const { provider } = makeProvider();
+        const pricing = provider.requestPricing(
+            { speed: 'fast' } as never,
+            { ...opus55, provider: 'claude' },
+            { promptTokenEstimate: 10 },
+        );
+        const target = CLAUDE_MODELS.find(
+            (m) => m.id === pricing.rerunModels![0]!.id,
+        )!;
+        expect(pricing.rerunModels![0]!.costs.output_tokens).toBe(
+            (target.serviceSpeedRates!.fast as Record<string, number>).output_tokens,
+        );
+    });
+
+    it('reserves no rerun when the caller opted out or the model never falls back', () => {
+        const { provider } = makeProvider();
+        expect(
+            provider.requestPricing({ refusalFallback: false } as never, opus55, {
+                promptTokenEstimate: 10,
+            }),
+        ).toEqual({});
+        expect(
+            provider.requestPricing({} as never, haiku, { promptTokenEstimate: 10 }),
+        ).toEqual({});
     });
 });
 
@@ -3221,6 +3290,374 @@ describe('ClaudeProvider refusal fallback', () => {
                 complete(provider, { model: 'claude-opus-5-5' }),
             ).rejects.toBe(other);
             expect(messagesCreateMock).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('metering', () => {
+        const rates = (id: string) =>
+            CLAUDE_MODELS.find((m) => m.id === id)!.costs as Record<string, number>;
+        const opus55 = rates('claude-opus-5-5');
+        const opus48 = rates('claude-opus-4-8');
+        const total = (costs: Record<string, number>) =>
+            Object.values(costs).reduce((sum, cost) => sum + cost, 0);
+
+        // The declined attempt read and wrote cache; the answer did not.
+        const usage = {
+            input_tokens: 412,
+            output_tokens: 264,
+            iterations: [
+                {
+                    type: 'message',
+                    model: 'claude-opus-5-5',
+                    input_tokens: 535,
+                    output_tokens: 20,
+                    cache_read_input_tokens: 1000,
+                    cache_creation_input_tokens: 300,
+                    cache_creation: {
+                        ephemeral_5m_input_tokens: 100,
+                        ephemeral_1h_input_tokens: 200,
+                    },
+                },
+                {
+                    type: 'fallback_message',
+                    model: 'claude-opus-4-8',
+                    input_tokens: 412,
+                    output_tokens: 264,
+                },
+            ],
+        };
+        const declinedCosts = {
+            input_tokens: 535 * opus55.input_tokens!,
+            ephemeral_5m_input_tokens: 100 * opus55.ephemeral_5m_input_tokens!,
+            ephemeral_1h_input_tokens: 200 * opus55.ephemeral_1h_input_tokens!,
+            cache_read_input_tokens: 1000 * opus55.cache_read_input_tokens!,
+            output_tokens: 20 * opus55.output_tokens!,
+        };
+        const servedCosts = {
+            input_tokens: 412 * opus48.input_tokens!,
+            ephemeral_5m_input_tokens: 0,
+            ephemeral_1h_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 264 * opus48.output_tokens!,
+        };
+
+        it.each([false, true])(
+            'prices each attempt on the model that ran it, once, stream=%s',
+            async (stream) => {
+                const { provider } = makeProvider();
+                if (stream) {
+                    messagesStreamMock.mockReturnValueOnce(
+                        makeStreamLike([], usage),
+                    );
+                } else {
+                    messagesCreateMock.mockResolvedValueOnce({
+                        content: [marker, { type: 'text', text: 'answer' }],
+                        usage,
+                    });
+                }
+
+                const result = (await complete(provider, {
+                    model: 'claude-opus-5-5',
+                    stream,
+                })) as Record<string, any>;
+                const reported = stream
+                    ? (await pump(result)).at(-1)!.usage
+                    : result.usage;
+
+                expect(recordSpy.mock.calls).toEqual([
+                    [
+                        {
+                            input_tokens: 412,
+                            ephemeral_5m_input_tokens: 0,
+                            ephemeral_1h_input_tokens: 0,
+                            cache_read_input_tokens: 0,
+                            output_tokens: 264,
+                        },
+                        SYSTEM_ACTOR,
+                        'claude:claude-opus-4-8',
+                        servedCosts,
+                    ],
+                    [
+                        {
+                            input_tokens: 535,
+                            ephemeral_5m_input_tokens: 100,
+                            ephemeral_1h_input_tokens: 200,
+                            cache_read_input_tokens: 1000,
+                            output_tokens: 20,
+                        },
+                        SYSTEM_ACTOR,
+                        'claude:claude-opus-5-5',
+                        declinedCosts,
+                    ],
+                ]);
+                // The answer under the plain keys, the declined attempt apart.
+                expect(reported).toMatchObject({
+                    input_tokens: 412,
+                    output_tokens: 264,
+                    declined_input_tokens: 535,
+                    declined_ephemeral_5m_input_tokens: 100,
+                    declined_ephemeral_1h_input_tokens: 200,
+                    declined_cache_read_input_tokens: 1000,
+                    declined_output_tokens: 20,
+                });
+                if (!stream) {
+                    expect(total(result.usageCosts)).toBe(
+                        total(servedCosts) + total(declinedCosts),
+                    );
+                    expect(result.usageCosts.declined_input_tokens).toBe(
+                        declinedCosts.input_tokens,
+                    );
+                    expect(result.usageCosts.output_tokens).toBe(
+                        servedCosts.output_tokens,
+                    );
+                }
+            },
+        );
+
+        it('charges only the fallback model when Anthropic sent the request straight to it', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'answer' }],
+                usage: { ...usage, iterations: [usage.iterations[1]] },
+            });
+
+            const result = (await complete(provider, {
+                model: 'claude-opus-5-5',
+            })) as Record<string, any>;
+
+            expect(recordSpy).toHaveBeenCalledTimes(1);
+            const [, , prefix, costs] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe('claude:claude-opus-4-8');
+            expect(costs).toEqual(servedCosts);
+            expect(result.usageDetails.fallbackModel).toBe('claude-opus-4-8');
+            expect(
+                Object.keys(result.usage).filter((key) =>
+                    key.startsWith('declined_'),
+                ),
+            ).toEqual([]);
+        });
+
+        it('prices every attempt of a longer chain on its own model', async () => {
+            const { provider } = makeProvider();
+            const opus5 = rates('claude-opus-5');
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'answer' }],
+                usage: {
+                    input_tokens: 412,
+                    output_tokens: 264,
+                    iterations: [
+                        {
+                            type: 'message',
+                            model: 'claude-opus-5-5',
+                            input_tokens: 100,
+                            output_tokens: 0,
+                        },
+                        {
+                            type: 'message',
+                            model: 'claude-opus-5',
+                            input_tokens: 200,
+                            output_tokens: 10,
+                        },
+                        usage.iterations[1],
+                    ],
+                },
+            });
+
+            const result = (await complete(provider, {
+                model: 'claude-opus-5-5',
+                anthropicFallbacks: [
+                    { model: 'claude-opus-5' },
+                    { model: 'claude-opus-4-8' },
+                ],
+            })) as Record<string, any>;
+
+            expect(recordSpy.mock.calls.map((call) => call[2])).toEqual([
+                'claude:claude-opus-4-8',
+                'claude:claude-opus-5-5',
+                'claude:claude-opus-5',
+            ]);
+            expect(recordSpy.mock.calls[1]![3]).toMatchObject({
+                input_tokens: 100 * opus55.input_tokens!,
+            });
+            expect(recordSpy.mock.calls[2]![3]).toMatchObject({
+                input_tokens: 200 * opus5.input_tokens!,
+                output_tokens: 10 * opus5.output_tokens!,
+            });
+            // Both declined attempts report under one set of keys.
+            expect(result.usage.declined_input_tokens).toBe(300);
+            expect(result.usageCosts.declined_input_tokens).toBe(
+                100 * opus55.input_tokens! + 200 * opus5.input_tokens!,
+            );
+        });
+
+        it('resolves a dated model id to its catalog entry', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'answer' }],
+                usage: {
+                    ...usage,
+                    iterations: [
+                        { ...usage.iterations[1], model: 'claude-opus-4-8-20260115' },
+                    ],
+                },
+            });
+
+            await complete(provider, { model: 'claude-opus-5-5' });
+
+            const [, , prefix, costs] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe('claude:claude-opus-4-8');
+            expect(costs).toEqual(servedCosts);
+        });
+
+        it('prices a fallback model outside the catalog at the priciest entry\'s rates', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'answer' }],
+                usage: {
+                    ...usage,
+                    iterations: [
+                        { ...usage.iterations[1], model: 'some-future-model' },
+                    ],
+                },
+            });
+
+            await complete(provider, { model: 'claude-opus-5-5' });
+
+            const priciest = CLAUDE_MODELS.reduce((max, m) =>
+                Number(m.costs.output_tokens) > Number(max.costs.output_tokens)
+                    ? m
+                    : max,
+            );
+            const [, , prefix, costs] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe(`claude:${priciest.id}`);
+            expect(costs.output_tokens).toBe(
+                264 * Number(priciest.costs.output_tokens),
+            );
+        });
+
+        it('prices a fast request\'s attempts at each model\'s own fast rates', async () => {
+            const { provider } = makeProvider();
+            const fastRates = (id: string) =>
+                CLAUDE_MODELS.find((m) => m.id === id)!.serviceSpeedRates!
+                    .fast as Record<string, number>;
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'answer' }],
+                usage: {
+                    input_tokens: 412,
+                    output_tokens: 264,
+                    speed: 'fast',
+                    iterations: [
+                        {
+                            type: 'message',
+                            model: 'claude-opus-5-5',
+                            input_tokens: 535,
+                            output_tokens: 0,
+                        },
+                        usage.iterations[1],
+                    ],
+                },
+            });
+
+            const result = (await complete(provider, {
+                model: 'claude-opus-5-5',
+                speed: 'fast',
+            })) as Record<string, any>;
+
+            const [served, declined] = recordSpy.mock.calls;
+            expect(served![2]).toBe('claude:claude-opus-4-8');
+            expect(served![3]).toMatchObject({
+                fast_input_tokens: 412 * fastRates('claude-opus-4-8').input_tokens!,
+                fast_output_tokens: 264 * fastRates('claude-opus-4-8').output_tokens!,
+            });
+            expect(declined![2]).toBe('claude:claude-opus-5-5');
+            expect(declined![3]).toMatchObject({
+                fast_input_tokens: 535 * fastRates('claude-opus-5-5').input_tokens!,
+            });
+            expect(result.usage.declined_fast_input_tokens).toBe(535);
+        });
+
+        it('still bills one model\'s several passes once when no fallback ran', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'answer' }],
+                usage: {
+                    input_tokens: 300,
+                    output_tokens: 30,
+                    iterations: [
+                        {
+                            type: 'message',
+                            model: 'claude-opus-5-5',
+                            input_tokens: 100,
+                            output_tokens: 10,
+                        },
+                        {
+                            type: 'message',
+                            model: 'claude-opus-5-5',
+                            input_tokens: 200,
+                            output_tokens: 20,
+                        },
+                    ],
+                },
+            });
+
+            await complete(provider, { model: 'claude-opus-5-5' });
+
+            expect(recordSpy).toHaveBeenCalledTimes(1);
+            const [recorded, , prefix] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe('claude:claude-opus-5-5');
+            expect(recorded).toMatchObject({ input_tokens: 300, output_tokens: 30 });
+        });
+    });
+
+    describe('through the driver', () => {
+        const messages = [{ role: 'user', content: 'hi' }];
+
+        it('holds both attempts and reports what both cost', async () => {
+            const driver = new ChatCompletionDriver(
+                {
+                    providers: {
+                        claude: { apiKey: 'test-key' },
+                        ollama: { enabled: false },
+                    },
+                } as never,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            await driver.onServerStart();
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 100_000_000_000, held: 0 });
+            const reserve = vi.spyOn(server.services.metering, 'reserveCredits');
+            messagesCreateMock.mockResolvedValueOnce({
+                type: 'message',
+                model: 'claude-opus-4-8',
+                content: [marker, { type: 'text', text: 'answer' }],
+                stop_reason: 'end_turn',
+                usage: servedUsage,
+            });
+
+            const result = (await withTestActor(() =>
+                driver.complete({
+                    model: 'claude-opus-5-5',
+                    messages,
+                    max_tokens: 100,
+                }),
+            )) as Record<string, any>;
+
+            // One attempt on Opus 5.5 (400/2000) and one on its priciest
+            // fallback target (500/2500).
+            expect(reserve.mock.calls[0]![1]).toBe(
+                estimatePromptTokens(messages) * (400 + 500) +
+                    100 * (2000 + 2500),
+            );
+            const cost = 535 * 400 + 412 * 500 + 264 * 2500;
+            expect(result.usage.cost).toBe(cost);
+            expect(result.usage.usd_cents).toBe(cost / 1_000_000);
+            expect(result.usage.declined_input_tokens).toBe(535);
+            expect(result.usageDetails.fallbackModel).toBe('claude-opus-4-8');
+            expect(result.message.content).toBe('answer');
         });
     });
 

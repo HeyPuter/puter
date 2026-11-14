@@ -1624,29 +1624,56 @@ export class ChatCompletionDriver extends PuterDriver {
             costKeys(model);
         const inputKey = pricing.inputKey ?? defaultInputKey;
         const outputKey = pricing.outputKey ?? defaultOutputKey;
-        // A prompt estimated past a long-context threshold pays the raised
-        // rates on input and output alike.
-        const multipliers = longContextMultipliers(model, promptTokenEstimate);
-        // Recorded costs pass through the AI cost factor; the gate prices at
-        // the same rate or it under-reserves on every request.
-        const costFactor = await this.#aiMetering.costFactor(
-            actor,
-            this.#meteringModelKey(model),
-        );
-        const requestCosts = costsForRequest(
-            model,
-            promptTokenEstimate,
-            pricingTime,
-        );
-        // `|| 0` also catches NaN from a malformed cost table.
+        /** What one attempt on `attemptModel` costs per token, factored. */
+        const tokenCosts = async (
+            attemptModel: IChatModel,
+            keys: { inputKey: string; outputKey: string },
+        ) => {
+            // A prompt estimated past a long-context threshold pays the raised
+            // rates on input and output alike.
+            const multipliers = longContextMultipliers(
+                attemptModel,
+                promptTokenEstimate,
+            );
+            // Recorded costs pass through the AI cost factor; the gate prices
+            // at the same rate or it under-reserves on every request.
+            const factor = await this.#aiMetering.costFactor(
+                actor,
+                this.#meteringModelKey(attemptModel),
+            );
+            const costs = costsForRequest(
+                attemptModel,
+                promptTokenEstimate,
+                pricingTime,
+            );
+            // `|| 0` also catches NaN from a malformed cost table.
+            return {
+                costs,
+                factor,
+                input:
+                    (Number(costs[keys.inputKey] ?? 0) || 0) *
+                    multipliers.input *
+                    factor,
+                output:
+                    (Number(costs[keys.outputKey] ?? 0) || 0) *
+                    multipliers.output *
+                    factor,
+            };
+        };
+        const [own, ...reruns] = await Promise.all([
+            tokenCosts(model, { inputKey, outputKey }),
+            ...(pricing.rerunModels ?? []).map((rerunModel) =>
+                tokenCosts(rerunModel, costKeys(rerunModel)),
+            ),
+        ]);
+        const costFactor = own.factor;
+        const requestCosts = own.costs;
+        // Each rerun is a whole attempt of its own, so the worst case pays the
+        // prompt and the capped output once per model.
         const inputTokenCost =
-            (Number(requestCosts[inputKey] ?? 0) || 0) *
-            multipliers.input *
-            costFactor;
+            own.input + reruns.reduce((sum, rerun) => sum + rerun.input, 0);
         const outputTokenCost =
-            (Number(requestCosts[outputKey] ?? 0) || 0) *
-            multipliers.output *
-            costFactor;
+            own.output + reruns.reduce((sum, rerun) => sum + rerun.output, 0);
         const approximateInputCost = promptTokenEstimate * inputTokenCost;
         const requestFee = catalogPrice(requestCosts.request) ?? 0;
         const extras = ((pricing.extraCost ?? 0) + requestFee) * costFactor;

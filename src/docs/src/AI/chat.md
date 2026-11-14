@@ -447,6 +447,8 @@ When Claude Fable 5.2, Fable 5.1, Fable 5, Opus 5.5, Opus 5, or Sonnet 5.5 decli
 
 When another model answers, `usageDetails.fallbackModel` holds its ID, and `usageDetails.iterations` has one entry for each model that ran. A streamed response also has a `refusal_fallback` chunk at the point where the models switched, with the two models in `from.model` and `to.model`. The `reasoning_detail` chunks before a `refusal_fallback` chunk belong to the model that declined, so leave them out of `reasoning_details` when you send the turn back. See the [ChatResponse](/Objects/chatresponse/) and [ChatResponseChunk](/Objects/chatresponsechunk/) objects for these fields.
 
+Each model that ran is charged at its own rates. The `usage` object holds the tokens of the model that answered under its usual keys, and the tokens of a model that declined under keys that start with `declined_`, such as `declined_input_tokens`. Credit is reserved for a full run on both models before the request starts, so the request needs enough balance for both.
+
 To get the refusal as it is, pass `refusalFallback: false`.
 
 #### Prompt Caching

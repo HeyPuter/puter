@@ -61,6 +61,7 @@ import type {
     ICompleteArguments,
 } from './types.js';
 import { clearUnhealthyRoutes } from './utils/providerHealth.js';
+import { estimatePromptTokens } from './utils/usageEstimate.js';
 import type { AIChatStream } from './utils/Streaming.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -673,6 +674,53 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
         expect(res.usage.usd_cents).toBe(expectedMicroCents / 1_000_000);
     });
 
+    it('reports the recorded cost of an attempt another model ran, never its own rates', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'priced',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 1000, output_tokens: 2000 },
+                max_tokens: 8192,
+            },
+        ]);
+        const d = await makeDriver();
+
+        // The answer came from a model at 3000/5000; the attempt on the
+        // requested model declined after 100 prompt tokens.
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ok' }],
+            },
+            usage: {
+                input_tokens: 4,
+                output_tokens: 2,
+                declined_input_tokens: 100,
+                declined_output_tokens: 0,
+            },
+            usageCosts: {
+                input_tokens: 4 * 3000,
+                output_tokens: 2 * 5000,
+                declined_input_tokens: 100 * 1000,
+                declined_output_tokens: 0,
+            },
+            finish_reason: 'stop',
+        } as never);
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'priced',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { usage: Record<string, number>; usageCosts?: unknown };
+
+        expect(res.usage.usd_cents).toBe(
+            (4 * 3000 + 2 * 5000 + 100 * 1000) / 1_000_000,
+        );
+        expect(res.usageCosts).toBeUndefined();
+    });
+
     it('prices `usd_cents` at long-context rates once input passes the threshold', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {
@@ -1157,6 +1205,149 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
                 FakeChatProvider.prototype as unknown as Record<string, unknown>
             ).requestPricing;
         }
+    });
+
+    describe('with a model the provider may rerun the request on', () => {
+        const RERUN_MODEL = {
+            id: 'rerun',
+            provider: 'fake-chat',
+            aliases: [],
+            costs_currency: 'usd-cents',
+            costs: { input_tokens: 3000, output_tokens: 5000 },
+            max_tokens: 8192,
+        };
+        const messages = [{ role: 'user', content: 'hi' }];
+        const promptTokens = estimatePromptTokens(messages);
+        const okResult = {
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ok' }],
+            },
+            usage: { input_tokens: 1, output_tokens: 1 },
+            finish_reason: 'stop',
+        } as never;
+        const proto = FakeChatProvider.prototype as unknown as {
+            requestPricing?: NonNullable<IChatProvider['requestPricing']>;
+        };
+        let d: ChatCompletionDriver;
+
+        beforeEach(async () => {
+            vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+                {
+                    id: 'capme',
+                    aliases: [],
+                    costs_currency: 'usd-cents',
+                    costs: { input_tokens: 1000, output_tokens: 2000 },
+                    max_tokens: 8192,
+                },
+            ]);
+            d = await makeDriver();
+            proto.requestPricing = () => ({ rerunModels: [RERUN_MODEL] });
+        });
+
+        afterEach(() => {
+            delete proto.requestPricing;
+        });
+
+        it('holds a full attempt on each model at its own rates', async () => {
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 100_000_000, held: 0 });
+            const reserve = vi.spyOn(server.services.metering, 'reserveCredits');
+            const completeSpy = vi
+                .spyOn(FakeChatProvider.prototype, 'complete')
+                .mockResolvedValueOnce(okResult);
+
+            await withTestActor(() =>
+                d.complete({ model: 'capme', messages, max_tokens: 100 }),
+            );
+
+            expect(
+                (completeSpy.mock.calls[0]![0] as ICompleteArguments).max_tokens,
+            ).toBe(100);
+            // The prompt and the capped output, once per model.
+            expect(reserve.mock.calls[0]![1]).toBe(
+                promptTokens * (1000 + 3000) + 100 * (2000 + 5000),
+            );
+        });
+
+        it('caps output so both attempts fit the balance', async () => {
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 700_000, held: 0 });
+            const completeSpy = vi
+                .spyOn(FakeChatProvider.prototype, 'complete')
+                .mockResolvedValueOnce(okResult);
+
+            await withTestActor(() =>
+                d.complete({ model: 'capme', messages, max_tokens: 10_000 }),
+            );
+
+            // 2000 alone would allow ~350 tokens; 2000 + 5000 allows ~100.
+            expect(
+                (completeSpy.mock.calls[0]![0] as ICompleteArguments).max_tokens,
+            ).toBe(
+                Math.floor(
+                    (700_000 - promptTokens * (1000 + 3000)) / (2000 + 5000),
+                ),
+            );
+        });
+
+        it('refuses a balance that covers the first attempt\'s prompt but not the rerun\'s', async () => {
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({
+                balance: promptTokens * 1000 + 2000,
+                held: 0,
+            });
+            const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+
+            await expect(
+                withTestActor(() =>
+                    d.complete({ model: 'capme', messages, max_tokens: 1 }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 402 });
+            expect(completeSpy).not.toHaveBeenCalled();
+        });
+
+        it('prices each model at the cost factor its usage is recorded with', async () => {
+            const factors: Record<string, number> = {
+                'ai.cost.factor.ai-chat.fake-chat:capme': 2,
+                'ai.cost.factor.ai-chat.fake-chat:rerun': 3,
+            };
+            const listener = (key: string, event: { factor: number }) => {
+                event.factor = factors[key] ?? 1;
+            };
+            server.clients.event.on('ai.cost.factor.*', listener as never);
+            try {
+                vi.spyOn(
+                    server.services.metering,
+                    'getUsageHeadroom',
+                ).mockResolvedValue({ balance: 100_000_000, held: 0 });
+                const reserve = vi.spyOn(
+                    server.services.metering,
+                    'reserveCredits',
+                );
+                vi.spyOn(
+                    FakeChatProvider.prototype,
+                    'complete',
+                ).mockResolvedValueOnce(okResult);
+
+                await withTestActor(() =>
+                    d.complete({ model: 'capme', messages, max_tokens: 100 }),
+                );
+
+                expect(reserve.mock.calls[0]![1]).toBe(
+                    promptTokens * (1000 * 2 + 3000 * 3) +
+                        100 * (2000 * 2 + 5000 * 3),
+                );
+            } finally {
+                server.clients.event.off('ai.cost.factor.*', listener as never);
+            }
+        });
     });
 
     it("rejects with 402 when a low balance cannot cover a tool's extraCost reservation", async () => {

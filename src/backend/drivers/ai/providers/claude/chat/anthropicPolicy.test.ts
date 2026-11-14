@@ -37,6 +37,7 @@ import {
     publicStopDetails,
     rejectOrgScopedBlocks,
     resolveAdvisorModel,
+    resolveBilledModel,
     resolveRefusalFallbacks,
     sanitizeCacheControl,
     sanitizeCacheControlsIn,
@@ -340,6 +341,25 @@ describe('resolveAdvisorModel / priciestModel', () => {
 
     it('priciestModel picks the highest output_tokens rate', () => {
         expect(priciestModel(models).id).toBe('claude-opus-5-5');
+    });
+});
+
+describe('resolveBilledModel', () => {
+    it('resolves an id or alias to its catalog entry', () => {
+        expect(resolveBilledModel('claude-opus', models).id).toBe('claude-opus-5-5');
+    });
+
+    it('resolves a dated id to its undated entry', () => {
+        expect(resolveBilledModel('claude-opus-5-5-20260921', models).id).toBe(
+            'claude-opus-5-5',
+        );
+    });
+
+    it('prices an id outside the catalog, or none, at the priciest entry', () => {
+        expect(resolveBilledModel('some-future-model', models).id).toBe(
+            'claude-opus-5-5',
+        );
+        expect(resolveBilledModel(undefined, models).id).toBe('claude-opus-5-5');
     });
 });
 

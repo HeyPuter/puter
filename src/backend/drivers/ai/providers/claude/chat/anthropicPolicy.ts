@@ -142,6 +142,22 @@ export const resolveAdvisorModel = (
 ): IChatModel =>
     resolveModelByIdOrAlias(models, modelId) ?? priciestModel(models);
 
+/**
+ * The catalog entry a usage line's model is priced at. A dated id resolves to
+ * its undated entry; an id outside the catalog gets the priciest entry's
+ * rates.
+ */
+export const resolveBilledModel = (
+    modelId: unknown,
+    models: readonly IChatModel[],
+): IChatModel =>
+    resolveModelByIdOrAlias(models, modelId) ??
+    resolveModelByIdOrAlias(
+        models,
+        typeof modelId === 'string' ? modelId.replace(/-\d{8}$/, '') : modelId,
+    ) ??
+    priciestModel(models);
+
 const SERVER_TOOL_TYPE = /^[a-z_]+_\d{8}$/;
 const WEB_SEARCH_2026 = /^web_search_2026/;
 const WEB_FETCH_2026 = /^web_fetch_2026/;

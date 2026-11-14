@@ -426,6 +426,11 @@ export interface IChatProvider {
         /** Provider-specific prompt tokens outside message.content. */
         additionalPromptTokens?: number;
         maxTokens?: number;
+        /**
+         * Models the upstream may run the whole request on again. The gate
+         * reserves one more full attempt at each one's rates.
+         */
+        rerunModels?: IChatModel[];
     };
     /**
      * Exact prompt token count, when the vendor offers one (e.g. Claude's
