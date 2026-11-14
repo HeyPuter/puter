@@ -437,6 +437,8 @@ The `usageDetails` object on every result carries the same counts under provider
 
 Fast service is available on Claude models with a Fast rate card. Ultrafast falls back to fast. When the account has no Fast quota, the request retries at standard speed. The upstream service tier and inference speed are separate fields.
 
+Pass `speed: "fast"` to request Fast mode, or `speed: "standard"` for standard inference. This option applies to Claude models. An explicit `serviceSpeed` takes precedence.
+
 #### Prompt Caching
 
 Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompts.
