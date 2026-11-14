@@ -340,6 +340,22 @@ describe('SpeechToTextDriver argument validation', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('throws 400 when prompt is a list instead of text', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    prompt: [null, 'names'],
+                } as never),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'prompt must be a string',
+        });
+        expect(transcriptionsCreateMock).not.toHaveBeenCalled();
+    });
+
     it('rejects diarized_json, which gpt-transcribe does not produce', async () => {
         const { actor } = await makeUser();
         await expect(
