@@ -63,6 +63,9 @@ export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
 // An app session created on a user's behalf for debugging: hard expiry, never
 // slid, and hidden from the user's own session list.
 export const DEBUG_APP_SESSION_KIND = 'debug_app';
+// `created_via` of a `web` row handed to one of the deployment's own pages
+// under another sign-in (its `parent_session_id`).
+export const FIRST_PARTY_SESSION_VIA = 'first_party';
 // A godmode app's token lapses at most this long after the desktop last asked
 // for it, so a closed desktop's tokens die on their own. A token past the max
 // age is never renewed again; the next ask replaces it and revokes the old one.
@@ -166,7 +169,8 @@ export class SessionStore extends PuterStore {
      * Interactive sign-ins for a user, newest first, for the account's own
      * activity view. Revoked rows are included -- a session someone opened and
      * closed is exactly what the reader is looking for. Derived kinds (app,
-     * access token, asset, worker) are not sign-ins and stay out.
+     * access token, asset, worker) and sessions handed out under another
+     * sign-in are not sign-ins and stay out.
      *
      * Uncached and keyset-paginated on `id`: the caller merges this with
      * another stream, so it asks for one page at a time rather than the whole
@@ -179,7 +183,7 @@ export class SessionStore extends PuterStore {
     async listSignIns(userId, { limit, beforeId = null }) {
         const rows = await this.clients.db.read(
             'SELECT `id`, `created_at`, `last_ip`, `last_user_agent` FROM `sessions` ' +
-                "WHERE `user_id` = ? AND `kind` = 'web'" +
+                "WHERE `user_id` = ? AND `kind` = 'web' AND `parent_session_id` IS NULL" +
                 (beforeId === null ? '' : ' AND `id` < ?') +
                 ' ORDER BY `id` DESC LIMIT ?',
             beforeId === null ? [userId, limit] : [userId, beforeId, limit],
@@ -493,13 +497,19 @@ export class SessionStore extends PuterStore {
      * sessions costs a few primary round trips rather than a few per session.
      * Returns `{ userId, uuids }` for each user that had rows revoked.
      *
+     * A first-party page's session, revoked under its sign-in, is cascaded from
+     * in turn: it has derived rows of its own.
+     *
      * @param {string[]} rootUuids
      */
     async revokeCascades(rootUuids) {
         const roots = [...new Set(rootUuids.filter(Boolean).map(String))];
+        const queued = new Set(roots);
         const uuidsByUser = new Map();
-        for (let i = 0; i < roots.length; i += REVOKE_CHUNK_SIZE) {
+        // `roots` grows as it is walked, so each pass takes what is there.
+        for (let i = 0; i < roots.length; ) {
             const chunk = roots.slice(i, i + REVOKE_CHUNK_SIZE);
+            i += chunk.length;
             const placeholders = chunk.map(() => '?').join(', ');
             const scope = `(\`uuid\` IN (${placeholders}) OR \`parent_session_id\` IN (${placeholders})) AND \`revoked_at\` IS NULL`;
             const scopeParams = [...chunk, ...chunk];
@@ -531,6 +541,14 @@ export class SessionStore extends PuterStore {
                 const userId = Number(r.user_id);
                 if (!uuidsByUser.has(userId)) uuidsByUser.set(userId, []);
                 uuidsByUser.get(userId).push(String(r.uuid));
+                if (
+                    r.kind === 'web' &&
+                    r.parent_session_id &&
+                    !queued.has(String(r.uuid))
+                ) {
+                    queued.add(String(r.uuid));
+                    roots.push(String(r.uuid));
+                }
             }
         }
         return [...uuidsByUser].map(([userId, uuids]) => ({ userId, uuids }));
@@ -757,6 +775,57 @@ export class SessionStore extends PuterStore {
         });
         await this.#writeGodmodePointer(pointerKey, row.uuid);
         return { row, replaced: found ?? null };
+    }
+
+    /**
+     * The `web` session one of the deployment's own pages runs on under a
+     * sign-in: the live one for (`parentSessionUid`, `origin`) if there is one,
+     * else a new row. Revoking the parent cascades here. Concurrent first asks
+     * can each insert a row; both stay valid.
+     *
+     * @param {number} userId - User row id.
+     * @param {{
+     *     parentSessionUid: string;
+     *     origin: string;
+     *     expiresAt: number;
+     *     meta?: Record<string, unknown>;
+     *     auth_id?: string;
+     * }} opts
+     *   - `origin` is the page's origin, kept in `meta.first_party_origin`. `meta`
+     *       is the request context, as on any `web` row.
+     */
+    async getOrCreateFirstPartySession(
+        userId,
+        { parentSessionUid, origin, expiresAt, meta = {}, auth_id },
+    ) {
+        if (!userId || !parentSessionUid || !origin) return null;
+
+        const now = nowSeconds();
+        // One per listed origin under a sign-in, so a handful at most.
+        const rows = await this.clients.db.pread(
+            "SELECT * FROM `sessions` WHERE `kind` = 'web' AND `user_id` = ? AND `parent_session_id` = ? AND `created_via` = ? AND `revoked_at` IS NULL ORDER BY `id` DESC LIMIT 20",
+            [userId, parentSessionUid, FIRST_PARTY_SESSION_VIA],
+        );
+        const found = rows
+            .map((row) => this.#normalizeRow(row))
+            .find(
+                (row) =>
+                    row &&
+                    !isExpired(row, now) &&
+                    row.meta?.first_party_origin === origin,
+            );
+        if (found) return found;
+
+        return this.create(userId, {
+            kind: 'web',
+            parent_session_id: parentSessionUid,
+            created_via: FIRST_PARTY_SESSION_VIA,
+            meta: { ...meta, first_party_origin: origin },
+            last_ip: meta.ip ?? null,
+            last_user_agent: meta.user_agent ?? null,
+            expires_at: expiresAt,
+            auth_id,
+        });
     }
 
     /**
