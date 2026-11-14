@@ -83,7 +83,10 @@ let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
 
 beforeAll(async () => {
-    server = await setupTestServer();
+    // The key puts Mistral on the server's own chat driver.
+    server = await setupTestServer({
+        providers: { mistral: { apiKey: 'test-key' } },
+    });
 });
 
 afterAll(async () => {
@@ -187,11 +190,31 @@ describe('MistralAIProvider model catalog', () => {
         expect(ids).not.toContain('magistral-medium-latest');
     });
 
-    it('keeps mistral-large-2512, which Mistral still serves as active', async () => {
+    it.each(['mistral-large-2512', 'mistral-medium-2604'])(
+        'keeps %s, which Mistral serves until it retires the model',
+        async (id) => {
+            const { provider } = makeProvider();
+            expect((await provider.models()).map((model) => model.id)).toContain(
+                id,
+            );
+        },
+    );
+
+    it('moves the floating Large aliases off the deprecated Large 3', async () => {
         const { provider } = makeProvider();
-        const ids = modelLookupNames(await provider.models());
-        expect(ids).toContain('mistral-large-2512');
-        expect(ids).toContain('mistral-large-latest');
+        const models = await provider.models();
+        const aliasesOf = (id: string) =>
+            models.find((model) => model.id === id)?.aliases ?? [];
+        expect(aliasesOf('mistral-large-4')).toEqual(
+            expect.arrayContaining([
+                'mistral-large-latest',
+                'mistral-large',
+                'mistralai/mistral-large-latest',
+            ]),
+        );
+        expect(aliasesOf('mistral-large-2512')).toEqual([
+            'mistralai/mistral-large-2512',
+        ]);
     });
 
     it('lists Large 4 with standard pricing and multimodal tool support', async () => {
@@ -204,17 +227,47 @@ describe('MistralAIProvider model catalog', () => {
             modalities: { input: ['text', 'image'], output: ['text'] },
             tool_call: true,
             context: 1_000_000,
-            max_tokens: 1_000_000,
-            open_weights: false,
+            max_tokens: 262_144,
+            open_weights: true,
             costs_currency: 'usd-cents',
             costs: {
                 tokens: 1_000_000,
-                prompt_tokens: 136,
-                cached_tokens: 14,
-                completion_tokens: 418,
+                prompt_tokens: 70,
+                cached_tokens: 7,
+                completion_tokens: 210,
             },
         });
     });
+
+    it.each(['mistral-large-4', 'mistral-large-latest'])(
+        'asks for no more output from %s than Mistral accepts',
+        async (model) => {
+            // Credit for far more output than the context window holds.
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 1e12, held: 0 });
+            completeMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: { content: 'hi', role: 'assistant' },
+                        finishReason: 'stop',
+                    },
+                ],
+                usage: { promptTokens: 1, completionTokens: 1 },
+            });
+
+            await withTestActor(() =>
+                server.drivers.aiChat.complete({
+                    model,
+                    provider: 'mistral',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            expect(completeMock.mock.calls[0]![0].maxTokens).toBe(262_144);
+        },
+    );
 });
 
 // ── Request shape (Mistral-specific quirks) ─────────────────────────
@@ -539,7 +592,11 @@ describe('MistralAIProvider model resolution', () => {
         ['mistral-large-4-0', 'mistral-large-4'],
         ['mistralai/mistral-large-4', 'mistral-large-4'],
         ['mistralai/mistral-large-4-0', 'mistral-large-4'],
-        ['mistral-large-latest', 'mistral-large-2512'],
+        ['mistral-large-latest', 'mistral-large-4'],
+        ['mistral-large', 'mistral-large-4'],
+        ['mistralai/mistral-large-latest', 'mistral-large-4'],
+        ['mistral-large-2512', 'mistral-large-2512'],
+        ['mistralai/mistral-large-2512', 'mistral-large-2512'],
         ['zai-glm-latest', 'zai-glm-5-3'],
         ['zai-glm-5', 'zai-glm-5-3'],
         ['mistral-code-latest', 'codestral-2508'],
@@ -588,8 +645,8 @@ describe('MistralAIProvider model resolution', () => {
 
 describe('MistralAIProvider.complete non-stream output', () => {
     it.each([
-        ['mistral-large-4', false, 136, 14, 418],
-        ['mistral-large-4', true, 136, 14, 418],
+        ['mistral-large-4', false, 70, 7, 210],
+        ['mistral-large-4', true, 70, 7, 210],
         ['mistral-small-2603', false, 15, 1.5, 60],
         ['mistral-small-2603', true, 15, 1.5, 60],
         ['ministral-8b-2512', false, 15, 1.5, 15],

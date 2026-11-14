@@ -25,19 +25,23 @@ export const MISTRAL_MODELS: IChatModel[] = [
         puterId: 'mistralai:mistralai/mistral-large-4',
         id: 'mistral-large-4',
         modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: false,
+        open_weights: true,
         tool_call: true,
         release_date: '2026-10-06',
         name: 'Mistral Large 4',
         aliases: [
             'mistral-large-4-0',
+            'mistral-large-latest',
+            'mistral-large',
             'mistralai/mistral-large-4',
             'mistralai/mistral-large-4-0',
+            'mistralai/mistral-large-latest',
         ],
         context: 1_000_000,
-        max_tokens: 1_000_000,
+        // Mistral rejects a request for more completion tokens than this.
+        max_tokens: 262_144,
         description:
-            'Public-preview multimodal model for reasoning, coding, and agentic workflows; open weights are forthcoming.',
+            'State-of-the-art, open-weight, general-purpose multimodal model for reasoning, coding, and agentic workflows.',
         provider: 'mistral',
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -45,12 +49,13 @@ export const MISTRAL_MODELS: IChatModel[] = [
         serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
-            prompt_tokens: 136,
-            cached_tokens: 14,
-            completion_tokens: 418,
+            prompt_tokens: 70,
+            cached_tokens: 7,
+            completion_tokens: 210,
         },
     },
     {
+        // Mistral deprecated this model on 2026-10-31 and retires it on 2027-04-30.
         puterId: 'mistralai:mistralai/mistral-medium-2604',
         id: 'mistral-medium-2604',
         modalities: { input: ['text', 'image'], output: ['text'] },
@@ -85,6 +90,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         },
     },
     {
+        // Mistral deprecated this model on 2026-10-31 and retires it on 2027-04-30.
         puterId: 'mistralai:mistralai/mistral-large-2512',
         id: 'mistral-large-2512',
         modalities: { input: ['text', 'image'], output: ['text'] },
@@ -93,12 +99,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         knowledge: '2025-12',
         release_date: '2025-12-02',
         name: 'Mistral Large 3',
-        aliases: [
-            'mistral-large-latest',
-            'mistral-large',
-            'mistralai/mistral-large-latest',
-            'mistralai/mistral-large-2512',
-        ],
+        aliases: ['mistralai/mistral-large-2512'],
         context: 262_144,
         max_tokens: 262_144,
         description:
