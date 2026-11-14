@@ -145,6 +145,38 @@ describe('the sign-in consent dialog', () => {
         expect(part(dialog, 'dialog').open).toBe(true);
     });
 
+    it('ignores a token before Continue has opened the popup', () => {
+        const dialog = showConsent();
+
+        postToPage(TOKEN_MESSAGE);
+
+        expect(globalThis.puter.setAuthToken).not.toHaveBeenCalled();
+        expect(part(dialog, 'dialog').open).toBe(true);
+    });
+
+    it('ignores a token when the browser refused the popup', () => {
+        window.open = vi.fn(() => null);
+        const dialog = showConsent();
+        part(dialog, '#launch-auth-popup').click();
+
+        postToPage(TOKEN_MESSAGE, { source: null });
+
+        expect(globalThis.puter.setAuthToken).not.toHaveBeenCalled();
+    });
+
+    it('stops listening for a token once removed from the page', () => {
+        const dialog = showConsent();
+        part(dialog, '#launch-auth-popup').click();
+        const removed = vi.spyOn(window, 'removeEventListener');
+
+        dialog.remove();
+        postToPage(TOKEN_MESSAGE);
+
+        expect(removed).toHaveBeenCalledWith('message', dialog.messageListener);
+        expect(globalThis.puter.setAuthToken).not.toHaveBeenCalled();
+        removed.mockRestore();
+    });
+
     it('ignores other messages from the popup', () => {
         const dialog = showConsent();
         part(dialog, '#launch-auth-popup').click();
@@ -246,5 +278,13 @@ describe('on a page the browser gives no origin', () => {
         part(dialog, '.close-btn').click();
 
         expect(part(dialog, 'dialog').open).toBe(false);
+    });
+
+    it('takes no token', () => {
+        showConsent();
+
+        postToPage(TOKEN_MESSAGE);
+
+        expect(globalThis.puter.setAuthToken).not.toHaveBeenCalled();
     });
 });

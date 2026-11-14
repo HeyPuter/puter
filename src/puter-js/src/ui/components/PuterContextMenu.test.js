@@ -275,6 +275,19 @@ describe('<puter-context-menu> selection', () => {
         expect(events).toEqual([]);
     });
 
+    it('keeps the submenu open through a press and click on its parent item', () => {
+        const el = openMenu();
+        row(el, 'Share').click();
+        frame();
+        const sub = submenus()[0];
+
+        pointerDownOn(row(el, 'Share'));
+        row(el, 'Share').click();
+
+        expect(submenus()).toEqual([sub]);
+        expect(row(el, 'Share').classList.contains('has-open-submenu')).toBe(true);
+    });
+
     it('reports a submenu selection on the root menu and closes the whole chain', () => {
         const items = ITEMS();
         const action = vi.fn();
@@ -301,6 +314,10 @@ describe('<puter-context-menu> selection', () => {
         expect(labels(deep)).toEqual(['Deep']);
 
         pointerDownOn(deep);
+        expect(openMenus()).toBe(3);
+        // A press on a menu further up is that menu's to act on.
+        pointerDownOn(sub);
+        pointerDownOn(el);
         expect(openMenus()).toBe(3);
 
         const events = record(el, 'close');
@@ -457,6 +474,26 @@ describe('<puter-context-menu> keyboard', () => {
         expect(focused(el)).toBe('Share');
         expect(row(el, 'Share').classList.contains('has-open-submenu')).toBe(false);
         expect(navigations).toEqual([]);
+    });
+
+    it.each(['Escape', 'Tab'])('closes only the submenu on %s and hands the keyboard back', (key) => {
+        const el = openMenu();
+        const events = record(el, 'close');
+        press('ArrowDown');
+        press('ArrowDown');
+        press('ArrowRight');
+        frame();
+
+        press(key);
+        expect(submenus()).toEqual([]);
+        expect(events).toEqual([]);
+        expect(row(el, 'Share').classList.contains('has-open-submenu')).toBe(false);
+
+        press('ArrowDown');
+        expect(focused(el)).not.toBeNull();
+        // The item opens its submenu again.
+        row(el, 'Share').click();
+        expect(submenus()).toHaveLength(1);
     });
 
     it('selects from a submenu with Enter', () => {
@@ -753,6 +790,17 @@ describe('<puter-context-menu> on small screens', () => {
         expect(submenus()).toEqual([]);
         expect(el.style.display).toBe('');
         expect(focused(el)).toBe('Share');
+    });
+
+    it('brings the parent sheet back when the submenu closes on Escape', () => {
+        const el = openMenu();
+        row(el, 'Share').click();
+        frame();
+        press('Escape');
+        vi.advanceTimersByTime(250);
+        expect(submenus()).toEqual([]);
+        expect(el.style.display).toBe('');
+        expect(backdrop()).toBeDefined();
     });
 
     it('closes the hidden parent without animating it when a submenu item is chosen', () => {

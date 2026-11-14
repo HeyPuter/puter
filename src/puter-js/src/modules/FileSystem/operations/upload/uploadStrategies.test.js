@@ -498,12 +498,19 @@ describe('legacy upload', () => {
         routes['/batch'] = () => HANG;
         fs.socket = { id: 'socket-1', on: vi.fn(), off: vi.fn() };
         const onAbort = vi.fn();
-        const uploading = uploadTo(fileOf('hello', 'notes.txt'), { abort: onAbort });
+        const onError = vi.fn();
+        const uploading = uploadTo(fileOf('hello', 'notes.txt'), { abort: onAbort, error: onError });
         await until(() => sent('/batch').length === 1);
 
         requestHandle.abort();
-        await rejectionOf(uploading);
-        expect(onAbort).toHaveBeenCalledWith(operationId);
+        expect(await rejectionOf(uploading)).toMatchObject({
+            aborted: true,
+            code: 'upload_aborted',
+            message: 'Upload aborted.',
+        });
+        expect(onAbort.mock.calls).toEqual([[operationId]]);
+        // A cancelled upload is not a failed one.
+        expect(onError).not.toHaveBeenCalled();
         expect(fs.socket.off).toHaveBeenCalledWith('upload.progress', fs.socket.on.mock.calls[0][1]);
     });
 });

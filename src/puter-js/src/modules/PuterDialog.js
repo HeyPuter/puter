@@ -461,7 +461,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
             if ( event.origin !== puter.defaultGUIOrigin ) {
                 return;
             }
-            if ( this.authPopup && event.source !== this.authPopup ) {
+            if ( !this.authPopup || event.source !== this.authPopup ) {
                 return;
             }
             if ( event.data.msg === 'puter.token' ) {
@@ -588,6 +588,10 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
             e.preventDefault();
             this.cancelListener();
         });
+    }
+
+    disconnectedCallback () {
+        window.removeEventListener('message', this.messageListener);
     }
 
     /**

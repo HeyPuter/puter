@@ -29,6 +29,15 @@ describe('FileReaderPoly.readAsDataURL', () => {
         expect((await read(bytes)).reader.result).toBe('data:application/octet-stream;base64,aGVsbG8=');
     });
 
+    it('reads only the bytes a view covers, not its whole backing buffer', async () => {
+        const bytes = new TextEncoder().encode('say hello there');
+        expect((await read(bytes.subarray(4, 9))).reader.result).toBe('data:application/octet-stream;base64,aGVsbG8=');
+        expect((await read(new DataView(bytes.buffer, 4, 5))).reader.result).toBe('data:application/octet-stream;base64,aGVsbG8=');
+        // Wider elements are read as their bytes.
+        const wide = new Uint16Array(new Uint8Array([0, 0, 104, 105, 33, 63]).buffer, 2, 2);
+        expect((await read(wide)).reader.result).toBe('data:application/octet-stream;base64,aGkhPw==');
+    });
+
     it('reads bytes outside ASCII', async () => {
         const { reader } = await read(new Uint8Array([0, 255, 128]).buffer);
         expect(reader.result).toBe('data:application/octet-stream;base64,AP+A');
