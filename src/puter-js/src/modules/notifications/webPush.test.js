@@ -21,6 +21,7 @@ vi.mock('./lib/pushStore.js', () => {
         SERVER_KEYS_ENTRY: 'puter:server-keys',
         SYNCED_PREFIX: 'puter:synced:',
         SUBSCRIPTION_CHANGED_PREFIX: 'puter:subscription-changed:',
+        SUBSCRIPTION_CHANGED_MESSAGE: 'puter-push-subscription-changed',
         RECEIPT_PREFIX: 'puter:receipt:',
         TAP_BASE_PREFIX: 'puter:tap-base:',
         CLICK_KEEP_MS: 5 * 60 * 1000,
@@ -2177,6 +2178,126 @@ describe('enable', () => {
     });
 });
 
+describe('enable({ background: true })', () => {
+    it('resolves false without a request where the browser can`t receive pushes', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        delete globalThis.PushManager;
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
+    });
+
+    it('registers again without a click for a user who turned pushes on here with a click', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server();
+        const { module } = makeModule();
+        await expect(module.enable()).resolves.toBe(true);
+        mockRequest.mockClear();
+        await expect(module.enable({ background: true })).resolves.toBe(true);
+        expect(Notification.requestPermission).toHaveBeenCalledTimes(0);
+        expect(
+            mockRequest.mock.calls.map(([, method, route]) => [method, route]),
+        ).toContainEqual(['POST', '/push/web/subscriptions']);
+        expect(store.get(OPT_IN)).toBe(true);
+    });
+
+    it('resolves false without a request for a user who never turned pushes on here', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        server();
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('stays off when disable() runs while it reads the opt-in', async () => {
+        store.set(OPT_IN, true);
+        const nav = makeNav();
+        withBrowser(nav);
+        server();
+        const { hasOptIn } = await import('./lib/pushStore.js');
+        hasOptIn.mockClear();
+        let answer = () => {};
+        hasOptIn.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    answer = () => resolve(true);
+                }),
+        );
+        const { module } = makeModule();
+        const enabling = module.enable({ background: true });
+        await vi.waitFor(() => expect(hasOptIn).toHaveBeenCalled());
+        await module.disable();
+        answer();
+        await expect(enabling).resolves.toBe(false);
+        await flush();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(
+            mockRequest.mock.calls.filter(
+                ([, method, route]) =>
+                    method === 'POST' && route === '/push/web/subscriptions',
+            ),
+        ).toEqual([]);
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('stops before subscribing when another tab turns pushes off meanwhile', async () => {
+        store.set(OPT_IN, true);
+        const nav = makeNav();
+        withBrowser(nav);
+        let keyAnswer = () => {};
+        mockRequest.mockImplementation(async (_p, _method, route) => {
+            if (route === '/push/web/key') {
+                return await new Promise((resolve) => {
+                    keyAnswer = () => resolve({ publicKey: KEY });
+                });
+            }
+            return { status: 'active', device: { uid: 'd1' } };
+        });
+        const { module } = makeModule();
+        const enabling = module.enable({ background: true });
+        await vi.waitFor(() =>
+            expect(mockRequest.mock.calls.map(([, , route]) => route)).toContain(
+                '/push/web/key',
+            ),
+        );
+        store.delete(OPT_IN);
+        keyAnswer();
+        await expect(enabling).resolves.toBe(false);
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('resolves false without a request after disable()', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server();
+        const { module } = makeModule();
+        await module.enable();
+        await module.disable();
+        nav.pushManager.getSubscription.mockResolvedValue(null);
+        nav.pushManager.subscribe.mockClear();
+        mockRequest.mockClear();
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('resolves false without a request outside a website or the Puter GUI', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server();
+        const { module } = makeModule({ env: 'web-worker' });
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
+    });
+});
+
 describe('enable() while another tab loads', () => {
     it('records the opt-in before the other tab checks it, so the new subscription stays', async () => {
         store.set(SERVER_KEY, KEY);
@@ -2242,6 +2363,35 @@ describe('enable after the user removed this browser in Puter', () => {
         expect(store.get(OPT_IN)).toBe(true);
     });
 
+    it('leaves it removed for a background enable(), registering nothing new', async () => {
+        store.set(OPT_IN, true);
+        const removed = makeSubscription(undefined, 'https://push.example/1');
+        const nav = makeNav({ existing: removed });
+        withBrowser(nav);
+        server((route, body) => {
+            if (body.subscription.endpoint === 'https://push.example/1')
+                throw new PuterJSError('removed', 'push_device_removed');
+            return { status: 'active', device: { uid: 'd2' } };
+        });
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).rejects.toMatchObject(
+            { code: 'push_device_removed' },
+        );
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(
+            mockRequest.mock.calls
+                .filter(([, , route]) => route === '/push/web/subscriptions')
+                .map(([, , , body]) => body.subscription.endpoint),
+        ).toEqual(['https://push.example/1']);
+        expect(store.has(OPT_IN)).toBe(false);
+
+        mockRequest.mockClear();
+        nav.pushManager.getSubscription.mockResolvedValue(null);
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
     describe('in the Puter GUI', () => {
         const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
         /** A browser holding a removed subscription and its receipt. */
@@ -2292,7 +2442,7 @@ describe('enable after the user removed this browser in Puter', () => {
             const { removed, nav } = removedHere();
             const { module } = makeModule({ env: 'gui' });
             await expect(
-                module._enableWebPush(workerFor('gui'), { background: true }),
+                module.enable({ background: true }),
             ).rejects.toMatchObject({ code: 'push_device_removed' });
             expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
             expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
@@ -2305,9 +2455,7 @@ describe('enable after the user removed this browser in Puter', () => {
         it('opens no sign-in for a rejected token in the background', async () => {
             removedHere();
             const { module } = makeModule({ env: 'gui' });
-            await module
-                ._enableWebPush(workerFor('gui'), { background: true })
-                .catch(() => {});
+            await module.enable({ background: true }).catch(() => {});
             expect(reauthOf('/push/web/key')).toEqual([false]);
             expect(reauthOf('/push/web/subscriptions')).toEqual([false]);
         });

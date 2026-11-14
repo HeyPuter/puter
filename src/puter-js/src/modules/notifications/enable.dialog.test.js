@@ -12,6 +12,7 @@ vi.mock('./lib/pushStore.js', () => ({
     SERVER_KEYS_ENTRY: 'puter:server-keys',
     SYNCED_PREFIX: 'puter:synced:',
     SUBSCRIPTION_CHANGED_PREFIX: 'puter:subscription-changed:',
+    SUBSCRIPTION_CHANGED_MESSAGE: 'puter-push-subscription-changed',
     TAP_BASE_PREFIX: 'puter:tap-base:',
     CLICK_KEEP_MS: 5 * 60 * 1000,
     takeClick: async () => null,
@@ -175,5 +176,68 @@ describe('enable() on a website without the click', () => {
         } finally {
             HTMLDialogElement.prototype.showModal = showModal;
         }
+    });
+});
+
+describe('enable({ background: true }) on a website', () => {
+    const makeBackground = (over = {}) =>
+        new NotificationsModule({
+            env: 'web',
+            authToken: 't',
+            APIOrigin: 'https://api.test',
+            whoami: { uuid: 'u-1' },
+            onAuthStateChanged: () => () => {},
+            ui: { authenticateWithPuter: vi.fn(async () => {}) },
+            ...over,
+        });
+
+    beforeEach(() => {
+        vi.spyOn(window, 'open').mockImplementation(() => null);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('opens no prompt or dialog and resolves false while permission is default', async () => {
+        navigator.userActivation.isActive = true;
+        const enabling = makeBackground().enable({ background: true });
+        expect(dialog()).toBeNull();
+        await expect(enabling).resolves.toBe(false);
+        expect(Notification.requestPermission).not.toHaveBeenCalled();
+        expect(dialog()).toBeNull();
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('opens no sign-in when the token is rejected', async () => {
+        Notification.permission = 'granted';
+        store.set('opt-in:u-1', true);
+        mockRequest.mockRejectedValue(
+            Object.assign(new Error('token rejected'), {
+                code: 'token_auth_failed',
+            }),
+        );
+        const module = makeBackground();
+        await expect(module.enable({ background: true })).rejects.toMatchObject(
+            {
+                code: 'token_auth_failed',
+            },
+        );
+        expect(mockRequest).toHaveBeenCalled();
+        for (const [, , , , options] of mockRequest.mock.calls)
+            expect(options).toMatchObject({ interactiveReauth: false });
+        expect(window.open).not.toHaveBeenCalled();
+        expect(module.puter.ui.authenticateWithPuter).not.toHaveBeenCalled();
+        expect(dialog()).toBeNull();
+    });
+
+    it('opens no sign-in and resolves false with nobody signed in', async () => {
+        Notification.permission = 'granted';
+        const module = makeBackground({ authToken: null });
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(window.open).not.toHaveBeenCalled();
+        expect(module.puter.ui.authenticateWithPuter).not.toHaveBeenCalled();
+        expect(dialog()).toBeNull();
     });
 });

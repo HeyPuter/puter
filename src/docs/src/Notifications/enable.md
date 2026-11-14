@@ -26,6 +26,8 @@ On a website with nobody signed in, it opens the sign-in after the browser's pro
 
 Inside the Puter desktop it does what [`enablePush()`](/Notifications/enablePush/) does, and it never rejects. When your app doesn't hold the permission yet, that's Puter's permission dialog, and allowing it also turns pushes on in this browser.
 
+With `background: true` it runs without a click, for example on page load, and never opens the browser's prompt, Puter's dialog or the sign-in. On a website it turns pushes back on only for a signed-in user who turned them on in this browser with a click and hasn't turned them off since, whether with [`disable()`](/Notifications/disable/), by removing this browser in Puter, or by turning your app off in Puter. Otherwise, or when the browser hasn't already granted notification permission, it resolves `false` and sends no push registration. It also resolves `false` when pushes are turned off here or elsewhere while it runs. A browser the user removed in Puter stays removed. When the user removed this browser or turned your app off in Puter and this browser hasn't learned it yet, the call rejects once with `push_device_removed` or `push_revoked`, and later calls resolve `false`. Inside the Puter desktop it resolves whether pushes are already on, as [`status()`](/Notifications/status/) reports, without opening Puter's permission dialog.
+
 ## Syntax
 ```js
 puter.notifications.enable()
@@ -39,6 +41,7 @@ puter.notifications.enable(options)
 | Option | Type | Description |
 |--------|------|-------------|
 | `serviceWorker` | `String` | The path of the worker that imports `push-sw.js`. Defaults to `/puter-sw.js`. Pass the same path to [`onPush()`](/Notifications/onPush/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). Only used on a website. |
+| `background` | `Boolean` | Turn pushes back on without a click, only where the browser already granted permission and, on a website, the user turned them on here with a click and hasn't turned them off since. Opens no prompt, dialog or sign-in. Defaults to `false`. |
 
 ## Return value
 A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications, canceled Puter's dialog, or the browser can't receive pushes, such as a private window or an iPhone page that isn't opened from the Home Screen. [Where pushes work](/Notifications/push/#where-pushes-work) lists what each browser needs.
@@ -51,8 +54,8 @@ The promise rejects with an error carrying `message` and `code`:
 | --- | --- |
 | `push_unavailable` | This server has no push notification service, as on most self-hosted servers. |
 | `push_disabled` | This server has push notifications turned off. |
-| `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click, then call [`enable()`](/Notifications/enable/) again. |
-| `push_device_removed` | The user removed this browser in Puter, and the fresh subscription was also refused. |
+| `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click, then call [`enable()`](/Notifications/enable/) again. With `background: true`, later background calls resolve `false`. |
+| `push_device_removed` | The user removed this browser in Puter, and the fresh subscription was also refused. With `background: true`, the user removed this browser in Puter, and later background calls resolve `false`. |
 | `push_worker_unavailable` | The service worker couldn't be registered or didn't start, for example because nothing is served at its path. |
 | `push_worker_conflict` | Another service worker controls the scope. Add the `importScripts()` line to that worker and pass its path as `serviceWorker`. |
 | `push_subscription_conflict` | The worker already has a push subscription from another service, such as Firebase or OneSignal. Give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. A subscription Puter made earlier, even with a key Puter has since changed, is replaced instead. |
@@ -86,6 +89,23 @@ The promise rejects with an error carrying `message` and `code`:
                 puter.print(`Could not turn on notifications: ${error.code}<br>`);
             }
         });
+    </script>
+</body>
+</html>
+```
+
+### Turn pushes back on at page load
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // Resolves false without asking unless the user turned pushes on here with a click.
+            const on = await puter.notifications.enable({ background: true }).catch(() => false);
+            puter.print(on ? 'Notifications are on<br>' : 'Notifications are off<br>');
+        })();
     </script>
 </body>
 </html>

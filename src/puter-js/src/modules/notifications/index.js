@@ -10,6 +10,7 @@ import { request } from './lib/api.js';
 import {
     CLICK_KEEP_MS,
     HANDLERS_STORE,
+    SUBSCRIPTION_CHANGED_MESSAGE,
     SUBSCRIPTION_CHANGED_PREFIX,
     SYNCED_PREFIX,
     TAP_BASE_PREFIX,
@@ -53,8 +54,7 @@ export const CLICK_BROADCAST = 'notificationClick';
 export const WORKER_CLICK_MESSAGE = 'puter-notification-click';
 /** What the page answers a tap with when a click handler took it. */
 export const WORKER_CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-/** What a worker posts when the browser replaced the push subscription. */
-export const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
+export { SUBSCRIPTION_CHANGED_MESSAGE };
 /** Query parameter `push-sw.js` adds to a page it opens for a tap. */
 export const CLICK_PARAM = 'puter.notification';
 
@@ -192,6 +192,7 @@ const tapBaseFor = (worker, pageUrl) => {
  */
 export class NotificationsModule extends EventListener {
     // Rebound in the constructor so destructured calls keep `this`.
+    /** @type {OmitThisParameter<typeof notify>} */
     notify = notify;
     /** @type {OmitThisParameter<typeof cancel>} */
     cancel = cancel;
@@ -199,15 +200,25 @@ export class NotificationsModule extends EventListener {
     markShown = markShown;
     /** @type {OmitThisParameter<typeof dismiss>} */
     dismiss = dismiss;
+    /** @type {OmitThisParameter<typeof onNotification>} */
     onNotification = onNotification;
+    /** @type {OmitThisParameter<typeof enable>} */
     enable = enable;
+    /** @type {OmitThisParameter<typeof disable>} */
     disable = disable;
+    /** @type {OmitThisParameter<typeof status>} */
     status = status;
+    /** @type {OmitThisParameter<typeof onPush>} */
     onPush = onPush;
+    /** @type {OmitThisParameter<typeof requestPermission>} */
     requestPermission = requestPermission;
+    /** @type {OmitThisParameter<typeof hasPermission>} */
     hasPermission = hasPermission;
+    /** @type {OmitThisParameter<typeof enablePush>} */
     enablePush = enablePush;
+    /** @type {OmitThisParameter<typeof listDevices>} */
     listDevices = listDevices;
+    /** @type {OmitThisParameter<typeof removeDevice>} */
     removeDevice = removeDevice;
 
     #pushListener = (notification) => {
@@ -493,12 +504,19 @@ export class NotificationsModule extends EventListener {
      *
      * @param {{ url: string; scope?: string }} worker
      * @param {{ background?: boolean }} [options] `background` is a call without
-     *   a click: a browser the user removed in Puter rejects with
-     *   `push_device_removed`, and a rejected token opens no sign-in.
+     *   a click. A browser the user removed in Puter rejects with
+     *   `push_device_removed` and a rejected token opens no sign-in. On a website
+     *   it resolves false without the user's opt-in here, and rejects with
+     *   `push_verification_canceled` when the opt-in goes while it runs.
+     * @returns {Promise<boolean>} Whether this browser was registered.
      * @internal
      */
     async _enableWebPush(worker, { background = false } = {}) {
         await this.#userChange;
+        const signal = this.#stopVerifying.signal;
+        const needsOptIn = background && this.puter.env === 'web';
+        if (needsOptIn && (!(await this.#optedIn()) || signal.aborted))
+            return false;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
         /** @type {() => void} */
@@ -506,13 +524,13 @@ export class NotificationsModule extends EventListener {
         const sent = new Promise((resolve) => {
             pending = () => resolve(undefined);
         });
-        const signal = this.#stopVerifying.signal;
         const syncing = syncWebPush(this.puter, {
             worker,
             onPending: pending,
             signal,
             renewRemoved: !background,
             interactive: !background,
+            ...(needsOptIn ? { stillWanted: () => this.#optedIn() } : {}),
             withLock: withPushLock,
             onAnnounced: () => this.#recordOptIn(true),
             onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
@@ -538,6 +556,7 @@ export class NotificationsModule extends EventListener {
             worker,
             'could not confirm this browser for pushes',
         );
+        return true;
     }
 
     /**
@@ -743,6 +762,11 @@ export class NotificationsModule extends EventListener {
         return on;
     }
 
+    /** Whether the user's opt-in here is known to be on. */
+    async #optedIn() {
+        return (await this.#readOptIn()) === true;
+    }
+
     /** Stops other tabs' syncs once push is turned off here. */
     #optInChanged(kind) {
         this.#listenForOptInChanges();
@@ -775,7 +799,7 @@ export class NotificationsModule extends EventListener {
             syncWebPush(this.puter, {
                 worker,
                 signal: this.#stopVerifying.signal,
-                stillWanted: async () => (await this.#readOptIn()) === true,
+                stillWanted: () => this.#optedIn(),
                 withLock: withPushLock,
                 onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
             }),

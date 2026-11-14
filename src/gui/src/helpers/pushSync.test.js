@@ -91,13 +91,13 @@ describe('syncBrowserPush with the built-in client', () => {
     it('does not subscribe again, and stays off, when the user removed this browser in Puter', async () => {
         const notifications = await builtIn();
         notifications.listDevices.mockResolvedValue([]);
-        notifications._enableWebPush.mockRejectedValue(Object.assign(new Error('removed'), { code: 'push_device_removed' }));
+        notifications.enable.mockRejectedValue(Object.assign(new Error('removed'), { code: 'push_device_removed' }));
         const deps = { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true };
         await expect(syncBrowserPush({}, deps)).resolves.toBe('removed');
-        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { background: true });
-        expect(notifications.enable).not.toHaveBeenCalled();
+        expect(notifications.enable).toHaveBeenCalledWith({ background: true });
+        expect(notifications._enableWebPush).not.toHaveBeenCalled();
         await expect(syncBrowserPush({}, deps)).resolves.toBe('opted_out');
-        expect(notifications._enableWebPush).toHaveBeenCalledTimes(1);
+        expect(notifications.enable).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -108,6 +108,12 @@ describe('syncBrowserPush', () => {
         await expect(syncBrowserPush({}, { NotificationApi: granted, userUid: 'u-1', holdsPush })).resolves.toBe('on');
         expect(client.enable).toHaveBeenCalledTimes(1);
         expect(client.enable).toHaveBeenCalledWith({ background: true });
+    });
+
+    it('reports unavailable when this browser can`t receive pushes', async () => {
+        const client = off();
+        client.enable.mockRejectedValue(Object.assign(new Error('unavailable'), { code: 'unavailable' }));
+        await expect(syncBrowserPush({}, { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true })).resolves.toBe('unavailable');
     });
 
     it('leaves a browser the user removed in Puter off, now and on later loads', async () => {

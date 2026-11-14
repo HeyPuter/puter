@@ -75,18 +75,44 @@ const askBrowser = (env) => {
  * `requestPermission()` from a click undoes that. A browser the user removed in
  * Puter is subscribed again.
  *
+ * With `background`, it runs without a click and opens no prompt, dialog or
+ * sign-in. It resolves `false` unless the browser already granted permission
+ * and, on a website, the signed-in user turned pushes on here with a click and
+ * hasn't turned them off since (`disable()`, or Puter removing this browser or
+ * turning the app off), and sends no push registration then. It also resolves
+ * `false` when pushes are turned off here or elsewhere while it runs. A removal
+ * or turn-off this browser hasn't learned yet rejects once with
+ * `push_device_removed` or `push_revoked`, and later calls resolve `false`.
+ * Inside the Puter desktop it resolves whether pushes are already on, as
+ * `status()` reports.
+ *
  * @this {import('./index.js').NotificationsModule}
- * @param {{ serviceWorker?: string }} [options]
+ * @param {import('./types.js').EnableOptions} [options]
  * @returns {Promise<boolean>} Whether this browser now receives pushes.
  */
 export async function enable(options = {}) {
     const { puter } = this;
-    if (puter.env === 'app') return this.enablePush();
+    const background = options.background === true;
+    if (puter.env === 'app')
+        return background ? (await this.status()) === 'on' : this.enablePush();
+    if (puter.env !== 'web' && puter.env !== 'gui') return false;
     if (!webPushSupported()) return false;
+    const worker = workerFor(puter.env, options.serviceWorker);
+
+    if (background) {
+        if (Notification.permission !== 'granted' || needsSignIn(puter))
+            return false;
+        try {
+            return await this._enableWebPush(worker, { background: true });
+        } catch (error) {
+            // Turned off here or elsewhere while it ran, as if a moment earlier.
+            if (error?.code === 'push_verification_canceled') return false;
+            throw error;
+        }
+    }
 
     if ((await askBrowser(puter.env)) !== 'granted') return false;
 
     if (needsSignIn(puter)) await signInVisitor(puter);
-    await this._enableWebPush(workerFor(puter.env, options.serviceWorker));
-    return true;
+    return await this._enableWebPush(worker);
 }

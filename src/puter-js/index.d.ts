@@ -254,6 +254,7 @@ export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js'
 export type {
     AppNotification,
     DelayedNotificationOptions,
+    EnableOptions,
     NotificationAction,
     NotificationClick,
     NotificationDismissal,

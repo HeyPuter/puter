@@ -19,53 +19,22 @@
 
 // Puter's own push client: standard Web Push through `/sw.js` via `puter.notifications`, used when the server publishes `pushWebPushKey`.
 
+import {
+    HANDLERS_STORE,
+    RECEIPT_PREFIX,
+    SUBSCRIPTION_CHANGED_MESSAGE,
+    SUBSCRIPTION_CHANGED_PREFIX,
+    idbDelete,
+    idbGet,
+} from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import { forgetPushApps, webPushEndpointState } from './notificationApi.js';
-
-/** The GUI's worker, as `puter.notifications` registers it. */
-const GUI_WORKER = { url: '/sw.js', scope: '/' };
-
-/** What `/sw.js` posts when the browser replaced the subscription. */
-const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
-
-// Where `/sw.js` marks a subscription the browser replaced, as puter.js's pushStore.js does.
-const DB_NAME = 'puter-push';
-const HANDLERS = 'handlers';
-const CLICKS = 'clicks';
-export const SUBSCRIPTION_CHANGED_PREFIX = 'puter:subscription-changed:';
-export const RECEIPT_PREFIX = 'puter:receipt:';
 
 /** The endpoint the server last confirmed here for each user, in `localStorage`. */
 export const LAST_ENDPOINT_PREFIX = 'puter.push.last-endpoint:';
 
 const removedError = () => Object.assign(new Error('this browser was removed from push in Puter'), { code: 'push_device_removed' });
 const busyError = () => Object.assign(new Error('Puter asked to wait before registering this browser'), { code: 'too_many_requests' });
-
-/** Runs one request on the handlers store. @param {IDBFactory} idb @param {IDBTransactionMode} mode @param {(store: IDBObjectStore) => IDBRequest} action */
-const handlersStore = (idb, mode, action) => new Promise((resolve, reject) => {
-    const open = idb.open(DB_NAME, 1);
-    open.onupgradeneeded = () => {
-        open.result.createObjectStore(HANDLERS);
-        open.result.createObjectStore(CLICKS);
-    };
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-        const db = open.result;
-        try {
-            const req = action(db.transaction(HANDLERS, mode).objectStore(HANDLERS));
-            req.onsuccess = () => {
-                db.close();
-                resolve(req.result);
-            };
-            req.onerror = () => {
-                db.close();
-                reject(req.error);
-            };
-        } catch ( e ) {
-            db.close();
-            reject(e);
-        }
-    };
-});
+const unavailableError = () => Object.assign(new Error('push notifications are unavailable in this browser'), { code: 'unavailable' });
 
 /** How long a page answers `cached` reads from its last `on`. */
 export const ON_KEPT_MS = 5 * 60 * 1000;
@@ -113,7 +82,7 @@ export const webPushClient = ({
     /** The worker's mark for a replaced subscription, else null. */
     const marker = async (scope) => {
         try {
-            return (await handlersStore(idb, 'readonly', (s) => s.get(SUBSCRIPTION_CHANGED_PREFIX + scope))) ?? null;
+            return (await idbGet(HANDLERS_STORE, SUBSCRIPTION_CHANGED_PREFIX + scope, idb)) ?? null;
         } catch ( e ) {
             return null;
         }
@@ -137,7 +106,7 @@ export const webPushClient = ({
     const clearChanged = async () => {
         try {
             const scope = (await registration())?.scope;
-            if ( scope ) await handlersStore(idb, 'readwrite', (s) => s.delete(SUBSCRIPTION_CHANGED_PREFIX + scope));
+            if ( scope ) await idbDelete(HANDLERS_STORE, SUBSCRIPTION_CHANGED_PREFIX + scope, idb);
         } catch ( e ) {
             // The next load registers again.
         }
@@ -155,7 +124,7 @@ export const webPushClient = ({
             // The next background run asks again.
         }
         try {
-            if ( worker?.scope ) await handlersStore(idb, 'readwrite', (s) => s.delete(RECEIPT_PREFIX + worker.scope));
+            if ( worker?.scope ) await idbDelete(HANDLERS_STORE, RECEIPT_PREFIX + worker.scope, idb);
         } catch ( e ) {
             // A receipt is only sent for its own endpoint.
         }
@@ -172,12 +141,14 @@ export const webPushClient = ({
                     if ( earlier === 'removed' ) throw removedError();
                     // The mark stays, so the next run asks again.
                     if ( earlier === 'busy' ) throw busyError();
-                    await notifications._enableWebPush(GUI_WORKER, { background: true });
-                    return true;
+                    return await notifications.enable({ background: true });
                 })
                 : notifications.enable();
             return turningOn.then(async (on) => {
-                if ( ! on ) throw new Error(`notifications ${NotificationApi?.permission ?? 'unavailable'}`);
+                if ( ! on ) {
+                    const permission = NotificationApi?.permission;
+                    throw permission && permission !== 'granted' ? new Error(`notifications ${permission}`) : unavailableError();
+                }
                 const reading = generation;
                 const user = userUid();
                 const device = await currentDevice();

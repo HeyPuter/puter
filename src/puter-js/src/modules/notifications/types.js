@@ -187,6 +187,20 @@
  */
 
 /**
+ * Options for {@link import('./enable.js').enable}.
+ *
+ * @typedef {Object} EnableOptions
+ * @property {string} [serviceWorker] Path of the app's worker that imports
+ *   `push-sw.js`. Default `/puter-sw.js`. Only used on a website.
+ * @property {boolean} [background] Turn pushes on without a click, only where
+ *   the browser already granted permission and, on a website, the signed-in
+ *   user turned pushes on here with a click and hasn't turned them off since.
+ *   Opens no prompt, dialog or sign-in. Resolves false when pushes are turned
+ *   off here or elsewhere while it runs. A removal or turn-off in Puter rejects
+ *   once (`push_device_removed`, `push_revoked`), then resolves false.
+ */
+
+/**
  * Whether this app's pushes reach the browser the user is in. `off` means
  * `enable()` can turn them on, `blocked` that the browser blocks notifications,
  * and `unavailable` that this browser, page or server can't receive pushes.
