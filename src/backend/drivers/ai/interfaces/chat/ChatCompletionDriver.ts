@@ -23,7 +23,10 @@ import { EventMap } from '../../../../clients/event/types.js';
 import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError, isHttpError } from '../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
+import {
+    creditsRefilled,
+    insufficientCreditsError,
+} from '../../../../services/metering/enforcement.js';
 import { isFreeSubscription } from '../../../../services/metering/consts.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { CreditHold } from '../../../../services/metering/types.js';
@@ -1657,7 +1660,15 @@ export class ChatCompletionDriver extends PuterDriver {
         // affordability check here and the output cap below, net of holds,
         // and the balance alone, which tells spent from committed to requests
         // that are still running.
-        const { balance, held } = await metering.getUsageHeadroom(actor);
+        let { balance, held } = await metering.getUsageHeadroom(actor);
+        // Short of funds rather than of what running requests hold: a top-up
+        // made at this moment is worth reading the balance once more.
+        if (
+            balance < needed &&
+            (await creditsRefilled(this.clients.event, actor))
+        ) {
+            ({ balance, held } = await metering.getUsageHeadroom(actor));
+        }
         const remainingCredits = Math.max(0, balance - held);
 
         if (remainingCredits < needed) {

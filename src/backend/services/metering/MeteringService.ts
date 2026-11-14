@@ -49,6 +49,7 @@ import type {
     UsageByType,
     UsageInput,
 } from './types';
+import { creditsRefilled } from './enforcement';
 import { NO_CREDIT_HOLD } from './types';
 import {
     addUsageDetail,
@@ -723,20 +724,19 @@ export class MeteringService extends PuterService {
             // Before any hold this usage stands for is released.
             await this.stores.creditHold.bump(userId);
 
+            // What the allowance did not cover of this batch.
+            const overage = Math.max(
+                0,
+                totalBatchCost -
+                    (settledAllowanceUsed -
+                        MeteringService.allowanceUsedBefore(
+                            actorUsages,
+                            actorSubscription.monthUsageAllowance,
+                            totalBatchCost,
+                        )),
+            );
             if (!readAddons) {
-                const usedBefore = MeteringService.allowanceUsedBefore(
-                    actorUsages,
-                    actorSubscription.monthUsageAllowance,
-                    totalBatchCost,
-                );
-                this.#alarmSettleReadFailed(
-                    actor,
-                    settleReadError,
-                    Math.max(
-                        0,
-                        totalBatchCost - (settledAllowanceUsed - usedBefore),
-                    ),
-                );
+                this.#alarmSettleReadFailed(actor, settleReadError, overage);
             } else {
                 this.maybeAlertOveruse({
                     actor,
@@ -748,11 +748,25 @@ export class MeteringService extends PuterService {
                     batchUsages: usages,
                 });
 
+                // `actorAddons` was read before this batch drew on it. Right
+                // after a credits change it may predate that too, and counting
+                // the draw could report credit that just landed as spent.
+                const consumed = actorAddons?.consumedPurchaseCredits || 0;
+                const unspent = Math.max(
+                    0,
+                    (actorAddons?.purchasedCredits || 0) - consumed,
+                );
+                const drawn = this.#isForcingExactReads(userId)
+                    ? 0
+                    : Math.min(overage, unspent);
                 this.rememberRemainingCredits(
                     userId,
                     settledAllowanceUsed,
                     actorSubscription,
-                    actorAddons,
+                    actorAddons && {
+                        ...actorAddons,
+                        consumedPurchaseCredits: consumed + drawn,
+                    },
                     provisionalUntil,
                 );
             }
@@ -1598,12 +1612,25 @@ export class MeteringService extends PuterService {
      * operations hold; null when it doesn't. The check and the hold are one
      * step in the cache, and a usage write or release that lands after the
      * balance read sends the reservation back to read it again. When the cache
-     * can't answer, the balance alone decides and nothing is held.
+     * can't answer, the balance alone decides and nothing is held. A listener
+     * that tops the actor up at the moment of refusal gets one more try.
      */
     async reserveCreditsIfAffordable(
         actor: Actor,
         amount: number,
         opts: { ttlMs?: number } = {},
+    ): Promise<CreditHold | null> {
+        const hold = await this.#reserveIfAffordable(actor, amount, opts);
+        if (hold || !(await creditsRefilled(this.clients.event, actor))) {
+            return hold;
+        }
+        return this.#reserveIfAffordable(actor, amount, opts);
+    }
+
+    async #reserveIfAffordable(
+        actor: Actor,
+        amount: number,
+        opts: { ttlMs?: number },
     ): Promise<CreditHold | null> {
         const userId = actor?.user?.uuid;
         if (
@@ -1798,7 +1825,7 @@ export class MeteringService extends PuterService {
     }
 
     /** Nothing to run out of, unless the plan says it grants nothing. */
-    private static isUnmetered(policy: SubscriptionPolicy): boolean {
+    static isUnmetered(policy: SubscriptionPolicy): boolean {
         return !policy.noAllowance && !(policy.monthUsageAllowance > 0);
     }
 
@@ -2017,6 +2044,19 @@ export class MeteringService extends PuterService {
             monthUsageAllowance,
             addons,
         );
+        try {
+            this.clients.event.emit(
+                'metering.balance',
+                {
+                    userUuid: userId,
+                    remaining,
+                    subscriptionId: subscription.id,
+                },
+                {},
+            );
+        } catch (e) {
+            console.warn('[metering] balance emit failed:', e);
+        }
     }
 
     /** Transitions only: a blocked actor retries, and every retry lands here. */

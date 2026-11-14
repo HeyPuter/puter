@@ -713,6 +713,147 @@ describe('MeteringBufferStore', () => {
             });
         }
 
+        it('counts nothing twice in an increment without a base when a flush lands during it', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+            const get = landDuringStoreRead(write.release, flushing);
+            try {
+                const { res } = await target.incr({
+                    key,
+                    pathAndAmountMap: { total: 5 },
+                });
+                expect((res as { total: number }).total).toBe(15);
+            } finally {
+                get.mockRestore();
+                write.spy.mockRestore();
+                await flushing;
+            }
+            expect(await readTotal()).toBe(15);
+        });
+
+        for (const shape of ['single', 'array', 'exact', 'incr'] as const) {
+            it(`counts a write once in ${shape === 'incr' ? 'an increment' : `a ${shape} read`} while it has landed but is not applied`, async () => {
+                await target.incr({ key, pathAndAmountMap: { total: 10 } });
+                const redis = server.clients.redis as unknown as {
+                    meterApply: (...args: string[]) => Promise<number>;
+                };
+                // The store has the write; the claim still holds its amounts.
+                const apply = holdCalls(redis, 'meterApply');
+                const flushing = target.flushCycle();
+                const own = shape === 'incr' ? 5 : 0;
+                try {
+                    await vi.waitFor(() =>
+                        expect(apply.spy).toHaveBeenCalled(),
+                    );
+                    expect(await storedTotal(key)).toBe(10);
+                    const { res } =
+                        shape === 'incr'
+                            ? await target.incr({
+                                  key,
+                                  pathAndAmountMap: { total: own },
+                              })
+                            : shape === 'exact'
+                              ? await target.readExact({ key })
+                              : await target.get({
+                                    key: shape === 'single' ? key : [key],
+                                });
+                    const value = (
+                        shape === 'array' ? (res as unknown[])[0] : res
+                    ) as { total: number };
+                    expect(value.total).toBe(10 + own);
+                    // Nothing read mid-write is kept as the base.
+                    expect(
+                        await server.clients.redis.exists(
+                            `meter:b:{${bucketTag(key)}}:${key}`,
+                        ),
+                    ).toBe(0);
+                } finally {
+                    apply.release();
+                    await flushing;
+                    apply.spy.mockRestore();
+                }
+                expect(await readTotal()).toBe(10 + own);
+            });
+        }
+
+        it('counts a write once when it is sent and lands between a read’s snapshots', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const redis = server.clients.redis as unknown as {
+                meterIntent: (...args: string[]) => Promise<string | null>;
+                meterApply: (...args: string[]) => Promise<number>;
+            };
+            const intent = holdCalls(redis, 'meterIntent');
+            const apply = holdCalls(redis, 'meterApply');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(intent.spy).toHaveBeenCalled());
+
+            // The claim is read before its write is sent; the store read that
+            // follows sees the write, and the claim still holds its amounts.
+            let reads = 0;
+            const realGet = kv.get.bind(kv);
+            const get = vi.spyOn(kv, 'get').mockImplementation(async (args) => {
+                if (args.consistentRead && args.key === key && ++reads === 1) {
+                    intent.release();
+                    await vi.waitFor(() =>
+                        expect(apply.spy).toHaveBeenCalled(),
+                    );
+                }
+                return realGet(args);
+            });
+            try {
+                expect(await readTotal()).toBe(10);
+                expect(reads).toBe(2);
+            } finally {
+                get.mockRestore();
+                intent.release();
+                apply.release();
+                await flushing;
+                intent.spy.mockRestore();
+                apply.spy.mockRestore();
+            }
+        });
+
+        it('lays no base from a store read a write has since passed', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 10 } });
+            const redis = server.clients.redis as unknown as {
+                meterSeed: (...args: string[]) => Promise<number>;
+                meterSettle: (...args: string[]) => Promise<number>;
+            };
+            const settle = holdCalls(redis, 'meterSettle');
+            const realSeed = redis.meterSeed.bind(redis);
+            let flushing: Promise<number> | undefined;
+            // The increment is written onward and applied after its store
+            // read, before the base from that read is laid.
+            const seed = vi
+                .spyOn(redis, 'meterSeed')
+                .mockImplementation(async (...args: string[]) => {
+                    flushing = target.flushCycle();
+                    await vi.waitFor(() =>
+                        expect(settle.spy).toHaveBeenCalled(),
+                    );
+                    return realSeed(...args);
+                });
+            try {
+                const { res } = await target.incr({
+                    key,
+                    pathAndAmountMap: { total: 5 },
+                });
+                expect((res as { total: number }).total).toBe(15);
+                expect(seed).toHaveBeenCalledTimes(1);
+                expect(await storedTotal(key)).toBe(15);
+                // A base of 10 would hide the 5 until the settle replaced it.
+                expect(await readTotal()).toBe(15);
+            } finally {
+                seed.mockRestore();
+                settle.release();
+                await flushing;
+                settle.spy.mockRestore();
+            }
+            expect(await readTotal()).toBe(15);
+        });
+
         it('reads a written-through increment once the cache is back', async () => {
             await target.incr({ key, pathAndAmountMap: { total: 10 } });
             await target.flushCycle();

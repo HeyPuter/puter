@@ -467,6 +467,25 @@ export type EventMap = {
         allowance_used: number;
         month_usage_allowance: number;
     };
+    /**
+     * What an actor on a metered plan has left to spend, in microcents, each
+     * time it is worked out: when usage settles and when a credit gate re-reads
+     * it. Per request, so a listener returns before any I/O for an actor it has
+     * nothing to do for.
+     */
+    'metering.balance': {
+        userUuid: string;
+        remaining: number;
+        /** The plan the balance was worked out under. */
+        subscriptionId: string;
+    };
+    /**
+     * An actor is about to be refused for lack of credit. Emitted with
+     * `emitAndWait`: a listener that adds credit sets `refilled`, and the
+     * refused work is tried once more. Per refusal, so a listener returns
+     * before any I/O for an actor it has nothing to do for.
+     */
+    'metering.out-of-credits': { actor: Actor; refilled: boolean };
 
     // ---- Filesystem ----
     'fs.copy.node': {
