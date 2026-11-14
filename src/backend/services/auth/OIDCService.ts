@@ -644,6 +644,7 @@ export class OIDCService extends PuterService {
                     // forwarded chain stays in `audit_metadata.ip_fwd`.
                     signup_ip_forwarded: clientIp,
                     signup_user_agent: req?.headers?.['user-agent'] ?? null,
+                    signup_tls_fingerprint: req?.tlsFingerprint ?? null,
                     signup_origin: req?.headers?.origin,
                     signup_server: this.config.serverId,
                     referrer: referrer ?? null,

@@ -701,6 +701,7 @@ const en = {
         ui_session_expires: 'Expires',
         ui_session_kind_access_token: 'Access token',
         ui_session_kind_app: 'App session',
+        ui_session_kind_site: 'Site session',
         ui_session_kind_web: 'Browser session',
         ui_session_kind_worker: 'Worker',
         ui_session_last_active: 'Last active',

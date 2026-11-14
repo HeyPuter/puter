@@ -241,6 +241,8 @@ export type EventMap = {
         trail_id?: string;
         /** Device signal forwarded verbatim from the signup request body. */
         fingerprint?: string | null;
+        /** TLS fingerprint of the signup request, when a proxy supplies one. */
+        tls_fingerprint?: string | null;
         /**
          * Set by the abuse harness — require SMS phone verification
          * post-signup.
