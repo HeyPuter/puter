@@ -104,6 +104,25 @@ class Lock {
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
+// The desktops Puter itself serves. An app learns which one launched it from
+// the URL (`puter.origin`), and only one of these is believed: the GUI origin
+// is what every message from the desktop is checked against, so taking an
+// arbitrary one would let any page that frames an app drive it.
+const FIRST_PARTY_GUI_ORIGINS = new Set([
+    'https://puter.com',
+    'https://desktop.puter.com',
+]);
+
+/** `value`'s origin when it is a first-party desktop, otherwise null. */
+const firstPartyGUIOrigin = (value) => {
+    try {
+        const { origin } = new URL(value);
+        return FIRST_PARTY_GUI_ORIGINS.has(origin) ? origin : null;
+    } catch {
+        return null;
+    }
+};
+
 // localStorage key for the auth token. The retired key below is never read —
 // only deleted, so a token from before the format change doesn't linger in a
 // visitor's browser (see `discardRetiredAuthToken_`).
@@ -213,6 +232,9 @@ export class Puter {
 
     #defaultAPIOrigin = 'https://api.puter.com';
     #defaultGUIOrigin = 'https://puter.com';
+    // In app mode, the first-party desktop that launched this app, when it
+    // isn't the build's default one.
+    #launchGUIOrigin = null;
 
     /** @returns {string} */
     get defaultAPIOrigin() {
@@ -230,6 +252,7 @@ export class Puter {
     get defaultGUIOrigin() {
         return (
             globalThis.PUTER_ORIGIN ||
+            this.#launchGUIOrigin ||
             globalThis.PUTER_ORIGIN_ENV ||
             this.#defaultGUIOrigin
         );
@@ -632,6 +655,15 @@ export class Puter {
             );
         } else if (URLParams.has('puter.domain') && this.env === 'app') {
             this.APIOrigin = `https://api.${URLParams.get('puter.domain')}`;
+        }
+
+        // An app launched by a first-party desktop other than puter.com
+        // (e.g. desktop.puter.com) talks to that desktop: its messages come
+        // from there, and replies meant only for it go there.
+        if (this.env === 'app') {
+            this.#launchGUIOrigin = firstPartyGUIOrigin(
+                URLParams.get('puter.origin'),
+            );
         }
 
         // === START :: Logger ===
