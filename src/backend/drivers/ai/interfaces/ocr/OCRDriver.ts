@@ -135,9 +135,11 @@ export class OCRDriver extends PuterDriver {
         const metering = this.#aiMetering;
 
         const textract = providers['aws-textract'] as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const textractAws = (textract?.aws ?? textract) as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const textractCredentials = awsCredentialsFrom(textractAws);
         if (textractCredentials) {
             this.#textract = new TextractOcrProvider(metering, {
