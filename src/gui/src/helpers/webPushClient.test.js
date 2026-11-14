@@ -165,9 +165,10 @@ describe('webPushClient', () => {
 
     it('rejects with unavailable, not the permission, when push isn`t available though permission is granted', async () => {
         const { notifications, client } = make({ devices: [current], on: false, permission: 'granted' });
-        const failure = await client.enable({ background: true }).catch((e) => e);
-        expect(failure).toMatchObject({ code: 'unavailable' });
-        expect(failure.message).not.toContain('notifications granted');
+        await expect(client.enable({ background: true })).rejects.toMatchObject({
+            code: 'unavailable',
+            message: expect.not.stringContaining('notifications granted'),
+        });
         expect(notifications.listDevices).not.toHaveBeenCalled();
     });
 });

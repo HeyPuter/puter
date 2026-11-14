@@ -2455,7 +2455,9 @@ describe('enable after the user removed this browser in Puter', () => {
         it('opens no sign-in for a rejected token in the background', async () => {
             removedHere();
             const { module } = makeModule({ env: 'gui' });
-            await module.enable({ background: true }).catch(() => {});
+            await expect(
+                module.enable({ background: true }),
+            ).rejects.toMatchObject({ code: 'push_device_removed' });
             expect(reauthOf('/push/web/key')).toEqual([false]);
             expect(reauthOf('/push/web/subscriptions')).toEqual([false]);
         });
