@@ -552,6 +552,8 @@ describe('VideoGenerationDriver.generate provider routing', () => {
             'kling-3.0',
             'kling-3.0-omni',
             'kling-3.0-turbo',
+            'kling-4.0',
+            'kling-4.0-flash',
             'kling-o1',
         ]);
     });

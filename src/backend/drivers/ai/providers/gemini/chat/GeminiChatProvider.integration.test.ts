@@ -113,7 +113,6 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                 expect(typeof text === 'string' && text.length > 0).toBe(true);
             },
         );
-
     },
 );
 
@@ -373,6 +372,39 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                 } finally {
                     await env.shutdown();
                 }
+            },
+        );
+    },
+);
+
+describe.skipIf(skipUnlessEnv(ENV_VAR))(
+    'Gemini 4 Carbon and Hydrogen (integration)',
+    () => {
+        it.each([
+            ['gemini-4-carbon', 'low'],
+            ['gemini-4-hydrogen', 'xhigh'],
+        ])(
+            'generates a native text completion from %s at %s effort',
+            { timeout: INTEGRATION_TEST_TIMEOUT_MS },
+            async (model, effort) => {
+                const provider = new GeminiChatProvider(
+                    { apiKey: optionalEnv(ENV_VAR)! },
+                    makeMeteringStub(),
+                );
+                const result = await withTestActor(() =>
+                    provider.complete({
+                        model,
+                        messages: [{ role: 'user', content: 'Reply with OK.' }],
+                        reasoning_effort: effort,
+                        max_tokens: 32768,
+                    } as ICompleteArguments),
+                );
+                const message = result as IChatMessageResult;
+                expect(typeof message.message.content).toBe('string');
+                expect(
+                    (message.message.content as string).trim().length,
+                ).toBeGreaterThan(0);
+                expectBilledOutput(message.usage, message.usageDetails);
             },
         );
     },

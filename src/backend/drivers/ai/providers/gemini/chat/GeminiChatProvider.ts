@@ -42,22 +42,18 @@ import {
 } from '../../../protocols/openaiCompatible/OpenAICompatProvider.js';
 import { usesGoogleGeminiEndpoint } from '../geminiRest.js';
 import { geminiNativeClient } from './geminiNative.js';
-import {
-    GEMINI_MODELS,
-    GEMINI_NATIVE_MODELS,
-    GEMINI_ARGON_NON_STREAM_MAX_TOKENS,
-} from './models.js';
+import { GEMINI_MODELS, GEMINI_NATIVE_MODELS } from './models.js';
 
 type GroundingContent = { grounding_metadata?: unknown };
 
-/** Unary Argon uses a lower output cap than streaming. */
+/** Some native models have a lower output cap when the response isn't streamed. */
 const nativeOutputCap = (
     args: ICompleteArguments,
     model: IChatModel,
 ): number | undefined =>
-    model.id === 'gemini-4-argon' && !args.stream
-        ? GEMINI_ARGON_NON_STREAM_MAX_TOKENS
-        : undefined;
+    args.stream
+        ? undefined
+        : GEMINI_NATIVE_MODELS.get(model.id)?.unaryMaxTokens;
 
 const COMPAT_BASE_URL =
     'https://generativelanguage.googleapis.com/v1beta/openai/';

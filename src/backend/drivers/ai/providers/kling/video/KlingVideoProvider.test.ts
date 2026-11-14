@@ -37,6 +37,7 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { translateProviderError } from '../../../../../controllers/drivers/DriverController.js';
 import { Context } from '../../../../../core/context.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
@@ -158,10 +159,12 @@ describe('KlingVideoProvider construction and catalog', () => {
         ).toThrow(/API key/i);
     });
 
-    it('defaults to Kling 3.0 Turbo and lists the six models', () => {
+    it('defaults to Kling 3.0 Turbo and lists the supported models', () => {
         const provider = makeProvider();
         expect(provider.getDefaultModel()).toBe('kling-3.0-turbo');
         expect(provider.models().map((m) => m.id)).toEqual([
+            'kling-4.0',
+            'kling-4.0-flash',
             'kling-3.0-turbo',
             'kling-3.0',
             'kling-3.0-omni',
@@ -743,4 +746,113 @@ describe('KlingVideoProvider after the caller leaves', () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
+});
+
+describe('Kling 4 generation', () => {
+    it.each([
+        ['kling-4.0', 30, '1080p', 23.55],
+        ['kling-4.0-flash', 20, '720p', 9.42],
+    ])(
+        'generates and bills %s at flagship rates',
+        async (model, seconds, size, cents) => {
+            mockTaskFlow(succeededTask());
+            await generate({
+                model,
+                seconds,
+                size,
+                prompt: 'a'.repeat(26_000),
+                generate_audio: true,
+            });
+            expect(sentUrl()).toBe(
+                `https://api-singapore.klingai.com/text-to-video/${model}`,
+            );
+            expect(sentBody().settings).toMatchObject({
+                duration: seconds,
+                resolution: size,
+            });
+            expect(sentBody().settings).not.toHaveProperty('audio');
+            expect(incrementUsageSpy.mock.calls[0]![3]).toBe(
+                Math.round(seconds * cents * 1_000_000),
+            );
+        },
+    );
+    it('routes Flash first frames to image-to-video', async () => {
+        mockTaskFlow(succeededTask());
+        await generate({
+            model: 'kling-4.0-flash',
+            input_reference: 'https://example.com/frame.png',
+        });
+        expect(sentUrl()).toBe(
+            'https://api-singapore.klingai.com/image-to-video/kling-4.0-flash',
+        );
+    });
+    it('rejects Flash last frames before submitting a task', async () => {
+        await expect(
+            generate({
+                model: 'kling-4.0-flash',
+                input_reference: 'https://example.com/frame.png',
+                last_frame: 'https://example.com/end.png',
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+    it('routes Kling 4 first and last frames to image-to-video', async () => {
+        mockTaskFlow(succeededTask());
+        await generate({
+            model: 'kling/kling-4.0',
+            input_reference: 'https://example.com/frame.png',
+            last_frame: 'https://example.com/end.png',
+            seconds: 3,
+        });
+        expect(sentUrl()).toBe(
+            'https://api-singapore.klingai.com/image-to-video/kling-4.0',
+        );
+        expect(sentBody().contents).toContainEqual({
+            type: 'last_frame',
+            url: 'https://example.com/end.png',
+        });
+        expect(sentBody().settings.duration).toBe(3);
+    });
+
+    it.each(['kling-4.0', 'kling-4.0-flash'])(
+        'rejects an oversized prompt on %s before submitting a task',
+        async (model) => {
+            await expect(
+                generate({ model, prompt: 'a'.repeat(26_001) }),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(fetchSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it("leaves Kling 4's lower non-English prompt limit to Kling", async () => {
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse(
+                {
+                    code: 1201,
+                    message:
+                        'prompt is too long: at most 26000 English characters or 11000 non-English characters',
+                },
+                400,
+            ),
+        );
+        const failure = await generate({
+            model: 'kling-4.0',
+            prompt: '海'.repeat(12_000),
+        }).catch((e) => e);
+        expect(sentBody().prompt).toHaveLength(12_000);
+        expect(translateProviderError(failure)).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it.each(['kling-4.0', 'kling-4.0-flash'])(
+        'omits the unsupported audio switch on %s when audio is disabled',
+        async (model) => {
+            mockTaskFlow(succeededTask());
+            await generate({ model, generate_audio: false });
+            expect(sentBody().settings).not.toHaveProperty('audio');
+        },
+    );
 });
