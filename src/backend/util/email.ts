@@ -188,9 +188,9 @@ export function isProviderCanonicalized(email: string): boolean {
 }
 
 /**
- * Returns true when the (cleaned) email matches any of the blocked domain
- * suffixes. Suffix-match so `mailinator.com` blocks `foo@bar.mailinator.com`;
- * case-insensitive on both sides.
+ * Returns true when the (cleaned) email's domain equals a blocked entry or is a
+ * subdomain of it, case-insensitively. Entries containing `@` or starting with
+ * `.` already carry a boundary and match the address suffix as written.
  */
 export function isBlockedEmail(
     email: string,
@@ -198,9 +198,14 @@ export function isBlockedEmail(
 ): boolean {
     if (!blockedDomains || blockedDomains.length === 0) return false;
     const clean = cleanEmail(email);
-    return blockedDomains.some((suffix) =>
-        clean.endsWith(suffix.toLowerCase()),
-    );
+    const domain = clean.slice(clean.lastIndexOf('@') + 1);
+    return blockedDomains.some((entry) => {
+        const blocked = entry.toLowerCase();
+        if (blocked.includes('@') || blocked.startsWith('.')) {
+            return clean.endsWith(blocked);
+        }
+        return domain === blocked || domain.endsWith(`.${blocked}`);
+    });
 }
 
 /** The addresses of `to` that no `email.notify.validate` listener declined. */
