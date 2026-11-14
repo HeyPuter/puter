@@ -233,7 +233,7 @@ The original Replicate entries also support these options:
 | `contrast` | `String` | Leonardo | Contrast preset. |
 | `prompt_enhance` | `Boolean` | Leonardo | Server-side prompt enhancement. |
 
-If you abort a Replicate request, Puter cancels the prediction. A generation that completes before it's cancelled is still metered. Predictions have a 10-minute [upstream deadline](https://replicate.com/docs/topics/predictions/create-a-prediction#prediction-deadlines), after which the call fails with `upstream_timeout` (504). A call starts at most one prediction, since a failed creation request isn't retried. If checking on a running prediction fails, the call fails with `upstream_failed` (502), and the prediction isn't cancelled or metered.
+If you abort a Replicate request, Puter cancels the prediction. A generation that completes before it's cancelled is still metered. Predictions have a 10-minute [upstream deadline](https://replicate.com/docs/topics/predictions/create-a-prediction#prediction-deadlines), after which the call fails with `upstream_timeout` (504). A failed creation request isn't retried. When a model's safety checker rejects the generated image and asks for another run, the prediction is run again up to two more times within the same 10 minutes, unless you set `seed`. Only the run that succeeds is metered. If checking on a running prediction fails, the call fails with `upstream_failed` (502), and the prediction isn't cancelled or metered.
 
 For more details, see the [Replicate API reference](https://replicate.com/docs) and each model's schema page on Replicate.
 
