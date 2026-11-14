@@ -1508,6 +1508,48 @@ describe('SystemKVStore', () => {
             const { res } = await target.get({ key: 'fenced' }, opts);
             expect(res).toEqual({ total: 5 });
         });
+
+        it('reads back the last token a writer applied', async () => {
+            await fencedIncr(500, 'w1');
+            await fencedIncr(501, 'w1');
+
+            const one = await target.get(
+                { key: 'fenced', fenceWriter: 'w1' },
+                opts,
+            );
+            expect(one.res).toEqual({ total: 10 });
+            expect(one.fences).toBe(501);
+
+            const many = await target.get(
+                { key: ['fenced', 'never-written'], fenceWriter: 'w1' },
+                opts,
+            );
+            expect(many.fences).toEqual([501, 0]);
+
+            const other = await target.get(
+                { key: 'fenced', fenceWriter: 'w2' },
+                opts,
+            );
+            expect(other.fences).toBe(0);
+            expect(
+                (await target.get({ key: 'fenced' }, opts)).fences,
+            ).toBeUndefined();
+        });
+
+        it('reads no token back from an expired row', async () => {
+            await fencedIncr(600);
+            await target.expireAt(
+                { key: 'fenced', timestamp: Date.now() / 1000 - 10 },
+                opts,
+            );
+
+            const { res, fences } = await target.get(
+                { key: 'fenced', fenceWriter: 'w1' },
+                opts,
+            );
+            expect(res).toBeNull();
+            expect(fences).toBe(0);
+        });
     });
 
     describe('counter overflow', () => {
