@@ -3988,6 +3988,11 @@ html.dark-mode .usage-table-fade-overlay {
     color: #1d4ed8;
 }
 
+.session-widget-badge-site {
+    background: #dcfce7;
+    color: #15803d;
+}
+
 /* Meta lines */
 .session-widget-meta {
     display: flex;

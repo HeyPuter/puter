@@ -61,7 +61,9 @@ describe('the popup token hand-off in postAuthActions', () => {
         const steps = [
             postAuthActions.indexOf('fetch(`${window.api_origin}/login/set`'),
             postAuthActions.indexOf('runsUserAppTokenExchange(action)'),
-            postAuthActions.search(/success: true,\s+token: data\.token/),
+            postAuthActions.search(
+                /success: true,\s+token: await signInTokenForOpener\(origin, data\.token\)/,
+            ),
         ];
         for (const step of steps) {
             expect(step).toBeGreaterThan(gate);
