@@ -177,10 +177,14 @@ export class ImageGenerationDriver extends PuterDriver {
         // settled here — once — before any provider runs.
         assertImagePrompt(args.prompt);
         assertInputImagesShape(args, 'image generation');
+        // The type hint describes an input image, so it is only read, and
+        // only has to be a string, when the request carries one.
+        const hasInputImage =
+            args.input_image != null || (args.input_images?.length ?? 0) > 0;
         for (const option of [
             'quality',
             'resolution',
-            'input_image_mime_type',
+            ...(hasInputImage ? (['input_image_mime_type'] as const) : []),
         ] as const) {
             if (args[option] != null && typeof args[option] !== 'string') {
                 throw new HttpError(400, `${option} must be a string`, {
@@ -193,6 +197,7 @@ export class ImageGenerationDriver extends PuterDriver {
         // caller's `args` is re-emitted by reference in `.after`/`.error`
         // payloads, so it is never mutated here.
         const { puter_output_path: puterOutputPath, ...request } = args;
+        if (!hasInputImage) delete request.input_image_mime_type;
 
         // Validate the output path early — before spending credits.
         const resolvedOutputPath = puterOutputPath
