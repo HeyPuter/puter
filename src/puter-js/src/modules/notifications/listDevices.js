@@ -9,7 +9,13 @@ import { toDevice } from './lib/shapes.js';
  * @returns {Promise<import('./types.js').PushDevice[]>}
  */
 export async function listDevices() {
-    const result = await request(this.puter, 'GET', '/push/devices');
-    const devices = Array.isArray(result.devices) ? result.devices : [];
-    return devices.map(toDevice);
+    return (await readDevices(this.puter)) ?? [];
+}
+
+/** `listDevices()`, or null when the reply has no device list. */
+export async function readDevices(puter, { interactiveReauth = true } = {}) {
+    const result = await request(puter, 'GET', '/push/devices', undefined, {
+        interactiveReauth,
+    });
+    return Array.isArray(result?.devices) ? result.devices.map(toDevice) : null;
 }

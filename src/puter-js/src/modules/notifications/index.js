@@ -24,7 +24,7 @@ import {
 } from './lib/pushStore.js';
 import { closeNotification, reconcileDismissed } from './lib/osNotifications.js';
 import { HANDLED_EVENT, ReceiptLog, handledHere } from './lib/receipts.js';
-import { toClick } from './lib/shapes.js';
+import { currentWebPushDevice, toClick } from './lib/shapes.js';
 import {
     currentWebPush,
     forgetWebPushReceipt,
@@ -38,7 +38,7 @@ import {
     workerFor,
     workerScope,
 } from './lib/webPush.js';
-import { listDevices } from './listDevices.js';
+import { listDevices, readDevices } from './listDevices.js';
 import { markShown } from './markShown.js';
 import { notify } from './notify.js';
 import { onNotification } from './onNotification.js';
@@ -588,7 +588,26 @@ export class NotificationsModule extends EventListener {
             await this.#recordOptIn(false);
             return 'off';
         }
+        // Another account in this browser may have made the subscription.
+        if (
+            state === 'unknown' &&
+            this.puter.env === 'gui' &&
+            (await this.#listsThisBrowser()) === false
+        )
+            return 'off';
         return 'on';
+    }
+
+    /** @returns {Promise<boolean | null>} Null when the list can't be read */
+    async #listsThisBrowser() {
+        try {
+            const devices = await readDevices(this.puter, {
+                interactiveReauth: false,
+            });
+            return devices ? currentWebPushDevice(devices) !== null : null;
+        } catch {
+            return null;
+        }
     }
 
     /**
