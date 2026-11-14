@@ -1320,7 +1320,11 @@ export class PuterServer {
         // costs a map lookup rather than a store read.
         if (opts.requireCredits) {
             mwChain.push(
-                requireCreditsGate(this.services.metering, this.#config),
+                requireCreditsGate(
+                    this.services.metering,
+                    this.#config,
+                    this.clients.event,
+                ),
             );
         }
 

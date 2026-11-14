@@ -49,6 +49,7 @@ import type {
     UsageByType,
     UsageInput,
 } from './types';
+import { creditsRefilled } from './enforcement';
 import { NO_CREDIT_HOLD } from './types';
 import {
     addUsageDetail,
@@ -1611,12 +1612,25 @@ export class MeteringService extends PuterService {
      * operations hold; null when it doesn't. The check and the hold are one
      * step in the cache, and a usage write or release that lands after the
      * balance read sends the reservation back to read it again. When the cache
-     * can't answer, the balance alone decides and nothing is held.
+     * can't answer, the balance alone decides and nothing is held. A listener
+     * that tops the actor up at the moment of refusal gets one more try.
      */
     async reserveCreditsIfAffordable(
         actor: Actor,
         amount: number,
         opts: { ttlMs?: number } = {},
+    ): Promise<CreditHold | null> {
+        const hold = await this.#reserveIfAffordable(actor, amount, opts);
+        if (hold || !(await creditsRefilled(this.clients.event, actor))) {
+            return hold;
+        }
+        return this.#reserveIfAffordable(actor, amount, opts);
+    }
+
+    async #reserveIfAffordable(
+        actor: Actor,
+        amount: number,
+        opts: { ttlMs?: number },
     ): Promise<CreditHold | null> {
         const userId = actor?.user?.uuid;
         if (

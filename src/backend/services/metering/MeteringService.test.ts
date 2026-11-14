@@ -4423,6 +4423,53 @@ describe('MeteringService', () => {
             await Promise.all(holds.map((h) => h?.release()));
         });
 
+        it('holds on a second try when a listener tops the actor up at the moment of refusal', async () => {
+            await withBalance(BUDGET);
+            const refill = vi.fn(
+                async (_key: string, refusal: { refilled: boolean }) => {
+                    await target.updateAddonCredit(actor.user.uuid!, BUDGET);
+                    refusal.refilled = true;
+                },
+            );
+            server.clients.event.on('metering.out-of-credits', refill as never);
+            try {
+                const hold = await target.reserveCreditsIfAffordable(
+                    actor,
+                    BUDGET + 1,
+                );
+                expect(hold).not.toBeNull();
+                expect(await target.getOutstandingHolds(actor)).toBe(
+                    BUDGET + 1,
+                );
+                await hold?.release();
+                // Affordable now, so nobody is asked again.
+                await (
+                    await target.reserveCreditsIfAffordable(actor, BUDGET)
+                )?.release();
+                expect(refill).toHaveBeenCalledTimes(1);
+                expect(refill.mock.calls[0][1]).toMatchObject({ actor });
+            } finally {
+                server.clients.event.off(
+                    'metering.out-of-credits',
+                    refill as never,
+                );
+            }
+        });
+
+        it('refuses once when no listener tops the actor up', async () => {
+            await withBalance(BUDGET);
+            const asked = vi.fn();
+            server.clients.event.on('metering.out-of-credits', asked);
+            try {
+                expect(
+                    await target.reserveCreditsIfAffordable(actor, BUDGET + 1),
+                ).toBeNull();
+                expect(asked).toHaveBeenCalledTimes(1);
+            } finally {
+                server.clients.event.off('metering.out-of-credits', asked);
+            }
+        });
+
         it('compares against the gross balance, counting live holds once', async () => {
             await withBalance(BUDGET);
             const other = await target.reserveCredits(actor, 5_000_000);

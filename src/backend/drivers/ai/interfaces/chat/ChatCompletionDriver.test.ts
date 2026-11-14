@@ -839,6 +839,53 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         });
     });
 
+    it('completes when a listener tops the actor up at the moment of refusal', async () => {
+        const headroom = vi
+            .spyOn(server.services.metering, 'getUsageHeadroom')
+            .mockResolvedValueOnce({ balance: 0, held: 0 })
+            .mockResolvedValue({ balance: 100_000_000, held: 0 });
+        const refill = vi.fn((_key: string, refusal: { refilled: boolean }) => {
+            refusal.refilled = true;
+        });
+        server.clients.event.on('metering.out-of-credits', refill as never);
+        try {
+            const result = await withTestActor(() =>
+                driver.complete({
+                    model: 'costly',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+            expect(result).toBeDefined();
+            expect(refill).toHaveBeenCalledTimes(1);
+            expect(headroom).toHaveBeenCalledTimes(2);
+        } finally {
+            server.clients.event.off(
+                'metering.out-of-credits',
+                refill as never,
+            );
+        }
+    });
+
+    it('asks no listener when the balance covers the request', async () => {
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 100_000_000, held: 0 });
+        const refill = vi.fn();
+        server.clients.event.on('metering.out-of-credits', refill);
+        try {
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'costly',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+            expect(refill).not.toHaveBeenCalled();
+        } finally {
+            server.clients.event.off('metering.out-of-credits', refill);
+        }
+    });
+
     it('caps `max_tokens` so output cannot exceed remaining credits', async () => {
         // Inject a model with canonical `output_tokens` cost so the
         // `outputTokenCost > 0` branch triggers (fake-chat:costly uses

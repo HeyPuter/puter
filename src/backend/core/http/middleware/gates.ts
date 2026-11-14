@@ -26,6 +26,7 @@ import {
     type SubscriptionMetering,
     type SubscriptionRequirement,
 } from '../../../services/metering/enforcement.js';
+import type { EventClient } from '../../../clients/event/EventClient';
 import type { IConfig } from '../../../types';
 import {
     isCardVerificationEnabled,
@@ -542,10 +543,12 @@ export const requireSubscriptionGate = (
  * Reject an authenticated caller with nothing left of their budget
  * (`requireCredits`). Anonymous callers pass: signed-URL routes authorize on
  * the URL, with no account to charge. Answered from the metering service's
- * per-actor cache, so it normally costs a map lookup.
+ * per-actor cache, so it normally costs a map lookup. A caller that is out of
+ * budget still passes when an `events` listener tops it up.
  */
 export const requireCreditsGate = (
     metering: CreditMetering | undefined,
     config: IConfig,
+    events?: Pick<EventClient, 'emitAndWait'>,
 ): RequestHandler =>
-    gate((req) => assertActorHasCredits(metering, req.actor, config));
+    gate((req) => assertActorHasCredits(metering, req.actor, config, events));

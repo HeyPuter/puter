@@ -479,6 +479,13 @@ export type EventMap = {
         /** The plan the balance was worked out under. */
         subscriptionId: string;
     };
+    /**
+     * An actor is about to be refused for lack of credit. Emitted with
+     * `emitAndWait`: a listener that adds credit sets `refilled`, and the
+     * refused work is tried once more. Per refusal, so a listener returns
+     * before any I/O for an actor it has nothing to do for.
+     */
+    'metering.out-of-credits': { actor: Actor; refilled: boolean };
 
     // ---- Filesystem ----
     'fs.copy.node': {
