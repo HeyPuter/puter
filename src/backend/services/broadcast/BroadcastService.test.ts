@@ -1358,6 +1358,10 @@ describe('BroadcastService shutdown drain', () => {
             },
         } as never);
         broadcast = server.services.broadcast as unknown as BroadcastService;
+        // Boot queues cache updates of its own. Sent now, they can't reach a
+        // test's first flush or its request count.
+        await broadcast.onServerPrepareShutdown();
+        axiosRequestMock.mockClear();
     });
 
     afterEach(async () => {
