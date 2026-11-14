@@ -172,6 +172,8 @@ const ALLOWED_INPUT_BLOCK_TYPES = new Set([
     'advisor_tool_result',
     'tool_search_tool_result',
     'compaction',
+    // Echoed back from a rerun turn; the upstream takes it on any request.
+    'fallback',
     // Internal, provider-resolved parts.
     'image_url',
 ]);
@@ -432,9 +434,14 @@ export const parseAnthropicRequest = (
         ...(betas.length ? { anthropicBetas: betas } : {}),
         provider: toStringOrEmpty(body.provider) || 'claude',
         ...(body.fallback === false ? { fallback: false } : {}),
+        // `fallbacks: null` or `false` keeps a refusal as it is. Any other
+        // value is ignored: a declined request reruns on the model's own chain.
+        ...(body.fallbacks === null || body.fallbacks === false
+            ? { refusalFallback: false }
+            : {}),
     };
     // Silently ignored: metadata, service_tier, inference_geo, container,
-    // fallbacks, diagnostics.
+    // diagnostics.
 };
 
 // -- usage ---------------------------------------------------------------
@@ -645,9 +652,14 @@ export const toAnthropicMessage = (
 ): Record<string, unknown> => {
     const message = (result.message ?? {}) as Record<string, unknown>;
     const resultRecord = result as unknown as Record<string, unknown>;
-    const content = needsOpenAICoercion(message)
-        ? nativeMessageContent(message.content)
-        : openAiShapedContent(resultRecord, message);
+    const content = [
+        // A declined request is rerun before any output, so its handoffs
+        // precede the answer.
+        ...(result.refusalFallbacks ?? []),
+        ...(needsOpenAICoercion(message)
+            ? nativeMessageContent(message.content)
+            : openAiShapedContent(resultRecord, message)),
+    ];
 
     const sawToolUse = content.some((b) => b.type === 'tool_use');
     const stopReason =
@@ -666,7 +678,7 @@ export const toAnthropicMessage = (
         type: 'message',
         role: 'assistant',
         content,
-        model: ids.model,
+        model: usageDetails.fallbackModel ?? ids.model,
         stop_reason: stopReason,
         stop_sequence: result.stopSequence ?? null,
         ...(result.stopDetails ? { stop_details: result.stopDetails } : {}),

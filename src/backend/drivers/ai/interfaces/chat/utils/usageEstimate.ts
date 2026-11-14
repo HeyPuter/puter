@@ -87,34 +87,8 @@ const attachmentTokens = (value: unknown): number => {
     return UNMEASURED_ATTACHMENT_TOKENS;
 };
 
-/**
- * Tokens one normalized content part is worth.
- *
- * Every part shape any provider accepts has to land somewhere here: the text
- * ones on the text estimator, the rest on `attachmentTokens`. A part nobody
- * recognises is charged the unmeasured estimate — the alternative is a content
- * type nobody has taught the gate about arriving for free.
- */
-const partTokens = (part: unknown, budget: WordScanBudget): number => {
-    if (typeof part === 'string') return estimateTextTokens(part, budget);
-    if (!part || typeof part !== 'object') return 0;
-
-    const p = part as ContentPart;
-
-    if (typeof p.text === 'string') return estimateTextTokens(p.text, budget);
-
-    // Model-output shapes replayed as history: Anthropic thinking blocks,
-    // our own streamed `reasoning` chunks, OpenAI refusals. All text — they
-    // must not fall through to the attachment default below, which would
-    // price a few sentences of reasoning like a full-frame image.
-    if (typeof p.thinking === 'string')
-        return estimateTextTokens(p.thinking, budget);
-    if (typeof p.reasoning === 'string') {
-        return estimateTextTokens(p.reasoning, budget);
-    }
-    if (typeof p.refusal === 'string')
-        return estimateTextTokens(p.refusal, budget);
-
+/** Tokens an attachment part is worth; undefined for a part that isn't one. */
+const attachmentPartTokens = (p: ContentPart): number | undefined => {
     // OpenAI-style `{ image_url: { url } }` (or the flattened string form).
     if (p.image_url) {
         const url =
@@ -138,6 +112,66 @@ const partTokens = (part: unknown, budget: WordScanBudget): number => {
         return attachmentTokens(p.data ?? p.b64_json);
     }
 
+    return undefined;
+};
+
+/**
+ * Tokens a tool result's content is worth. An image or document among its
+ * blocks counts as an attachment: as text, the base64 of a screenshot reads as
+ * many times the tokens the image costs.
+ */
+const toolResultTokens = (content: unknown, budget: WordScanBudget): number => {
+    const asText = (value: unknown): number =>
+        estimateTextTokens(
+            typeof value === 'string' ? value : JSON.stringify(value ?? ''),
+            budget,
+        );
+    if (!Array.isArray(content)) return asText(content);
+    let tokens = 0;
+    for (const item of content) {
+        const attachment =
+            item && typeof item === 'object'
+                ? attachmentPartTokens(item as ContentPart)
+                : undefined;
+        tokens += attachment ?? asText(item);
+    }
+    return tokens;
+};
+
+/**
+ * Tokens one normalized content part is worth.
+ *
+ * Every part shape any provider accepts has to land somewhere here: the text
+ * ones on the text estimator, the rest on `attachmentTokens`. A part nobody
+ * recognises is charged the unmeasured estimate — the alternative is a content
+ * type nobody has taught the gate about arriving for free.
+ */
+const partTokens = (part: unknown, budget: WordScanBudget): number => {
+    if (typeof part === 'string') return estimateTextTokens(part, budget);
+    if (!part || typeof part !== 'object') return 0;
+
+    const p = part as ContentPart;
+
+    if (typeof p.text === 'string') return estimateTextTokens(p.text, budget);
+
+    // A replayed model-handoff marker; the upstream never renders it.
+    if (p.type === 'fallback') return 0;
+
+    // Model-output shapes replayed as history: Anthropic thinking blocks,
+    // our own streamed `reasoning` chunks, OpenAI refusals. All text — they
+    // must not fall through to the attachment default below, which would
+    // price a few sentences of reasoning like a full-frame image.
+    if (typeof p.thinking === 'string')
+        return estimateTextTokens(p.thinking, budget);
+    if (typeof p.reasoning === 'string') {
+        return estimateTextTokens(p.reasoning, budget);
+    }
+    if (typeof p.refusal === 'string')
+        return estimateTextTokens(p.refusal, budget);
+
+    const attachment = attachmentPartTokens(p);
+    if (attachment !== undefined) return attachment;
+
     // Tool traffic: arguments and results are text once serialized.
     if (p.type === 'tool_use' && p.input !== undefined) {
         return estimateTextTokens(
@@ -145,14 +179,7 @@ const partTokens = (part: unknown, budget: WordScanBudget): number => {
             budget,
         );
     }
-    if (p.type === 'tool_result') {
-        return estimateTextTokens(
-            typeof p.content === 'string'
-                ? p.content
-                : JSON.stringify(p.content ?? ''),
-            budget,
-        );
-    }
+    if (p.type === 'tool_result') return toolResultTokens(p.content, budget);
     if (p.type === 'compaction') {
         return estimateTextTokens(
             typeof p.encrypted_content === 'string'

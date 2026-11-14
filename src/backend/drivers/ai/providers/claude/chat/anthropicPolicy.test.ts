@@ -30,6 +30,7 @@ import {
     DEFAULT_SAFEGUARDS_BETA,
     deriveBetas,
     hasExtendedCacheTtl,
+    isRefusalBilled,
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
     priciestModel,
@@ -204,6 +205,44 @@ describe('resolveAdvisorModel / priciestModel', () => {
 
     it('priciestModel picks the highest output_tokens rate', () => {
         expect(priciestModel(models).id).toBe('claude-opus-5-5');
+    });
+});
+
+describe('isRefusalBilled', () => {
+    it.each(['bio', 'frontier_llm', 'reasoning_extraction'])(
+        'bills a refusal before any output in category %s',
+        (category) => {
+            expect(isRefusalBilled({ type: 'refusal', category }, 0)).toBe(
+                true,
+            );
+        },
+    );
+
+    it.each([
+        'cyber',
+        'general_harms',
+        'some_future_category',
+        null,
+        undefined,
+    ])(
+        'does not bill a refusal before any output in category %s',
+        (category) => {
+            expect(isRefusalBilled({ type: 'refusal', category }, 0)).toBe(
+                false,
+            );
+        },
+    );
+
+    it('bills a refusal that arrived after output, whatever its category', () => {
+        expect(isRefusalBilled({ type: 'refusal', category: 'cyber' }, 1)).toBe(
+            true,
+        );
+    });
+
+    it('bills a refusal whose details are missing', () => {
+        expect(isRefusalBilled(undefined, 0)).toBe(true);
+        expect(isRefusalBilled(null, 0)).toBe(true);
+        expect(isRefusalBilled('refusal', 0)).toBe(true);
     });
 });
 

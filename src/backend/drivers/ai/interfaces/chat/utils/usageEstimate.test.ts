@@ -190,6 +190,66 @@ describe('estimatePromptTokens', () => {
         expect(tokens).toBeGreaterThan(100);
     });
 
+    describe('tool results', () => {
+        const base64 = 'A'.repeat(2_000_000);
+        const image = {
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/png', data: base64 },
+        };
+        const toolResult = (content: unknown) => [
+            {
+                role: 'user',
+                content: [{ type: 'tool_result', tool_use_id: 't1', content }],
+            },
+        ];
+        const topLevel = (part: unknown) =>
+            estimatePromptTokens([{ role: 'user', content: [part] }]);
+
+        it('prices an image inside a tool result like a top-level image, not as its base64 text', () => {
+            const nested = estimatePromptTokens(toolResult([image]));
+            expect(nested).toBe(topLevel(image));
+            // 1.5 MB of image at 150 bytes a token.
+            expect(nested).toBe(10_000);
+        });
+
+        it('keeps nine screenshots in a tool result near what the images cost', () => {
+            const tokens = estimatePromptTokens(
+                toolResult(Array.from({ length: 9 }, () => image)),
+            );
+            expect(tokens).toBe(90_000);
+        });
+
+        it('prices an OpenAI-style image part inside a tool result as an attachment', () => {
+            const part = {
+                type: 'image_url',
+                image_url: { url: `data:image/png;base64,${base64}` },
+            };
+            expect(estimatePromptTokens(toolResult([part]))).toBe(topLevel(part));
+        });
+
+        it('adds the text blocks around an image to its estimate', () => {
+            const text = { type: 'text', text: 'word '.repeat(2000) };
+            const textOnly = estimatePromptTokens(toolResult([text]));
+            expect(textOnly).toBeGreaterThan(1000);
+            expect(estimatePromptTokens(toolResult([text, image]))).toBe(
+                textOnly + 10_000,
+            );
+        });
+
+        it('still counts text, strings and other blocks as the text they serialize to', () => {
+            const sentence = 'tool output '.repeat(500);
+            const asString = estimatePromptTokens(toolResult(sentence));
+            expect(asString).toBeGreaterThan(500);
+            expect(estimatePromptTokens(toolResult([sentence]))).toBe(asString);
+            expect(
+                estimatePromptTokens(
+                    toolResult([{ type: 'search_result', title: sentence }]),
+                ),
+            ).toBeGreaterThanOrEqual(asString);
+            expect(estimatePromptTokens(toolResult(undefined))).toBe(0);
+        });
+    });
+
     // Model-output shapes come back around as history in multi-turn
     // conversations. They are text; falling through to the attachment
     // default would price a few sentences of reasoning like a full frame
@@ -208,6 +268,23 @@ describe('estimatePromptTokens', () => {
                 estimatePromptTokens([{ role: 'assistant', content: [part] }]),
             ).toBe(asText);
         }
+    });
+
+    it('counts a replayed fallback marker as no tokens', () => {
+        expect(
+            estimatePromptTokens([
+                {
+                    role: 'assistant',
+                    content: [
+                        {
+                            type: 'fallback',
+                            from: { model: 'claude-opus-5-5' },
+                            to: { model: 'claude-opus-4-8' },
+                        },
+                    ],
+                },
+            ]),
+        ).toBe(0);
     });
 
     it('is zero for nothing at all', () => {

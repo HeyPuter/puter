@@ -48,6 +48,7 @@ For AI:
 - A streamed response that stops before the model reports its token counts (an upstream error mid-stream, for example) is charged on an estimate of what was streamed. A request that produced no output is free.
 - AI model rates can change. Check the [AI model directory](https://developer.puter.com/ai/models/) for current pricing.
 - In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers. Gemini Omni video is the exception. Its reservation is an estimate, because Google can return more output tokens than requested, and it settles at the tokens actually used even when they cost more (see [Video generation](#video-generation)).
+- A chat request that a Claude model declines can run again on another Claude model. Each run reserves and settles on its own, so only one run is reserved at a time. If the balance can't cover the next run, the response is the refusal. See [Refusal fallback](/AI/chat#refusal-fallback).
 
 ## Rate limits
 

@@ -439,6 +439,24 @@ Fast service is available on Claude models with a Fast rate card. Ultrafast fall
 
 Pass `speed: "fast"` to request Fast mode, or `speed: "standard"` for standard inference. This option applies to Claude models. An explicit `serviceSpeed` takes precedence.
 
+#### Refusal fallback
+
+A Claude model can decline a request. A declined request ends with `stopReason` set to `"refusal"`, and `stopDetails` says why.
+
+When Claude Fable 5.2, Fable 5.1, Fable 5, Opus 5.5, Opus 5, or Sonnet 5.5 declines, the same request runs again on an earlier Claude model, and the response carries that model's answer. Fable 5.2, Fable 5.1, Fable 5 and Opus 5.5 fall back to Opus 5, and then to Opus 4.8 if Opus 5 declines too. Opus 5 falls back to Opus 4.8. Sonnet 5.5 falls back to Sonnet 5. If the last model declines too, the response ends with `stopReason` set to `"refusal"`.
+
+A streamed request runs again only when the model declines before it produces any output. A streamed request that is declined after its output started ends with `stopReason` set to `"refusal"`.
+
+When another model answers, `usageDetails.fallbackModel` holds its ID and `refusalFallbacks` lists each switch. A streamed response has a `refusal_fallback` chunk for each switch before the answer, with the two models in `from.model` and `to.model`. See the [ChatResponse](/Objects/chatresponse/) and [ChatResponseChunk](/Objects/chatresponsechunk/) objects for these fields.
+
+A request that a model declines before it produces any output is charged only when Anthropic charges for it, which depends on the refusal category in `stopDetails.category`. A request declined after it produced output is charged for its prompt and that output.
+
+Each model that ran is charged at its own rates, and `usage.cost` is the total. The `usage` object holds the tokens of the model that answered under its usual keys, and the tokens of a model that declined under keys that start with `declined_`, such as `declined_input_tokens`. Each run is checked against your balance before it starts. If the balance can't cover the next model, the request doesn't run again and the response is the refusal.
+
+After a model declines a turn of a conversation, later calls for that conversation run on the model that answered, and the declined model isn't tried again. A call belongs to the conversation when it asks for the same `model` and its `messages` start with the messages of the declined call. The response keeps the format of the model you asked for. This lasts until the page is reloaded.
+
+To get the refusal as it is, pass `refusalFallback: false`.
+
 #### Prompt Caching
 
 Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompts.

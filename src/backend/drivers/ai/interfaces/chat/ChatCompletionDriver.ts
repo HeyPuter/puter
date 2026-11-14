@@ -78,6 +78,7 @@ import type {
     IChatModel,
     IChatProvider,
     ICompleteArguments,
+    RefusalFallback,
     UsageDetails,
 } from './types.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
@@ -186,7 +187,12 @@ export const COUNT_TOKENS = Symbol('aiChat.countTokens');
 const HOLD_RENEW_INTERVAL_MS = 5 * 60 * 1000;
 
 // Options that reach error messages and request headers as text.
-const SCALAR_OPTIONS = ['model', 'provider', 'service_tier'];
+const SCALAR_OPTIONS = [
+    'model',
+    'provider',
+    'service_tier',
+    'refusalFallbackModel',
+];
 
 /**
  * A moderation refusal is a completion that was produced and charged, then
@@ -712,8 +718,8 @@ export class ChatCompletionDriver extends PuterDriver {
         // would bill the request anyway, so it runs to its usage report.
         const upstream = new AbortController();
         Context.set('upstreamSignal', upstream.signal);
-        // AI charges recorded in this request before the completion started.
-        const priorCharges = requestAiCosts().length;
+        // AI charges recorded in this request before the current attempt.
+        let priorCharges = requestAiCosts().length;
 
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
@@ -751,6 +757,10 @@ export class ChatCompletionDriver extends PuterDriver {
                 { legacyCode: 'bad_request' },
             );
         }
+        // A conversation the requested model already declined runs on the
+        // model that answered it.
+        const pinnedFallback = await this.#pinnedRefusalFallback(args, model);
+        if (pinnedFallback) model = pinnedFallback;
 
         args.messages = normalizeMediaParts(normalize_messages(args.messages));
         if (args.tools) {
@@ -851,6 +861,22 @@ export class ChatCompletionDriver extends PuterDriver {
         }
 
         const useFakeProvider = blocked || args.test_mode === true;
+
+        // The models a request the model declines is rerun on, in order.
+        const refusalChain = useFakeProvider
+            ? []
+            : await this.#refusalFallbackChain(
+                  args,
+                  initialModel,
+                  pinnedFallback,
+              );
+        // One per rerun, in order.
+        const handoffs: RefusalFallback[] = [];
+        // What the declined attempts were charged, and the usage they
+        // reported, under `declined_` keys.
+        let declinedCost = 0;
+        const declinedUsage: Record<string, number> = {};
+        const declinedCosts: Record<string, number> = {};
 
         // Fake responses need no credit hold, including blocked prompts and
         // test requests.
@@ -1175,6 +1201,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         /** What this completion was charged, in µ¢, as the ledger holds it. */
         const charged = () =>
+            declinedCost +
             factoredTotal(requestAiCosts().slice(priorCharges), costFactor);
 
         // A completion that used all of a balance-bound cap stopped because
@@ -1183,6 +1210,107 @@ export class ChatCompletionDriver extends PuterDriver {
             fundsCap !== undefined &&
             !!usage &&
             trackedOutputTokens(usage, model) >= fundsCap;
+
+        /**
+         * Reruns the request `model` just declined on its next fallback model:
+         * a whole attempt of its own, through the credit gate. Undefined when
+         * no rerun ran, and then the refusal stands.
+         */
+        const rerunDeclined = async (attempt: {
+            usage?: Record<string, number>;
+            usageCosts?: Record<string, number> | null;
+            stopDetails?: Record<string, unknown> | null;
+        }): Promise<IChatCompleteResult | undefined> => {
+            const fallback = abortSignal?.aborted
+                ? undefined
+                : refusalChain.shift();
+            const fallbackProvider =
+                fallback && this.#providers[fallback.provider!];
+            if (!fallback || !fallbackProvider) {
+                refusalChain.length = 0;
+                return undefined;
+            }
+            const declinedModel = model;
+            const declinedAttempt = {
+                fundsCap,
+                costFactor,
+                pricingTime,
+                attemptPromptTokenEstimate,
+            };
+            const cost = charged();
+            const chargesSoFar = requestAiCosts().length;
+            // The declined attempt's usage is recorded, so its hold is done
+            // and the rerun's gate reads the balance without it.
+            await hold.release();
+            hold = NO_CREDIT_HOLD;
+            pricingTime = new Date();
+            let rerun: IChatCompleteResult;
+            try {
+                rerun = await runAttempt(fallbackProvider, fallback);
+            } catch (e) {
+                await hold.release();
+                hold = NO_CREDIT_HOLD;
+                ({
+                    fundsCap,
+                    costFactor,
+                    pricingTime,
+                    attemptPromptTokenEstimate,
+                } = declinedAttempt);
+                refusalChain.length = 0;
+                console.warn(
+                    `[ai-chat] refusal fallback failed (${completionId}, ${declinedModel.provider}:${declinedModel.id} -> ${fallback.id}): ${sanitizeUpstreamMessage(e instanceof Error ? e.message : String(e))}`,
+                );
+                return undefined;
+            }
+            declinedCost = cost;
+            priorCharges = chargesSoFar;
+            const category = attempt.stopDetails?.category;
+            handoffs.push({
+                type: 'fallback',
+                from: { model: declinedModel.id },
+                to: { model: fallback.id },
+                trigger: {
+                    type: 'refusal',
+                    category: typeof category === 'string' ? category : null,
+                },
+            });
+            for (const [key, amount] of Object.entries(attempt.usage ?? {})) {
+                if (!Number.isFinite(amount)) continue;
+                const reported = `declined_${key}`;
+                declinedUsage[reported] =
+                    (declinedUsage[reported] ?? 0) + amount;
+                const keyCost = attempt.usageCosts?.[key];
+                if (Number.isFinite(keyCost)) {
+                    declinedCosts[reported] =
+                        (declinedCosts[reported] ?? 0) + keyCost!;
+                }
+            }
+            console.warn(
+                `[ai-chat] refusal fallback served (${completionId}, ${declinedModel.provider}:${declinedModel.id} -> ${fallback.id}, ${category ?? 'no category'})`,
+            );
+            return rerun;
+        };
+        /** Whether a refusal from `model` has a fallback model to rerun on. */
+        const canRerunDeclined = () =>
+            refusalChain.length > 0 &&
+            refusalChain[0].provider === model.provider;
+
+        // A declined request reruns on each fallback model in turn until one
+        // answers. A stream is rerun where it ends, below.
+        while (
+            canRerunDeclined() &&
+            'message' in res &&
+            (res as IChatMessageResult).stopReason === 'refusal'
+        ) {
+            const declined = res as IChatMessageResult;
+            const rerun = await rerunDeclined({
+                usage: declined.usage,
+                usageCosts: declined.usageCosts,
+                stopDetails: declined.stopDetails,
+            });
+            if (!rerun) break;
+            res = rerun;
+        }
 
         // Streaming result — create a PassThrough, kick off the provider's
         // stream populator, and return a DriverStreamResult so the route
@@ -1194,7 +1322,8 @@ export class ChatCompletionDriver extends PuterDriver {
                 streamToolInput: !!args.streamToolInput,
             });
             const init = res.init_chat_stream;
-            const cleanup = res.finally_fn;
+            // One per attempt that streamed.
+            const cleanups = [res.finally_fn];
 
             // A caller who leaves stops getting output, but the upstream keeps
             // going until it reports usage, with as long to finish as a
@@ -1215,10 +1344,33 @@ export class ChatCompletionDriver extends PuterDriver {
             // (mirrors the non-streaming branch). Clone usage so providers that
             // meter after this call (e.g. Claude) don't pick up `usd_cents`.
             const originalEnd = chatStream.end.bind(chatStream);
-            chatStream.end = (usage?: Record<string, number>) => {
+            // Set when an attempt was declined before any output: nothing has
+            // been written, so a rerun can still answer on this stream.
+            let declinedEnd: { usage?: Record<string, number> } | undefined;
+            chatStream.end = (reported?: Record<string, number>) => {
+                if (
+                    canRerunDeclined() &&
+                    chatStream.stop?.reason === 'refusal' &&
+                    !chatStream.hasOutput &&
+                    !chatStream.detached
+                ) {
+                    declinedEnd = { usage: reported };
+                    return;
+                }
+                // Declined attempts report beside the attempt that answered,
+                // unless that one reported nothing and is charged an estimate.
+                const afterRerun =
+                    handoffs.length > 0 &&
+                    !!reported &&
+                    Object.values(reported).some(Number.isFinite);
+                const usage = afterRerun
+                    ? { ...reported, ...declinedUsage }
+                    : reported;
                 // Read before `originalEnd` writes the wire line — the
                 // provider sets it (if at all) any time before `end()`.
-                const usageCosts = chatStream.usageCosts ?? undefined;
+                const usageCosts = afterRerun
+                    ? { ...chatStream.usageCosts, ...declinedCosts }
+                    : (chatStream.usageCosts ?? undefined);
                 const enrichedUsage = usage ? { ...usage } : usage;
                 if (enrichedUsage) {
                     this.#injectUsdCents(
@@ -1277,6 +1429,12 @@ export class ChatCompletionDriver extends PuterDriver {
                         usageDetailsFromUsage(usage, model),
                     );
                 }
+                if (handoffs.length > 0 && chatStream.usageDetails) {
+                    chatStream.setUsageDetails({
+                        ...chatStream.usageDetails,
+                        fallbackModel: handoffs.at(-1)!.to.model,
+                    });
+                }
                 if (
                     args.serviceSpeed !== undefined &&
                     chatStream.usageDetails
@@ -1325,6 +1483,29 @@ export class ChatCompletionDriver extends PuterDriver {
             (async () => {
                 try {
                     await init({ chatStream });
+                    while (declinedEnd) {
+                        const { usage } = declinedEnd;
+                        declinedEnd = undefined;
+                        const rerun = await rerunDeclined({
+                            usage,
+                            usageCosts: chatStream.usageCosts,
+                            stopDetails: chatStream.stop?.details,
+                        });
+                        if (
+                            !rerun ||
+                            !('init_chat_stream' in rerun) ||
+                            !rerun.init_chat_stream
+                        ) {
+                            // No rerun, so the refusal is the response.
+                            refusalChain.length = 0;
+                            chatStream.end(usage!);
+                            break;
+                        }
+                        cleanups.push(rerun.finally_fn);
+                        chatStream.refusalFallback(handoffs.at(-1)!);
+                        chatStream.restart();
+                        await rerun.init_chat_stream({ chatStream });
+                    }
                     if (!passthrough.writableEnded) {
                         throw new Error('Stream ended before completion');
                     }
@@ -1370,7 +1551,9 @@ export class ChatCompletionDriver extends PuterDriver {
                         try {
                             await hold.release();
                         } finally {
-                            if (cleanup) await cleanup();
+                            await Promise.all(
+                                cleanups.map((cleanup) => cleanup?.()),
+                            );
                         }
                     }
                 }
@@ -1395,6 +1578,19 @@ export class ChatCompletionDriver extends PuterDriver {
         // The provider recorded this completion's usage before returning it,
         // so the hold has served its purpose.
         await hold.release();
+
+        // Declined attempts report beside the attempt that answered.
+        if (handoffs.length > 0 && 'message' in res) {
+            const answered = res as IChatMessageResult;
+            answered.refusalFallbacks = handoffs;
+            answered.usageDetails = {
+                ...(answered.usageDetails ??
+                    usageDetailsFromUsage(answered.usage, model)),
+                fallbackModel: handoffs.at(-1)!.to.model,
+            };
+            answered.usage = { ...answered.usage, ...declinedUsage };
+            answered.usageCosts = { ...answered.usageCosts, ...declinedCosts };
+        }
 
         // -- Post-completion audit event ------------------------------
         // Only for non-streaming results (streaming emits from the
@@ -1478,7 +1674,15 @@ export class ChatCompletionDriver extends PuterDriver {
             }
             // Internal-only; never reaches the caller.
             delete messageRes.usageCosts;
-            if (shouldPresentAsOpenAI(args, model.release_date)) {
+            // A fallback model's answer keeps the requested model's format.
+            const servedByFallback =
+                handoffs.length > 0 || (!!pinnedFallback && !useFakeProvider);
+            if (
+                shouldPresentAsOpenAI(
+                    args,
+                    (servedByFallback ? initialModel : model).release_date,
+                )
+            ) {
                 return {
                     ...normalizeResultToOpenAI(messageRes),
                     normalized: true,
@@ -2172,6 +2376,52 @@ export class ChatCompletionDriver extends PuterDriver {
         });
 
         return modelIdMap;
+    }
+
+    /**
+     * The fallback model a caller pinned for this conversation, when it is one
+     * of the requested model's own. Anything else is ignored: a stale pin must
+     * not fail the request.
+     */
+    async #pinnedRefusalFallback(
+        args: ICompleteArguments,
+        requested: IChatModel,
+    ): Promise<IChatModel | null> {
+        const pinnedId = args.refusalFallbackModel;
+        if (pinnedId === undefined || args.refusalFallback === false) {
+            return null;
+        }
+        const pinned = await this.#resolveLoadedModel(
+            pinnedId,
+            requested.provider,
+        );
+        return pinned &&
+            pinned.provider === requested.provider &&
+            requested.refusalFallbackModels?.includes(pinned.id)
+            ? pinned
+            : null;
+    }
+
+    /**
+     * The models a request `requested` declines is rerun on, in order. A
+     * request already running on `pinned` has only the models after it left.
+     */
+    async #refusalFallbackChain(
+        args: ICompleteArguments,
+        requested: IChatModel,
+        pinned: IChatModel | null,
+    ): Promise<IChatModel[]> {
+        const ids = requested.refusalFallbackModels;
+        if (!ids?.length || args.refusalFallback === false) return [];
+        const chain = await Promise.all(
+            ids
+                .slice(pinned ? ids.indexOf(pinned.id) + 1 : 0)
+                .map((id) => this.#resolveLoadedModel(id, requested.provider)),
+        );
+        return chain.filter(
+            (fallback): fallback is IChatModel =>
+                fallback?.provider === requested.provider,
+        );
     }
 
     /**

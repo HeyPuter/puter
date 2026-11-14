@@ -20,6 +20,7 @@
 import type { IChatModel } from '../../../interfaces/chat/types.js';
 
 // Sources: https://models.dev/api.json and https://platform.claude.com/docs/en/about-claude/pricing
+// `refusalFallbackModels`: https://platform.claude.com/docs/en/build-with-claude/fallback-credit
 export const CLAUDE_MODELS: IChatModel[] = [
     {
         puterId: 'anthropic:anthropic/claude-haiku-5-5',
@@ -69,6 +70,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         ],
         name: 'Claude Fable 5.2',
         midConversationSystem: true,
+        refusalFallbackModels: ['claude-opus-5', 'claude-opus-4-8'],
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
@@ -111,6 +113,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         ],
         name: 'Claude Fable 5.1',
         midConversationSystem: true,
+        refusalFallbackModels: ['claude-opus-5', 'claude-opus-4-8'],
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
@@ -137,6 +140,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         aliases: ['claude-fable-5-latest', 'anthropic/claude-fable-5'],
         name: 'Claude Fable 5',
         midConversationSystem: true,
+        refusalFallbackModels: ['claude-opus-5', 'claude-opus-4-8'],
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
@@ -169,6 +173,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         ],
         name: 'Claude Sonnet 5.5',
         midConversationSystem: true,
+        refusalFallbackModels: ['claude-sonnet-5'],
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
@@ -227,6 +232,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         ],
         name: 'Claude Opus 5.5',
         midConversationSystem: true,
+        refusalFallbackModels: ['claude-opus-5', 'claude-opus-4-8'],
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
@@ -263,6 +269,7 @@ export const CLAUDE_MODELS: IChatModel[] = [
         aliases: ['claude-opus-5-latest', 'anthropic/claude-opus-5'],
         name: 'Claude Opus 5',
         midConversationSystem: true,
+        refusalFallbackModels: ['claude-opus-4-8'],
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',

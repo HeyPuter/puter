@@ -60,6 +60,7 @@ import {
     combineBetas,
     deriveBetas,
     hasExtendedCacheTtl,
+    isRefusalBilled,
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
     rejectOrgScopedBlocks,
@@ -411,6 +412,8 @@ export class ClaudeProvider implements IChatProvider {
                     chatStream,
                     modelUsed,
                 });
+                // A rerun of a declined request uploads the files again.
+                if (chatStream.stop?.reason === 'refusal') restoreUploads();
             };
 
             return {
@@ -428,9 +431,19 @@ export class ClaudeProvider implements IChatProvider {
                 : this.anthropic.messages.create(sdkParams as never, {
                       signal: Context.get('upstreamSignal'),
                   }));
+            const nativeMsg = msg as unknown as Message & {
+                stop_sequence?: string | null;
+                stop_details?: Record<string, unknown> | null;
+                safeguard_results?: unknown[];
+                context_management?: Record<string, unknown> | null;
+            };
             const { usage, costs, details, advisorModel } = this.#meter(
                 (msg as Message).usage,
                 modelUsed,
+                {
+                    reason: nativeMsg.stop_reason,
+                    details: nativeMsg.stop_details,
+                },
             );
             this.#meteringService.utilRecordUsageObject(
                 usage.executor,
@@ -447,6 +460,9 @@ export class ClaudeProvider implements IChatProvider {
                 );
             }
 
+            // A rerun of a declined request uploads the files again.
+            if (nativeMsg.stop_reason === 'refusal') restoreUploads();
+
             // Surface any inline-compaction artifact for stateless round-trip.
             const compactionBlock = (
                 ((msg as Message).content as unknown[]) ?? []
@@ -455,13 +471,6 @@ export class ClaudeProvider implements IChatProvider {
                 (c: any) => c?.type === 'compaction',
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
             ) as any;
-
-            const nativeMsg = msg as unknown as Message & {
-                stop_sequence?: string | null;
-                stop_details?: Record<string, unknown> | null;
-                safeguard_results?: unknown[];
-                context_management?: Record<string, unknown> | null;
-            };
 
             return {
                 message: msg,
@@ -1187,6 +1196,7 @@ export class ClaudeProvider implements IChatProvider {
         let emittedCompaction = false;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let finalUsage: any = null;
+        const stop: { reason?: unknown; details?: unknown } = {};
 
         for await (const event of { [Symbol.asyncIterator]: () => events }) {
             await chatStream.waitForDrain();
@@ -1201,6 +1211,8 @@ export class ClaudeProvider implements IChatProvider {
                     continue;
                 }
                 case 'message_delta': {
+                    stop.reason = event.delta?.stop_reason;
+                    stop.details = event.delta?.stop_details;
                     chatStream.setStop({
                         reason: event.delta?.stop_reason ?? undefined,
                         sequence: event.delta?.stop_sequence ?? null,
@@ -1395,6 +1407,7 @@ export class ClaudeProvider implements IChatProvider {
         const { usage, costs, details, advisorModel } = this.#meter(
             finalUsage ?? {},
             modelUsed,
+            stop,
         );
         this.#meteringService.utilRecordUsageObject(
             usage.executor,
@@ -1436,11 +1449,14 @@ export class ClaudeProvider implements IChatProvider {
      *
      * `output_tokens` already includes thinking tokens; unlike the previous
      * `thinking_tokens` usage key, nothing here bills them a second time.
+     *
+     * A refusal Anthropic does not bill keeps its usage and costs nothing.
      */
     #meter(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         raw: any,
         modelUsed: IChatModel,
+        stop: { reason?: unknown; details?: unknown },
     ): {
         usage: {
             executor: Record<string, number>;
@@ -1531,7 +1547,14 @@ export class ClaudeProvider implements IChatProvider {
                   },
               }
             : modelUsed;
-        const executorCosts = buildCostsOverride(executorUsage, billingModel);
+        const billed =
+            stop.reason !== 'refusal' ||
+            isRefusalBilled(stop.details, exec.output_tokens);
+        const executorCosts = billed
+            ? buildCostsOverride(executorUsage, billingModel)
+            : Object.fromEntries(
+                  Object.keys(executorUsage).map((key) => [key, 0]),
+              );
 
         let advisorUsage: Record<string, number> | undefined;
         let advisorCosts: Record<string, number> | undefined;

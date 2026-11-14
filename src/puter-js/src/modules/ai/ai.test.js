@@ -13,6 +13,8 @@ class FakeXHR {
     static respondWith = null;
     // Set per test to simulate a non-2xx response.
     static statusOverride = null;
+    // Set per test: the chunks of a streamed (NDJSON) response.
+    static streamChunks = null;
     static requests = [];
 
     _listeners = {};
@@ -45,6 +47,22 @@ class FakeXHR {
             : { success: true, result: {} };
         queueMicrotask(() => {
             const text = JSON.stringify(respObj);
+            if ( FakeXHR.streamChunks ) {
+                const emit = (state, ...types) => {
+                    this.readyState = state;
+                    this.onreadystatechange?.();
+                    for ( const type of ['readystatechange', ...types] ) {
+                        for ( const fn of this._listeners[type] ?? [] ) fn.call(this, { target: this });
+                    }
+                };
+                this._responseHeaders = { 'content-type': 'application/x-ndjson' };
+                emit(2);
+                this.responseText = FakeXHR.streamChunks.map((chunk) => `${JSON.stringify(chunk)}\n`).join('');
+                this.onprogress?.();
+                emit(3, 'progress');
+                emit(4, 'load');
+                return;
+            }
             if ( this.responseType === 'blob' ) {
                 this.response = new Blob([text], { type: 'application/json' });
                 this._responseHeaders = { 'content-type': 'application/json' };
@@ -94,6 +112,7 @@ beforeEach(() => {
     FakeXHR.requests = [];
     FakeXHR.respondWith = null;
     FakeXHR.statusOverride = null;
+    FakeXHR.streamChunks = null;
     globalThis.XMLHttpRequest = FakeXHR;
     globalThis.Audio = class {
         constructor (src) {
@@ -118,6 +137,97 @@ describe('ai.chat driver payloads', () => {
     it.each(['fast', 'standard'])('forwards Claude speed %s to the driver', async (speed) => {
         await ai.chat('hello', { model: 'claude-opus-4-8', speed });
         expect(lastBody().args.speed).toBe(speed);
+    });
+
+    it.each([false, true])('forwards refusalFallback %s to the driver', async (refusalFallback) => {
+        await ai.chat('hello', { model: 'claude-opus-5-5', refusalFallback });
+        expect(lastBody().args.refusalFallback).toBe(refusalFallback);
+    });
+
+    it('leaves refusalFallback out of the request when it is not set', async () => {
+        await ai.chat('hello', { model: 'claude-opus-5-5', fallback: false });
+        expect(lastBody().args).not.toHaveProperty('refusalFallback');
+        expect(lastBody().args.fallback).toBe(false);
+    });
+
+    describe('a conversation whose model declined a turn', () => {
+        const model = 'claude-opus-5-5';
+        const firstTurn = [{ role: 'user', content: 'build the app' }];
+        const nextTurn = [
+            ...firstTurn,
+            { role: 'assistant', content: 'done' },
+            { role: 'user', content: 'now add a button' },
+        ];
+        const answeredBy = (fallbackModel) => () => ({
+            success: true,
+            result: { message: { content: 'done' }, usageDetails: { fallbackModel } },
+        });
+        const fallBack = async (fallbackModel = 'claude-opus-4-8') => {
+            FakeXHR.respondWith = answeredBy(fallbackModel);
+            await ai.chat(firstTurn, { model });
+            FakeXHR.respondWith = null;
+        };
+
+        it('runs its later turns on the model that answered', async () => {
+            await fallBack();
+            expect(lastBody().args).not.toHaveProperty('refusalFallbackModel');
+
+            await ai.chat(nextTurn, { model });
+            expect(lastBody().args.model).toBe(model);
+            expect(lastBody().args.refusalFallbackModel).toBe('claude-opus-4-8');
+        });
+
+        it('learns the model from a streamed turn', async () => {
+            FakeXHR.streamChunks = [
+                { type: 'refusal_fallback', from: { model }, to: { model: 'claude-opus-5' } },
+                { type: 'text', text: 'done' },
+            ];
+            const chunks = [];
+            for await ( const chunk of await ai.chat(firstTurn, { model, stream: true }) ) chunks.push(chunk);
+            expect(chunks).toHaveLength(2);
+            FakeXHR.streamChunks = null;
+
+            await ai.chat(nextTurn, { model });
+            expect(lastBody().args.refusalFallbackModel).toBe('claude-opus-5');
+        });
+
+        it('follows the conversation to the model that answered last', async () => {
+            await fallBack('claude-opus-5');
+            FakeXHR.respondWith = answeredBy('claude-opus-4-8');
+            await ai.chat(nextTurn, { model });
+            FakeXHR.respondWith = null;
+
+            await ai.chat([...nextTurn, { role: 'assistant', content: 'ok' }], { model });
+            expect(lastBody().args.refusalFallbackModel).toBe('claude-opus-4-8');
+        });
+
+        it('still matches after a cache marker moved off an earlier message', async () => {
+            FakeXHR.respondWith = answeredBy('claude-opus-4-8');
+            await ai.chat([{ ...firstTurn[0], cache_control: { type: 'ephemeral' } }], { model });
+            FakeXHR.respondWith = null;
+
+            await ai.chat(nextTurn, { model });
+            expect(lastBody().args.refusalFallbackModel).toBe('claude-opus-4-8');
+        });
+
+        it.each([
+            ['another conversation', [{ role: 'user', content: 'build another app' }], { model }],
+            ['another model', nextTurn, { model: 'claude-sonnet-5-5' }],
+            ['a call that turned the fallback off', nextTurn, { model, refusalFallback: false }],
+        ])('leaves %s alone', async (_name, messages, options) => {
+            await fallBack();
+            await ai.chat(messages, options);
+            expect(lastBody().args).not.toHaveProperty('refusalFallbackModel');
+        });
+
+        it('remembers nothing from a call that turned the fallback off', async () => {
+            FakeXHR.respondWith = answeredBy('claude-opus-4-8');
+            await ai.chat(firstTurn, { model, refusalFallback: false });
+            FakeXHR.respondWith = null;
+
+            await ai.chat(nextTurn, { model });
+            expect(lastBody().args).not.toHaveProperty('refusalFallbackModel');
+        });
     });
 
     it('preserves serviceSpeed precedence alongside the native speed option', async () => {

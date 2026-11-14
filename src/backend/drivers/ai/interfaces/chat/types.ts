@@ -110,6 +110,11 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
      * leading `system` blocks instead.
      */
     midConversationSystem?: boolean;
+    /**
+     * The same provider's models a request this model declines is rerun on, in
+     * the order tried.
+     */
+    refusalFallbackModels?: string[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -120,7 +125,13 @@ export type PuterMessage = any;
  * `output_config.effort`.
  */
 export type ReasoningEffort =
-    'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    | 'none'
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'xhigh'
+    | 'max';
 
 /** Normalized tool choice, Anthropic vocabulary. */
 export type ToolChoice =
@@ -185,6 +196,11 @@ export interface UsageDetails {
     serviceTier?: string;
     serviceSpeed?: ServiceSpeed;
     /**
+     * The model that produced the response, set when a declined request was
+     * rerun on a model other than the requested one.
+     */
+    fallbackModel?: string;
+    /**
      * Per-pass breakdown when the upstream ran several passes (compaction,
      * advisor).
      */
@@ -248,6 +264,17 @@ export interface ICompleteArguments {
      * allowlist.
      */
     anthropicBetas?: string[];
+    /**
+     * `false` returns a declined request's refusal as it is instead of
+     * rerunning the request on the model's `refusalFallbackModels`.
+     */
+    refusalFallback?: boolean;
+    /**
+     * One of the requested model's fallback models, sent by a caller whose
+     * conversation that model already answered for a declined turn. The request
+     * runs on it and is presented as the requested model.
+     */
+    refusalFallbackModel?: string;
     /** Emit `tool_use_start` / `tool_input_delta` chunks while streaming. */
     streamToolInput?: boolean;
     include?: unknown[];
@@ -320,6 +347,14 @@ export interface IChatStreamResult {
     finish_reason?: never;
 }
 
+/** A declined request handed from the model that declined it to the next. */
+export interface RefusalFallback {
+    type: 'fallback';
+    from: { model: string };
+    to: { model: string };
+    trigger: { type: 'refusal'; category: string | null };
+}
+
 export interface IChatMessageResult {
     message: PuterMessage;
     usage: Record<string, number>;
@@ -344,6 +379,11 @@ export interface IChatMessageResult {
     safeguardResults?: unknown[];
     /** Claude only. */
     contextManagement?: Record<string, unknown>;
+    /**
+     * One `fallback` block per rerun of a declined request on another model, in
+     * order.
+     */
+    refusalFallbacks?: RefusalFallback[];
     /**
      * Internal: per-usage-key cost (µ¢) the provider already metered with, so
      * the driver's reported cost matches the ledger exactly. Stripped before

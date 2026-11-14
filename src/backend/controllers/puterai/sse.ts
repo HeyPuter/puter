@@ -370,6 +370,16 @@ export class AnthropicSseWriter {
                     encrypted_content: ev.encrypted_content,
                 });
                 break;
+            case 'refusal_fallback':
+                this.#close();
+                this.#openBlock('other', {
+                    type: 'fallback',
+                    from: ev.from,
+                    to: ev.to,
+                    trigger: ev.trigger,
+                });
+                this.#close();
+                break;
             case 'safeguard_results':
                 this.#safeguards = ev.results as unknown[];
                 break;

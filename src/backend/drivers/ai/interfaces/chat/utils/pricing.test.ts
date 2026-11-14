@@ -230,6 +230,18 @@ describe('trackedInputTokens / trackedOutputTokens skip per-call and advisor key
         expect(trackedInputTokens(usage, m)).toBe(10);
         expect(trackedOutputTokens(usage, m)).toBe(5);
     });
+
+    it('excludes the tokens of an attempt that declined before a fallback', () => {
+        const usage = {
+            input_tokens: 10,
+            output_tokens: 5,
+            declined_input_tokens: 100,
+            declined_cache_read_input_tokens: 40,
+            declined_output_tokens: 50,
+        };
+        expect(trackedInputTokens(usage, m)).toBe(10);
+        expect(trackedOutputTokens(usage, m)).toBe(5);
+    });
 });
 
 describe('usageDetailsFromUsage', () => {
@@ -432,6 +444,24 @@ describe('usageCost', () => {
                 { advisor_output_tokens: 7 },
             ),
         ).toEqual({ inputMicroCents: 30, outputMicroCents: 7 });
+    });
+
+    it('prices a declined attempt only through a recorded cost', () => {
+        const usage = {
+            prompt_tokens: 10,
+            declined_input_tokens: 1000,
+            declined_output_tokens: 100,
+        };
+        expect(usageCost(usage, rates)).toEqual({
+            inputMicroCents: 30,
+            outputMicroCents: 0,
+        });
+        expect(
+            usageCost(usage, rates, {
+                declined_input_tokens: 400,
+                declined_output_tokens: 7,
+            }),
+        ).toEqual({ inputMicroCents: 430, outputMicroCents: 7 });
     });
 
     it('is null when nothing in the usage can be priced', () => {

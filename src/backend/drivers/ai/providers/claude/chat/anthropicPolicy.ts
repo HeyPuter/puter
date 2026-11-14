@@ -465,6 +465,35 @@ const usesCompactEdit = (contextManagement: unknown): boolean => {
     );
 };
 
+// -- refusals ---------------------------------------------------------------
+
+/**
+ * Refusal categories Anthropic bills even when the model declined before any
+ * output. Source:
+ * https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#how-refusals-are-billed
+ */
+const BILLED_REFUSAL_CATEGORIES = new Set<unknown>([
+    'bio',
+    'frontier_llm',
+    'reasoning_extraction',
+]);
+
+/**
+ * Whether Anthropic bills a request that ended in a refusal, given its
+ * `stop_details`. Missing details say nothing about the category, so the
+ * request stays billed.
+ */
+export const isRefusalBilled = (
+    stopDetails: unknown,
+    outputTokens: number,
+): boolean =>
+    outputTokens > 0 ||
+    !stopDetails ||
+    typeof stopDetails !== 'object' ||
+    BILLED_REFUSAL_CATEGORIES.has(
+        (stopDetails as { category?: unknown }).category,
+    );
+
 // -- safeguards -------------------------------------------------------------
 
 export const DEFAULT_SAFEGUARDS_BETA = 'dangerous-tool-use-2026-09-03';

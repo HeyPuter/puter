@@ -140,6 +140,14 @@ export const isPerCallCostKey = (key: string): boolean =>
     key === 'request' || key.endsWith('_requests') || key.endsWith('_calls');
 
 /**
+ * Usage another model ran inside the request: an advisor's passes, or an
+ * attempt that declined before a fallback. Only a recorded cost prices it, and
+ * it is no part of the request's own prompt or output.
+ */
+const isOtherModelKey = (key: string): boolean =>
+    key.startsWith('advisor_') || key.startsWith('declined_');
+
+/**
  * The rate multipliers a request pays given how many input tokens it sent —
  * cached reads and cache writes included. `1`/`1` unless the model has
  * long-context pricing and the request is past its threshold.
@@ -172,10 +180,10 @@ export const trackedInputTokens = (
     for (const [key, amount] of Object.entries(trackedUsage)) {
         if (NOT_USAGE.has(key)) continue;
         // Per-call counts (`web_search_requests`, `web_search_calls`) and
-        // advisor-iteration tokens are billed, but neither is part of the
+        // another model's tokens are billed, but neither is part of the
         // executor prompt the funds cap and long-context threshold are
         // measured against.
-        if (isPerCallCostKey(key) || key.startsWith('advisor_')) {
+        if (isPerCallCostKey(key) || isOtherModelKey(key)) {
             continue;
         }
         if (isOutputCostKey(key, outputKey)) continue;
@@ -197,7 +205,7 @@ export const trackedOutputTokens = (
     const { outputKey } = costKeys(model);
     let total = 0;
     for (const [key, amount] of Object.entries(trackedUsage)) {
-        if (isPerCallCostKey(key) || key.startsWith('advisor_')) {
+        if (isPerCallCostKey(key) || isOtherModelKey(key)) {
             continue;
         }
         if (!isOutputCostKey(key, outputKey)) continue;
@@ -355,11 +363,9 @@ export const usageCost = (
     for (const [key, amount] of Object.entries(usage)) {
         if (!isBillable(key, amount)) continue;
         const recorded = recordedCosts?.[key];
-        // Advisor usage is priced at the advisor model's own rates, so only a
-        // recorded cost can price it here.
         const cost = isRate(recorded)
             ? recorded
-            : key.startsWith('advisor_')
+            : isOtherModelKey(key)
               ? undefined
               : priced[key];
         if (cost === undefined) continue;

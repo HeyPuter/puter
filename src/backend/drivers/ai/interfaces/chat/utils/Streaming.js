@@ -169,6 +169,9 @@ export class AIChatStream {
      */
     reportedUsage = null;
 
+    /** Whether anything has been written since the stream last started. */
+    hasOutput = false;
+
     /** Set once the caller has gone away; see `detach`. */
     detached = false;
     #detachController = new AbortController();
@@ -270,6 +273,7 @@ export class AIChatStream {
      * @param {{ alreadyCounted?: boolean }} [opts]
      */
     writeChunk(chunk, { alreadyCounted = false } = {}) {
+        this.hasOutput = true;
         if (!alreadyCounted) this.outputChars += payloadChars(chunk);
         if (this.#writable()) this.stream.write(`${JSON.stringify(chunk)}\n`);
     }
@@ -355,6 +359,31 @@ export class AIChatStream {
     }
 
     /**
+     * Marks a request `from.model` declined before any output being rerun on
+     * `to.model`, whose output follows.
+     *
+     * @param {import('../types.js').RefusalFallback} handoff
+     */
+    refusalFallback({ from, to, trigger }) {
+        this.writeChunk(
+            { type: 'refusal_fallback', from, to, trigger },
+            { alreadyCounted: true },
+        );
+    }
+
+    /**
+     * Clears what an attempt that wrote no output left behind, so the next
+     * attempt reports its own stop and usage on the same stream.
+     */
+    restart() {
+        this.hasOutput = false;
+        this.stop = null;
+        this.usageDetails = null;
+        this.usageCosts = null;
+        this.contextManagement = null;
+    }
+
+    /**
      * Dangerous-tool-use classifier verdicts, only ever written when the
      * upstream actually sent them.
      *
@@ -425,6 +454,7 @@ export class AIChatStream {
         return new AIChatMessageStream(this);
     }
     write(...args) {
+        this.hasOutput = true;
         if (this.#writable()) this.stream.write(...args);
     }
 }

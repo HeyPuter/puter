@@ -108,6 +108,17 @@ export default suite('ai', {
         }
     },
 
+    'chat accepts refusalFallback on a model that never falls back': async t => {
+        useApiToken(t);
+        for (const refusalFallback of [false, true]) {
+            const result = await t.puter.ai.chat('Hello', {
+                model: 'fake', refusalFallback, normalize: true,
+            });
+            t.assert.equal(typeof result.message.content, 'string');
+            t.assert.equal(result.usageDetails?.fallbackModel, undefined);
+        }
+    },
+
     'service speed falls back on unsupported models without changing the normalized response': async t => {
         useApiToken(t);
         for (const serviceSpeed of ['standard', 'fast', 'ultrafast'] as const) {

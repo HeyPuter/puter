@@ -1,6 +1,7 @@
 import { PuterModule } from '../../lib/PuterModule.js';
 import { realtime } from './realtime.js';
 import { chat } from './chat.js';
+import { RefusalPins } from './lib/refusalPins.js';
 import { txt2img } from './image.js';
 import { listModelProviders, listModels } from './models.js';
 import { img2txt } from './ocr.js';
@@ -43,6 +44,9 @@ export class AIModule extends PuterModule {
      * @type {boolean | undefined}
      */
     normalize = undefined;
+
+    /** @internal */
+    refusalPins = new RefusalPins();
 
     // The fields hold the unbound functions so they keep the full overloaded
     // types (`bind` erases overloads); the constructor rebinds them at

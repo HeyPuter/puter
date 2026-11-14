@@ -31,7 +31,7 @@
  * endpoint.
  */
 
-import { Writable } from 'node:stream';
+import { Writable, type Readable } from 'node:stream';
 import {
     afterAll,
     afterEach,
@@ -54,8 +54,10 @@ import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
+import { ChatCompletionDriver } from '../../../interfaces/chat/ChatCompletionDriver.js';
 import { normalize_messages } from '../../../interfaces/chat/utils/Messages.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
+import { estimatePromptTokens } from '../../../interfaces/chat/utils/usageEstimate.js';
 import { FILES_API_BETA } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
 import { ClaudeProvider } from './ClaudeProvider.js';
@@ -3078,4 +3080,556 @@ describe('ClaudeProvider request determinism', () => {
             expect(JSON.stringify(first)).toBe(JSON.stringify(second));
         },
     );
+});
+
+// ── Refusals ────────────────────────────────────────────────────────
+
+describe('ClaudeProvider refusals', () => {
+    const rates = (id: string) =>
+        CLAUDE_MODELS.find((m) => m.id === id)!.costs as Record<string, number>;
+    const opus55 = rates('claude-opus-5-5');
+    const opus5 = rates('claude-opus-5');
+    const opus48 = rates('claude-opus-4-8');
+
+    const refusal = (category: unknown, output_tokens = 0) => ({
+        type: 'message',
+        model: 'claude-opus-5-5',
+        content: [],
+        stop_reason: 'refusal',
+        stop_details: { type: 'refusal', category, explanation: 'declined' },
+        usage: {
+            input_tokens: 900,
+            cache_read_input_tokens: 100,
+            output_tokens,
+        },
+    });
+    const refusalEvents = (category: unknown) => {
+        const usage = { input_tokens: 900, output_tokens: 0 };
+        return makeStreamLike(
+            [
+                { type: 'message_start' },
+                {
+                    type: 'message_delta',
+                    delta: {
+                        stop_reason: 'refusal',
+                        stop_details: {
+                            type: 'refusal',
+                            category,
+                            explanation: 'declined',
+                        },
+                    },
+                    usage,
+                },
+                { type: 'message_stop' },
+            ],
+            usage,
+        );
+    };
+    const answer = (model: string) => ({
+        type: 'message',
+        model,
+        content: [{ type: 'text', text: 'answer' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 412, output_tokens: 264 },
+    });
+    const answerEvents = () => {
+        const usage = { input_tokens: 412, output_tokens: 264 };
+        return makeStreamLike(
+            [
+                { type: 'message_start' },
+                { type: 'content_block_start', content_block: { type: 'text' } },
+                {
+                    type: 'content_block_delta',
+                    delta: { type: 'text_delta', text: 'answer' },
+                },
+                { type: 'content_block_stop' },
+                {
+                    type: 'message_delta',
+                    delta: { stop_reason: 'end_turn' },
+                    usage,
+                },
+                { type: 'message_stop' },
+            ],
+            usage,
+        );
+    };
+    const noCost = {
+        input_tokens: 0,
+        ephemeral_5m_input_tokens: 0,
+        ephemeral_1h_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        output_tokens: 0,
+    };
+
+    const complete = (
+        provider: ReturnType<typeof makeProvider>['provider'],
+        args: Record<string, unknown>,
+        actor?: Actor,
+    ) =>
+        withTestActor(
+            () =>
+                provider.complete({
+                    model: 'claude-opus-5-5',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    ...args,
+                } as never),
+            actor,
+        );
+    const pump = async (result: unknown, actor?: Actor) => {
+        const harness = makeCapturingChatStream();
+        await withTestActor(
+            () =>
+                (
+                    result as {
+                        init_chat_stream: (p: {
+                            chatStream: unknown;
+                        }) => Promise<void>;
+                    }
+                ).init_chat_stream({ chatStream: harness.chatStream }),
+            actor,
+        );
+        return harness.events();
+    };
+
+    describe('billing', () => {
+        it.each(['cyber', 'general_harms', 'some_future_category', null])(
+            'records a request declined before any output in category %s at no cost',
+            async (category) => {
+                const { provider } = makeProvider();
+                messagesCreateMock.mockResolvedValueOnce(refusal(category));
+
+                const result = (await complete(provider, {})) as Record<
+                    string,
+                    any
+                >;
+
+                expect(recordSpy).toHaveBeenCalledTimes(1);
+                const [recorded, , prefix, costs] = recordSpy.mock.calls[0]!;
+                expect(prefix).toBe('claude:claude-opus-5-5');
+                expect(recorded).toMatchObject({
+                    input_tokens: 900,
+                    cache_read_input_tokens: 100,
+                    output_tokens: 0,
+                });
+                expect(costs).toEqual(noCost);
+                expect(result.usageCosts).toEqual(noCost);
+                expect(result.stopReason).toBe('refusal');
+                expect(result.stopDetails.category).toBe(category);
+                expect(result.usage.input_tokens).toBe(900);
+            },
+        );
+
+        it.each(['bio', 'frontier_llm', 'reasoning_extraction'])(
+            'charges a request declined before any output in category %s',
+            async (category) => {
+                const { provider } = makeProvider();
+                messagesCreateMock.mockResolvedValueOnce(refusal(category));
+
+                await complete(provider, {});
+
+                expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                    input_tokens: 900 * opus55.input_tokens!,
+                    cache_read_input_tokens:
+                        100 * opus55.cache_read_input_tokens!,
+                });
+            },
+        );
+
+        it('charges a request declined after it produced output', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(refusal('cyber', 40));
+
+            await complete(provider, {});
+
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                input_tokens: 900 * opus55.input_tokens!,
+                output_tokens: 40 * opus55.output_tokens!,
+            });
+        });
+
+        it('charges a refusal that carries no stop_details', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                ...refusal('cyber'),
+                stop_details: null,
+            });
+
+            await complete(provider, {});
+
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                input_tokens: 900 * opus55.input_tokens!,
+            });
+        });
+
+        it('records a streamed refusal before any output at no cost', async () => {
+            const { provider } = makeProvider();
+            messagesStreamMock.mockReturnValueOnce(refusalEvents('cyber'));
+
+            const events = await pump(
+                await complete(provider, { stream: true }),
+            );
+
+            expect(recordSpy.mock.calls[0]![3]).toEqual(noCost);
+            expect(events).toHaveLength(1);
+            expect(events[0]).toMatchObject({
+                type: 'usage',
+                stopReason: 'refusal',
+                usage: { input_tokens: 900 },
+            });
+        });
+
+        it('charges a streamed refusal in a billed category', async () => {
+            const { provider } = makeProvider();
+            messagesStreamMock.mockReturnValueOnce(
+                refusalEvents('reasoning_extraction'),
+            );
+
+            await pump(await complete(provider, { stream: true }));
+
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                input_tokens: 900 * opus55.input_tokens!,
+            });
+        });
+    });
+
+    describe('uploaded files', () => {
+        it('hands back the puter_path of a declined request', async () => {
+            const { provider } = makeProvider();
+            const { actor, path } = await makeUserWithFile();
+            filesUploadMock.mockResolvedValue({ id: 'file_declined_1' });
+            messagesCreateMock.mockResolvedValueOnce(refusal('cyber'));
+
+            const part: Record<string, unknown> = { puter_path: path };
+            await complete(
+                provider,
+                { messages: [{ role: 'user', content: [part] }] },
+                actor,
+            );
+
+            // The driver reruns the request with this object, after the file
+            // uploaded for this attempt is deleted.
+            expect(part).toEqual({ puter_path: path });
+            expect(filesDeleteMock).toHaveBeenCalledWith('file_declined_1', {
+                betas: [FILES_API_BETA],
+            });
+        });
+
+        it('hands back the puter_path of a declined stream', async () => {
+            const { provider } = makeProvider();
+            const { actor, path } = await makeUserWithFile();
+            filesUploadMock.mockResolvedValue({ id: 'file_declined_2' });
+            messagesStreamMock.mockReturnValueOnce(refusalEvents('cyber'));
+
+            const part: Record<string, unknown> = { puter_path: path };
+            await pump(
+                await complete(
+                    provider,
+                    {
+                        messages: [{ role: 'user', content: [part] }],
+                        stream: true,
+                    },
+                    actor,
+                ),
+                actor,
+            );
+
+            expect(part).toEqual({ puter_path: path });
+        });
+
+        it('keeps the uploaded file reference of an answered request', async () => {
+            const { provider } = makeProvider();
+            const { actor, path } = await makeUserWithFile();
+            filesUploadMock.mockResolvedValue({ id: 'file_answered_1' });
+            messagesCreateMock.mockResolvedValueOnce(answer('claude-opus-5-5'));
+
+            const part: Record<string, unknown> = { puter_path: path };
+            await complete(
+                provider,
+                { messages: [{ role: 'user', content: [part] }] },
+                actor,
+            );
+
+            expect(part.puter_path).toBeUndefined();
+        });
+    });
+
+    describe('through the driver', () => {
+        const messages = [{ role: 'user', content: 'hi' }];
+        const promptTokens = estimatePromptTokens(messages);
+
+        const makeDriver = async () => {
+            const driver = new ChatCompletionDriver(
+                {
+                    providers: {
+                        claude: { apiKey: 'test-key' },
+                        ollama: { enabled: false },
+                    },
+                } as never,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            await driver.onServerStart();
+            return driver;
+        };
+        const run = async (args: Record<string, unknown> = {}) => {
+            const driver = await makeDriver();
+            return (await withTestActor(() =>
+                driver.complete({
+                    model: 'claude-opus-5-5',
+                    messages,
+                    ...args,
+                }),
+            )) as Record<string, any>;
+        };
+        const readLines = async (result: unknown) => {
+            const chunks: Buffer[] = [];
+            for await (const chunk of (result as { stream: Readable })
+                .stream as AsyncIterable<Buffer>) {
+                chunks.push(chunk);
+            }
+            return Buffer.concat(chunks)
+                .toString('utf8')
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => JSON.parse(line) as Record<string, any>);
+        };
+        /** What the ledger was charged per model, in µ¢. */
+        const chargedByModel = (
+            metered: MockInstance<MeteringService['batchIncrementUsages']>,
+        ) => {
+            const totals: Record<string, number> = {};
+            for (const [, usages] of metered.mock.calls) {
+                for (const { usageType, costOverride } of usages) {
+                    const model = usageType.split(':')[1]!;
+                    totals[model] = (totals[model] ?? 0) + (costOverride ?? 0);
+                }
+            }
+            return totals;
+        };
+        const declinedCost =
+            900 * opus55.input_tokens! + 100 * opus55.cache_read_input_tokens!;
+        const answerCost = (costs: Record<string, number>) =>
+            412 * costs.input_tokens! + 264 * costs.output_tokens!;
+
+        beforeEach(() => {
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 100_000_000_000, held: 0 });
+        });
+
+        it.each([false, true])(
+            'sends a request with fallback models upstream unchanged (stream: %s)',
+            async (stream) => {
+                messagesCreateMock.mockResolvedValueOnce(
+                    answer('claude-opus-5-5'),
+                );
+                messagesStreamMock.mockReturnValueOnce(answerEvents());
+
+                const result = await run({ stream });
+                if (stream) await readLines(result);
+
+                const sdk = stream ? messagesStreamMock : messagesCreateMock;
+                expect(sdk).toHaveBeenCalledTimes(1);
+                const [params] = sdk.mock.calls[0]!;
+                expect(params.model).toBe('claude-opus-5-5');
+                expect('fallbacks' in params).toBe(false);
+                expect(params.betas).toBeUndefined();
+            },
+        );
+
+        it('reruns a declined request on Opus 5 and charges each attempt on its own model', async () => {
+            const metered = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const reserve = vi.spyOn(server.services.metering, 'reserveCredits');
+            messagesCreateMock
+                .mockResolvedValueOnce(refusal('reasoning_extraction'))
+                .mockResolvedValueOnce(answer('claude-opus-5'));
+
+            const result = await run({ max_tokens: 100 });
+
+            expect(
+                messagesCreateMock.mock.calls.map(([params]) => params.model),
+            ).toEqual(['claude-opus-5-5', 'claude-opus-5']);
+            // One attempt held at a time, never both.
+            expect(reserve.mock.calls.map((call) => call[1])).toEqual([
+                promptTokens * opus55.input_tokens! +
+                    100 * opus55.output_tokens!,
+                promptTokens * opus5.input_tokens! + 100 * opus5.output_tokens!,
+            ]);
+            expect(chargedByModel(metered)).toEqual({
+                'claude-opus-5-5': declinedCost,
+                'claude-opus-5': answerCost(opus5),
+            });
+            expect(result.usage.cost).toBe(declinedCost + answerCost(opus5));
+            expect(result.usage.usd_cents).toBe(
+                (declinedCost + answerCost(opus5)) / 1_000_000,
+            );
+            expect(result.usage).toMatchObject({
+                input_tokens: 412,
+                output_tokens: 264,
+                declined_input_tokens: 900,
+                declined_cache_read_input_tokens: 100,
+                declined_output_tokens: 0,
+            });
+            expect(result.usageDetails).toMatchObject({
+                inputTokens: 412,
+                outputTokens: 264,
+                fallbackModel: 'claude-opus-5',
+            });
+            expect(result.refusalFallbacks).toEqual([
+                {
+                    type: 'fallback',
+                    from: { model: 'claude-opus-5-5' },
+                    to: { model: 'claude-opus-5' },
+                    trigger: {
+                        type: 'refusal',
+                        category: 'reasoning_extraction',
+                    },
+                },
+            ]);
+            // Opus 5.5 answers in the OpenAI shape by default; Opus 5 on its
+            // own does not.
+            expect(result.normalized).toBe(true);
+            expect(result.message.content).toBe('answer');
+        });
+
+        it('charges only the rerun when the refusal is in a category Anthropic does not bill', async () => {
+            const metered = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            messagesCreateMock
+                .mockResolvedValueOnce(refusal('cyber'))
+                .mockResolvedValueOnce(answer('claude-opus-5'));
+
+            const result = await run();
+
+            expect(chargedByModel(metered)['claude-opus-5-5'] ?? 0).toBe(0);
+            expect(result.usage.cost).toBe(answerCost(opus5));
+            expect(result.usage.declined_input_tokens).toBe(900);
+        });
+
+        it('falls back to Opus 4.8 when Opus 5 declines too', async () => {
+            const metered = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            messagesCreateMock
+                .mockResolvedValueOnce(refusal('bio'))
+                .mockResolvedValueOnce({
+                    ...refusal('bio'),
+                    model: 'claude-opus-5',
+                })
+                .mockResolvedValueOnce(answer('claude-opus-4-8'));
+
+            const result = await run();
+
+            expect(
+                messagesCreateMock.mock.calls.map(([params]) => params.model),
+            ).toEqual(['claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8']);
+            const declinedOnOpus5 =
+                900 * opus5.input_tokens! +
+                100 * opus5.cache_read_input_tokens!;
+            expect(chargedByModel(metered)).toEqual({
+                'claude-opus-5-5': declinedCost,
+                'claude-opus-5': declinedOnOpus5,
+                'claude-opus-4-8': answerCost(opus48),
+            });
+            expect(result.usage.cost).toBe(
+                declinedCost + declinedOnOpus5 + answerCost(opus48),
+            );
+            expect(result.usage.declined_input_tokens).toBe(1800);
+            expect(result.usageDetails.fallbackModel).toBe('claude-opus-4-8');
+        });
+
+        it('answers a stream declined before any output from Opus 5', async () => {
+            const metered = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            messagesStreamMock
+                .mockReturnValueOnce(refusalEvents('reasoning_extraction'))
+                .mockReturnValueOnce(answerEvents());
+
+            const lines = await readLines(await run({ stream: true }));
+
+            expect(
+                messagesStreamMock.mock.calls.map(([params]) => params.model),
+            ).toEqual(['claude-opus-5-5', 'claude-opus-5']);
+            expect(lines.map((line) => line.type)).toEqual([
+                'refusal_fallback',
+                'text',
+                'usage',
+            ]);
+            expect(lines[0]).toMatchObject({
+                from: { model: 'claude-opus-5-5' },
+                to: { model: 'claude-opus-5' },
+                trigger: { type: 'refusal', category: 'reasoning_extraction' },
+            });
+            expect(lines[1]!.text).toBe('answer');
+            const streamedDeclinedCost = 900 * opus55.input_tokens!;
+            expect(chargedByModel(metered)).toEqual({
+                'claude-opus-5-5': streamedDeclinedCost,
+                'claude-opus-5': answerCost(opus5),
+            });
+            expect(lines[2]).toMatchObject({
+                stopReason: 'end_turn',
+                usageDetails: { fallbackModel: 'claude-opus-5' },
+                usage: {
+                    input_tokens: 412,
+                    output_tokens: 264,
+                    declined_input_tokens: 900,
+                    cost: streamedDeclinedCost + answerCost(opus5),
+                },
+            });
+        });
+
+        it('runs a pinned conversation on the fallback model, in the requested model\'s format', async () => {
+            messagesCreateMock.mockResolvedValueOnce(answer('claude-opus-4-8'));
+
+            const result = await run({
+                refusalFallbackModel: 'claude-opus-4-8',
+            });
+
+            expect(messagesCreateMock).toHaveBeenCalledTimes(1);
+            expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+                'claude-opus-4-8',
+            );
+            expect(result.normalized).toBe(true);
+            expect(result.message.content).toBe('answer');
+            expect(result.usage.cost).toBe(answerCost(opus48));
+        });
+
+        it.each(['claude-haiku-5-5', 'gpt-6.1-sol', 'no-such-model'])(
+            'ignores a pinned model that is not a fallback of the requested one: %s',
+            async (refusalFallbackModel) => {
+                messagesCreateMock.mockResolvedValueOnce(
+                    answer('claude-opus-5-5'),
+                );
+
+                await run({ refusalFallbackModel });
+
+                expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+                    'claude-opus-5-5',
+                );
+            },
+        );
+
+        it('ignores a pinned model when the caller turned the fallback off', async () => {
+            messagesCreateMock.mockResolvedValueOnce(answer('claude-opus-5-5'));
+
+            await run({
+                refusalFallbackModel: 'claude-opus-4-8',
+                refusalFallback: false,
+            });
+
+            expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+                'claude-opus-5-5',
+            );
+        });
+    });
 });

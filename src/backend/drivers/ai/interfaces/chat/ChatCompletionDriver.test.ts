@@ -42,6 +42,7 @@ import {
     expect,
     it,
     vi,
+    type MockInstance,
 } from 'vitest';
 
 import { Context } from '../../../../core/context.js';
@@ -57,10 +58,12 @@ import { XAI_CHAT_MODELS } from '../../providers/xai/chat/catalog.js';
 import { XAIProvider } from '../../providers/xai/chat/XAIProvider.js';
 import type {
     IChatCompleteResult,
+    IChatModel,
     IChatProvider,
     ICompleteArguments,
 } from './types.js';
 import { clearUnhealthyRoutes } from './utils/providerHealth.js';
+import { estimatePromptTokens } from './utils/usageEstimate.js';
 import type { AIChatStream } from './utils/Streaming.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -673,6 +676,53 @@ describe('ChatCompletionDriver.complete events and cost emission', () => {
 
         const expectedMicroCents = 4 * 1000 + 2 * 2000;
         expect(res.usage.usd_cents).toBe(expectedMicroCents / 1_000_000);
+    });
+
+    it('reports the recorded cost of an attempt another model ran, never its own rates', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'priced',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 1000, output_tokens: 2000 },
+                max_tokens: 8192,
+            },
+        ]);
+        const d = await makeDriver();
+
+        // The answer came from a model at 3000/5000; the attempt on the
+        // requested model declined after 100 prompt tokens.
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ok' }],
+            },
+            usage: {
+                input_tokens: 4,
+                output_tokens: 2,
+                declined_input_tokens: 100,
+                declined_output_tokens: 0,
+            },
+            usageCosts: {
+                input_tokens: 4 * 3000,
+                output_tokens: 2 * 5000,
+                declined_input_tokens: 100 * 1000,
+                declined_output_tokens: 0,
+            },
+            finish_reason: 'stop',
+        } as never);
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'priced',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { usage: Record<string, number>; usageCosts?: unknown };
+
+        expect(res.usage.usd_cents).toBe(
+            (4 * 3000 + 2 * 5000 + 100 * 1000) / 1_000_000,
+        );
+        expect(res.usageCosts).toBeUndefined();
     });
 
     it('prices `usd_cents` at long-context rates once input passes the threshold', async () => {
@@ -2263,6 +2313,449 @@ describe('ChatCompletionDriver.complete streaming', () => {
 });
 
 // -- countTokens -----------------------------------------------------
+
+// ── Refusal fallback ────────────────────────────────────────────────
+
+describe('ChatCompletionDriver.complete refusal fallback', () => {
+    const model = (
+        id: string,
+        costs: { input_tokens: number; output_tokens: number },
+        extra: Partial<IChatModel> = {},
+    ): IChatModel => ({
+        id,
+        aliases: [],
+        costs_currency: 'usd-cents',
+        costs,
+        max_tokens: 8192,
+        ...extra,
+    });
+    const MODELS = [
+        model(
+            'requested',
+            { input_tokens: 1000, output_tokens: 2000 },
+            {
+                refusalFallbackModels: ['second', 'third'],
+                // Past the cutoff, so its answers are OpenAI-shaped.
+                release_date: '2026-10-01',
+            },
+        ),
+        model(
+            'second',
+            { input_tokens: 3000, output_tokens: 5000 },
+            { release_date: '2026-01-01' },
+        ),
+        model('third', { input_tokens: 100, output_tokens: 200 }),
+    ];
+    const messages = [{ role: 'user', content: 'hi' }];
+    const promptTokens = estimatePromptTokens(messages);
+
+    const refusal = (category: string | null = 'reasoning_extraction') =>
+        ({
+            message: { role: 'assistant', content: [] },
+            usage: { input_tokens: 5, output_tokens: 0 },
+            usageCosts: { input_tokens: 5000, output_tokens: 0 },
+            finish_reason: 'stop',
+            stopReason: 'refusal',
+            stopDetails: { type: 'refusal', category, explanation: 'declined' },
+        }) as never;
+    const answer = {
+        message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+        usage: { input_tokens: 4, output_tokens: 2 },
+        usageCosts: { input_tokens: 12_000, output_tokens: 10_000 },
+        finish_reason: 'stop',
+        stopReason: 'end_turn',
+    } as never;
+    const handoff = (from: string, to: string, category: string | null) => ({
+        type: 'fallback',
+        from: { model: from },
+        to: { model: to },
+        trigger: { type: 'refusal', category },
+    });
+
+    /** A stream that ends in a refusal, after `text` when given. */
+    const refusalStream = (text?: string) =>
+        ({
+            stream: true,
+            init_chat_stream: async ({
+                chatStream,
+            }: {
+                chatStream: AIChatStream;
+            }) => {
+                if (text) {
+                    chatStream
+                        .message()
+                        .contentBlock({ type: 'text' })
+                        .addText(text);
+                }
+                chatStream.setStop({
+                    reason: 'refusal',
+                    details: { type: 'refusal', category: 'bio' },
+                });
+                chatStream.setUsageCosts({ input_tokens: 5000 });
+                chatStream.end({ input_tokens: 5, output_tokens: 0 });
+            },
+        }) as never;
+    const answerStream = {
+        stream: true,
+        init_chat_stream: async ({
+            chatStream,
+        }: {
+            chatStream: AIChatStream;
+        }) => {
+            chatStream.message().contentBlock({ type: 'text' }).addText('ok');
+            chatStream.setStop({ reason: 'end_turn' });
+            chatStream.setUsageCosts({
+                input_tokens: 12_000,
+                output_tokens: 10_000,
+            });
+            chatStream.end({ input_tokens: 4, output_tokens: 2 });
+        },
+    } as never;
+
+    let d: ChatCompletionDriver;
+    let completeSpy: MockInstance<FakeChatProvider['complete']>;
+    const modelsRun = () =>
+        completeSpy.mock.calls.map(
+            (call) => (call[0] as ICompleteArguments).model,
+        );
+    const run = (args: Partial<ICompleteArguments> = {}) =>
+        withTestActor(() =>
+            d.complete({ model: 'requested', messages, ...args }),
+        ) as Promise<Record<string, any>>;
+    const runStream = async (args: Partial<ICompleteArguments> = {}) => {
+        const result = (await run({ ...args, stream: true })) as unknown as {
+            stream: Readable;
+        };
+        return (await collectStream(result.stream)) as Record<string, any>[];
+    };
+
+    beforeEach(async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce(
+            MODELS,
+        );
+        d = await makeDriver();
+        completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+        vi.spyOn(server.services.metering, 'getUsageHeadroom').mockResolvedValue(
+            { balance: 100_000_000, held: 0 },
+        );
+    });
+
+    it('reruns a declined request on the next fallback model and reports the handoff', async () => {
+        completeSpy.mockResolvedValueOnce(refusal()).mockResolvedValueOnce(answer);
+
+        const result = await run({ normalize: false });
+
+        expect(modelsRun()).toEqual(['requested', 'second']);
+        expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
+        expect(result.stopReason).toBe('end_turn');
+        expect(result.refusalFallbacks).toEqual([
+            handoff('requested', 'second', 'reasoning_extraction'),
+        ]);
+        expect(result.usageDetails).toMatchObject({
+            inputTokens: 4,
+            outputTokens: 2,
+            fallbackModel: 'second',
+        });
+        expect(result.usage).toMatchObject({
+            input_tokens: 4,
+            output_tokens: 2,
+            declined_input_tokens: 5,
+            declined_output_tokens: 0,
+        });
+        // Each attempt at the cost its provider recorded.
+        expect(result.usage.usd_cents).toBe(
+            (12_000 + 10_000 + 5000) / 1_000_000,
+        );
+    });
+
+    it('tries each fallback model in order until one answers', async () => {
+        completeSpy
+            .mockResolvedValueOnce(refusal('bio'))
+            .mockResolvedValueOnce(refusal(null))
+            .mockResolvedValueOnce(answer);
+
+        const result = await run();
+
+        expect(modelsRun()).toEqual(['requested', 'second', 'third']);
+        expect(result.refusalFallbacks).toEqual([
+            handoff('requested', 'second', 'bio'),
+            handoff('second', 'third', null),
+        ]);
+        expect(result.usageDetails.fallbackModel).toBe('third');
+        expect(result.usage.declined_input_tokens).toBe(10);
+    });
+
+    it('returns the last refusal when every fallback model declines too', async () => {
+        completeSpy.mockResolvedValue(refusal('bio'));
+
+        const result = await run();
+
+        expect(modelsRun()).toEqual(['requested', 'second', 'third']);
+        expect(result.stopReason).toBe('refusal');
+        expect(result.stopDetails.category).toBe('bio');
+        expect(result.usageDetails.fallbackModel).toBe('third');
+    });
+
+    it('holds one attempt at a time, each at its own model\'s rates', async () => {
+        let outstanding = 0;
+        const outstandingAtReserve: number[] = [];
+        const reserve = vi
+            .spyOn(server.services.metering, 'reserveCredits')
+            .mockImplementation(async () => {
+                outstandingAtReserve.push(outstanding++);
+                return {
+                    release: async () => {
+                        outstanding--;
+                    },
+                };
+            });
+        completeSpy.mockResolvedValueOnce(refusal()).mockResolvedValueOnce(answer);
+
+        await run({ max_tokens: 100 });
+
+        expect(reserve.mock.calls.map((call) => call[1])).toEqual([
+            promptTokens * 1000 + 100 * 2000,
+            promptTokens * 3000 + 100 * 5000,
+        ]);
+        // The declined attempt's hold is gone before the rerun takes its own.
+        expect(outstandingAtReserve).toEqual([0, 0]);
+        expect(outstanding).toBe(0);
+    });
+
+    it('caps the rerun\'s output to what the balance still covers', async () => {
+        vi.spyOn(server.services.metering, 'getUsageHeadroom')
+            .mockResolvedValueOnce({ balance: 100_000_000, held: 0 })
+            .mockResolvedValueOnce({ balance: 700_000, held: 0 });
+        completeSpy.mockResolvedValueOnce(refusal()).mockResolvedValueOnce(answer);
+
+        await run({ max_tokens: 5000 });
+
+        const [first, rerun] = completeSpy.mock.calls.map(
+            (call) => (call[0] as ICompleteArguments).max_tokens,
+        );
+        expect(first).toBe(5000);
+        expect(rerun).toBe(
+            Math.floor((700_000 - promptTokens * 3000) / 5000),
+        );
+    });
+
+    it('keeps the refusal when the balance cannot cover the rerun', async () => {
+        vi.spyOn(server.services.metering, 'getUsageHeadroom')
+            .mockResolvedValueOnce({ balance: 100_000_000, held: 0 })
+            .mockResolvedValueOnce({ balance: 10, held: 0 });
+        completeSpy.mockResolvedValueOnce(refusal());
+
+        const result = await run();
+
+        expect(modelsRun()).toEqual(['requested']);
+        expect(result.stopReason).toBe('refusal');
+        expect(result.refusalFallbacks).toBeUndefined();
+        expect(result.usageDetails.fallbackModel).toBeUndefined();
+        expect(result.usage.declined_input_tokens).toBeUndefined();
+    });
+
+    it('keeps the refusal when the rerun fails upstream', async () => {
+        completeSpy
+            .mockResolvedValueOnce(refusal())
+            .mockRejectedValueOnce(new Error('upstream down'));
+
+        const result = await run();
+
+        // The last fallback model is not tried after a failure.
+        expect(modelsRun()).toEqual(['requested', 'second']);
+        expect(result.stopReason).toBe('refusal');
+        expect(result.refusalFallbacks).toBeUndefined();
+    });
+
+    it('returns the refusal as it is with refusalFallback: false', async () => {
+        completeSpy.mockResolvedValueOnce(refusal());
+
+        const result = await run({ refusalFallback: false });
+
+        expect(modelsRun()).toEqual(['requested']);
+        expect(result.stopReason).toBe('refusal');
+    });
+
+    it('returns the refusal of a model that has no fallback models', async () => {
+        completeSpy.mockResolvedValueOnce(refusal());
+
+        const result = await run({ model: 'second' });
+
+        expect(modelsRun()).toEqual(['second']);
+        expect(result.stopReason).toBe('refusal');
+    });
+
+    it('reruns a pinned conversation only on the models after the pinned one', async () => {
+        completeSpy.mockResolvedValueOnce(refusal()).mockResolvedValueOnce(answer);
+
+        const result = await run({ refusalFallbackModel: 'second' });
+
+        expect(modelsRun()).toEqual(['second', 'third']);
+        expect(result.refusalFallbacks).toEqual([
+            handoff('second', 'third', 'reasoning_extraction'),
+        ]);
+    });
+
+    it('answers in the requested model\'s format', async () => {
+        completeSpy.mockResolvedValueOnce(refusal()).mockResolvedValueOnce(answer);
+
+        const result = await run();
+
+        // `second` on its own predates the cutoff and answers in blocks.
+        expect(result.normalized).toBe(true);
+        expect(result.message.content).toBe('ok');
+    });
+
+    it('announces one completion, by the model that answered', async () => {
+        const completed = captureEvent('ai.prompt.complete');
+        completeSpy.mockResolvedValueOnce(refusal()).mockResolvedValueOnce(answer);
+
+        await run();
+
+        expect(completed).toHaveLength(1);
+        expect(completed[0]![1]).toMatchObject({ model_used: 'second' });
+    });
+
+    describe('streaming', () => {
+        it('answers a stream declined before any output from the next fallback model', async () => {
+            completeSpy
+                .mockResolvedValueOnce(refusalStream())
+                .mockResolvedValueOnce(answerStream);
+
+            const lines = await runStream();
+
+            expect(modelsRun()).toEqual(['requested', 'second']);
+            expect(lines.map((line) => line.type)).toEqual([
+                'refusal_fallback',
+                'text',
+                'usage',
+            ]);
+            expect(lines[0]).toEqual({
+                ...handoff('requested', 'second', 'bio'),
+                type: 'refusal_fallback',
+            });
+            expect(lines[1]!.text).toBe('ok');
+            const usageLine = lines[2]!;
+            expect(usageLine.stopReason).toBe('end_turn');
+            expect(usageLine.usageDetails.fallbackModel).toBe('second');
+            expect(usageLine.usage).toMatchObject({
+                input_tokens: 4,
+                output_tokens: 2,
+                declined_input_tokens: 5,
+                usd_cents: (12_000 + 10_000 + 5000) / 1_000_000,
+            });
+        });
+
+        it('tries each fallback model in order', async () => {
+            completeSpy
+                .mockResolvedValueOnce(refusalStream())
+                .mockResolvedValueOnce(refusalStream())
+                .mockResolvedValueOnce(answerStream);
+
+            const lines = await runStream();
+
+            expect(modelsRun()).toEqual(['requested', 'second', 'third']);
+            expect(lines.map((line) => line.type)).toEqual([
+                'refusal_fallback',
+                'refusal_fallback',
+                'text',
+                'usage',
+            ]);
+            expect(lines[1]!.to).toEqual({ model: 'third' });
+            expect(lines[3]!.usageDetails.fallbackModel).toBe('third');
+            expect(lines[3]!.usage.declined_input_tokens).toBe(10);
+        });
+
+        it('ends with the last refusal when every fallback model declines too', async () => {
+            completeSpy.mockResolvedValue(refusalStream());
+
+            const lines = await runStream();
+
+            expect(modelsRun()).toEqual(['requested', 'second', 'third']);
+            expect(lines.map((line) => line.type)).toEqual([
+                'refusal_fallback',
+                'refusal_fallback',
+                'usage',
+            ]);
+            expect(lines[2]!.stopReason).toBe('refusal');
+        });
+
+        it('does not rerun a stream declined after it produced output', async () => {
+            completeSpy.mockResolvedValueOnce(refusalStream('partial'));
+
+            const lines = await runStream();
+
+            expect(modelsRun()).toEqual(['requested']);
+            expect(lines.map((line) => line.type)).toEqual(['text', 'usage']);
+            expect(lines[1]!.stopReason).toBe('refusal');
+            expect(lines[1]!.usageDetails.fallbackModel).toBeUndefined();
+        });
+
+        it('ends with the refusal when the balance cannot cover the rerun', async () => {
+            vi.spyOn(server.services.metering, 'getUsageHeadroom')
+                .mockResolvedValueOnce({ balance: 100_000_000, held: 0 })
+                .mockResolvedValueOnce({ balance: 10, held: 0 });
+            completeSpy.mockResolvedValueOnce(refusalStream());
+
+            const lines = await runStream();
+
+            expect(modelsRun()).toEqual(['requested']);
+            expect(lines).toHaveLength(1);
+            expect(lines[0]).toMatchObject({
+                type: 'usage',
+                stopReason: 'refusal',
+                stopDetails: { type: 'refusal', category: 'bio' },
+                usage: { input_tokens: 5, output_tokens: 0 },
+            });
+            expect(lines[0]!.usage.declined_input_tokens).toBeUndefined();
+        });
+
+        it('ends with the refusal with refusalFallback: false', async () => {
+            completeSpy.mockResolvedValueOnce(refusalStream());
+
+            const lines = await runStream({ refusalFallback: false });
+
+            expect(modelsRun()).toEqual(['requested']);
+            expect(lines.map((line) => line.type)).toEqual(['usage']);
+            expect(lines[0]!.stopReason).toBe('refusal');
+        });
+
+        it('reports a rerun that fails mid-stream as a stream error', async () => {
+            completeSpy.mockResolvedValueOnce(refusalStream()).mockResolvedValueOnce({
+                stream: true,
+                init_chat_stream: async () => {
+                    throw new Error('upstream died');
+                },
+            } as never);
+
+            const lines = await runStream();
+
+            expect(lines.map((line) => line.type)).toEqual([
+                'refusal_fallback',
+                'error',
+            ]);
+        });
+
+        it('runs the cleanup of every attempt that streamed', async () => {
+            const cleanups = [vi.fn(async () => {}), vi.fn(async () => {})];
+            completeSpy
+                .mockResolvedValueOnce({
+                    ...(refusalStream() as object),
+                    finally_fn: cleanups[0],
+                } as never)
+                .mockResolvedValueOnce({
+                    ...(answerStream as object),
+                    finally_fn: cleanups[1],
+                } as never);
+
+            await runStream();
+            await new Promise((resolve) => setTimeout(resolve, 20));
+
+            expect(cleanups[0]).toHaveBeenCalledTimes(1);
+            expect(cleanups[1]).toHaveBeenCalledTimes(1);
+        });
+    });
+});
 
 describe('ChatCompletionDriver.countTokens', () => {
     it('estimates from messages + tools when the provider has no countTokens hook', async () => {
