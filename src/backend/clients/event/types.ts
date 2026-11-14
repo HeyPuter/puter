@@ -467,6 +467,18 @@ export type EventMap = {
         allowance_used: number;
         month_usage_allowance: number;
     };
+    /**
+     * What an actor on a metered plan has left to spend, in microcents, each
+     * time it is worked out: when usage settles and when a credit gate re-reads
+     * it. Per request, so a listener returns before any I/O for an actor it has
+     * nothing to do for.
+     */
+    'metering.balance': {
+        userUuid: string;
+        remaining: number;
+        /** The plan the balance was worked out under. */
+        subscriptionId: string;
+    };
 
     // ---- Filesystem ----
     'fs.copy.node': {

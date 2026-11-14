@@ -3098,6 +3098,103 @@ describe('MeteringService', () => {
             }
         });
 
+        // A balance read right after a credits change is left as read, so
+        // these let that window pass first.
+        const pastCreditsChange = () => {
+            const { FORCE_EXACT_READ_MS: windowMs } =
+                target.constructor as typeof MeteringService;
+            const later = Date.now() + windowMs + 1;
+            return vi.spyOn(Date, 'now').mockImplementation(() => later);
+        };
+
+        // The last batch runs past the allowance and into purchased credit.
+        it('reports what is left to spend each time usage settles', async () => {
+            target.registerPolicy({
+                id: 'balance-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            target.registerSubscriptionResolver(async () => 'balance-paid');
+            await target.updateAddonCredit(actor.user.uuid!, toMicroCents(1));
+
+            const seen = vi.fn();
+            server.clients.event.on('metering.balance', seen);
+            const dateNow = pastCreditsChange();
+            try {
+                for (const dollars of [4, 4, 2.5]) {
+                    await target.incrementUsage(
+                        actor,
+                        'kv:read',
+                        1,
+                        toMicroCents(dollars),
+                    );
+                }
+                await waitFor(() =>
+                    expect(seen.mock.calls.map(([, event]) => event)).toEqual(
+                        [7, 3, 0.5].map((dollars) => ({
+                            userUuid: actor.user.uuid,
+                            remaining: toMicroCents(dollars),
+                            subscriptionId: 'balance-paid',
+                        })),
+                    ),
+                );
+            } finally {
+                dateNow.mockRestore();
+                server.clients.event.off('metering.balance', seen);
+            }
+        });
+
+        const onGatePlan = async () => {
+            target.registerPolicy({
+                id: 'gate-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            target.registerSubscriptionResolver(async () => 'gate-paid');
+            await target.updateAddonCredit(actor.user.uuid!, toMicroCents(1));
+        };
+
+        it('closes the credit gate on the batch that spends the last purchased credit', async () => {
+            await onGatePlan();
+            const dateNow = pastCreditsChange();
+            try {
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    toMicroCents(11),
+                );
+                expect(creditCache().get(actor.user.uuid!)!.hasCredits).toBe(
+                    false,
+                );
+            } finally {
+                dateNow.mockRestore();
+            }
+        });
+
+        // The purchased credit the batch read may predate the change, so its
+        // own draw is not counted against it.
+        it('keeps the credit gate open for a batch settling right after a credits change', async () => {
+            await onGatePlan();
+            await target.incrementUsage(actor, 'kv:read', 1, toMicroCents(11));
+            expect(creditCache().get(actor.user.uuid!)!.hasCredits).toBe(true);
+        });
+
+        it('reports no balance for a plan guessed from a failed lookup', async () => {
+            target.registerSubscriptionResolver(async () => {
+                throw new Error('store down');
+            });
+            const seen = vi.fn();
+            server.clients.event.on('metering.balance', seen);
+            try {
+                await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+                await new Promise((r) => setTimeout(r, 20));
+                expect(seen).not.toHaveBeenCalled();
+            } finally {
+                server.clients.event.off('metering.balance', seen);
+            }
+        });
+
         // Otherwise every later call waits on the failing store.
         it('fails open with a short fallback answer when refreshing a stale entry errors', async () => {
             const sub = await target.getActorSubscription(actor);
