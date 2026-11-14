@@ -496,6 +496,19 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         });
     });
 
+    it('ignores an input image type that is not a string when there is no input image', async () => {
+        openaiImagesGenerateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://oai/image.png' }],
+        });
+        await expect(withDriverName('ai-image', () =>
+            driver.generate({
+                model: 'gpt-image-2',
+                prompt: 'a landscape',
+                input_image_mime_type: 5,
+            } as never),
+        )).resolves.toBe('https://oai/image.png');
+    });
+
     it('rejects an excluded model regardless of caller casing', async () => {
         await expect(withActor(() =>
             driver.generate({

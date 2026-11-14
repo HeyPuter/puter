@@ -74,7 +74,8 @@ const toMistralResponseFormat = (
 ): Record<string, unknown> => {
     const format = value as Record<string, unknown> | null;
     const jsonSchema = (format?.jsonSchema ?? format?.json_schema) as
-        Record<string, unknown> | undefined;
+        | Record<string, unknown>
+        | undefined;
     const schema = jsonSchema?.schemaDefinition ?? jsonSchema?.schema;
     if (
         !format ||

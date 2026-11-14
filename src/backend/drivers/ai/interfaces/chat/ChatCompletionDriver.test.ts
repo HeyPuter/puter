@@ -212,6 +212,7 @@ describe('ChatCompletionDriver model map', () => {
             'kimi/kimi-3',
             'ollama:plain-model',
             'ollama:vendor/qualified',
+            'vendor/tagged:free',
         ];
         vi.spyOn(OllamaChatProvider.prototype, 'models').mockResolvedValue(
             ids.map((id) => ({
@@ -233,6 +234,7 @@ describe('ChatCompletionDriver model map', () => {
                 'ollama:kimi/kimi-3',
                 'ollama:ollama/plain-model',
                 'ollama:vendor/qualified',
+                'ollama:vendor/tagged:free',
             ]);
             const models = (await d.models()).filter(
                 (model) => model.provider === 'ollama',

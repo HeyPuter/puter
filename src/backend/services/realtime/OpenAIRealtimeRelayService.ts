@@ -1123,13 +1123,15 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     identity?.type === 'app-under-user'
                         ? identity.session
                         : undefined;
-                if (!(
-                    sessionUids?.has(sessionUid ?? '') ||
-                    sessionUids?.has(parentUid ?? '') ||
-                    (tokenUid &&
-                        identity?.type === 'access-token' &&
-                        identity.token_uid === tokenUid)
-                ))
+                if (
+                    !(
+                        sessionUids?.has(sessionUid ?? '') ||
+                        sessionUids?.has(parentUid ?? '') ||
+                        (tokenUid &&
+                            identity?.type === 'access-token' &&
+                            identity.token_uid === tokenUid)
+                    )
+                )
                     return;
                 if (token) {
                     kv.del(realtimeAuthKey(token));

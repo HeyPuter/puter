@@ -155,6 +155,12 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
                 { legacyCode: 'bad_request' },
             );
         }
+        // The SDK writes a list or an object out as several form fields.
+        if (typeof args.prompt === 'object' && args.prompt !== null) {
+            throw new HttpError(400, 'prompt must be a string', {
+                legacyCode: 'bad_request',
+            });
+        }
         if (args.prompt && !caps.canPrompt) {
             throw new HttpError(
                 400,

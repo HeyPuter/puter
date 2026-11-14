@@ -558,7 +558,8 @@ export const splitCachedPrompt = (usage) => {
  * @param {{ writeTtl?: '5m' | '30m' }} [opts] The lifetime `cache_write_tokens`
  *   were written with: 5m unless the provider says otherwise (OpenAI's default
  *   entries live 30m).
- * @returns {import('../../interfaces/chat/types.js').UsageDetails | undefined}
+ * @returns {import('../../interfaces/chat/types.js').UsageDetails
+ *     | undefined}
  */
 export const usageDetailsFromTrackedUsage = (
     trackedUsage,
