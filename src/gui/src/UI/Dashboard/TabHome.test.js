@@ -22,7 +22,11 @@ import { describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('../UIWindowSaveAccount.js', () => ({ default: vi.fn() }));
-vi.mock('../../helpers/dashboardAppLaunch.js', () => ({ openAppInNewTab: vi.fn() }));
+vi.mock('../../helpers/dashboardAppLaunch.js', () => ({
+    DESKTOP_URL: 'https://desktop.puter.com/',
+    openAppInNewTab: vi.fn(),
+    openDesktopInNewTab: vi.fn(),
+}));
 
 globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
@@ -32,7 +36,7 @@ window.icons = {};
 window.launch_apps = { recent: [] };
 
 const { default: TabHome, formatTrialEnd } = await import('./TabHome.js');
-const { openAppInNewTab } = await import('../../helpers/dashboardAppLaunch.js');
+const { openAppInNewTab, openDesktopInNewTab } = await import('../../helpers/dashboardAppLaunch.js');
 
 describe('TabHome recently used', () => {
     const mount = () => {
@@ -94,6 +98,41 @@ describe('TabHome recent app clicks', () => {
         $el_window.find('.bento-recent-app[data-app-name="site"]')[0].click();
         expect(window.open).toHaveBeenCalledWith('https://site.example/', '_blank', 'noopener,noreferrer');
         expect(openAppInNewTab).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('TabHome Open Desktop card', () => {
+    const mount = () => {
+        document.body.innerHTML = `<div class="window">${TabHome.html()}</div>`;
+        const $el_window = $('.window');
+        $.ajax = vi.fn(() => new Promise(() => {}));
+        vi.spyOn(TabHome, 'loadUsageData').mockImplementation(async () => {});
+        TabHome.init($el_window);
+        return $el_window.find('.bento-desktop')[0];
+    };
+    const click = (card, init) => {
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init });
+        card.dispatchEvent(event);
+        return event;
+    };
+
+    it('links to the desktop and opens it signed in on a plain click', () => {
+        openDesktopInNewTab.mockReturnValue(Promise.resolve());
+        const card = mount();
+        expect(card.getAttribute('href')).toBe('https://desktop.puter.com/');
+
+        expect(click(card).defaultPrevented).toBe(true);
+        expect(openDesktopInNewTab).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays a plain link on a modified click, or when the tab was refused', () => {
+        openDesktopInNewTab.mockReset();
+        const card = mount();
+        expect(click(card, { metaKey: true }).defaultPrevented).toBe(false);
+        expect(openDesktopInNewTab).not.toHaveBeenCalled();
+
+        openDesktopInNewTab.mockReturnValue(null);
+        expect(click(card).defaultPrevented).toBe(false);
     });
 });
 
