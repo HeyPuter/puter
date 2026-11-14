@@ -32,7 +32,7 @@
 
 import type { IncomingHttpHeaders } from 'node:http';
 import { HttpError } from '../../core/http/HttpError.js';
-import { sanitizeCacheControl } from '../../drivers/ai-chat/providers/claude/anthropicPolicy.js';
+import { sanitizeCacheControl } from '../../drivers/ai/providers/claude/chat/anthropicPolicy.js';
 import type {
     ICompleteArguments,
     IChatMessageResult,
@@ -42,9 +42,9 @@ import type {
     ThinkingConfig,
     ToolChoice,
     UsageDetails,
-} from '../../drivers/ai-chat/types.js';
-import { needsOpenAICoercion } from '../../drivers/ai-chat/utils/normalizeToOpenAI.js';
-import { fromFinishReason } from '../../drivers/ai-chat/utils/stopReason.js';
+} from '../../drivers/ai/interfaces/chat/types.js';
+import { needsOpenAICoercion } from '../../drivers/ai/interfaces/chat/utils/normalizeToOpenAI.js';
+import { fromFinishReason } from '../../drivers/ai/interfaces/chat/utils/stopReason.js';
 
 const toStringOrEmpty = (v: unknown): string =>
     typeof v === 'string' ? v : '';

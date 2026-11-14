@@ -410,11 +410,13 @@ export const showFramedUpgrade = (win, attribution, tell) => showFramedDialog(wi
  * the user bought credit, once the dialog closes.
  *
  * @param {Window} win
+ * @param {{ appUid?: string }} attribution - the app whose page frames it; an empty one is passed as null
  * @param {(state: 'ready') => void} tell
  * @returns {Promise<boolean>}
  */
-export const showFramedTopUp = (win, tell) => showFramedDialog(win, (closed) => {
+export const showFramedTopUp = (win, attribution, tell) => showFramedDialog(win, (closed) => {
     const dialog = new win.UITopUp({
+        attribution: Object.keys(attribution).length ? attribution : null,
         onClose: (result) => closed(result?.toppedUp === true),
     });
     return dialog.open();

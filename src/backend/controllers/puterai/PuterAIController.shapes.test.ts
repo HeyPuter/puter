@@ -44,7 +44,7 @@ import {
 } from 'vitest';
 
 import type { Actor } from '../../core/actor.js';
-import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
+import type { ChatCompletionDriver } from '../../drivers/ai/interfaces/chat/ChatCompletionDriver.js';
 import { PuterServer } from '../../server.js';
 import { inRequestScope, setupTestServer } from '../../testUtil.js';
 import { PuterAIController } from './PuterAIController.js';

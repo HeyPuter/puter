@@ -51,7 +51,7 @@ import { PermissionUtil } from '../../services/permission/permissionUtil.js';
 import type { WithLifecycle } from '../../types';
 import { withSpan } from '../../util/span.js';
 import { PuterController } from '../types.js';
-import { CallSlot } from './callSlot.js';
+import { CallSlot } from '../../core/http/callSlot.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
 
@@ -446,7 +446,7 @@ export class DriverController extends PuterController {
                 });
             }
             slot.attach(handle, res);
-            Context.set('keepDriverSlot', (work) => slot.keep(work));
+            Context.set('keepConcurrencySlot', (work) => slot.keep(work));
         }
 
         // Stash the requested driver name in Context so multi-provider

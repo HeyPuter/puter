@@ -22,12 +22,15 @@ A string containing the provider you want to list the models for.
 
 Resolves to an array of model objects. Each object always contains `id` and `provider`, and may include fields such as `name`, `aliases`, `context`, `max_tokens`, and a `cost` object (`currency`, `tokens`, `input` and `output` costs in cents). Additional provider-specific capability fields may also be present.
 
+The `puterId` field contains the qualified model name in `<service>:<provider>/<model>` form. Pass this name as the `model` option to [`puter.ai.chat()`](/AI/chat/). The `id` field and aliases also remain accepted model names. When an upstream catalog supplies no provider namespace, the qualified name uses the service name as its namespace.
+
 Example model entry:
 
 ```json
 [
   {
     "id": "claude-opus-4-8",
+    "puterId": "anthropic:anthropic/claude-opus-4-8",
     "provider": "claude",
     "name": "Claude Opus 4.8",
     "aliases": ["claude-opus-4-8-latest"],

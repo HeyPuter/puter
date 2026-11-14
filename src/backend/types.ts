@@ -269,7 +269,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -849,6 +854,14 @@ interface IConfigOptional {
      * obtain its token via the AuthMe flow instead.
      */
     allow_gui_origins?: string[];
+    /**
+     * Origins of this deployment's own pages, served apart from the GUI, that
+     * the GUI's sign-in may hand a session of their own instead of an app token
+     * (see `AuthService.createFirstPartySessionToken`). Exact origins only.
+     * Such a page acts as the account, so list only pages this deployment
+     * builds and serves itself.
+     */
+    first_party_session_origins?: string[];
     /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
     url_signature_secret: string;
     /**
@@ -1411,8 +1424,7 @@ export interface ServerDrainInfo {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

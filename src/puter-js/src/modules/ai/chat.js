@@ -21,6 +21,7 @@ const PARAMS_TO_PASS = [
     'provider',
     'fallback',
     'serviceSpeed',
+    'speed',
     'image_config',
     'compaction',
     'context_management',

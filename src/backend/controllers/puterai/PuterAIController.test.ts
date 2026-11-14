@@ -49,8 +49,8 @@ import type { RouteOptions } from '../../core/http/index.js';
 import {
     COUNT_TOKENS,
     type ChatCompletionDriver,
-} from '../../drivers/ai-chat/ChatCompletionDriver.js';
-import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
+} from '../../drivers/ai/interfaces/chat/ChatCompletionDriver.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/ai/shared/aiLimits.js';
 import { PuterServer } from '../../server.js';
 import { inRequestScope, setupTestServer } from '../../testUtil.js';
 import { PuterAIController } from './PuterAIController.js';

@@ -73,6 +73,8 @@
  * @property {boolean} [vision]
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
+ * @property {'fast' | 'standard'} [speed] Claude inference speed. Faster service may cost more.
+ * An explicit serviceSpeed takes precedence.
  * @property {ServiceSpeed} [serviceSpeed] Preferred service speed. Falls back to
  * fast, then standard when the requested speed is unavailable. Faster service may cost more.
  * @property {boolean} [fallback] Set to `false` to fail the request when the first provider tried

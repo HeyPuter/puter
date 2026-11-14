@@ -263,10 +263,10 @@ export interface RouteOptions {
     rateLimit?: RouteRateLimit | RouteRateLimit[];
 
     /**
-     * Cap simultaneous in-flight requests per key; slots are released on
-     * response finish or close. `bySubscription` overrides `limit` per
-     * `SubscriptionPolicy.id` when metering is wired in. `key`, `scope`,
-     * `backend` as in `rateLimit`.
+     * Cap simultaneous in-flight requests per key; a slot is released once the
+     * response is done and any work the handler kept it for has settled.
+     * `bySubscription` overrides `limit` per `SubscriptionPolicy.id` when
+     * metering is wired in. `key`, `scope`, `backend` as in `rateLimit`.
      */
     concurrent?: {
         limit: number;

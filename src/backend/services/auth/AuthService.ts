@@ -26,6 +26,7 @@ import {
     type Actor,
 } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { normalizeOrigin } from '../../core/http/middleware/originGate.js';
 import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
 import { awaitLater } from '../../util/concurrency.js';
 import { appGenerationStart } from '../../util/appGeneration.js';
@@ -391,6 +392,68 @@ export class AuthService extends PuterService {
                 this.#authIdFor(user),
             ),
         );
+    }
+
+    /**
+     * Whether `origin` is one of the deployment's own pages that sign in with a
+     * session of their own (`first_party_session_origins`).
+     */
+    isFirstPartySessionOrigin(origin: unknown): boolean {
+        if (typeof origin !== 'string' || !origin) return false;
+        const wanted = normalizeOrigin(origin);
+        return (this.config.first_party_session_origins ?? []).some(
+            (listed) => normalizeOrigin(listed) === wanted,
+        );
+    }
+
+    /**
+     * Mint the GUI token one of the deployment's own pages signs in with: a
+     * `web` session of its own under the caller's sign-in, so it is listed and
+     * revoked apart from that sign-in and ends with it. Only a sign-in itself
+     * may ask, never a session handed out this way. No session cookie is ever
+     * issued for the row.
+     */
+    async createFirstPartySessionToken(
+        actor: Actor,
+        origin: string,
+        meta: Record<string, unknown> = {},
+    ): Promise<string> {
+        if (
+            !isPlainUserActor(actor) ||
+            !actor.user?.id ||
+            !actor.user.uuid ||
+            actor.session?.kind !== 'web' ||
+            actor.session.parentUid
+        ) {
+            throw new HttpError(
+                403,
+                'Only a signed-in browser session can sign this page in',
+                { legacyCode: 'forbidden' },
+            );
+        }
+        if (!this.isFirstPartySessionOrigin(origin)) {
+            throw new HttpError(403, 'This origin cannot be signed in', {
+                legacyCode: 'forbidden',
+            });
+        }
+
+        const auth_id = this.#authIdFor(actor.user as UserRow);
+        const row = await this.stores.session.getOrCreateFirstPartySession(
+            actor.user.id,
+            {
+                parentSessionUid: actor.session.uid,
+                origin: normalizeOrigin(origin),
+                expiresAt: nowSeconds() + WEB_WINDOW_SECONDS,
+                meta,
+                auth_id,
+            },
+        );
+        if (!row?.uuid) {
+            throw new HttpError(500, 'Could not sign this page in', {
+                legacyCode: 'internal_error',
+            });
+        }
+        return this.createGuiToken(actor.user as UserRow, row.uuid);
     }
 
     /** Sign a session token for an existing session (upgrade from GUI token). */
@@ -790,7 +853,7 @@ export class AuthService extends PuterService {
                 row.kind !== 'asset' &&
                 // Operator-created debug sessions are never the user's own.
                 row.kind !== DEBUG_APP_SESSION_KIND &&
-                (row.kind !== 'access_token' ||
+                ((row.kind !== 'access_token' && row.kind !== 'web') ||
                     !row.parent_session_id ||
                     live.has(row.parent_session_id)),
         );
@@ -1097,16 +1160,24 @@ export class AuthService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
-        const currentUuid = actor.session?.uid;
-        const rows = await this.stores.session.getByUserId(
+        // The current sign-in is the session, the sign-in it was handed out
+        // under, and the sessions handed out under either.
+        const current = new Set(
+            [actor.session?.uid, actor.session?.parentUid].filter(Boolean),
+        );
+        const rows = (await this.stores.session.getByUserId(
             actor.user.id as number,
             { primary: true },
-        );
+        )) as SessionRow[];
         await this.#revokeCascades(
             rows
                 .filter((row) =>
                     row.kind === 'web'
-                        ? opts.includeCurrent || row.uuid !== currentUuid
+                        ? opts.includeCurrent ||
+                          !(
+                              current.has(row.uuid) ||
+                              current.has(row.parent_session_id ?? '')
+                          )
                         : row.kind === 'app' && opts.includeApps,
                 )
                 .map((row) => row.uuid as string),
@@ -2753,6 +2824,18 @@ export class AuthService extends PuterService {
         const session: SessionRow | null = rawRow;
 
         if (!session) return { invalid: true };
+        // A session handed to a first-party page lives no longer than the
+        // sign-in it was handed out under.
+        if (session.kind === 'web' && session.parent_session_id) {
+            const parent = (await this.stores.session.getByUuidAny(
+                session.parent_session_id,
+            )) as SessionRow | null;
+            if (!parent) {
+                return { reauth: { reason: 'session_revoked', auth_id } };
+            }
+            const parentEnded = this.#endedSession(parent, auth_id);
+            if (parentEnded) return parentEnded;
+        }
         if (!(await deployed)) return { invalid: true };
 
         void this.#touchSession(session.uuid, user.id, ctx);
@@ -3045,7 +3128,13 @@ export class AuthService extends PuterService {
         return makeActor({
             user: this.#actorUserFromRow(user),
             session: session
-                ? { uid: session.uuid, kind: session.kind ?? null }
+                ? {
+                      uid: session.uuid,
+                      kind: session.kind ?? null,
+                      ...(session.kind === 'web' && session.parent_session_id
+                          ? { parentUid: session.parent_session_id }
+                          : {}),
+                  }
                 : null,
         });
     }
