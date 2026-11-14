@@ -362,7 +362,7 @@ describe('pollUntilSettled', () => {
             const kept: Promise<unknown>[] = [];
             const rejection = rejectionOf(
                 runWithContext({}, () => {
-                    Context.set('keepDriverSlot', (work) => kept.push(work));
+                    Context.set('keepConcurrencySlot', (work) => kept.push(work));
                     return pollUntilSettled<Job>({
                         provider: 'together',
                         providerLabel: 'Together AI',

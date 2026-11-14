@@ -1231,4 +1231,41 @@ describe('ChatCompletionDriver streaming failure handling', () => {
         expect(events).toContainEqual({ type: 'text', text: 'hello' });
         expect(cleanup).toHaveBeenCalledTimes(1);
     });
+
+    it('frees the concurrency slot before the provider cleanup hook finishes', async () => {
+        let finishCleanup!: () => void;
+        const cleanup = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    finishCleanup = resolve;
+                }),
+        );
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValue({
+            stream: true,
+            init_chat_stream: async ({
+                chatStream,
+            }: {
+                chatStream: { end: (usage?: Record<string, number>) => void };
+            }) => {
+                chatStream.end({ input_tokens: 1, output_tokens: 1 });
+            },
+            finally_fn: cleanup,
+        } as never);
+
+        const kept: Promise<unknown>[] = [];
+        const result = (await withTestActor(() => {
+            Context.set('keepConcurrencySlot', (work) => kept.push(work));
+            return fakeOnlyDriver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+            } as never);
+        })) as unknown as { stream: Readable };
+        await collect(result.stream);
+
+        expect(kept).toHaveLength(1);
+        await kept[0];
+        await vi.waitFor(() => expect(cleanup).toHaveBeenCalledTimes(1));
+        finishCleanup();
+    });
 });

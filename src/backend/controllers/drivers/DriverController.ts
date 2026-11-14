@@ -51,7 +51,7 @@ import { PermissionUtil } from '../../services/permission/permissionUtil.js';
 import type { WithLifecycle } from '../../types';
 import { withSpan } from '../../util/span.js';
 import { PuterController } from '../types.js';
-import { CallSlot } from './callSlot.js';
+import { CallSlot } from '../../core/http/callSlot.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
 
@@ -337,8 +337,7 @@ export class DriverController extends PuterController {
 
         if (req.actor) {
             const permService = this.services.permission as unknown as
-                | PermissionService
-                | undefined;
+                PermissionService | undefined;
             if (permService) {
                 // Build via PermissionUtil.join so any `:` in a driver or
                 // interface name is escaped — raw interpolation would let a
@@ -446,7 +445,7 @@ export class DriverController extends PuterController {
                 });
             }
             slot.attach(handle, res);
-            Context.set('keepDriverSlot', (work) => slot.keep(work));
+            Context.set('keepConcurrencySlot', (work) => slot.keep(work));
         }
 
         // Stash the requested driver name in Context so multi-provider

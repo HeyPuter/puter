@@ -62,6 +62,8 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | Requests per 10 s   | 200  | 30   | 20        |
 | Concurrent requests | 20   | 3    | 2         |
 
+A chat completion counts as a concurrent request until the model finishes it, even if your app disconnects first, because the model keeps generating and the completion is still billed. That's at most 10 minutes after the disconnect.
+
 | Input                                          | Limit            |
 | ---------------------------------------------- | ---------------- |
 | Text for `txt2speech()`                        | 3,000 characters |

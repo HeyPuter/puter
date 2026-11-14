@@ -18,7 +18,7 @@
  */
 
 import type { Response } from 'express';
-import { onResponseClose } from '../../core/http/onResponseClose.js';
+import { onResponseClose } from './onResponseClose.js';
 
 // Under the concurrency store's one-hour orphan TTL.
 const SLOT_RENEW_MS = 10 * 60 * 1000;
@@ -29,9 +29,9 @@ interface SlotHandle {
 }
 
 /**
- * A driver call's concurrency slot, held until the response is done and the
- * call's work has settled, including work a driver carries on after the caller
- * hung up or was answered.
+ * A request's concurrency slot, held until the response is done and the work
+ * registered with `keep` has settled, including work that carries on after the
+ * caller hung up or was answered.
  */
 export class CallSlot {
     #handle?: SlotHandle;

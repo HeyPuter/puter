@@ -20,8 +20,9 @@
 
 import crypto from 'node:crypto';
 import { withSpan } from '../../../util/span.js';
+import { Context } from '../../context.js';
+import { CallSlot } from '../callSlot.js';
 import { HttpError } from '../HttpError.js';
-import { onResponseClose } from '../onResponseClose.js';
 import { subscriptionOverride } from '../../../services/metering/consts.js';
 
 /**
@@ -413,8 +414,8 @@ async function peekKv(kv, key, limit) {
 //
 // Lifecycle is the wedge between rate and concurrent limits: rate just
 // records a tick, concurrent has to track "still in flight" → "done"
-// across a request boundary. The route middleware hooks `res.finish` /
-// `res.close`; the driver helper wraps the invocation in `try/finally`.
+// across a request boundary. The route middleware and the driver controller
+// both hold the slot in a `CallSlot`.
 
 // Orphan TTL safety nets — used when the process dies between acquire
 // and release. Memory backend doesn't need one (the process is also
@@ -1138,8 +1139,9 @@ async function resolveSubscriptionLimit(req, opts) {
  * bySubscription: { user_free: 2, unlimited: 50 } } } { concurrent: { limit:
  * 10, backend: 'redis', scope: 'expensive-op' } }
  *
- * On accept, schedules release on `res.finish` / `res.close` so even aborted
- * requests give their slot back. On reject, 429 with the same
+ * On accept, holds the slot until the response is done and any work the handler
+ * registered through `keepConcurrencySlot` has settled, so work that outlives a
+ * caller who hung up still counts. On reject, 429 with the same
  * `too_many_requests` legacyCode as the rate gate (clients already handle that
  * branch). Fails open on backend error.
  */
@@ -1165,13 +1167,11 @@ export function concurrencyGate(opts) {
             return;
         }
 
-        // `finish` (response sent) and `close` (connection closed, possibly
-        // aborted before finish) can both fire; the guard releases once.
-        const { release } = guardSlot(slot, '[concurrent]');
-        const onDone = () => void release();
-        res.once('finish', onDone);
-        onResponseClose(res, onDone);
-        if (res.destroyed || res.writableFinished) onDone();
+        const held = new CallSlot();
+        held.attach(guardSlot(slot, '[concurrent]'), res);
+        if (Context.current()) {
+            Context.set('keepConcurrencySlot', (work) => held.keep(work));
+        }
         next();
     };
 }
