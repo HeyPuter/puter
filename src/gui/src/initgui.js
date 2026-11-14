@@ -1089,12 +1089,17 @@ const postAuthActions = async (action) => {
 
     // -------------------------------------------------------------------------------------
     // Action: top-up — the deployment's top-up dialog for the first-party page framing it,
-    // which hears whether the user bought credit once the dialog closes.
+    // which hears whether the user bought credit once the dialog closes. The app it credits
+    // is the one the framing page's origin resolves to.
     // -------------------------------------------------------------------------------------
     if ( action === 'top-up' && window.embedded_in_frame ) {
         let toppedUp;
         try {
-            toppedUp = await showFramedTopUp(window, window.tell_popup_frame);
+            toppedUp = await showFramedTopUp(
+                window,
+                window.host_app_uid ? { appUid: window.host_app_uid } : {},
+                window.tell_popup_frame,
+            );
         } catch (e) {
             // A dialog that failed to open leaves the page to open the top-up in a tab.
             console.error('top-up action failed', e);
