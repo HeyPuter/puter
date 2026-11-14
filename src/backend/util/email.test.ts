@@ -143,6 +143,21 @@ describe('isBlockedEmail', () => {
         expect(isBlockedEmail('a@example.com', ['mailinator.com'])).toBe(false);
     });
 
+    it('does not block a different domain that merely ends in the same characters', () => {
+        expect(
+            isBlockedEmail('a@notmailinator.com', ['mailinator.com']),
+        ).toBe(false);
+    });
+
+    it('applies the same label boundary to a bare TLD entry', () => {
+        expect(isBlockedEmail('a@site.guru', ['ru'])).toBe(false);
+        expect(isBlockedEmail('a@site.ru', ['ru'])).toBe(true);
+    });
+
+    it('still matches a full-address entry', () => {
+        expect(isBlockedEmail('spammer@x.com', ['spammer@x.com'])).toBe(true);
+    });
+
     it('matches on the cleaned address, so aliasing cannot bypass the list', () => {
         expect(
             isBlockedEmail('A.B+tag@MAILINATOR.com', ['mailinator.com']),
