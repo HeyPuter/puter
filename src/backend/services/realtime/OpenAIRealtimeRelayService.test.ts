@@ -24,7 +24,6 @@ import {
     checkRateLimit,
     sweepMemoryWindows,
 } from '../../core/http/middleware/rateLimit.js';
-import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
 import type { IConfig } from '../../types';
 import type { PuterServer } from '../../server';
 import { installSeatStub } from '../../testFixtures/seatStub';
@@ -33,6 +32,7 @@ import {
     createTestUser,
     setupTestServer,
     type TestUserCredentials,
+    withAiCostFactorHook,
 } from '../../testUtil';
 import { kv } from '../../util/kvSingleton';
 import {

@@ -30,25 +30,28 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import {
     COUNT_TOKENS,
     type ChatCompletionDriver,
-} from '../../drivers/ai-chat/ChatCompletionDriver.js';
+} from '../../drivers/ai/interfaces/chat/ChatCompletionDriver.js';
 import type {
     IChatCompleteResult,
     IChatMessageResult,
     IChatModel,
     ICompleteArguments,
     UsageDetails,
-} from '../../drivers/ai-chat/types.js';
+} from '../../drivers/ai/interfaces/chat/types.js';
 import {
     outputFormatFromResponseFormat,
     rejectStatefulResponsesFields,
     toolChoiceFromWire,
-} from '../../drivers/ai-chat/utils/openaiParams.js';
+} from '../../drivers/ai/protocols/openaiCompatible/openaiParams.js';
 import {
     promoteStopForToolCalls,
     toFinishReason,
-} from '../../drivers/ai-chat/utils/stopReason.js';
+} from '../../drivers/ai/interfaces/chat/utils/stopReason.js';
 import { isDriverStreamResult } from '../../drivers/meta.js';
-import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
+import {
+    AI_CONCURRENT,
+    AI_RATE_LIMIT,
+} from '../../drivers/ai/shared/aiLimits.js';
 import { PuterController } from '../types.js';
 import { parseAnthropicRequest, toAnthropicMessage } from './anthropicWire.js';
 import { pipeNdjsonStream } from './ndjsonStream.js';
