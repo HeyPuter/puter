@@ -147,6 +147,11 @@ export class LocalWorkerService extends PuterService {
             if (!existingSub) {
                 return new Response('subdomain not found', { status: 404 });
             }
+            // A suspended owner's worker answers as one that doesn't exist.
+            const owner = await this.stores.user.getById(existingSub.user_id);
+            if (owner?.suspended) {
+                return new Response('subdomain not found', { status: 404 });
+            }
             const [_, authorization, code] = await this.reconstructDeployArgs(
                 workerName,
                 existingSub,
