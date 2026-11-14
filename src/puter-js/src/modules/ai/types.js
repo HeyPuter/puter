@@ -163,10 +163,9 @@
  * @property {ServiceSpeed} [serviceSpeed]
  * @property {string} [serviceTier]
  * @property {string} [fallbackModel] The model that produced the response, when a declined request
- * was rerun on a model other than the requested one (Claude).
+ * ran again on a model other than the requested one (Claude).
  * @property {Array<{ type: string, model?: string, inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWrite5mTokens?: number, cacheWrite30mTokens?: number, cacheWrite1hTokens?: number, cacheWrite12hTokens?: number }>} [iterations]
- * Per-pass breakdown when the upstream ran several passes (compaction, an advisor sub-call, a
- * declined attempt and the model that answered instead).
+ * Per-pass breakdown when the upstream ran several passes (compaction, an advisor sub-call).
  */
 
 /**
@@ -199,8 +198,8 @@
  * @property {string | null} [stopSequence] The stop sequence that ended generation, when one did.
  * @property {Record<string, unknown> | null} [stopDetails] Extra detail on why generation stopped
  * (e.g. a refusal classification). Provider-specific.
- * @property {RefusalFallback[]} [refusalFallbacks] One entry per handoff, in order, when a declined
- * request was rerun on another model (Claude).
+ * @property {RefusalFallback[]} [refusalFallbacks] One entry per switch, in order, when a declined
+ * request ran again on another model (Claude).
  * @property {Record<string, number>} [usage] Token counts under provider-specific keys, plus `cost`:
  * what the request was charged, in microcents ($0.01 = 1,000,000).
  * @property {UsageDetails} [usageDetails] Provider-neutral usage breakdown — prefer this over `usage`
@@ -240,7 +239,7 @@
  * actually sent them.
  * @property {{ model: string }} [from] The model that declined. Present on `"refusal_fallback"`
  * chunks.
- * @property {{ model: string }} [to] The model that produces the output after this chunk. Present on
+ * @property {{ model: string }} [to] The model the request runs again on. Present on
  * `"refusal_fallback"` chunks.
  * @property {{ type: string, category: string | null }} [trigger] Why `from` declined. Present on
  * `"refusal_fallback"` chunks.

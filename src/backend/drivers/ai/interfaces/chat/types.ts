@@ -111,8 +111,8 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
      */
     midConversationSystem?: boolean;
     /**
-     * Claude only: the models Anthropic reruns a declined request on, in the
-     * order tried. A model without the list has no server-side fallback.
+     * The same provider's models a request this model declines is rerun on, in
+     * the order tried.
      */
     refusalFallbackModels?: string[];
 }
@@ -196,8 +196,8 @@ export interface UsageDetails {
     serviceTier?: string;
     serviceSpeed?: ServiceSpeed;
     /**
-     * The model that produced the response, set when the upstream reran a
-     * declined request on a model other than the requested one.
+     * The model that produced the response, set when a declined request was
+     * rerun on a model other than the requested one.
      */
     fallbackModel?: string;
     /**
@@ -265,18 +265,16 @@ export interface ICompleteArguments {
      */
     anthropicBetas?: string[];
     /**
-     * Claude only. `false` returns a declined request's refusal as it is
-     * instead of letting Anthropic rerun the request on another model.
+     * `false` returns a declined request's refusal as it is instead of
+     * rerunning the request on the model's `refusalFallbackModels`.
      */
     refusalFallback?: boolean;
     /**
-     * Claude only: one of the requested model's fallback models, sent by a
-     * caller whose conversation that model already answered for a declined
-     * turn. The request runs on it and is presented as the requested model.
+     * One of the requested model's fallback models, sent by a caller whose
+     * conversation that model already answered for a declined turn. The request
+     * runs on it and is presented as the requested model.
      */
     refusalFallbackModel?: string;
-    /** Claude only: the Anthropic route's native `fallbacks` value. */
-    anthropicFallbacks?: 'default' | Array<{ model: string }>;
     /** Emit `tool_use_start` / `tool_input_delta` chunks while streaming. */
     streamToolInput?: boolean;
     include?: unknown[];
@@ -349,6 +347,14 @@ export interface IChatStreamResult {
     finish_reason?: never;
 }
 
+/** A declined request handed from the model that declined it to the next. */
+export interface RefusalFallback {
+    type: 'fallback';
+    from: { model: string };
+    to: { model: string };
+    trigger: { type: 'refusal'; category: string | null };
+}
+
 export interface IChatMessageResult {
     message: PuterMessage;
     usage: Record<string, number>;
@@ -374,10 +380,10 @@ export interface IChatMessageResult {
     /** Claude only. */
     contextManagement?: Record<string, unknown>;
     /**
-     * Claude only: one `fallback` block per handoff to another model, in order,
-     * taken out of `message.content`.
+     * One `fallback` block per rerun of a declined request on another model, in
+     * order.
      */
-    refusalFallbacks?: Record<string, unknown>[];
+    refusalFallbacks?: RefusalFallback[];
     /**
      * Internal: per-usage-key cost (µ¢) the provider already metered with, so
      * the driver's reported cost matches the ledger exactly. Stripped before
@@ -438,11 +444,6 @@ export interface IChatProvider {
         /** Provider-specific prompt tokens outside message.content. */
         additionalPromptTokens?: number;
         maxTokens?: number;
-        /**
-         * Models the upstream may run the whole request on again. The gate
-         * reserves one more full attempt at each one's rates.
-         */
-        rerunModels?: IChatModel[];
     };
     /**
      * Exact prompt token count, when the vendor offers one (e.g. Claude's

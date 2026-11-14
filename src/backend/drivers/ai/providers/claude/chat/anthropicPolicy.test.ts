@@ -30,19 +30,14 @@ import {
     DEFAULT_SAFEGUARDS_BETA,
     deriveBetas,
     hasExtendedCacheTtl,
-    isFallbackRejected,
     isRefusalBilled,
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
     priciestModel,
-    publicStopDetails,
     rejectOrgScopedBlocks,
     resolveAdvisorModel,
-    resolveBilledModel,
-    resolveRefusalFallbacks,
     sanitizeCacheControl,
     sanitizeCacheControlsIn,
-    splitFallbackBlocks,
     validateContextManagementEdits,
     type BetaFeatures,
 } from './anthropicPolicy.js';
@@ -61,7 +56,6 @@ const models: IChatModel[] = [
         costs_currency: 'usd-cents',
         costs: { input_tokens: 400, output_tokens: 2000 },
         max_tokens: 128000,
-        refusalFallbackModels: ['claude-haiku-4-5-20251001'],
     },
 ];
 
@@ -85,171 +79,7 @@ const noFeatures: BetaFeatures = {
     usesWebSearch: false,
     usesMidConversationSystem: false,
     usesSafeguards: false,
-    usesFallbacks: false,
 };
-
-// -- refusal fallback ------------------------------------------------------
-
-describe('resolveRefusalFallbacks', () => {
-    const [haiku, opus] = models as [IChatModel, IChatModel];
-
-    it('names the chain of a model with fallback targets', () => {
-        expect(resolveRefusalFallbacks({}, opus, models)).toEqual(
-            opus.refusalFallbackModels!.map((model) => ({ model })),
-        );
-    });
-
-    it('uses default routing when the caller asks for it', () => {
-        expect(
-            resolveRefusalFallbacks(
-                { anthropicFallbacks: 'default' },
-                opus,
-                models,
-            ),
-        ).toBe('default');
-    });
-
-    it('sends nothing for a model without fallback targets', () => {
-        expect(resolveRefusalFallbacks({}, haiku, models)).toBeUndefined();
-        expect(
-            resolveRefusalFallbacks(
-                { anthropicFallbacks: [{ model: 'claude-opus-5-5' }] },
-                haiku,
-                models,
-            ),
-        ).toBeUndefined();
-    });
-
-    it('sends nothing when the caller opted out', () => {
-        expect(
-            resolveRefusalFallbacks(
-                { refusalFallback: false, anthropicFallbacks: 'default' },
-                opus,
-                models,
-            ),
-        ).toBeUndefined();
-    });
-
-    it('keeps only the resolved model of each entry in a named chain', () => {
-        expect(
-            resolveRefusalFallbacks(
-                {
-                    anthropicFallbacks: [
-                        { model: 'claude-haiku', max_tokens: 99, speed: 'fast' },
-                    ],
-                },
-                opus,
-                models,
-            ),
-        ).toEqual([{ model: 'claude-haiku-4-5-20251001' }]);
-    });
-
-    it.each([
-        [[{ model: 'not-a-model' }], 'fallbacks: model not-a-model is not available'],
-        [[null], 'fallbacks: model undefined is not available'],
-        [{ model: 'claude-haiku' }, 'fallbacks: must be "default" or a list of models'],
-        [7, 'fallbacks: must be "default" or a list of models'],
-    ])('rejects the chain %j with a 400', (anthropicFallbacks, message) => {
-        expect(() =>
-            resolveRefusalFallbacks({ anthropicFallbacks }, opus, models),
-        ).toThrowError(expect.objectContaining({ statusCode: 400, message }));
-    });
-});
-
-describe('isFallbackRejected', () => {
-    it('matches only a 400 that names the fallback', () => {
-        expect(
-            isFallbackRejected({ status: 400, message: 'fallbacks: not supported' }),
-        ).toBe(true);
-        expect(
-            isFallbackRejected({ status: 400, message: 'max_tokens: too large' }),
-        ).toBe(false);
-        expect(
-            isFallbackRejected({ status: 429, message: 'fallback model is rate limited' }),
-        ).toBe(false);
-        expect(isFallbackRejected(undefined)).toBe(false);
-    });
-});
-
-describe('publicStopDetails', () => {
-    it('drops the fallback-credit fields and keeps the rest', () => {
-        expect(
-            publicStopDetails({
-                type: 'refusal',
-                category: 'cyber',
-                explanation: 'declined',
-                recommended_model: 'claude-opus-4-8',
-                fallback_credit_token: 'secret',
-                fallback_has_prefill_claim: true,
-            }),
-        ).toEqual({
-            type: 'refusal',
-            category: 'cyber',
-            explanation: 'declined',
-            recommended_model: 'claude-opus-4-8',
-        });
-    });
-
-    it('returns null for no details', () => {
-        expect(publicStopDetails(null)).toBeNull();
-        expect(publicStopDetails(undefined)).toBeNull();
-        expect(publicStopDetails('refusal')).toBeNull();
-    });
-});
-
-describe('isRefusalBilled', () => {
-    it.each(['bio', 'frontier_llm', 'reasoning_extraction'])(
-        'bills a refusal before any output in category %s',
-        (category) => {
-            expect(isRefusalBilled({ type: 'refusal', category }, 0)).toBe(true);
-        },
-    );
-
-    it.each(['cyber', 'general_harms', 'some_future_category', null, undefined])(
-        'does not bill a refusal before any output in category %s',
-        (category) => {
-            expect(isRefusalBilled({ type: 'refusal', category }, 0)).toBe(false);
-        },
-    );
-
-    it('bills a refusal that arrived after output, whatever its category', () => {
-        expect(isRefusalBilled({ type: 'refusal', category: 'cyber' }, 1)).toBe(
-            true,
-        );
-    });
-
-    it('bills an attempt whose refusal details are missing', () => {
-        expect(isRefusalBilled(undefined, 0)).toBe(true);
-        expect(isRefusalBilled(null, 0)).toBe(true);
-        expect(isRefusalBilled('refusal', 0)).toBe(true);
-    });
-});
-
-describe('splitFallbackBlocks', () => {
-    it('separates fallback markers from the content around them, in order', () => {
-        const first = { type: 'fallback', to: { model: 'b' } };
-        const second = { type: 'fallback', to: { model: 'c' } };
-        const text = { type: 'text', text: 'hi' };
-        expect(splitFallbackBlocks([first, second, text])).toEqual({
-            content: [text],
-            fallbacks: [first, second],
-        });
-    });
-
-    it('returns the same array when there is no marker', () => {
-        const content = [{ type: 'text', text: 'hi' }];
-        expect(splitFallbackBlocks(content).content).toBe(content);
-        expect(splitFallbackBlocks(content).fallbacks).toEqual([]);
-    });
-
-    it('tolerates content that is not an array or holds non-objects', () => {
-        expect(splitFallbackBlocks(undefined)).toEqual({ content: [], fallbacks: [] });
-        expect(splitFallbackBlocks([null, 'x'])).toEqual({
-            content: [null, 'x'],
-            fallbacks: [],
-        });
-    });
-});
 
 // -- cache_control -------------------------------------------------------
 
@@ -378,22 +208,41 @@ describe('resolveAdvisorModel / priciestModel', () => {
     });
 });
 
-describe('resolveBilledModel', () => {
-    it('resolves an id or alias to its catalog entry', () => {
-        expect(resolveBilledModel('claude-opus', models).id).toBe('claude-opus-5-5');
-    });
+describe('isRefusalBilled', () => {
+    it.each(['bio', 'frontier_llm', 'reasoning_extraction'])(
+        'bills a refusal before any output in category %s',
+        (category) => {
+            expect(isRefusalBilled({ type: 'refusal', category }, 0)).toBe(
+                true,
+            );
+        },
+    );
 
-    it('resolves a dated id to its undated entry', () => {
-        expect(resolveBilledModel('claude-opus-5-5-20260921', models).id).toBe(
-            'claude-opus-5-5',
+    it.each([
+        'cyber',
+        'general_harms',
+        'some_future_category',
+        null,
+        undefined,
+    ])(
+        'does not bill a refusal before any output in category %s',
+        (category) => {
+            expect(isRefusalBilled({ type: 'refusal', category }, 0)).toBe(
+                false,
+            );
+        },
+    );
+
+    it('bills a refusal that arrived after output, whatever its category', () => {
+        expect(isRefusalBilled({ type: 'refusal', category: 'cyber' }, 1)).toBe(
+            true,
         );
     });
 
-    it('prices an id outside the catalog, or none, at the priciest entry', () => {
-        expect(resolveBilledModel('some-future-model', models).id).toBe(
-            'claude-opus-5-5',
-        );
-        expect(resolveBilledModel(undefined, models).id).toBe('claude-opus-5-5');
+    it('bills a refusal whose details are missing', () => {
+        expect(isRefusalBilled(undefined, 0)).toBe(true);
+        expect(isRefusalBilled(null, 0)).toBe(true);
+        expect(isRefusalBilled('refusal', 0)).toBe(true);
     });
 });
 
@@ -738,12 +587,6 @@ describe('deriveBetas', () => {
                 'files-api-2025-04-14',
             ]),
         );
-    });
-
-    it('derives the server-side fallback beta when fallbacks are sent', () => {
-        expect(deriveBetas({ ...noFeatures, usesFallbacks: true })).toEqual([
-            'server-side-fallback-2026-07-01',
-        ]);
     });
 });
 

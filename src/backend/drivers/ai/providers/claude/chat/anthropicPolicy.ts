@@ -142,22 +142,6 @@ export const resolveAdvisorModel = (
 ): IChatModel =>
     resolveModelByIdOrAlias(models, modelId) ?? priciestModel(models);
 
-/**
- * The catalog entry a usage line's model is priced at. A dated id resolves to
- * its undated entry; an id outside the catalog gets the priciest entry's
- * rates.
- */
-export const resolveBilledModel = (
-    modelId: unknown,
-    models: readonly IChatModel[],
-): IChatModel =>
-    resolveModelByIdOrAlias(models, modelId) ??
-    resolveModelByIdOrAlias(
-        models,
-        typeof modelId === 'string' ? modelId.replace(/-\d{8}$/, '') : modelId,
-    ) ??
-    priciestModel(models);
-
 const SERVER_TOOL_TYPE = /^[a-z_]+_\d{8}$/;
 const WEB_SEARCH_2026 = /^web_search_2026/;
 const WEB_FETCH_2026 = /^web_fetch_2026/;
@@ -481,76 +465,7 @@ const usesCompactEdit = (contextManagement: unknown): boolean => {
     );
 };
 
-// -- refusal fallback -------------------------------------------------------
-
-export type AnthropicFallbacks = 'default' | Array<{ model: string }>;
-
-/**
- * The `fallbacks` value for a request: the caller's own chain or default
- * routing, otherwise the model's own chain. Undefined when the caller opted out
- * or the model has no server-side fallback. Per-entry overrides are dropped, so
- * a fallback attempt runs under the request's own `max_tokens` and speed.
- */
-export const resolveRefusalFallbacks = (
-    args: { refusalFallback?: unknown; anthropicFallbacks?: unknown },
-    model: IChatModel,
-    models: readonly IChatModel[],
-): AnthropicFallbacks | undefined => {
-    if (args.refusalFallback === false) return undefined;
-    if (!model.refusalFallbackModels?.length) return undefined;
-    const requested = args.anthropicFallbacks;
-    // Default routing leaves some refusal categories declined, so the model's
-    // chain is named in full.
-    if (requested === undefined) {
-        return model.refusalFallbackModels.map((id) => ({ model: id }));
-    }
-    if (requested === 'default') return 'default';
-    if (!Array.isArray(requested)) {
-        throw new HttpError(
-            400,
-            'fallbacks: must be "default" or a list of models',
-            { legacyCode: 'bad_request' },
-        );
-    }
-    return requested.map((entry) => {
-        const named = (entry as { model?: unknown } | null)?.model;
-        const resolved = resolveModelByIdOrAlias(models, named);
-        if (!resolved) {
-            throw new HttpError(
-                400,
-                `fallbacks: model ${String(named)} is not available`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-        return { model: resolved.id };
-    });
-};
-
-/** Whether Anthropic rejected a request over its `fallbacks` field. */
-export const isFallbackRejected = (e: unknown): boolean => {
-    const err = e as { status?: unknown; message?: unknown };
-    return (
-        err?.status === 400 &&
-        typeof err?.message === 'string' &&
-        /fallback/i.test(err.message)
-    );
-};
-
-/**
- * `stop_details` without the fallback-credit fields: the token is redeemable
- * only with a request field this backend never forwards.
- */
-export const publicStopDetails = (
-    details: unknown,
-): Record<string, unknown> | null => {
-    if (!details || typeof details !== 'object') return null;
-    const {
-        fallback_credit_token: _token,
-        fallback_has_prefill_claim: _claim,
-        ...rest
-    } = details as Record<string, unknown>;
-    return rest;
-};
+// -- refusals ---------------------------------------------------------------
 
 /**
  * Refusal categories Anthropic bills even when the model declined before any
@@ -564,35 +479,20 @@ const BILLED_REFUSAL_CATEGORIES = new Set<unknown>([
 ]);
 
 /**
- * Whether Anthropic bills an attempt that ended in a refusal. `refusal` is the
- * attempt's `stop_details` or its `fallback` block's `trigger`; one that is
- * missing says nothing about the category, so the attempt stays billed.
+ * Whether Anthropic bills a request that ended in a refusal, given its
+ * `stop_details`. Missing details say nothing about the category, so the
+ * request stays billed.
  */
 export const isRefusalBilled = (
-    refusal: unknown,
+    stopDetails: unknown,
     outputTokens: number,
 ): boolean =>
     outputTokens > 0 ||
-    !refusal ||
-    typeof refusal !== 'object' ||
-    BILLED_REFUSAL_CATEGORIES.has((refusal as { category?: unknown }).category);
-
-/** Splits a response's `fallback` marker blocks from the content around them. */
-export const splitFallbackBlocks = (
-    content: unknown,
-): { content: unknown[]; fallbacks: Record<string, unknown>[] } => {
-    const blocks = Array.isArray(content) ? content : [];
-    const fallbacks = blocks.filter(
-        (b): b is Record<string, unknown> =>
-            (b as { type?: unknown } | null)?.type === 'fallback',
+    !stopDetails ||
+    typeof stopDetails !== 'object' ||
+    BILLED_REFUSAL_CATEGORIES.has(
+        (stopDetails as { category?: unknown }).category,
     );
-    return {
-        content: fallbacks.length
-            ? blocks.filter((b) => !fallbacks.includes(b))
-            : blocks,
-        fallbacks,
-    };
-};
 
 // -- safeguards -------------------------------------------------------------
 
@@ -665,7 +565,6 @@ export const BETA = {
     advancedToolUse: 'advanced-tool-use-2025-11-20',
     extendedCacheTtl: 'extended-cache-ttl-2025-04-11',
     filesApi: FILES_API_BETA,
-    serverSideFallback: 'server-side-fallback-2026-07-01',
 } as const;
 
 export interface BetaFeatures {
@@ -688,7 +587,6 @@ export interface BetaFeatures {
     usesWebSearch: boolean;
     usesMidConversationSystem: boolean;
     usesSafeguards: boolean;
-    usesFallbacks: boolean;
 }
 
 /** Betas the request's own shape requires, independent of the header. */
@@ -708,7 +606,6 @@ export const deriveBetas = (f: BetaFeatures): string[] => {
     if (f.usesDeferredTools) betas.push(BETA.advancedToolUse);
     if (f.uses1hTtl) betas.push(BETA.extendedCacheTtl);
     if (f.usesFilesApi) betas.push(BETA.filesApi);
-    if (f.usesFallbacks) betas.push(BETA.serverSideFallback);
     return betas;
 };
 

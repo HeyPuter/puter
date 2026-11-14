@@ -172,7 +172,7 @@ const ALLOWED_INPUT_BLOCK_TYPES = new Set([
     'advisor_tool_result',
     'tool_search_tool_result',
     'compaction',
-    // Echoed back in place; the upstream validates the thinking around it.
+    // Echoed back from a rerun turn; the upstream takes it on any request.
     'fallback',
     // Internal, provider-resolved parts.
     'image_url',
@@ -370,35 +370,6 @@ const neutralCompaction = (
     throw badRequest('compaction: must be a boolean or { trigger_tokens }');
 };
 
-// -- fallbacks ----------------------------------------------------------------
-
-/**
- * The native `fallbacks` field. `"default"` or a list of models is the caller's
- * own chain; `null` or `false` turns the fallback off.
- */
-const refusalFallbackFromAnthropic = (
-    fallbacks: unknown,
-): Pick<ICompleteArguments, 'refusalFallback' | 'anthropicFallbacks'> => {
-    if (fallbacks === undefined) return {};
-    if (fallbacks === null || fallbacks === false) {
-        return { refusalFallback: false };
-    }
-    if (
-        fallbacks === 'default' ||
-        (Array.isArray(fallbacks) &&
-            fallbacks.every(
-                (entry) =>
-                    isPlainObject(entry) && typeof entry.model === 'string',
-            ))
-    ) {
-        return {
-            anthropicFallbacks:
-                fallbacks as ICompleteArguments['anthropicFallbacks'],
-        };
-    }
-    throw badRequest('fallbacks: must be "default" or a list of models');
-};
-
 // -- request parser (§2.R) ----------------------------------------------------
 
 export interface ParseAnthropicRequestOptions {
@@ -463,7 +434,11 @@ export const parseAnthropicRequest = (
         ...(betas.length ? { anthropicBetas: betas } : {}),
         provider: toStringOrEmpty(body.provider) || 'claude',
         ...(body.fallback === false ? { fallback: false } : {}),
-        ...refusalFallbackFromAnthropic(body.fallbacks),
+        // `fallbacks: null` or `false` keeps a refusal as it is. Any other
+        // value is ignored: a declined request reruns on the model's own chain.
+        ...(body.fallbacks === null || body.fallbacks === false
+            ? { refusalFallback: false }
+            : {}),
     };
     // Silently ignored: metadata, service_tier, inference_geo, container,
     // diagnostics.
@@ -678,7 +653,8 @@ export const toAnthropicMessage = (
     const message = (result.message ?? {}) as Record<string, unknown>;
     const resultRecord = result as unknown as Record<string, unknown>;
     const content = [
-        // A non-streamed handoff always precedes the answer.
+        // A declined request is rerun before any output, so its handoffs
+        // precede the answer.
         ...(result.refusalFallbacks ?? []),
         ...(needsOpenAICoercion(message)
             ? nativeMessageContent(message.content)

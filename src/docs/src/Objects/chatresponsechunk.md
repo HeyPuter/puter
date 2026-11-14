@@ -23,7 +23,7 @@ The kind of chunk. One of:
 - `"tool_input_delta"` - An incremental slice of a tool call's JSON arguments (only when `streamToolInput` is set).
 - `"server_tool"` - A server-executed tool call or result (e.g. a web search), in the upstream's native shape.
 - `"safeguard_results"` - Dangerous-tool-use classifier verdicts, keyed by the `tool_use` id they judged (Claude only, only when the upstream sent them).
-- `"refusal_fallback"` - A Claude model declined the request and another Claude model produces the output from this point on. See [Refusal fallback](/AI/chat#refusal-fallback).
+- `"refusal_fallback"` - A Claude model declined the request before any output, and another Claude model produces the output that follows. See [Refusal fallback](/AI/chat#refusal-fallback).
 - `"compaction"` - An inline-compaction summary of earlier context (when `compaction` is enabled).
 - `"extra_content"` - Provider-specific metadata.
 - `"usage"` - Token usage totals, emitted as the final chunk.
@@ -115,7 +115,7 @@ Extra detail on why generation stopped (e.g. a refusal classification). Provider
 
 #### `usageDetails` (Object)
 
-A provider-neutral usage breakdown, present on the final `usage` chunk. `inputTokens` excludes cache reads/writes; `outputTokens` includes reasoning tokens. Fields: `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWrite5mTokens`, `cacheWrite30mTokens`, `cacheWrite1hTokens`, `cacheWrite12hTokens`, `reasoningTokens`, `webSearchRequests`, `webFetchRequests`, `speed` (`"fast"` or `"standard"`), `serviceTier`, `serviceSpeed` (`"standard"`, `"fast"`, or `"ultrafast"` when requested), `fallbackModel` (the model that answered, when a declined Claude request ran on another model), and `iterations` (a per-pass breakdown when the upstream ran several passes, e.g. compaction, an advisor sub-call, or a declined attempt and the model that answered instead). Each `cacheWrite*Tokens` field counts the tokens written to the cache with that lifetime: Claude and Moonshot write 5 minute and 1 hour entries, OpenAI writes 30 minute and 12 hour entries.
+A provider-neutral usage breakdown, present on the final `usage` chunk. `inputTokens` excludes cache reads/writes; `outputTokens` includes reasoning tokens. Fields: `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWrite5mTokens`, `cacheWrite30mTokens`, `cacheWrite1hTokens`, `cacheWrite12hTokens`, `reasoningTokens`, `webSearchRequests`, `webFetchRequests`, `speed` (`"fast"` or `"standard"`), `serviceTier`, `serviceSpeed` (`"standard"`, `"fast"`, or `"ultrafast"` when requested), `fallbackModel` (the model that answered, when a declined Claude request ran on another model), and `iterations` (a per-pass breakdown when the upstream ran several passes, e.g. compaction or an advisor sub-call). Each `cacheWrite*Tokens` field counts the tokens written to the cache with that lifetime: Claude and Moonshot write 5 minute and 1 hour entries, OpenAI writes 30 minute and 12 hour entries.
 
 #### `message` (String)
 

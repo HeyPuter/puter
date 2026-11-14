@@ -354,17 +354,13 @@ describe('parseAnthropicRequest', () => {
         ).toBeUndefined();
     });
 
-    it('leaves the refusal fallback to the provider when fallbacks is absent', () => {
-        const args = parseAnthropicRequest({ messages: [] }, headers);
-        expect(args.refusalFallback).toBeUndefined();
-        expect(args.anthropicFallbacks).toBeUndefined();
-    });
-
-    it.each(['default', [{ model: 'claude-opus-4-8' }]])(
-        'forwards the native fallbacks value %j as the caller\'s own chain',
+    it.each([undefined, 'default', [{ model: 'claude-opus-4-8' }], 'always'])(
+        'leaves the refusal fallback on for fallbacks: %j',
         (fallbacks) => {
-            const args = parseAnthropicRequest({ messages: [], fallbacks }, headers);
-            expect(args.anthropicFallbacks).toEqual(fallbacks);
+            const args = parseAnthropicRequest(
+                { messages: [], fallbacks },
+                headers,
+            );
             expect(args.refusalFallback).toBeUndefined();
         },
     );
@@ -372,17 +368,7 @@ describe('parseAnthropicRequest', () => {
     it.each([null, false])('reads fallbacks: %j as an opt-out', (fallbacks) => {
         const args = parseAnthropicRequest({ messages: [], fallbacks }, headers);
         expect(args.refusalFallback).toBe(false);
-        expect(args.anthropicFallbacks).toBeUndefined();
     });
-
-    it.each(['always', 3, { model: 'claude-opus-4-8' }, ['claude-opus-4-8'], [{}]])(
-        'rejects the malformed fallbacks value %j',
-        (fallbacks) => {
-            expect(() =>
-                parseAnthropicRequest({ messages: [], fallbacks }, headers),
-            ).toThrowError('fallbacks: must be "default" or a list of models');
-        },
-    );
 
     it('maps thinking, tool_choice, stop_sequences, top_p/top_k', () => {
         const args = parseAnthropicRequest(

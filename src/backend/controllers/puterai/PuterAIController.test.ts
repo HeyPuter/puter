@@ -1115,7 +1115,7 @@ describe('PuterAIController.anthropicMessages', () => {
         expect(seen).toBe(true);
     });
 
-    it('hands the native fallbacks field to the driver and returns the fallback model\'s answer', async () => {
+    it('returns the answer of the model a declined request was rerun on', async () => {
         const marker = {
             type: 'fallback',
             from: { model: 'claude-opus-5-5' },
@@ -1142,7 +1142,6 @@ describe('PuterAIController.anthropicMessages', () => {
             makeReq({
                 body: {
                     model: 'claude-opus-5-5',
-                    fallbacks: [{ model: 'claude-opus-4-8' }],
                     messages: [{ role: 'user', content: 'hi' }],
                 },
                 actor: makeUserActor(),
@@ -1150,9 +1149,7 @@ describe('PuterAIController.anthropicMessages', () => {
             res,
         );
 
-        expect(completeSpy.mock.calls[0]![0].anthropicFallbacks).toEqual([
-            { model: 'claude-opus-4-8' },
-        ]);
+        expect(completeSpy.mock.calls[0]![0].refusalFallback).toBeUndefined();
         const body = captured.body as Record<string, unknown>;
         expect(body.model).toBe('claude-opus-4-8');
         expect(body.content).toEqual([marker, { type: 'text', text: 'answer' }]);

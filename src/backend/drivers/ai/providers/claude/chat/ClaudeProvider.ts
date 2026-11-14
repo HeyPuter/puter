@@ -19,7 +19,6 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { Message } from '@anthropic-ai/sdk/resources';
-import type { Actor } from '../../../../../core/actor.js';
 import { Context } from '../../../../../core/context.js';
 import type { FSService } from '../../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
@@ -61,20 +60,13 @@ import {
     combineBetas,
     deriveBetas,
     hasExtendedCacheTtl,
-    isFallbackRejected,
     isRefusalBilled,
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
-    priciestModel,
-    publicStopDetails,
     rejectOrgScopedBlocks,
     resolveAdvisorModel,
-    resolveBilledModel,
-    resolveModelByIdOrAlias,
-    resolveRefusalFallbacks,
     sanitizeCacheControl,
     sanitizeCacheControlsIn,
-    splitFallbackBlocks,
     validateContextManagementEdits,
     type BetaFeatures,
 } from './anthropicPolicy.js';
@@ -243,81 +235,6 @@ const iterationDetails = (it: any) => ({
     cacheWrite1hTokens: it?.cache_creation?.ephemeral_1h_input_tokens ?? 0,
 });
 
-/** One attempt's raw Anthropic token counts, under the keys they are metered as. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const attemptTokens = (raw: any) => ({
-    input_tokens: raw?.input_tokens ?? 0,
-    ephemeral_5m_input_tokens:
-        raw?.cache_creation?.ephemeral_5m_input_tokens ??
-        raw?.cache_creation_input_tokens ??
-        0,
-    ephemeral_1h_input_tokens:
-        raw?.cache_creation?.ephemeral_1h_input_tokens ?? 0,
-    cache_read_input_tokens: raw?.cache_read_input_tokens ?? 0,
-    output_tokens: raw?.output_tokens ?? 0,
-});
-
-/** What one upstream attempt is metered as: its usage keys and their µ¢. */
-interface AttemptCharge {
-    model: IChatModel;
-    usage: Record<string, number>;
-    costs: Record<string, number>;
-}
-
-/**
- * How the attempts of one request ended, as far as the response says: the
- * `fallback` block of each handoff, in order, and the final stop.
- */
-interface AttemptOutcomes {
-    handoffs: Record<string, unknown>[];
-    stopReason?: unknown;
-    stopDetails?: unknown;
-}
-
-/**
- * Prices one attempt's usage at the rates of the model that ran it. A fast
- * attempt keeps the published `fast_` usage keys. An attempt Anthropic does not
- * bill keeps its usage and costs nothing.
- */
-const priceAttempt = (
-    model: IChatModel,
-    tokens: Record<string, number>,
-    fast: boolean,
-    billed: boolean,
-    perCall: Record<string, number> = {},
-): AttemptCharge => {
-    const usage: Record<string, number> = {
-        ...(fast
-            ? Object.fromEntries(
-                  Object.entries(tokens).map(([k, v]) => [`fast_${k}`, v]),
-              )
-            : tokens),
-        ...perCall,
-    };
-    const fastRates = fast ? serviceSpeedCosts(model, 'fast') : undefined;
-    const billingModel = fastRates
-        ? {
-              ...model,
-              costs: {
-                  ...model.costs,
-                  ...Object.fromEntries(
-                      Object.keys(tokens).map((key) => [
-                          `fast_${key}`,
-                          fastRates[key],
-                      ]),
-                  ),
-              },
-          }
-        : model;
-    return {
-        model,
-        usage,
-        costs: billed
-            ? buildCostsOverride(usage, billingModel)
-            : Object.fromEntries(Object.keys(usage).map((key) => [key, 0])),
-    };
-};
-
 const COUNT_TOKENS_FIELDS = [
     'model',
     'messages',
@@ -389,15 +306,12 @@ export class ClaudeProvider implements IChatProvider {
         return `claude:${modelId}`;
     }
 
-    /**
-     * Reserves tools that can run several times before the model answers, and
-     * the attempts a refusal fallback can add.
-     */
+    /** Reserves tools that can run several times before the model answers. */
     requestPricing(
         args: ICompleteArguments,
         model: IChatModel,
         est: { promptTokenEstimate: number },
-    ): { extraCost?: number; rerunModels?: IChatModel[] } {
+    ): { extraCost?: number } {
         let extraCost = 0;
         for (const raw of args.tools ?? []) {
             const tool = raw as Record<string, unknown>;
@@ -435,39 +349,9 @@ export class ClaudeProvider implements IChatProvider {
             }
         }
 
-        const rerunModels = this.#rerunModels(args, model);
         return {
             ...(extraCost > 0 ? { extraCost } : {}),
-            ...(rerunModels.length > 0 ? { rerunModels } : {}),
         };
-    }
-
-    /**
-     * The models a declined request can run again on: every model of the chain,
-     * or the priciest target of Anthropic's default routing, which reruns the
-     * request once. Each is priced at the request's speed.
-     */
-    #rerunModels(args: ICompleteArguments, model: IChatModel): IChatModel[] {
-        const fallbacks = resolveRefusalFallbacks(args, model, this.models());
-        if (fallbacks === undefined) return [];
-        const targets = (
-            fallbacks === 'default'
-                ? (model.refusalFallbackModels ?? [])
-                : fallbacks.map((entry) => entry.model)
-        )
-            .map((id) => resolveModelByIdOrAlias(this.models(), id))
-            .filter((target): target is IChatModel => target !== undefined);
-        if (targets.length === 0) return [];
-        return (
-            fallbacks === 'default' ? [priciestModel(targets)] : targets
-        ).map((target) => ({
-            ...target,
-            provider: model.provider,
-            costs:
-                (args.speed === 'fast'
-                    ? serviceSpeedCosts(target, 'fast')
-                    : undefined) ?? target.costs,
-        }));
     }
 
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
@@ -478,17 +362,6 @@ export class ClaudeProvider implements IChatProvider {
             // considering a different provider.
             if (args.speed === 'fast' && isFastModeUnavailable(e)) {
                 return await this.#completeOnce({ ...args, speed: undefined });
-            }
-            // A fallback the caller never asked for must not cost the request.
-            if (
-                isFallbackRejected(e) &&
-                args.refusalFallback !== false &&
-                args.anthropicFallbacks === undefined
-            ) {
-                return await this.#completeOnce({
-                    ...args,
-                    refusalFallback: false,
-                });
             }
             throw e;
         }
@@ -538,8 +411,9 @@ export class ClaudeProvider implements IChatProvider {
                     events,
                     chatStream,
                     modelUsed,
-                    requestedFast: sdkParams.speed === 'fast',
                 });
+                // A rerun of a declined request uploads the files again.
+                if (chatStream.stop?.reason === 'refusal') restoreUploads();
             };
 
             return {
@@ -563,21 +437,31 @@ export class ClaudeProvider implements IChatProvider {
                 safeguard_results?: unknown[];
                 context_management?: Record<string, unknown> | null;
             };
-            // A handoff marker is not output; callers index `content` for text.
-            const { content, fallbacks } = splitFallbackBlocks(
-                (msg as Message).content,
-            );
-            const { charges, usage, costs, details } = this.#meter(
+            const { usage, costs, details, advisorModel } = this.#meter(
                 (msg as Message).usage,
                 modelUsed,
-                sdkParams.speed === 'fast',
                 {
-                    handoffs: fallbacks,
-                    stopReason: nativeMsg.stop_reason,
-                    stopDetails: nativeMsg.stop_details,
+                    reason: nativeMsg.stop_reason,
+                    details: nativeMsg.stop_details,
                 },
             );
-            this.#record(charges, Context.get('actor'));
+            this.#meteringService.utilRecordUsageObject(
+                usage.executor,
+                Context.get('actor'),
+                this.meteringModelKey(modelUsed.id),
+                costs.executor,
+            );
+            if (usage.advisor) {
+                this.#meteringService.utilRecordUsageObject(
+                    usage.advisor,
+                    Context.get('actor'),
+                    this.meteringModelKey((advisorModel ?? modelUsed).id),
+                    costs.advisor,
+                );
+            }
+
+            // A rerun of a declined request uploads the files again.
+            if (nativeMsg.stop_reason === 'refusal') restoreUploads();
 
             // Surface any inline-compaction artifact for stateless round-trip.
             const compactionBlock = (
@@ -589,19 +473,18 @@ export class ClaudeProvider implements IChatProvider {
             ) as any;
 
             return {
-                message: fallbacks.length ? { ...msg, content } : msg,
-                usage,
+                message: msg,
+                usage: { ...usage.executor, ...(usage.advisor ?? {}) },
                 // Native Claude results report `stop` on the wire, like main —
                 // read `stopReason` below for the real Anthropic value.
                 finish_reason: 'stop',
                 stopReason: nativeMsg.stop_reason ?? undefined,
                 stopSequence: nativeMsg.stop_sequence ?? null,
                 ...(nativeMsg.stop_details
-                    ? { stopDetails: publicStopDetails(nativeMsg.stop_details) }
+                    ? { stopDetails: nativeMsg.stop_details }
                     : {}),
-                ...(fallbacks.length ? { refusalFallbacks: fallbacks } : {}),
                 usageDetails: details,
-                usageCosts: costs,
+                usageCosts: { ...costs.executor, ...(costs.advisor ?? {}) },
                 ...(nativeMsg.safeguard_results
                     ? { safeguardResults: nativeMsg.safeguard_results }
                     : {}),
@@ -763,10 +646,6 @@ export class ClaudeProvider implements IChatProvider {
             args.safeguards,
             headerBetas,
         );
-        // `count_tokens` takes no `fallbacks`.
-        const fallbacks = opts.forCountTokens
-            ? undefined
-            : resolveRefusalFallbacks(args, modelUsed, this.models());
 
         // -- metadata -----------------------------------------------------
         const actor = Context.get('actor');
@@ -848,7 +727,6 @@ export class ClaudeProvider implements IChatProvider {
             usesMidConversationSystem:
                 systemPartition.usesMidConversationSystem,
             usesSafeguards: !!safeguardsPolicy,
-            usesFallbacks: fallbacks !== undefined,
         };
         const betas = combineBetas(
             deriveBetas(features),
@@ -891,7 +769,6 @@ export class ClaudeProvider implements IChatProvider {
                 ? { safeguards: safeguardsPolicy.safeguards }
                 : {}),
             ...(userId ? { metadata: { user_id: userId } } : {}),
-            ...(fallbacks !== undefined ? { fallbacks } : {}),
             ...(usesBeta ? { betas } : {}),
         };
 
@@ -1305,7 +1182,6 @@ export class ClaudeProvider implements IChatProvider {
         events,
         chatStream,
         modelUsed,
-        requestedFast,
     }: {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         completion: any;
@@ -1313,7 +1189,6 @@ export class ClaudeProvider implements IChatProvider {
         events: AsyncIterator<any>;
         chatStream: AIChatStream;
         modelUsed: IChatModel;
-        requestedFast: boolean;
     }) {
         const actor = Context.get('actor');
         let message: ReturnType<AIChatStream['message']> | null = null;
@@ -1321,7 +1196,7 @@ export class ClaudeProvider implements IChatProvider {
         let emittedCompaction = false;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let finalUsage: any = null;
-        const outcomes: AttemptOutcomes = { handoffs: [] };
+        const stop: { reason?: unknown; details?: unknown } = {};
 
         for await (const event of { [Symbol.asyncIterator]: () => events }) {
             await chatStream.waitForDrain();
@@ -1336,12 +1211,12 @@ export class ClaudeProvider implements IChatProvider {
                     continue;
                 }
                 case 'message_delta': {
-                    outcomes.stopReason = event.delta?.stop_reason;
-                    outcomes.stopDetails = event.delta?.stop_details;
+                    stop.reason = event.delta?.stop_reason;
+                    stop.details = event.delta?.stop_details;
                     chatStream.setStop({
                         reason: event.delta?.stop_reason ?? undefined,
                         sequence: event.delta?.stop_sequence ?? null,
-                        details: publicStopDetails(event.delta?.stop_details),
+                        details: event.delta?.stop_details ?? null,
                     });
                     if ('safeguard_results' in (event.delta ?? {})) {
                         chatStream.safeguardResults(
@@ -1402,11 +1277,6 @@ export class ClaudeProvider implements IChatProvider {
                                 block: { type: b.type, id: b.id, name: b.name },
                                 json: '',
                             });
-                            break;
-                        case 'fallback':
-                            outcomes.handoffs.push(b);
-                            chatStream.refusalFallback(b);
-                            blocks.set(i, { kind: 'done' });
                             break;
                         case 'compaction':
                             blocks.set(i, {
@@ -1534,16 +1404,31 @@ export class ClaudeProvider implements IChatProvider {
         // Metered before `end`: handing usage to `end` is what tells the
         // driver this completion has been charged for, so anything that
         // throws between the two would leave it charged to nobody.
-        const { charges, usage, costs, details } = this.#meter(
+        const { usage, costs, details, advisorModel } = this.#meter(
             finalUsage ?? {},
             modelUsed,
-            requestedFast,
-            outcomes,
+            stop,
         );
-        this.#record(charges, actor);
+        this.#meteringService.utilRecordUsageObject(
+            usage.executor,
+            actor,
+            this.meteringModelKey(modelUsed.id),
+            costs.executor,
+        );
+        if (usage.advisor) {
+            this.#meteringService.utilRecordUsageObject(
+                usage.advisor,
+                actor,
+                this.meteringModelKey((advisorModel ?? modelUsed).id),
+                costs.advisor,
+            );
+        }
         chatStream.setUsageDetails(details);
-        chatStream.setUsageCosts(costs);
-        chatStream.end(usage);
+        chatStream.setUsageCosts({
+            ...costs.executor,
+            ...(costs.advisor ?? {}),
+        });
+        chatStream.end({ ...usage.executor, ...(usage.advisor ?? {}) });
     }
 
     #warnUnknownBlockOnce(type: string) {
@@ -1557,32 +1442,52 @@ export class ClaudeProvider implements IChatProvider {
     // -- Metering --------------------------------------------------------
 
     /**
-     * Turns raw Anthropic usage into the charges the ledger records and the
-     * usage the driver reports. Each attempt is its own charge, at the rates
-     * and under the key of the model that ran it. `usage` and `costs` report an
-     * advisor's keys as `advisor_` and a declined attempt's as `declined_`.
+     * Turns raw Anthropic usage into the usage/cost pair the driver and ledger
+     * expect, split into the executor's own numbers and (when an advisor tool
+     * ran) the advisor's — the two are metered under separate model keys so
+     * each pays its own cost factor.
      *
      * `output_tokens` already includes thinking tokens; unlike the previous
      * `thinking_tokens` usage key, nothing here bills them a second time.
+     *
+     * A refusal Anthropic does not bill keeps its usage and costs nothing.
      */
     #meter(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         raw: any,
         modelUsed: IChatModel,
-        /** Whether the request was sent at fast speed. */
-        requestedFast: boolean,
-        outcomes: AttemptOutcomes,
+        stop: { reason?: unknown; details?: unknown },
     ): {
-        charges: AttemptCharge[];
-        usage: Record<string, number>;
-        costs: Record<string, number>;
+        usage: {
+            executor: Record<string, number>;
+            advisor?: Record<string, number>;
+        };
+        costs: {
+            executor: Record<string, number>;
+            advisor?: Record<string, number>;
+        };
         details: UsageDetails;
+        /**
+         * The model actually used to price the advisor's usage (resolved or
+         * priciest-fallback).
+         */
+        advisorModel?: IChatModel;
     } {
         raw = raw ?? {};
-        const exec = attemptTokens(raw);
         // Reported as upstream sent it; the folded totals below are for billing.
-        const topInputTokens = exec.input_tokens;
-        const topOutputTokens = exec.output_tokens;
+        const topInputTokens = raw.input_tokens ?? 0;
+        const topOutputTokens = raw.output_tokens ?? 0;
+        const exec = {
+            input_tokens: raw.input_tokens ?? 0,
+            ephemeral_5m_input_tokens:
+                raw.cache_creation?.ephemeral_5m_input_tokens ??
+                raw.cache_creation_input_tokens ??
+                0,
+            ephemeral_1h_input_tokens:
+                raw.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+            cache_read_input_tokens: raw.cache_read_input_tokens ?? 0,
+            output_tokens: raw.output_tokens ?? 0,
+        };
 
         let advisorInput = 0;
         let advisorW5m = 0;
@@ -1591,23 +1496,8 @@ export class ClaudeProvider implements IChatProvider {
         let advisorOutput = 0;
         let advisorModelId: string | undefined;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const iterations: any[] = Array.isArray(raw.iterations)
-            ? raw.iterations.filter(Boolean)
-            : [];
-        // The attempt that answered after a fallback; the top level describes
-        // it and no other, so its model is the one the top level is priced at.
-        const fallbackAttempt = iterations.findLast(
-            (it) => it.type === 'fallback_message',
-        );
-        const servedModel = fallbackAttempt
-            ? resolveBilledModel(fallbackAttempt.model, this.models())
-            : modelUsed;
-        const ranFast = (speed: unknown, model: IChatModel): boolean =>
-            speed === 'fast' && model.serviceSpeedRates?.fast !== undefined;
-
-        const declined: AttemptCharge[] = [];
-        for (const it of iterations) {
+        for (const it of raw.iterations ?? []) {
+            if (it.type === 'message') continue; // already in the top level
             if (it.type === 'advisor_message') {
                 advisorInput += it.input_tokens ?? 0;
                 advisorW5m +=
@@ -1620,66 +1510,61 @@ export class ClaudeProvider implements IChatProvider {
                 advisorModelId ??= it.model;
                 continue;
             }
-            // Already in the top level.
-            if (it === fallbackAttempt) continue;
-            if (it.type === 'message' || it.type === 'fallback_message') {
-                if (!fallbackAttempt) continue; // already in the top level
-                // An attempt that declined before the one that answered.
-                const model = resolveBilledModel(
-                    it.model ?? modelUsed.id,
-                    this.models(),
-                );
-                const tokens = attemptTokens(it);
-                declined.push(
-                    priceAttempt(
-                        model,
-                        tokens,
-                        // An entry carries no speed; an attempt runs at the request's.
-                        ranFast(
-                            it.speed ?? (requestedFast ? 'fast' : undefined),
-                            model,
-                        ),
-                        // Each declined attempt ended at the next handoff.
-                        isRefusalBilled(
-                            outcomes.handoffs[declined.length]?.trigger,
-                            tokens.output_tokens,
-                        ),
-                    ),
-                );
-                continue;
-            }
             // compaction and any other iteration type: billed at executor rates.
             exec.input_tokens += it.input_tokens ?? 0;
             exec.output_tokens += it.output_tokens ?? 0;
         }
 
-        const fast = ranFast(raw.speed, servedModel);
+        const fast =
+            raw.speed === 'fast' &&
+            modelUsed.serviceSpeedRates?.fast !== undefined;
+        // Keep published usage keys while resolving rates from the common catalog shape.
+        const executorUsage: Record<string, number> = fast
+            ? Object.fromEntries(
+                  Object.entries(exec).map(([k, v]) => [`fast_${k}`, v]),
+              )
+            : { ...exec };
+
         const searches = raw.server_tool_use?.web_search_requests ?? 0;
+        if (searches) executorUsage.web_search_requests = searches;
         const fetches = raw.server_tool_use?.web_fetch_requests ?? 0;
-        const served = priceAttempt(
-            servedModel,
-            exec,
-            fast,
-            outcomes.stopReason !== 'refusal' ||
-                isRefusalBilled(outcomes.stopDetails, exec.output_tokens),
-            {
-                ...(searches ? { web_search_requests: searches } : {}),
-                ...(fetches ? { web_fetch_requests: fetches } : {}),
-            },
-        );
+        if (fetches) executorUsage.web_fetch_requests = fetches;
 
-        const prefixed = (prefix: string, values: Record<string, number>) =>
-            Object.fromEntries(
-                Object.entries(values).map(([k, v]) => [`${prefix}${k}`, v]),
-            );
+        const fastRates = fast
+            ? serviceSpeedCosts(modelUsed, 'fast')
+            : undefined;
+        const billingModel = fastRates
+            ? {
+                  ...modelUsed,
+                  costs: {
+                      ...modelUsed.costs,
+                      ...Object.fromEntries(
+                          Object.keys(exec).map((key) => [
+                              `fast_${key}`,
+                              fastRates[key],
+                          ]),
+                      ),
+                  },
+              }
+            : modelUsed;
+        const billed =
+            stop.reason !== 'refusal' ||
+            isRefusalBilled(stop.details, exec.output_tokens);
+        const executorCosts = billed
+            ? buildCostsOverride(executorUsage, billingModel)
+            : Object.fromEntries(
+                  Object.keys(executorUsage).map((key) => [key, 0]),
+              );
 
-        let advisor: AttemptCharge | undefined;
+        let advisorUsage: Record<string, number> | undefined;
+        let advisorCosts: Record<string, number> | undefined;
+        let advisorModel: IChatModel | undefined;
         if (
             advisorModelId !== undefined ||
             advisorInput > 0 ||
             advisorOutput > 0
         ) {
-            const model = resolveAdvisorModel(advisorModelId, this.models());
+            advisorModel = resolveAdvisorModel(advisorModelId, this.models());
             const rawAdvisorUsage = {
                 input_tokens: advisorInput,
                 ephemeral_5m_input_tokens: advisorW5m,
@@ -1687,27 +1572,22 @@ export class ClaudeProvider implements IChatProvider {
                 cache_read_input_tokens: advisorRead,
                 output_tokens: advisorOutput,
             };
-            advisor = {
-                model,
-                usage: prefixed('advisor_', rawAdvisorUsage),
-                costs: prefixed(
-                    'advisor_',
-                    buildCostsOverride(rawAdvisorUsage, model),
-                ),
-            };
-        }
-
-        // Several declined attempts report as one set of `declined_` keys.
-        const declinedUsage: Record<string, number> = {};
-        const declinedCosts: Record<string, number> = {};
-        for (const attempt of declined) {
-            for (const [key, amount] of Object.entries(attempt.usage)) {
-                const reported = `declined_${key}`;
-                declinedUsage[reported] =
-                    (declinedUsage[reported] ?? 0) + amount;
-                declinedCosts[reported] =
-                    (declinedCosts[reported] ?? 0) + (attempt.costs[key] ?? 0);
-            }
+            const rawAdvisorCosts = buildCostsOverride(
+                rawAdvisorUsage,
+                advisorModel,
+            );
+            advisorUsage = Object.fromEntries(
+                Object.entries(rawAdvisorUsage).map(([k, v]) => [
+                    `advisor_${k}`,
+                    v,
+                ]),
+            );
+            advisorCosts = Object.fromEntries(
+                Object.entries(rawAdvisorCosts).map(([k, v]) => [
+                    `advisor_${k}`,
+                    v,
+                ]),
+            );
         }
 
         const details: UsageDetails = {
@@ -1730,9 +1610,6 @@ export class ClaudeProvider implements IChatProvider {
                   ? { speed: raw.speed }
                   : {}),
             ...(raw.service_tier ? { serviceTier: raw.service_tier } : {}),
-            ...(typeof fallbackAttempt?.model === 'string'
-                ? { fallbackModel: fallbackAttempt.model }
-                : {}),
             ...((raw.output_tokens_details?.thinking_tokens ??
             raw.thinking_tokens)
                 ? {
@@ -1743,37 +1620,23 @@ export class ClaudeProvider implements IChatProvider {
                 : {}),
             // Every pass verbatim: Claude Code sizes its context off the last
             // `message` iteration, not the summed top-level counts.
-            ...(iterations.length > 0
-                ? { iterations: iterations.map(iterationDetails) }
+            ...(Array.isArray(raw.iterations) && raw.iterations.length > 0
+                ? { iterations: raw.iterations.map(iterationDetails) }
                 : {}),
         };
 
         return {
-            charges: [served, ...(advisor ? [advisor] : []), ...declined],
             usage: {
-                ...served.usage,
-                ...(advisor?.usage ?? {}),
-                ...declinedUsage,
+                executor: executorUsage,
+                ...(advisorUsage ? { advisor: advisorUsage } : {}),
             },
             costs: {
-                ...served.costs,
-                ...(advisor?.costs ?? {}),
-                ...declinedCosts,
+                executor: executorCosts,
+                ...(advisorCosts ? { advisor: advisorCosts } : {}),
             },
             details,
+            advisorModel,
         };
-    }
-
-    /** Records each attempt's usage under the key of the model that ran it. */
-    #record(charges: AttemptCharge[], actor: Actor | undefined) {
-        for (const { model, usage, costs } of charges) {
-            this.#meteringService.utilRecordUsageObject(
-                usage,
-                actor!,
-                this.meteringModelKey(model.id),
-                costs,
-            );
-        }
     }
 
     checkModeration(_text: string): never {

@@ -206,6 +206,43 @@ describe('AIChatStream stop + usage-detail reporting', () => {
         ]);
         expect(h.chatStream.outputChars).toBe(0);
     });
+
+    it('has no output until something is written', () => {
+        const h = makeHarness();
+        h.chatStream.setStop({ reason: 'refusal' });
+        expect(h.chatStream.hasOutput).toBe(false);
+
+        h.chatStream.message().contentBlock({ type: 'text' }).addText('hi');
+        expect(h.chatStream.hasOutput).toBe(true);
+    });
+
+    it('restart clears one attempt\'s stop and usage state for the next', () => {
+        const h = makeHarness();
+        h.chatStream.setStop({ reason: 'refusal' });
+        h.chatStream.setUsageDetails({ inputTokens: 5, outputTokens: 0 });
+        h.chatStream.setUsageCosts({ input_tokens: 5000 });
+        h.chatStream.setContextManagement({ applied_edits: [] });
+        h.chatStream.refusalFallback({
+            type: 'fallback',
+            from: { model: 'a' },
+            to: { model: 'b' },
+            trigger: { type: 'refusal', category: null },
+        });
+
+        h.chatStream.restart();
+
+        expect(h.chatStream.hasOutput).toBe(false);
+        expect(h.chatStream.stop).toBeNull();
+        expect(h.chatStream.usageDetails).toBeNull();
+        expect(h.chatStream.usageCosts).toBeNull();
+        expect(h.chatStream.contextManagement).toBeNull();
+
+        h.chatStream.end({ input_tokens: 4, output_tokens: 2 });
+        expect(h.events().at(-1)).toEqual({
+            type: 'usage',
+            usage: { input_tokens: 4, output_tokens: 2 },
+        });
+    });
 });
 
 // -- Detach --
