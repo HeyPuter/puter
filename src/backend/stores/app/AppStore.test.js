@@ -1769,16 +1769,59 @@ describe('AppStore detailed stats', () => {
         expect(periods).toHaveLength(53);
     });
 
-    it('still reports week-grouped totals even when bucket keys do not line up', async () => {
-        // SQLite's `%Y-%U` week numbering differs from the ISO week the
-        // bucket list is generated with; totals are taken from the raw rows
-        // precisely so this mismatch can't zero them out.
+    it('puts week-grouped opens in the bucket of their ISO week', async () => {
         const stats = await appStore.getAppStatsDetailed(APP_UID, {
             period: '30d',
             grouping: 'week',
         });
         expect(stats.open_count).toBe(2);
-        expect(stats.grouped_stats.open_count.length).toBeGreaterThan(0);
+        expect(stats.grouped_stats.open_count).toEqual([
+            { period: '2026-21', count: 0 },
+            { period: '2026-22', count: 0 },
+            { period: '2026-23', count: 0 },
+            { period: '2026-24', count: 0 },
+            { period: '2026-25', count: 2 },
+        ]);
+    });
+
+    it('labels weeks around a new year by the year the ISO week belongs to', async () => {
+        const uid = `app-week-year-${Date.now()}`;
+        const opens = [
+            [1, '2024-12-30T10:00:00Z'], // Monday of 2025's week 1
+            [2, '2025-12-29T10:00:00Z'], // Monday of 2026's week 1
+            [3, '2026-01-01T10:00:00Z'], // the same week, next calendar year
+            [4, '2027-01-03T10:00:00Z'], // Sunday of 2026's week 53
+        ];
+        for (const [userId, at] of opens) {
+            await db.write(
+                'INSERT INTO app_opens (app_uid, user_id, ts) VALUES (?, ?, ?)',
+                [uid, userId, Date.parse(at) / 1000],
+            );
+        }
+
+        vi.setSystemTime(new Date('2027-01-06T12:00:00Z'));
+        let stats;
+        try {
+            stats = await appStore.getAppStatsDetailed(uid, {
+                period: 'all',
+                createdAt: '2024-12-25T00:00:00Z',
+                grouping: 'week',
+            });
+        } finally {
+            vi.setSystemTime(NOW);
+        }
+
+        const buckets = stats.grouped_stats.open_count;
+        const periods = buckets.map((b) => b.period);
+        expect(new Set(periods).size).toBe(periods.length);
+        expect(periods.slice(0, 3)).toEqual(['2024-52', '2025-01', '2025-02']);
+        expect(periods.slice(-3)).toEqual(['2026-52', '2026-53', '2027-01']);
+        expect(buckets.filter((b) => b.count > 0)).toEqual([
+            { period: '2025-01', count: 1 },
+            { period: '2026-01', count: 2 },
+            { period: '2026-53', count: 1 },
+        ]);
+        expect(stats.open_count).toBe(4);
     });
 
     describe('with a ClickHouse client registered', () => {
@@ -1844,6 +1887,28 @@ describe('AppStore detailed stats', () => {
                         (b) => b.period === todayIso,
                     );
                     expect(bucket?.count).toBe(5);
+                },
+            );
+        });
+
+        it('reads ClickHouse weeks from their Monday into the ISO week bucket', async () => {
+            await withClickhouse(
+                [
+                    // The Monday of the week the pinned clock is in.
+                    { period: '2026-06-15', open_count: '4', user_count: '2' },
+                ],
+                async (seen) => {
+                    const stats = await appStore.getAppStatsDetailed(APP_UID, {
+                        period: '30d',
+                        grouping: 'week',
+                    });
+                    expect(seen[0].query).toContain(
+                        'toStartOfWeek(fromUnixTimestamp(ts), 1)',
+                    );
+                    expect(stats.grouped_stats.open_count.at(-1)).toEqual({
+                        period: '2026-25',
+                        count: 4,
+                    });
                 },
             );
         });

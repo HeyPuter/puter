@@ -2790,6 +2790,52 @@ describe('FSController write metadata spellings', () => {
         expect(zero.isPublic).toBe(false);
     });
 
+    it('reads any positive number as true', async () => {
+        const entry = await writeWith('flags-positive.txt', {
+            isPublic: 2,
+            immutable: 7,
+        });
+        expect(entry.isPublic).toBe(true);
+        expect(entry.immutable).toBe(true);
+    });
+
+    it.each([['maybe'], [-1], [{}], [[true]]])(
+        'drops the flag value %o instead of storing it as true',
+        async (value) => {
+            const entry = await writeWith('flags-dropped.txt', {
+                isPublic: value,
+                immutable: value,
+            });
+            expect(entry.isPublic).toBeNull();
+            expect(entry.immutable).toBe(false);
+        },
+    );
+
+    it('does not overwrite or rename on a flag value it cannot read', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/flags-conflict.txt`;
+        const write = (extra: Record<string, unknown>) =>
+            withActor(actor, () =>
+                controller.write(
+                    makeReq<WriteRequest>({
+                        body: {
+                            fileMetadata: { path, size: 2, ...extra },
+                            fileContent: 'hi',
+                        } as unknown as WriteRequest,
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+        await write({});
+        await expect(write({ overwrite: 'maybe' })).rejects.toMatchObject({
+            statusCode: 409,
+        });
+        await expect(write({ dedupe_name: 'maybe' })).rejects.toMatchObject({
+            statusCode: 409,
+        });
+    });
+
     it('passes a requested part size through to the signed upload', async () => {
         const { actor, username } = await makeUser();
         const partSize = server.services.fs.getMaxSingleUploadSize() * 2;
