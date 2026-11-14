@@ -210,6 +210,23 @@ describe('estimatePromptTokens', () => {
         }
     });
 
+    it('counts a replayed fallback marker as no tokens', () => {
+        expect(
+            estimatePromptTokens([
+                {
+                    role: 'assistant',
+                    content: [
+                        {
+                            type: 'fallback',
+                            from: { model: 'claude-opus-5-5' },
+                            to: { model: 'claude-opus-4-8' },
+                        },
+                    ],
+                },
+            ]),
+        ).toBe(0);
+    });
+
     it('is zero for nothing at all', () => {
         expect(estimatePromptTokens([])).toBe(0);
         expect(estimatePromptTokens(undefined)).toBe(0);

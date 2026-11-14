@@ -186,6 +186,26 @@ describe('AIChatStream stop + usage-detail reporting', () => {
             },
         ]);
     });
+
+    it('writes a refusalFallback chunk without counting it as model output', () => {
+        const h = makeHarness();
+        h.chatStream.refusalFallback({
+            type: 'fallback',
+            from: { model: 'claude-opus-5-5' },
+            to: { model: 'claude-opus-4-8' },
+            trigger: { type: 'refusal', category: 'cyber' },
+        });
+
+        expect(h.events()).toEqual([
+            {
+                type: 'refusal_fallback',
+                from: { model: 'claude-opus-5-5' },
+                to: { model: 'claude-opus-4-8' },
+                trigger: { type: 'refusal', category: 'cyber' },
+            },
+        ]);
+        expect(h.chatStream.outputChars).toBe(0);
+    });
 });
 
 // -- Detach --

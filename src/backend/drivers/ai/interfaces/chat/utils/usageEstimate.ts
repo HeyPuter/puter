@@ -103,6 +103,9 @@ const partTokens = (part: unknown, budget: WordScanBudget): number => {
 
     if (typeof p.text === 'string') return estimateTextTokens(p.text, budget);
 
+    // A replayed model-handoff marker; the upstream never renders it.
+    if (p.type === 'fallback') return 0;
+
     // Model-output shapes replayed as history: Anthropic thinking blocks,
     // our own streamed `reasoning` chunks, OpenAI refusals. All text — they
     // must not fall through to the attachment default below, which would

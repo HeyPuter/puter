@@ -60,12 +60,16 @@ import {
     combineBetas,
     deriveBetas,
     hasExtendedCacheTtl,
+    isFallbackRejected,
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
+    publicStopDetails,
     rejectOrgScopedBlocks,
     resolveAdvisorModel,
+    resolveRefusalFallbacks,
     sanitizeCacheControl,
     sanitizeCacheControlsIn,
+    splitFallbackBlocks,
     validateContextManagementEdits,
     type BetaFeatures,
 } from './anthropicPolicy.js';
@@ -362,6 +366,17 @@ export class ClaudeProvider implements IChatProvider {
             if (args.speed === 'fast' && isFastModeUnavailable(e)) {
                 return await this.#completeOnce({ ...args, speed: undefined });
             }
+            // A fallback the caller never asked for must not cost the request.
+            if (
+                isFallbackRejected(e) &&
+                args.refusalFallback !== false &&
+                args.anthropicFallbacks === undefined
+            ) {
+                return await this.#completeOnce({
+                    ...args,
+                    refusalFallback: false,
+                });
+            }
             throw e;
         }
     }
@@ -462,9 +477,13 @@ export class ClaudeProvider implements IChatProvider {
                 safeguard_results?: unknown[];
                 context_management?: Record<string, unknown> | null;
             };
+            // A handoff marker is not output; callers index `content` for text.
+            const { content, fallbacks } = splitFallbackBlocks(
+                (msg as Message).content,
+            );
 
             return {
-                message: msg,
+                message: fallbacks.length ? { ...msg, content } : msg,
                 usage: { ...usage.executor, ...(usage.advisor ?? {}) },
                 // Native Claude results report `stop` on the wire, like main —
                 // read `stopReason` below for the real Anthropic value.
@@ -472,8 +491,9 @@ export class ClaudeProvider implements IChatProvider {
                 stopReason: nativeMsg.stop_reason ?? undefined,
                 stopSequence: nativeMsg.stop_sequence ?? null,
                 ...(nativeMsg.stop_details
-                    ? { stopDetails: nativeMsg.stop_details }
+                    ? { stopDetails: publicStopDetails(nativeMsg.stop_details) }
                     : {}),
+                ...(fallbacks.length ? { refusalFallbacks: fallbacks } : {}),
                 usageDetails: details,
                 usageCosts: { ...costs.executor, ...(costs.advisor ?? {}) },
                 ...(nativeMsg.safeguard_results
@@ -637,6 +657,10 @@ export class ClaudeProvider implements IChatProvider {
             args.safeguards,
             headerBetas,
         );
+        // `count_tokens` takes no `fallbacks`.
+        const fallbacks = opts.forCountTokens
+            ? undefined
+            : resolveRefusalFallbacks(args, modelUsed, this.models());
 
         // -- metadata -----------------------------------------------------
         const actor = Context.get('actor');
@@ -718,6 +742,7 @@ export class ClaudeProvider implements IChatProvider {
             usesMidConversationSystem:
                 systemPartition.usesMidConversationSystem,
             usesSafeguards: !!safeguardsPolicy,
+            usesFallbacks: fallbacks !== undefined,
         };
         const betas = combineBetas(
             deriveBetas(features),
@@ -760,6 +785,7 @@ export class ClaudeProvider implements IChatProvider {
                 ? { safeguards: safeguardsPolicy.safeguards }
                 : {}),
             ...(userId ? { metadata: { user_id: userId } } : {}),
+            ...(fallbacks !== undefined ? { fallbacks } : {}),
             ...(usesBeta ? { betas } : {}),
         };
 
@@ -1204,7 +1230,7 @@ export class ClaudeProvider implements IChatProvider {
                     chatStream.setStop({
                         reason: event.delta?.stop_reason ?? undefined,
                         sequence: event.delta?.stop_sequence ?? null,
-                        details: event.delta?.stop_details ?? null,
+                        details: publicStopDetails(event.delta?.stop_details),
                     });
                     if ('safeguard_results' in (event.delta ?? {})) {
                         chatStream.safeguardResults(
@@ -1265,6 +1291,10 @@ export class ClaudeProvider implements IChatProvider {
                                 block: { type: b.type, id: b.id, name: b.name },
                                 json: '',
                             });
+                            break;
+                        case 'fallback':
+                            chatStream.refusalFallback(b);
+                            blocks.set(i, { kind: 'done' });
                             break;
                         case 'compaction':
                             blocks.set(i, {
@@ -1480,8 +1510,18 @@ export class ClaudeProvider implements IChatProvider {
         let advisorOutput = 0;
         let advisorModelId: string | undefined;
 
-        for (const it of raw.iterations ?? []) {
-            if (it.type === 'message') continue; // already in the top level
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const iterations: any[] = Array.isArray(raw.iterations)
+            ? raw.iterations.filter(Boolean)
+            : [];
+        // The attempt that answered after a fallback; the top level describes it.
+        const fallbackAttempt = iterations.findLast(
+            (it) => it.type === 'fallback_message',
+        );
+
+        for (const it of iterations) {
+            // Already in the top level.
+            if (it.type === 'message' || it === fallbackAttempt) continue;
             if (it.type === 'advisor_message') {
                 advisorInput += it.input_tokens ?? 0;
                 advisorW5m +=
@@ -1587,6 +1627,9 @@ export class ClaudeProvider implements IChatProvider {
                   ? { speed: raw.speed }
                   : {}),
             ...(raw.service_tier ? { serviceTier: raw.service_tier } : {}),
+            ...(typeof fallbackAttempt?.model === 'string'
+                ? { fallbackModel: fallbackAttempt.model }
+                : {}),
             ...((raw.output_tokens_details?.thinking_tokens ??
             raw.thinking_tokens)
                 ? {
@@ -1597,8 +1640,8 @@ export class ClaudeProvider implements IChatProvider {
                 : {}),
             // Every pass verbatim: Claude Code sizes its context off the last
             // `message` iteration, not the summed top-level counts.
-            ...(Array.isArray(raw.iterations) && raw.iterations.length > 0
-                ? { iterations: raw.iterations.map(iterationDetails) }
+            ...(iterations.length > 0
+                ? { iterations: iterations.map(iterationDetails) }
                 : {}),
         };
 

@@ -110,6 +110,11 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
      * leading `system` blocks instead.
      */
     midConversationSystem?: boolean;
+    /**
+     * Claude only: the models Anthropic may rerun a declined request on. A
+     * model without the list has no server-side fallback.
+     */
+    refusalFallbackModels?: string[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -185,6 +190,11 @@ export interface UsageDetails {
     serviceTier?: string;
     serviceSpeed?: ServiceSpeed;
     /**
+     * The model that produced the response, set when the upstream reran a
+     * declined request on a model other than the requested one.
+     */
+    fallbackModel?: string;
+    /**
      * Per-pass breakdown when the upstream ran several passes (compaction,
      * advisor).
      */
@@ -248,6 +258,13 @@ export interface ICompleteArguments {
      * allowlist.
      */
     anthropicBetas?: string[];
+    /**
+     * Claude only. `false` returns a declined request's refusal as it is
+     * instead of letting Anthropic rerun the request on another model.
+     */
+    refusalFallback?: boolean;
+    /** Claude only: the Anthropic route's native `fallbacks` value. */
+    anthropicFallbacks?: 'default' | Array<{ model: string }>;
     /** Emit `tool_use_start` / `tool_input_delta` chunks while streaming. */
     streamToolInput?: boolean;
     include?: unknown[];
@@ -344,6 +361,11 @@ export interface IChatMessageResult {
     safeguardResults?: unknown[];
     /** Claude only. */
     contextManagement?: Record<string, unknown>;
+    /**
+     * Claude only: one `fallback` block per handoff to another model, in order,
+     * taken out of `message.content`.
+     */
+    refusalFallbacks?: Record<string, unknown>[];
     /**
      * Internal: per-usage-key cost (µ¢) the provider already metered with, so
      * the driver's reported cost matches the ledger exactly. Stripped before

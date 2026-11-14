@@ -439,6 +439,16 @@ Fast service is available on Claude models with a Fast rate card. Ultrafast fall
 
 Pass `speed: "fast"` to request Fast mode, or `speed: "standard"` for standard inference. This option applies to Claude models. An explicit `serviceSpeed` takes precedence.
 
+#### Refusal fallback
+
+A Claude model can decline a request. A declined request ends with `stopReason` set to `"refusal"`, and `stopDetails` says why.
+
+When Claude Fable 5.2, Fable 5.1, Fable 5, Opus 5.5, Opus 5, or Sonnet 5.5 declines, the same request runs on another Claude model that Anthropic recommends for that kind of refusal, and the response carries that model's answer. Some kinds of refusal have no recommended model, and the response then ends with `stopReason` set to `"refusal"`.
+
+When another model answers, `usageDetails.fallbackModel` holds its ID, and `usageDetails.iterations` has one entry for each model that ran. A streamed response also has a `refusal_fallback` chunk at the point where the models switched, with the two models in `from.model` and `to.model`. The `reasoning_detail` chunks before a `refusal_fallback` chunk belong to the model that declined, so leave them out of `reasoning_details` when you send the turn back. See the [ChatResponse](/Objects/chatresponse/) and [ChatResponseChunk](/Objects/chatresponsechunk/) objects for these fields.
+
+To get the refusal as it is, pass `refusalFallback: false`.
+
 #### Prompt Caching
 
 Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompts.

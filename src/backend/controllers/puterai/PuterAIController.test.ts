@@ -1115,6 +1115,49 @@ describe('PuterAIController.anthropicMessages', () => {
         expect(seen).toBe(true);
     });
 
+    it('hands the native fallbacks field to the driver and returns the fallback model\'s answer', async () => {
+        const marker = {
+            type: 'fallback',
+            from: { model: 'claude-opus-5-5' },
+            to: { model: 'claude-opus-4-8' },
+            trigger: { type: 'refusal', category: 'cyber' },
+        };
+        const completeSpy = stubChatComplete({
+            message: {
+                type: 'message',
+                content: [{ type: 'text', text: 'answer' }],
+            },
+            finish_reason: 'stop',
+            stopReason: 'end_turn',
+            refusalFallbacks: [marker],
+            usageDetails: {
+                inputTokens: 4,
+                outputTokens: 2,
+                fallbackModel: 'claude-opus-4-8',
+            },
+        });
+
+        const { res, captured } = makeRes();
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-opus-5-5',
+                    fallbacks: [{ model: 'claude-opus-4-8' }],
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+
+        expect(completeSpy.mock.calls[0]![0].anthropicFallbacks).toEqual([
+            { model: 'claude-opus-4-8' },
+        ]);
+        const body = captured.body as Record<string, unknown>;
+        expect(body.model).toBe('claude-opus-4-8');
+        expect(body.content).toEqual([marker, { type: 'text', text: 'answer' }]);
+    });
+
     it('shapes a non-stream completion as an Anthropic message envelope', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'hi there' },
@@ -1956,6 +1999,44 @@ describe('PuterAIController.anthropicMessages streaming + helpers', () => {
         expect(stop).toBeGreaterThan(delta);
         expect(out).toContain('"text":"one"');
         expect(out).toContain('"text":"two"');
+    });
+
+    it('writes a streamed fallback marker as a fallback content block', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                {
+                    type: 'refusal_fallback',
+                    from: { model: 'claude-opus-5-5' },
+                    to: { model: 'claude-opus-4-8' },
+                    trigger: { type: 'refusal', category: null },
+                },
+                { type: 'text', text: 'answer' },
+                { type: 'usage', usage: {} },
+            ]),
+        });
+
+        const { res, captured } = makeRes();
+        await controller.anthropicMessages(
+            makeReq({
+                body: {
+                    model: 'claude-opus-5-5',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream: true,
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        const out = captured.written.join('');
+        const block = out.indexOf(
+            '"content_block":{"type":"fallback","from":{"model":"claude-opus-5-5"},"to":{"model":"claude-opus-4-8"},"trigger":{"type":"refusal","category":null}}',
+        );
+        expect(block).toBeGreaterThan(out.indexOf('event: message_start'));
+        expect(out.indexOf('"text":"answer"')).toBeGreaterThan(block);
     });
 
     it('translates a streamed tool_use into content_block_start/delta/stop with type=tool_use', async () => {

@@ -355,6 +355,20 @@ export class AIChatStream {
     }
 
     /**
+     * Marks where the upstream handed a declined request to another model:
+     * output before it came from `from.model`, output after it from
+     * `to.model`.
+     *
+     * @param {{ from?: unknown; to?: unknown; trigger?: unknown }} block
+     */
+    refusalFallback({ from, to, trigger }) {
+        this.writeChunk(
+            { type: 'refusal_fallback', from, to, trigger },
+            { alreadyCounted: true },
+        );
+    }
+
+    /**
      * Dangerous-tool-use classifier verdicts, only ever written when the
      * upstream actually sent them.
      *

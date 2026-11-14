@@ -172,6 +172,8 @@ const ALLOWED_INPUT_BLOCK_TYPES = new Set([
     'advisor_tool_result',
     'tool_search_tool_result',
     'compaction',
+    // Echoed back in place; the upstream validates the thinking around it.
+    'fallback',
     // Internal, provider-resolved parts.
     'image_url',
 ]);
@@ -368,6 +370,35 @@ const neutralCompaction = (
     throw badRequest('compaction: must be a boolean or { trigger_tokens }');
 };
 
+// -- fallbacks ----------------------------------------------------------------
+
+/**
+ * The native `fallbacks` field. `"default"` or a list of models is the caller's
+ * own chain; `null` or `false` turns the fallback off.
+ */
+const refusalFallbackFromAnthropic = (
+    fallbacks: unknown,
+): Pick<ICompleteArguments, 'refusalFallback' | 'anthropicFallbacks'> => {
+    if (fallbacks === undefined) return {};
+    if (fallbacks === null || fallbacks === false) {
+        return { refusalFallback: false };
+    }
+    if (
+        fallbacks === 'default' ||
+        (Array.isArray(fallbacks) &&
+            fallbacks.every(
+                (entry) =>
+                    isPlainObject(entry) && typeof entry.model === 'string',
+            ))
+    ) {
+        return {
+            anthropicFallbacks:
+                fallbacks as ICompleteArguments['anthropicFallbacks'],
+        };
+    }
+    throw badRequest('fallbacks: must be "default" or a list of models');
+};
+
 // -- request parser (§2.R) ----------------------------------------------------
 
 export interface ParseAnthropicRequestOptions {
@@ -432,9 +463,10 @@ export const parseAnthropicRequest = (
         ...(betas.length ? { anthropicBetas: betas } : {}),
         provider: toStringOrEmpty(body.provider) || 'claude',
         ...(body.fallback === false ? { fallback: false } : {}),
+        ...refusalFallbackFromAnthropic(body.fallbacks),
     };
     // Silently ignored: metadata, service_tier, inference_geo, container,
-    // fallbacks, diagnostics.
+    // diagnostics.
 };
 
 // -- usage ---------------------------------------------------------------
@@ -645,9 +677,13 @@ export const toAnthropicMessage = (
 ): Record<string, unknown> => {
     const message = (result.message ?? {}) as Record<string, unknown>;
     const resultRecord = result as unknown as Record<string, unknown>;
-    const content = needsOpenAICoercion(message)
-        ? nativeMessageContent(message.content)
-        : openAiShapedContent(resultRecord, message);
+    const content = [
+        // A non-streamed handoff always precedes the answer.
+        ...(result.refusalFallbacks ?? []),
+        ...(needsOpenAICoercion(message)
+            ? nativeMessageContent(message.content)
+            : openAiShapedContent(resultRecord, message)),
+    ];
 
     const sawToolUse = content.some((b) => b.type === 'tool_use');
     const stopReason =
@@ -666,7 +702,7 @@ export const toAnthropicMessage = (
         type: 'message',
         role: 'assistant',
         content,
-        model: ids.model,
+        model: usageDetails.fallbackModel ?? ids.model,
         stop_reason: stopReason,
         stop_sequence: result.stopSequence ?? null,
         ...(result.stopDetails ? { stop_details: result.stopDetails } : {}),

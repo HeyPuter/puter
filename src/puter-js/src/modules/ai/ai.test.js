@@ -120,6 +120,17 @@ describe('ai.chat driver payloads', () => {
         expect(lastBody().args.speed).toBe(speed);
     });
 
+    it.each([false, true])('forwards refusalFallback %s to the driver', async (refusalFallback) => {
+        await ai.chat('hello', { model: 'claude-opus-5-5', refusalFallback });
+        expect(lastBody().args.refusalFallback).toBe(refusalFallback);
+    });
+
+    it('leaves refusalFallback out of the request when it is not set', async () => {
+        await ai.chat('hello', { model: 'claude-opus-5-5', fallback: false });
+        expect(lastBody().args).not.toHaveProperty('refusalFallback');
+        expect(lastBody().args.fallback).toBe(false);
+    });
+
     it('preserves serviceSpeed precedence alongside the native speed option', async () => {
         await ai.chat('hello', { speed: 'fast', serviceSpeed: 'standard' });
         expect(lastBody().args).toMatchObject({ speed: 'fast', serviceSpeed: 'standard' });

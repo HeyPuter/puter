@@ -20,6 +20,7 @@ const PARAMS_TO_PASS = [
     'verbosity',
     'provider',
     'fallback',
+    'refusalFallback',
     'serviceSpeed',
     'speed',
     'image_config',

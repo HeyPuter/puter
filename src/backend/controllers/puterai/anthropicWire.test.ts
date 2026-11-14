@@ -129,6 +129,22 @@ describe('validateMessages', () => {
         expect(validateMessages([message])).toEqual([message]);
     });
 
+    it('allows a fallback marker echoed back in an assistant turn', () => {
+        const message = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'fallback',
+                    from: { model: 'claude-opus-5-5' },
+                    to: { model: 'claude-opus-4-8' },
+                    trigger: { type: 'refusal', category: null },
+                },
+                { type: 'text', text: 'answer' },
+            ],
+        };
+        expect(validateMessages([message])).toEqual([message]);
+    });
+
     it('rejects an unknown block type', () => {
         expect(() =>
             validateMessages([
@@ -338,6 +354,36 @@ describe('parseAnthropicRequest', () => {
         ).toBeUndefined();
     });
 
+    it('leaves the refusal fallback to the provider when fallbacks is absent', () => {
+        const args = parseAnthropicRequest({ messages: [] }, headers);
+        expect(args.refusalFallback).toBeUndefined();
+        expect(args.anthropicFallbacks).toBeUndefined();
+    });
+
+    it.each(['default', [{ model: 'claude-opus-4-8' }]])(
+        'forwards the native fallbacks value %j as the caller\'s own chain',
+        (fallbacks) => {
+            const args = parseAnthropicRequest({ messages: [], fallbacks }, headers);
+            expect(args.anthropicFallbacks).toEqual(fallbacks);
+            expect(args.refusalFallback).toBeUndefined();
+        },
+    );
+
+    it.each([null, false])('reads fallbacks: %j as an opt-out', (fallbacks) => {
+        const args = parseAnthropicRequest({ messages: [], fallbacks }, headers);
+        expect(args.refusalFallback).toBe(false);
+        expect(args.anthropicFallbacks).toBeUndefined();
+    });
+
+    it.each(['always', 3, { model: 'claude-opus-4-8' }, ['claude-opus-4-8'], [{}]])(
+        'rejects the malformed fallbacks value %j',
+        (fallbacks) => {
+            expect(() =>
+                parseAnthropicRequest({ messages: [], fallbacks }, headers),
+            ).toThrowError('fallbacks: must be "default" or a list of models');
+        },
+    );
+
     it('maps thinking, tool_choice, stop_sequences, top_p/top_k', () => {
         const args = parseAnthropicRequest(
             {
@@ -546,6 +592,38 @@ describe('toAnthropicMessage', () => {
             { type: 'text', text: 'trailing' },
         ]);
         expect(out.stop_reason).toBe('tool_use');
+    });
+
+    it('puts the fallback markers back ahead of the answer and names the model that served it', () => {
+        const marker = {
+            type: 'fallback',
+            from: { model: 'claude-test' },
+            to: { model: 'claude-opus-4-8' },
+            trigger: { type: 'refusal', category: 'cyber' },
+        };
+        const result = {
+            message: {
+                type: 'message',
+                content: [{ type: 'text', text: 'answer' }],
+            },
+            refusalFallbacks: [marker],
+            usageDetails: {
+                inputTokens: 1,
+                outputTokens: 2,
+                fallbackModel: 'claude-opus-4-8',
+            },
+        } as unknown as IChatMessageResult;
+        const out = toAnthropicMessage(result, ids);
+        expect(out.content).toEqual([marker, { type: 'text', text: 'answer' }]);
+        expect(out.model).toBe('claude-opus-4-8');
+    });
+
+    it('reports the requested model when no fallback ran', () => {
+        const result = {
+            message: { type: 'message', content: [{ type: 'text', text: 'a' }] },
+            usageDetails: { inputTokens: 1, outputTokens: 2 },
+        } as unknown as IChatMessageResult;
+        expect(toAnthropicMessage(result, ids).model).toBe('claude-test');
     });
 
     it('drops an empty native text block and returns [] when nothing survives', () => {

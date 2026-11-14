@@ -2999,6 +2999,501 @@ describe('ClaudeProvider.complete streaming response fidelity', () => {
     });
 });
 
+// -- Refusal fallback ----------------------------------------------
+
+describe('ClaudeProvider refusal fallback', () => {
+    const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+    const marker = {
+        type: 'fallback',
+        from: { model: 'claude-opus-5-5' },
+        to: { model: 'claude-opus-4-8' },
+        trigger: { type: 'refusal', category: 'cyber' },
+    };
+    // The requested model declined before any output; the fallback answered.
+    const servedUsage = {
+        input_tokens: 412,
+        output_tokens: 264,
+        iterations: [
+            {
+                type: 'message',
+                model: 'claude-opus-5-5',
+                input_tokens: 535,
+                output_tokens: 0,
+            },
+            {
+                type: 'fallback_message',
+                model: 'claude-opus-4-8',
+                input_tokens: 412,
+                output_tokens: 264,
+            },
+        ],
+    };
+    const plainResponse = {
+        content: [{ type: 'text', text: 'hi' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+    };
+
+    const complete = (
+        provider: ReturnType<typeof makeProvider>['provider'],
+        args: Record<string, unknown>,
+    ) =>
+        withTestActor(() =>
+            provider.complete({
+                messages: [{ role: 'user', content: 'hi' }],
+                ...args,
+            } as never),
+        );
+
+    const pump = async (result: unknown) => {
+        const harness = makeCapturingChatStream();
+        await withTestActor(() =>
+            (
+                result as {
+                    init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+                }
+            ).init_chat_stream({ chatStream: harness.chatStream }),
+        );
+        return harness.events();
+    };
+
+    describe('request', () => {
+        it.each([
+            'claude-fable-5-2',
+            'claude-fable-5-1',
+            'claude-fable-5',
+            'claude-opus-5-5',
+            'claude-opus-5',
+            'claude-sonnet-5-5',
+        ])('asks for default fallback routing on %s', async (model) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(plainResponse);
+            messagesStreamMock.mockReturnValueOnce(makeStreamLike([]));
+
+            await complete(provider, { model });
+            await complete(provider, { model, stream: true });
+
+            for (const [params] of [
+                messagesCreateMock.mock.calls[0]!,
+                messagesStreamMock.mock.calls[0]!,
+            ]) {
+                expect(params.fallbacks).toBe('default');
+                expect(params.betas).toContain(FALLBACK_BETA);
+            }
+        });
+
+        it.each([
+            'claude-haiku-5-5',
+            'claude-sonnet-5',
+            'claude-opus-4-8',
+            'claude-haiku-4-5-20251001',
+        ])('sends neither the field nor the beta on %s', async (model) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(plainResponse);
+
+            await complete(provider, { model, anthropicFallbacks: 'default' });
+
+            const [params] = messagesCreateMock.mock.calls[0]!;
+            expect('fallbacks' in params).toBe(false);
+            expect(params.betas ?? []).not.toContain(FALLBACK_BETA);
+        });
+
+        it.each([false, true])(
+            'sends neither when the caller opts out, stream=%s',
+            async (stream) => {
+                const { provider } = makeProvider();
+                messagesCreateMock.mockResolvedValueOnce(plainResponse);
+                messagesStreamMock.mockReturnValueOnce(makeStreamLike([]));
+
+                await complete(provider, {
+                    model: 'claude-opus-5-5',
+                    refusalFallback: false,
+                    stream,
+                });
+
+                const [params] = (stream ? messagesStreamMock : messagesCreateMock)
+                    .mock.calls[0]!;
+                expect('fallbacks' in params).toBe(false);
+                expect(params.betas ?? []).not.toContain(FALLBACK_BETA);
+            },
+        );
+
+        it('sends a chain the caller named, once, with resolved model ids', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(plainResponse);
+
+            await complete(provider, {
+                model: 'claude-opus-5-5',
+                anthropicFallbacks: [
+                    { model: 'anthropic/claude-opus-5', max_tokens: 999_999 },
+                ],
+                anthropicBetas: [FALLBACK_BETA],
+            });
+
+            const [params] = messagesCreateMock.mock.calls[0]!;
+            expect(params.fallbacks).toEqual([{ model: 'claude-opus-5' }]);
+            expect(
+                params.betas.filter((beta: string) => beta === FALLBACK_BETA),
+            ).toHaveLength(1);
+        });
+
+        it('rejects a chain naming a model outside the catalog before calling upstream', async () => {
+            const { provider } = makeProvider();
+
+            await expect(
+                complete(provider, {
+                    model: 'claude-opus-5-5',
+                    anthropicFallbacks: [{ model: 'not-a-model' }],
+                }),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(messagesCreateMock).not.toHaveBeenCalled();
+        });
+
+        it('leaves the fallback out of a token count', async () => {
+            const { provider } = makeProvider();
+            countTokensMock.mockResolvedValueOnce({ input_tokens: 42 });
+
+            await withTestActor(() =>
+                provider.countTokens({
+                    model: 'claude-opus-5-5',
+                    messages: [{ role: 'user', content: 'hi' }],
+                } as never),
+            );
+
+            const [payload] = countTokensMock.mock.calls[0]!;
+            expect('fallbacks' in payload).toBe(false);
+            expect(payload.betas ?? []).not.toContain(FALLBACK_BETA);
+        });
+    });
+
+    describe('a request Anthropic rejects over the fallback', () => {
+        const rejection = Object.assign(
+            new Error('fallbacks: not supported with this request'),
+            { status: 400 },
+        );
+
+        it.each([false, true])(
+            'is sent again without it, stream=%s',
+            async (stream) => {
+                const { provider } = makeProvider();
+                const mock = stream ? messagesStreamMock : messagesCreateMock;
+                if (stream) {
+                    mock.mockReturnValueOnce({
+                        ...makeStreamLike([]),
+                        withResponse: () => Promise.reject(rejection),
+                    }).mockReturnValueOnce(makeStreamLike([]));
+                } else {
+                    mock.mockRejectedValueOnce(rejection).mockResolvedValueOnce(
+                        plainResponse,
+                    );
+                }
+
+                await complete(provider, { model: 'claude-opus-5-5', stream });
+
+                expect(mock).toHaveBeenCalledTimes(2);
+                expect(mock.mock.calls[0]![0].fallbacks).toBe('default');
+                const [retry] = mock.mock.calls[1]!;
+                expect('fallbacks' in retry).toBe(false);
+                expect(retry.betas ?? []).not.toContain(FALLBACK_BETA);
+            },
+        );
+
+        it('is returned to a caller that named its own chain', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockRejectedValueOnce(rejection);
+
+            await expect(
+                complete(provider, {
+                    model: 'claude-opus-5-5',
+                    anthropicFallbacks: 'default',
+                }),
+            ).rejects.toBe(rejection);
+            expect(messagesCreateMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not retry a 400 about anything else', async () => {
+            const { provider } = makeProvider();
+            const other = Object.assign(new Error('max_tokens: too large'), {
+                status: 400,
+            });
+            messagesCreateMock.mockRejectedValueOnce(other);
+
+            await expect(
+                complete(provider, { model: 'claude-opus-5-5' }),
+            ).rejects.toBe(other);
+            expect(messagesCreateMock).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('non-streaming', () => {
+        it('returns the fallback model\'s answer with the marker moved out of the content', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                type: 'message',
+                model: 'claude-opus-4-8',
+                content: [marker, { type: 'text', text: 'Hi! How can I help?' }],
+                stop_reason: 'end_turn',
+                stop_details: null,
+                usage: servedUsage,
+            });
+
+            const result = (await complete(provider, {
+                model: 'claude-opus-5-5',
+            })) as Record<string, any>;
+
+            expect(result.message.content).toEqual([
+                { type: 'text', text: 'Hi! How can I help?' },
+            ]);
+            expect(result.message.model).toBe('claude-opus-4-8');
+            expect(result.refusalFallbacks).toEqual([marker]);
+            expect(result.stopReason).toBe('end_turn');
+            expect(result.usageDetails.fallbackModel).toBe('claude-opus-4-8');
+            expect(result.usageDetails.iterations).toMatchObject([
+                { type: 'message', model: 'claude-opus-5-5', inputTokens: 535 },
+                {
+                    type: 'fallback_message',
+                    model: 'claude-opus-4-8',
+                    inputTokens: 412,
+                    outputTokens: 264,
+                },
+            ]);
+            // The answering attempt is the top level; it is counted once.
+            expect(result.usage.input_tokens).toBe(412);
+            expect(result.usage.output_tokens).toBe(264);
+        });
+
+        it('forwards the refusal when every model in the chain declined', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                type: 'message',
+                model: 'claude-opus-4-8',
+                content: [marker],
+                stop_reason: 'refusal',
+                stop_details: {
+                    type: 'refusal',
+                    category: 'cyber',
+                    explanation: 'declined',
+                    recommended_model: null,
+                    fallback_credit_token: 'credit-token',
+                    fallback_has_prefill_claim: false,
+                },
+                usage: {
+                    ...servedUsage,
+                    output_tokens: 0,
+                    iterations: [
+                        servedUsage.iterations[0],
+                        { ...servedUsage.iterations[1], output_tokens: 0 },
+                    ],
+                },
+            });
+
+            const result = (await complete(provider, {
+                model: 'claude-opus-5-5',
+            })) as Record<string, any>;
+
+            expect(result.stopReason).toBe('refusal');
+            expect(result.stopDetails).toEqual({
+                type: 'refusal',
+                category: 'cyber',
+                explanation: 'declined',
+                recommended_model: null,
+            });
+            expect(result.message.content).toEqual([]);
+            expect(result.refusalFallbacks).toEqual([marker]);
+            expect(result.usageDetails.fallbackModel).toBe('claude-opus-4-8');
+        });
+
+        it('returns the message untouched when no fallback ran', async () => {
+            const { provider } = makeProvider();
+            const msg = {
+                ...plainResponse,
+                stop_reason: 'refusal',
+                stop_details: { type: 'refusal', category: null, explanation: null },
+            };
+            messagesCreateMock.mockResolvedValueOnce(msg);
+
+            const result = (await complete(provider, {
+                model: 'claude-opus-5-5',
+            })) as Record<string, any>;
+
+            expect(result.message).toBe(msg);
+            expect(result.stopReason).toBe('refusal');
+            expect(result.stopDetails).toEqual(msg.stop_details);
+            expect('refusalFallbacks' in result).toBe(false);
+            expect('fallbackModel' in result.usageDetails).toBe(false);
+        });
+    });
+
+    describe('streaming', () => {
+        const textBlock = (index: number, text: string) => [
+            {
+                type: 'content_block_start',
+                index,
+                content_block: { type: 'text', text: '' },
+            },
+            {
+                type: 'content_block_delta',
+                index,
+                delta: { type: 'text_delta', text },
+            },
+            { type: 'content_block_stop', index },
+        ];
+        const markerBlock = (index: number) => [
+            { type: 'content_block_start', index, content_block: marker },
+            { type: 'content_block_stop', index },
+        ];
+        const stop = (delta: Record<string, unknown>, usage: unknown) => [
+            { type: 'message_delta', delta, usage },
+            { type: 'message_stop' },
+        ];
+
+        it('passes a marker that opens the response through ahead of the answer', async () => {
+            const { provider } = makeProvider();
+            messagesStreamMock.mockReturnValueOnce(
+                makeStreamLike(
+                    [
+                        { type: 'message_start' },
+                        ...markerBlock(0),
+                        ...textBlock(1, 'answer'),
+                        ...stop({ stop_reason: 'end_turn' }, servedUsage),
+                    ],
+                    servedUsage,
+                ),
+            );
+
+            const events = await pump(
+                await complete(provider, { model: 'claude-opus-5-5', stream: true }),
+            );
+
+            expect(events.slice(0, 2)).toEqual([
+                {
+                    type: 'refusal_fallback',
+                    from: marker.from,
+                    to: marker.to,
+                    trigger: marker.trigger,
+                },
+                { type: 'text', text: 'answer' },
+            ]);
+            const usageLine = events.at(-1)!;
+            expect(usageLine.stopReason).toBe('end_turn');
+            expect(usageLine.usageDetails.fallbackModel).toBe('claude-opus-4-8');
+            expect(usageLine.usage.output_tokens).toBe(264);
+        });
+
+        it('keeps streaming through a marker in the middle of the output', async () => {
+            const { provider } = makeProvider();
+            const usage = {
+                ...servedUsage,
+                iterations: [
+                    { ...servedUsage.iterations[0], output_tokens: 20 },
+                    servedUsage.iterations[1],
+                ],
+            };
+            messagesStreamMock.mockReturnValueOnce(
+                makeStreamLike(
+                    [
+                        { type: 'message_start' },
+                        ...textBlock(0, 'partial '),
+                        ...markerBlock(1),
+                        ...textBlock(2, 'answer'),
+                        ...stop({ stop_reason: 'end_turn' }, usage),
+                    ],
+                    usage,
+                ),
+            );
+
+            const events = await pump(
+                await complete(provider, { model: 'claude-opus-5-5', stream: true }),
+            );
+
+            expect(events.map((e) => e.type)).toEqual([
+                'text',
+                'refusal_fallback',
+                'text',
+                'usage',
+            ]);
+            expect(events[0]!.text).toBe('partial ');
+            expect(events[2]!.text).toBe('answer');
+            expect(events[3]!.usageDetails.fallbackModel).toBe('claude-opus-4-8');
+        });
+
+        it('tolerates a marker with none of its fields', async () => {
+            const { provider } = makeProvider();
+            messagesStreamMock.mockReturnValueOnce(
+                makeStreamLike([
+                    { type: 'message_start' },
+                    {
+                        type: 'content_block_start',
+                        index: 0,
+                        content_block: { type: 'fallback' },
+                    },
+                    { type: 'content_block_stop', index: 0 },
+                    ...textBlock(1, 'answer'),
+                    ...stop({ stop_reason: 'end_turn' }, plainResponse.usage),
+                ]),
+            );
+
+            const events = await pump(
+                await complete(provider, { model: 'claude-opus-5-5', stream: true }),
+            );
+
+            expect(events.map((e) => e.type)).toEqual([
+                'refusal_fallback',
+                'text',
+                'usage',
+            ]);
+        });
+
+        it('ends with the refusal when every model in the chain declined', async () => {
+            const { provider } = makeProvider();
+            const usage = {
+                ...servedUsage,
+                output_tokens: 0,
+                iterations: [
+                    servedUsage.iterations[0],
+                    { ...servedUsage.iterations[1], output_tokens: 0 },
+                ],
+            };
+            messagesStreamMock.mockReturnValueOnce(
+                makeStreamLike(
+                    [
+                        { type: 'message_start' },
+                        ...markerBlock(0),
+                        ...stop(
+                            {
+                                stop_reason: 'refusal',
+                                stop_details: {
+                                    type: 'refusal',
+                                    category: 'cyber',
+                                    explanation: 'declined',
+                                    fallback_credit_token: 'credit-token',
+                                    fallback_has_prefill_claim: false,
+                                },
+                            },
+                            usage,
+                        ),
+                    ],
+                    usage,
+                ),
+            );
+
+            const events = await pump(
+                await complete(provider, { model: 'claude-opus-5-5', stream: true }),
+            );
+
+            expect(events.map((e) => e.type)).toEqual(['refusal_fallback', 'usage']);
+            const usageLine = events.at(-1)!;
+            expect(usageLine.stopReason).toBe('refusal');
+            expect(usageLine.finish_reason).toBe('content_filter');
+            expect(usageLine.stopDetails).toEqual({
+                type: 'refusal',
+                category: 'cyber',
+                explanation: 'declined',
+            });
+            expect(usageLine.usageDetails.fallbackModel).toBe('claude-opus-4-8');
+        });
+    });
+});
+
 // -- countTokens -----------------------------------
 
 describe('ClaudeProvider.countTokens', () => {
