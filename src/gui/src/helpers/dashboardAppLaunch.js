@@ -20,6 +20,13 @@
 import UIAlert from '../UI/UIAlert.js';
 import launch_app from './launchApp.js';
 import { focusExistingAppWindow } from './focusAppWindow.js';
+import { offerAppTabLaunch } from './appTabLaunch.js';
+import { appendLaunchContext } from './appLaunchUrl.js';
+import { fetchUserAppTokenForLaunch } from './appLaunchApi.js';
+import { uuidv4 } from './uuidv4.js';
+
+/** The desktop interface, served as its own site. */
+export const DESKTOP_URL = 'https://desktop.puter.com/';
 
 // Apps whose launch is still fetching; a second click would open a second tab.
 const launching = new Set();
@@ -46,4 +53,45 @@ export function openAppInNewTab (appName) {
             UIAlert(i18n('something_went_wrong', [], false));
         })
         .finally(() => launching.delete(appName));
+}
+
+let launchingDesktop = false;
+
+/**
+ * Opens the desktop in a new browser tab, launched the way an app's tab is:
+ * the launch params go in its URL and its token is handed over through the
+ * opener. Without a token the tab still opens, and the desktop signs in on
+ * its own. Call it inside the click, so popup blockers allow the tab.
+ *
+ * @returns {Promise<void> | null} null when the browser refused the tab,
+ *   leaving the click to the link itself
+ */
+export function openDesktopInNewTab () {
+    if ( launchingDesktop ) return Promise.resolve();
+    // Without 'noopener': the desktop's SDK asks this tab for its token.
+    const tab = window.open('', '_blank');
+    if ( ! tab ) return null;
+    launchingDesktop = true;
+    const url = new URL(DESKTOP_URL);
+    return fetchUserAppTokenForLaunch({ origin: url.origin })
+        .then(({ token, appUid }) => {
+            if ( tab.closed ) return;
+            if ( token && appUid ) {
+                const appInstanceID = uuidv4();
+                url.searchParams.append('puter.app_instance_id', appInstanceID);
+                url.searchParams.append('puter.app.id', appUid);
+                appendLaunchContext(url, {
+                    appDomain: window.app_domain,
+                    pageUrl: window.location.href,
+                    apiOrigin: window.api_origin,
+                    locale: window.locale,
+                    surface: 'dashboard',
+                });
+                offerAppTabLaunch({ appInstanceID, tab, origin: url.origin, token, item: null });
+            }
+            tab.location.href = url.href;
+        })
+        .finally(() => {
+            launchingDesktop = false;
+        });
 }
