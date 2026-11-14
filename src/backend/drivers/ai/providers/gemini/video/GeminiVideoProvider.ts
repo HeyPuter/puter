@@ -193,7 +193,8 @@ interface Interaction {
 }
 
 type CountTokensPart =
-    { text: string } | { inlineData: { mimeType: string; data: string } };
+    | { text: string }
+    | { inlineData: { mimeType: string; data: string } };
 
 interface CountTokensRequest {
     contents: { parts: CountTokensPart[] }[];

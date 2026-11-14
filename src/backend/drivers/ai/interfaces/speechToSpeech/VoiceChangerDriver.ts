@@ -115,9 +115,11 @@ export class VoiceChangerDriver extends PuterDriver {
                     apiKey,
                     apiBaseUrl: elevenlabs?.apiBaseUrl as string | undefined,
                     defaultVoiceId: elevenlabs?.defaultVoiceId as
-                        string | undefined,
+                        | string
+                        | undefined,
                     defaultModelId: elevenlabs?.speechToSpeechModelId as
-                        string | undefined,
+                        | string
+                        | undefined,
                 },
             ),
         );

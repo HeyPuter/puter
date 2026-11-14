@@ -2100,7 +2100,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 // Keep upstream ids for provider calls and publish a qualified
                 // routing name even when a catalog omits its vendor namespace.
                 const publicId = entry.puterId || entry.id;
-                const serviceSeparator = publicId.indexOf(':');
+                // A colon after the first slash belongs to the model name, as
+                // in `vendor/model:free`, and names no service.
+                const serviceSeparator = publicId
+                    .split('/', 1)[0]!
+                    .indexOf(':');
                 const service =
                     serviceSeparator < 0
                         ? providerName

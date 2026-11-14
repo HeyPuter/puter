@@ -31,14 +31,15 @@ import { setupTestServer } from '../../../../testUtil.js';
 import { kv } from '../../../../util/kvSingleton.js';
 import { isDriverStreamResult } from '../../../meta.js';
 import {
+    caseRandom,
     corruptReply,
     Findings,
     fuzzCases,
     hostileValue,
     mutate,
     pick,
+    pickStable,
     type Random,
-    seededRandom,
     unclassifiedFailure,
     upstream,
     type UpstreamReply,
@@ -591,7 +592,11 @@ afterAll(async () => {
 });
 
 const pickRoute = (random: Random) =>
-    pick(random, routes.get(pick(random, [...routes.keys()]))!);
+    pickStable(
+        random,
+        routes.get(pickStable(random, [...routes.keys()], (name) => name))!,
+        (route) => route.id,
+    );
 
 /** Runs one completion to its end, stream included, and returns its failure. */
 const complete = async (args: Record<string, unknown>): Promise<unknown> => {
@@ -635,10 +640,11 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
         upstream.respond = healthyUpstream;
         upstream.unanswered.clear();
         clearUnhealthyRoutes();
-        const random = seededRandom(0xc4a7);
         const findings = new Findings();
+        let answered = 0;
 
         for (let index = 0; index < fuzzCases(3000); index++) {
+            const random = caseRandom(0xc4a7, index);
             const route = pickRoute(random);
             const args: Record<string, unknown> = {
                 ...mutate(pick(random, CORPUS), random, OPTION_NAMES),
@@ -652,6 +658,7 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
             }
             const label = `${route.provider}:${route.id}`;
             const error = await complete(args);
+            if (!error) answered++;
             const unclassified = error && unclassifiedFailure(error);
             if (unclassified) findings.add(unclassified, index, label, args);
             else if (isHttpError(error) && error.statusCode >= 500) {
@@ -677,13 +684,16 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
             findings.add(`no upstream fixture for ${request}`, -1, '', {});
         }
         findings.assertNone();
+        // A run where nothing is answered has stopped reaching the providers.
+        expect(answered).toBeGreaterThan(0);
     }, 600_000);
 
     it('ends every request with an answer or a classified error when the upstream misbehaves', async () => {
-        const random = seededRandom(0x0b5e);
         const findings = new Findings();
+        const askedBefore = upstream.asked;
 
         for (let index = 0; index < fuzzCases(2000); index++) {
+            const random = caseRandom(0x0b5e, index);
             const route = pickRoute(random);
             const replies: unknown[] = [];
             upstream.respond = (request) => {
@@ -711,5 +721,6 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
             clearUnhealthyRoutes();
         }
         findings.assertNone();
+        expect(upstream.asked).toBeGreaterThan(askedBefore);
     }, 600_000);
 });

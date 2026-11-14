@@ -37,6 +37,7 @@ import {
     fuzzCases,
     hostileValue,
     pick,
+    pickStable,
     type Random,
     upstream,
 } from '../shared/fuzzTestUtil.js';
@@ -362,9 +363,12 @@ describe.each(TARGETS)('$name driver seeded fuzzing', (target) => {
 
         const pinned = (random: Random) => {
             const route: Record<string, unknown> = {
-                ...pick(
+                ...pickStable(
                     random,
-                    byProvider.get(pick(random, target.providers))!,
+                    byProvider.get(
+                        pickStable(random, target.providers, (name) => name),
+                    )!,
+                    (candidate) => String(candidate.model),
                 ),
             };
             // Now and then the route itself is the malformed part.
@@ -374,6 +378,7 @@ describe.each(TARGETS)('$name driver seeded fuzzing', (target) => {
             }
             return route;
         };
+        const askedBefore = upstream.asked;
         const findings = await fuzzCalls({
             seed: 0x3ed1a,
             cases: fuzzCases(1000),
@@ -392,5 +397,7 @@ describe.each(TARGETS)('$name driver seeded fuzzing', (target) => {
             },
         });
         findings.assertNone();
+        // Some of the requests have to get as far as a vendor.
+        expect(upstream.asked).toBeGreaterThan(askedBefore);
     }, 600_000);
 });
