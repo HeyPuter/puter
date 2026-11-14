@@ -105,6 +105,13 @@ declare global {
             deviceFingerprint?: string;
 
             /**
+             * The client's TLS fingerprint, read from the header named by
+             * `tlsFingerprintHeader`. Shared by every client on the same TLS
+             * stack, so it identifies software, not a person.
+             */
+            tlsFingerprint?: string;
+
+            /**
              * Parsed cookies, populated by the global `cookie-parser`
              * middleware.
              */

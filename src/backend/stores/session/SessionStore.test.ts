@@ -357,6 +357,28 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('deleteExpiredDebugAppSessions', () => {
+        it('deletes only expired debug_app rows', async () => {
+            const user = await makeUser();
+            const now = Math.floor(Date.now() / 1000);
+            const mk = async (kind: string, expiresAt: number | null) => {
+                const { uuid } = await target.create(user.id, {
+                    kind,
+                    expires_at: expiresAt,
+                });
+                return uuid;
+            };
+            const expired = await mk('debug_app', now - 10);
+            const live = await mk('debug_app', now + 3600);
+            const otherKind = await mk('app', now - 10);
+
+            expect(await target.deleteExpiredDebugAppSessions(now)).toBe(1);
+            expect(await rawRow(expired)).toBeNull();
+            expect(await rawRow(live)).not.toBeNull();
+            expect(await rawRow(otherKind)).not.toBeNull();
+        });
+    });
+
     describe('revokeCascade', () => {
         it('revokes the root session and all child sessions', async () => {
             const user = await makeUser();

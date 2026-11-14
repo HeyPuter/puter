@@ -722,6 +722,36 @@ describe('AuthController.handleSignup', () => {
         expect(audit.ip_fwd).toBe(forged);
     });
 
+    it('records the request TLS fingerprint on the validate hook and the user row', async () => {
+        const username = `s_${uniq()}`;
+        const tlsFingerprint = 't13d1516h2_8daaf6152771_02713d6af862';
+        let seenTlsFingerprint: unknown;
+
+        await withSignupValidateOverride(
+            (event) => {
+                seenTlsFingerprint = (event as { tls_fingerprint?: unknown })
+                    .tls_fingerprint;
+            },
+            async () => {
+                await controller.handleSignup(
+                    {
+                        ...makeReq({
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        }),
+                        tlsFingerprint,
+                    },
+                    makeRes(),
+                );
+            },
+        );
+
+        expect(seenTlsFingerprint).toBe(tlsFingerprint);
+        const persisted = await server.stores.user.getByUsername(username);
+        expect(persisted!.signup_tls_fingerprint).toBe(tlsFingerprint);
+    });
+
     it('forces phone verification on every signup when always_require_phone_verification is set', async () => {
         const cfg = (controller as { config: Record<string, unknown> }).config;
         const prev = cfg.always_require_phone_verification;

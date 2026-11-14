@@ -25,6 +25,8 @@ const PRELUDE_API_BASE = 'https://api.prelude.dev/v2';
 const REQUEST_TIMEOUT_MS = 8000;
 /** OTP length — matches the 6-box code UI. Prelude allows 4–8. */
 const PRELUDE_CODE_SIZE = 6;
+const JA4_SHAPE =
+    /^[tqd][0-9a-z]{2}[di]\d{4}[0-9a-z]{2}_[0-9a-f]{12}_[0-9a-f]{12}$/;
 /**
  * Channel Prelude prioritizes for delivery. RCS is far cheaper than SMS, so we
  * prefer it by default; Prelude routes to the next reachable channel (SMS) when
@@ -134,6 +136,8 @@ export class PreludeClient extends PuterClient {
             ip?: string;
             device_id?: string;
             user_agent?: string;
+            /** Forwarded only when it is a JA4 value. */
+            tls_fingerprint?: string;
             dispatch_id?: string;
         } = {},
     ): Promise<{
@@ -168,6 +172,8 @@ export class PreludeClient extends PuterClient {
         if (signals.ip) sig.ip = signals.ip;
         if (signals.device_id) sig.device_id = signals.device_id;
         if (signals.user_agent) sig.user_agent = signals.user_agent;
+        if (signals.tls_fingerprint && JA4_SHAPE.test(signals.tls_fingerprint))
+            sig.ja4_fingerprint = signals.tls_fingerprint;
         if (Object.keys(sig).length > 0) body.signals = sig;
         // dispatch_id is a top-level field, not a member of `signals`.
         if (signals.dispatch_id) body.dispatch_id = signals.dispatch_id;
