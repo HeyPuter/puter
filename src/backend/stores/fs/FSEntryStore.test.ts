@@ -2589,6 +2589,14 @@ describe('FSEntryStore listing and pagination', () => {
         expect(second.cursor).toBeUndefined();
     });
 
+    it('rejects a fractional limit below one with 400', async () => {
+        const err = await caught(() =>
+            store.listChildrenPage(parent.uuid, { limit: 0.5 }),
+        );
+        expect(err.statusCode).toBe(400);
+        expect(err.message).toBe('limit must be a positive number');
+    });
+
     it('paginates each nullable sort column without dropping rows', async () => {
         for (const sortBy of ['size', 'modified', 'type'] as const) {
             const page = await store.listChildrenPage(parent.uuid, {
