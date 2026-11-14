@@ -547,6 +547,31 @@ export const publicStopDetails = (
     return rest;
 };
 
+/**
+ * Refusal categories Anthropic bills even when the model declined before any
+ * output. Source:
+ * https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#how-refusals-are-billed
+ */
+const BILLED_REFUSAL_CATEGORIES = new Set<unknown>([
+    'bio',
+    'frontier_llm',
+    'reasoning_extraction',
+]);
+
+/**
+ * Whether Anthropic bills an attempt that ended in a refusal. `refusal` is the
+ * attempt's `stop_details` or its `fallback` block's `trigger`; one that is
+ * missing says nothing about the category, so the attempt stays billed.
+ */
+export const isRefusalBilled = (
+    refusal: unknown,
+    outputTokens: number,
+): boolean =>
+    outputTokens > 0 ||
+    !refusal ||
+    typeof refusal !== 'object' ||
+    BILLED_REFUSAL_CATEGORIES.has((refusal as { category?: unknown }).category);
+
 /** Splits a response's `fallback` marker blocks from the content around them. */
 export const splitFallbackBlocks = (
     content: unknown,

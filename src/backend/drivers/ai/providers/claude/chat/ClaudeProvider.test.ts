@@ -3609,6 +3609,238 @@ describe('ClaudeProvider refusal fallback', () => {
         });
     });
 
+    describe('billing of a declined attempt', () => {
+        const opus55 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5-5')!
+            .costs as Record<string, number>;
+        const opus48 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')!
+            .costs as Record<string, number>;
+        const refusal = (category: unknown, output_tokens = 0) => ({
+            type: 'message',
+            model: 'claude-opus-5-5',
+            content: [],
+            stop_reason: 'refusal',
+            stop_details: { type: 'refusal', category, explanation: null },
+            usage: {
+                input_tokens: 900,
+                cache_read_input_tokens: 100,
+                output_tokens,
+            },
+        });
+        const noCost = {
+            input_tokens: 0,
+            ephemeral_5m_input_tokens: 0,
+            ephemeral_1h_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 0,
+        };
+
+        it.each(['cyber', 'general_harms', 'some_future_category', null])(
+            'records a request declined before any output in category %s at no cost',
+            async (category) => {
+                const { provider } = makeProvider();
+                messagesCreateMock.mockResolvedValueOnce(refusal(category));
+
+                const result = (await complete(provider, {
+                    model: 'claude-opus-5-5',
+                })) as Record<string, any>;
+
+                expect(recordSpy).toHaveBeenCalledTimes(1);
+                const [recorded, , prefix, costs] = recordSpy.mock.calls[0]!;
+                expect(prefix).toBe('claude:claude-opus-5-5');
+                expect(recorded).toMatchObject({
+                    input_tokens: 900,
+                    cache_read_input_tokens: 100,
+                    output_tokens: 0,
+                });
+                expect(costs).toEqual(noCost);
+                expect(result.usageCosts).toEqual(noCost);
+                expect(result.stopReason).toBe('refusal');
+                expect(result.usage.input_tokens).toBe(900);
+            },
+        );
+
+        it.each(['bio', 'frontier_llm', 'reasoning_extraction'])(
+            'charges a request declined before any output in category %s',
+            async (category) => {
+                const { provider } = makeProvider();
+                messagesCreateMock.mockResolvedValueOnce(refusal(category));
+
+                await complete(provider, { model: 'claude-opus-5-5' });
+
+                expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                    input_tokens: 900 * opus55.input_tokens!,
+                    cache_read_input_tokens:
+                        100 * opus55.cache_read_input_tokens!,
+                });
+            },
+        );
+
+        it('charges a request declined after it produced output', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(refusal('cyber', 40));
+
+            await complete(provider, { model: 'claude-opus-5-5' });
+
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                input_tokens: 900 * opus55.input_tokens!,
+                output_tokens: 40 * opus55.output_tokens!,
+            });
+        });
+
+        it('charges a refusal that carries no stop_details', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                ...refusal('cyber'),
+                stop_details: null,
+            });
+
+            await complete(provider, { model: 'claude-opus-5-5' });
+
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                input_tokens: 900 * opus55.input_tokens!,
+            });
+        });
+
+        it('records a streamed refusal before any output at no cost', async () => {
+            const { provider } = makeProvider();
+            const usage = { input_tokens: 900, output_tokens: 0 };
+            messagesStreamMock.mockReturnValueOnce(
+                makeStreamLike(
+                    [
+                        { type: 'message_start' },
+                        {
+                            type: 'message_delta',
+                            delta: {
+                                stop_reason: 'refusal',
+                                stop_details: {
+                                    type: 'refusal',
+                                    category: 'cyber',
+                                    explanation: 'declined',
+                                },
+                            },
+                            usage,
+                        },
+                        { type: 'message_stop' },
+                    ],
+                    usage,
+                ),
+            );
+
+            const events = await pump(
+                await complete(provider, { model: 'claude-opus-5-5', stream: true }),
+            );
+
+            expect(recordSpy.mock.calls[0]![3]).toEqual(noCost);
+            const usageLine = events.at(-1)!;
+            expect(usageLine.stopReason).toBe('refusal');
+            expect(usageLine.usage.input_tokens).toBe(900);
+        });
+
+        // The declined attempt of `servedUsage` produced no output.
+        const withTrigger = (trigger: unknown) => ({
+            type: 'message',
+            model: 'claude-opus-4-8',
+            content: [{ ...marker, trigger }, { type: 'text', text: 'answer' }],
+            stop_reason: 'end_turn',
+            usage: servedUsage,
+        });
+        const servedCosts = {
+            input_tokens: 412 * opus48.input_tokens!,
+            output_tokens: 264 * opus48.output_tokens!,
+        };
+
+        it.each([
+            ['cyber', 0],
+            ['general_harms', 0],
+            [null, 0],
+            ['bio', 535 * opus55.input_tokens!],
+            ['reasoning_extraction', 535 * opus55.input_tokens!],
+        ])(
+            'after a fallback, charges the attempt declined in category %s %d for its prompt',
+            async (category, cost) => {
+                const { provider } = makeProvider();
+                messagesCreateMock.mockResolvedValueOnce(
+                    withTrigger({ type: 'refusal', category }),
+                );
+
+                const result = (await complete(provider, {
+                    model: 'claude-opus-5-5',
+                })) as Record<string, any>;
+
+                const [served, declined] = recordSpy.mock.calls;
+                expect(served![3]).toMatchObject(servedCosts);
+                expect(declined![2]).toBe('claude:claude-opus-5-5');
+                expect(declined![0]).toMatchObject({ input_tokens: 535 });
+                expect(declined![3].input_tokens).toBe(cost);
+                expect(result.usage.declined_input_tokens).toBe(535);
+                expect(result.usageCosts.declined_input_tokens).toBe(cost);
+            },
+        );
+
+        it('charges a declined attempt whose handoff block is missing', async () => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                ...withTrigger(undefined),
+                content: [{ type: 'text', text: 'answer' }],
+            });
+
+            await complete(provider, { model: 'claude-opus-5-5' });
+
+            expect(recordSpy.mock.calls[1]![3].input_tokens).toBe(
+                535 * opus55.input_tokens!,
+            );
+        });
+
+        it('charges nothing when every model declined before any output in an unbilled category', async () => {
+            const { provider } = makeProvider();
+            messagesStreamMock.mockReturnValueOnce(
+                makeStreamLike(
+                    [
+                        { type: 'message_start' },
+                        {
+                            type: 'content_block_start',
+                            index: 0,
+                            content_block: marker,
+                        },
+                        { type: 'content_block_stop', index: 0 },
+                        {
+                            type: 'message_delta',
+                            delta: {
+                                stop_reason: 'refusal',
+                                stop_details: { type: 'refusal', category: 'cyber' },
+                            },
+                            usage: { input_tokens: 412, output_tokens: 0 },
+                        },
+                        { type: 'message_stop' },
+                    ],
+                    {
+                        input_tokens: 412,
+                        output_tokens: 0,
+                        iterations: [
+                            servedUsage.iterations[0],
+                            { ...servedUsage.iterations[1], output_tokens: 0 },
+                        ],
+                    },
+                ),
+            );
+
+            const events = await pump(
+                await complete(provider, { model: 'claude-opus-5-5', stream: true }),
+            );
+
+            expect(recordSpy.mock.calls.map((call) => call[2])).toEqual([
+                'claude:claude-opus-4-8',
+                'claude:claude-opus-5-5',
+            ]);
+            for (const [, , , costs] of recordSpy.mock.calls) {
+                expect(Object.values(costs!).every((cost) => cost === 0)).toBe(
+                    true,
+                );
+            }
+            expect(events.at(-1)!.stopReason).toBe('refusal');
+        });
+    });
+
     describe('through the driver', () => {
         const messages = [{ role: 'user', content: 'hi' }];
 
@@ -3633,7 +3865,10 @@ describe('ClaudeProvider refusal fallback', () => {
             messagesCreateMock.mockResolvedValueOnce({
                 type: 'message',
                 model: 'claude-opus-4-8',
-                content: [marker, { type: 'text', text: 'answer' }],
+                content: [
+                    { ...marker, trigger: { type: 'refusal', category: 'bio' } },
+                    { type: 'text', text: 'answer' },
+                ],
                 stop_reason: 'end_turn',
                 usage: servedUsage,
             });

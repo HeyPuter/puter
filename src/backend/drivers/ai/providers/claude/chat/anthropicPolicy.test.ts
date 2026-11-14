@@ -31,6 +31,7 @@ import {
     deriveBetas,
     hasExtendedCacheTtl,
     isFallbackRejected,
+    isRefusalBilled,
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
     priciestModel,
@@ -188,6 +189,34 @@ describe('publicStopDetails', () => {
         expect(publicStopDetails(null)).toBeNull();
         expect(publicStopDetails(undefined)).toBeNull();
         expect(publicStopDetails('refusal')).toBeNull();
+    });
+});
+
+describe('isRefusalBilled', () => {
+    it.each(['bio', 'frontier_llm', 'reasoning_extraction'])(
+        'bills a refusal before any output in category %s',
+        (category) => {
+            expect(isRefusalBilled({ type: 'refusal', category }, 0)).toBe(true);
+        },
+    );
+
+    it.each(['cyber', 'general_harms', 'some_future_category', null, undefined])(
+        'does not bill a refusal before any output in category %s',
+        (category) => {
+            expect(isRefusalBilled({ type: 'refusal', category }, 0)).toBe(false);
+        },
+    );
+
+    it('bills a refusal that arrived after output, whatever its category', () => {
+        expect(isRefusalBilled({ type: 'refusal', category: 'cyber' }, 1)).toBe(
+            true,
+        );
+    });
+
+    it('bills an attempt whose refusal details are missing', () => {
+        expect(isRefusalBilled(undefined, 0)).toBe(true);
+        expect(isRefusalBilled(null, 0)).toBe(true);
+        expect(isRefusalBilled('refusal', 0)).toBe(true);
     });
 });
 

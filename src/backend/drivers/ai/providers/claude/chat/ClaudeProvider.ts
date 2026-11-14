@@ -62,6 +62,7 @@ import {
     deriveBetas,
     hasExtendedCacheTtl,
     isFallbackRejected,
+    isRefusalBilled,
     mergeConsecutiveUserTurns,
     partitionSystemMessages,
     priciestModel,
@@ -264,13 +265,25 @@ interface AttemptCharge {
 }
 
 /**
+ * How the attempts of one request ended, as far as the response says: the
+ * `fallback` block of each handoff, in order, and the final stop.
+ */
+interface AttemptOutcomes {
+    handoffs: Record<string, unknown>[];
+    stopReason?: unknown;
+    stopDetails?: unknown;
+}
+
+/**
  * Prices one attempt's usage at the rates of the model that ran it. A fast
- * attempt keeps the published `fast_` usage keys.
+ * attempt keeps the published `fast_` usage keys. An attempt Anthropic does not
+ * bill keeps its usage and costs nothing.
  */
 const priceAttempt = (
     model: IChatModel,
     tokens: Record<string, number>,
     fast: boolean,
+    billed: boolean,
     perCall: Record<string, number> = {},
 ): AttemptCharge => {
     const usage: Record<string, number> = {
@@ -296,7 +309,13 @@ const priceAttempt = (
               },
           }
         : model;
-    return { model, usage, costs: buildCostsOverride(usage, billingModel) };
+    return {
+        model,
+        usage,
+        costs: billed
+            ? buildCostsOverride(usage, billingModel)
+            : Object.fromEntries(Object.keys(usage).map((key) => [key, 0])),
+    };
 };
 
 const COUNT_TOKENS_FIELDS = [
@@ -538,10 +557,25 @@ export class ClaudeProvider implements IChatProvider {
                 : this.anthropic.messages.create(sdkParams as never, {
                       signal: Context.get('upstreamSignal'),
                   }));
+            const nativeMsg = msg as unknown as Message & {
+                stop_sequence?: string | null;
+                stop_details?: Record<string, unknown> | null;
+                safeguard_results?: unknown[];
+                context_management?: Record<string, unknown> | null;
+            };
+            // A handoff marker is not output; callers index `content` for text.
+            const { content, fallbacks } = splitFallbackBlocks(
+                (msg as Message).content,
+            );
             const { charges, usage, costs, details } = this.#meter(
                 (msg as Message).usage,
                 modelUsed,
                 sdkParams.speed === 'fast',
+                {
+                    handoffs: fallbacks,
+                    stopReason: nativeMsg.stop_reason,
+                    stopDetails: nativeMsg.stop_details,
+                },
             );
             this.#record(charges, Context.get('actor'));
 
@@ -553,17 +587,6 @@ export class ClaudeProvider implements IChatProvider {
                 (c: any) => c?.type === 'compaction',
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
             ) as any;
-
-            const nativeMsg = msg as unknown as Message & {
-                stop_sequence?: string | null;
-                stop_details?: Record<string, unknown> | null;
-                safeguard_results?: unknown[];
-                context_management?: Record<string, unknown> | null;
-            };
-            // A handoff marker is not output; callers index `content` for text.
-            const { content, fallbacks } = splitFallbackBlocks(
-                (msg as Message).content,
-            );
 
             return {
                 message: fallbacks.length ? { ...msg, content } : msg,
@@ -1298,6 +1321,7 @@ export class ClaudeProvider implements IChatProvider {
         let emittedCompaction = false;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let finalUsage: any = null;
+        const outcomes: AttemptOutcomes = { handoffs: [] };
 
         for await (const event of { [Symbol.asyncIterator]: () => events }) {
             await chatStream.waitForDrain();
@@ -1312,6 +1336,8 @@ export class ClaudeProvider implements IChatProvider {
                     continue;
                 }
                 case 'message_delta': {
+                    outcomes.stopReason = event.delta?.stop_reason;
+                    outcomes.stopDetails = event.delta?.stop_details;
                     chatStream.setStop({
                         reason: event.delta?.stop_reason ?? undefined,
                         sequence: event.delta?.stop_sequence ?? null,
@@ -1378,6 +1404,7 @@ export class ClaudeProvider implements IChatProvider {
                             });
                             break;
                         case 'fallback':
+                            outcomes.handoffs.push(b);
                             chatStream.refusalFallback(b);
                             blocks.set(i, { kind: 'done' });
                             break;
@@ -1511,6 +1538,7 @@ export class ClaudeProvider implements IChatProvider {
             finalUsage ?? {},
             modelUsed,
             requestedFast,
+            outcomes,
         );
         this.#record(charges, actor);
         chatStream.setUsageDetails(details);
@@ -1543,6 +1571,7 @@ export class ClaudeProvider implements IChatProvider {
         modelUsed: IChatModel,
         /** Whether the request was sent at fast speed. */
         requestedFast: boolean,
+        outcomes: AttemptOutcomes,
     ): {
         charges: AttemptCharge[];
         usage: Record<string, number>;
@@ -1600,14 +1629,20 @@ export class ClaudeProvider implements IChatProvider {
                     it.model ?? modelUsed.id,
                     this.models(),
                 );
+                const tokens = attemptTokens(it);
                 declined.push(
                     priceAttempt(
                         model,
-                        attemptTokens(it),
+                        tokens,
                         // An entry carries no speed; an attempt runs at the request's.
                         ranFast(
                             it.speed ?? (requestedFast ? 'fast' : undefined),
                             model,
+                        ),
+                        // Each declined attempt ended at the next handoff.
+                        isRefusalBilled(
+                            outcomes.handoffs[declined.length]?.trigger,
+                            tokens.output_tokens,
                         ),
                     ),
                 );
@@ -1621,10 +1656,17 @@ export class ClaudeProvider implements IChatProvider {
         const fast = ranFast(raw.speed, servedModel);
         const searches = raw.server_tool_use?.web_search_requests ?? 0;
         const fetches = raw.server_tool_use?.web_fetch_requests ?? 0;
-        const served = priceAttempt(servedModel, exec, fast, {
-            ...(searches ? { web_search_requests: searches } : {}),
-            ...(fetches ? { web_fetch_requests: fetches } : {}),
-        });
+        const served = priceAttempt(
+            servedModel,
+            exec,
+            fast,
+            outcomes.stopReason !== 'refusal' ||
+                isRefusalBilled(outcomes.stopDetails, exec.output_tokens),
+            {
+                ...(searches ? { web_search_requests: searches } : {}),
+                ...(fetches ? { web_fetch_requests: fetches } : {}),
+            },
+        );
 
         const prefixed = (prefix: string, values: Record<string, number>) =>
             Object.fromEntries(
