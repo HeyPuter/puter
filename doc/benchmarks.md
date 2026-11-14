@@ -105,4 +105,6 @@ The text before `--` matches any benchmark whose identifier contains it (`*` mat
 
 [benchmarks.yaml](../.github/workflows/benchmarks.yaml) splits the benchmark files over parallel runners. Each runner benchmarks its share on both commits, and the `benchmarks` job merges the reports, posts the comparison on the pull request, and fails on a regression the description doesn't accept. Pushes to `main` are compared with the previous commit and only reported.
 
+A pull request is benchmarked as merged into its base branch and compared with that base, so a branch that is behind `main` isn't charged for (or credited with) what `main` gained since.
+
 A benchmark that exists only on one side is listed as new or removed and never fails the check.

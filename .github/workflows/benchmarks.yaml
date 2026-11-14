@@ -47,26 +47,36 @@ jobs:
     if: needs.changes.outputs.backend == 'true'
     name: bench shard ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-latest
+    # A shard takes about two minutes; a stuck scenario fails here instead of
+    # holding the runner for hours.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
 
     steps:
+      # A pull request is checked out merged into its base, and compared with
+      # that base (the merge's first parent). Comparing the branch's own head
+      # would count what the base gained since the branch was cut.
       - name: Checkout
         uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          fetch-depth: 2
 
-      # From this repository rather than `origin`, which is the fork on a
-      # fork's pull request.
-      - name: Fetch the commit to compare against
+      - name: Pick the commit to compare against
+        id: base
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: git fetch --no-tags --depth=1 "$REPO_URL" "$BASE_SHA"
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            sha=$(git rev-parse HEAD^1)
+          else
+            sha=$BEFORE
+            git fetch --no-tags --depth=1 origin "$sha"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v7.1.0
@@ -79,7 +89,7 @@ jobs:
 
       - name: Run benchmarks on both commits
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
           CI: 'true'
         run: >-
           npm run bench:compare --
