@@ -24,7 +24,7 @@ const check_password_strength = (password) => {
         hasUpperCase: /[A-Z]/.test(password),
         hasLowerCase: /[a-z]/.test(password),
         hasNumber: /\d/.test(password),
-        hasSpecialChar: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password),
+        hasSpecialChar: /[\p{P}\p{S}\s]/u.test(password),
     };
 
     let overallPass = true;
