@@ -2086,14 +2086,35 @@ export class ChatCompletionDriver extends PuterDriver {
                 // instance, so they are read and never written: normalizing
                 // the id or appending puterId in place would accumulate across
                 // instantiations. The bucket gets its own copy instead.
-                const aliases =
-                    entry.puterId &&
-                    !(entry.aliases ?? []).includes(entry.puterId)
-                        ? [...(entry.aliases ?? []), entry.puterId]
-                        : entry.aliases;
+                // Keep upstream ids for provider calls and publish a qualified
+                // routing name even when a catalog omits its vendor namespace.
+                const publicId = entry.puterId || entry.id;
+                const serviceSeparator = publicId.indexOf(':');
+                const service =
+                    serviceSeparator < 0
+                        ? providerName
+                        : publicId.slice(0, serviceSeparator);
+                const modelPath =
+                    serviceSeparator < 0
+                        ? publicId
+                        : publicId.slice(serviceSeparator + 1);
+                const puterId =
+                    providerName === 'fake-chat'
+                        ? entry.puterId
+                        : `${service}:${modelPath.includes('/') ? modelPath : `${service}/${modelPath}`}`;
+                const aliases = puterId
+                    ? [
+                          ...new Set([
+                              ...(entry.aliases ?? []),
+                              ...(entry.puterId ? [entry.puterId] : []),
+                              puterId,
+                          ]),
+                      ]
+                    : entry.aliases;
                 const model = {
                     ...entry,
                     id: normalizeModelKey(entry.id),
+                    ...(puterId ? { puterId } : {}),
                 };
                 // Assigned only when the entry has names to carry: models()
                 // is serialized to the API, and an entry that declared no

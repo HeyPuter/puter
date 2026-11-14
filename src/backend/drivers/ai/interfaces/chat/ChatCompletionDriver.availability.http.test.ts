@@ -129,6 +129,17 @@ describe('model availability through real HTTP', () => {
             meteringEnforcement: { subscriptions: false },
         } as never);
     }, 120000);
+    it('serves qualified chat model names through HTTP', async () => {
+        const response = await fetch(
+            new URL('/puterai/chat/models', env.apiOrigin),
+        );
+        expect(response.status).toBe(200);
+        const { models } = (await response.json()) as { models: string[] };
+        expect(models).toContain('openrouter:vendor/availability-test');
+        expect(models.every((id) => /^[^:/]+:[^/]+\/.+/.test(id))).toBe(true);
+        expect(models).not.toContain('vendor/availability-test');
+    });
+
     afterAll(async () => {
         await env?.shutdown();
         upstream?.closeAllConnections();

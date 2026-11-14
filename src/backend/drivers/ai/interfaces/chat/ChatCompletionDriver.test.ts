@@ -207,6 +207,48 @@ describe('ChatCompletionDriver model map', () => {
         d.onServerShutdown();
     });
 
+    it('lists qualified model ids without publishing aliases as models', async () => {
+        const ids = [
+            'kimi/kimi-3',
+            'ollama:plain-model',
+            'ollama:vendor/qualified',
+        ];
+        vi.spyOn(OllamaChatProvider.prototype, 'models').mockResolvedValue(
+            ids.map((id) => ({
+                id,
+                aliases: ['legacy-' + id],
+                costs_currency: 'usd-cents',
+                costs: {},
+                max_tokens: 8192,
+            })),
+        );
+        const d = newDriver({ ollama: {} });
+        await d.onServerStart();
+        try {
+            expect(
+                (await d.list()).filter(
+                    (id) => !['abuse', 'costly', 'fake'].includes(id),
+                ),
+            ).toEqual([
+                'ollama:kimi/kimi-3',
+                'ollama:ollama/plain-model',
+                'ollama:vendor/qualified',
+            ]);
+            const models = (await d.models()).filter(
+                (model) => model.provider === 'ollama',
+            );
+            expect(models.map((model) => model.id).sort()).toEqual(
+                [...ids].sort(),
+            );
+            for (const model of models) {
+                expect(model.aliases).toContain(model.puterId);
+                expect(model.aliases).toContain('legacy-' + model.id);
+            }
+        } finally {
+            d.onServerShutdown();
+        }
+    });
+
     it('lists the catalog to a caller that asks while it is still loading', async () => {
         const d = newDriver({ ollama: { enabled: false } });
         d.onServerStart();
