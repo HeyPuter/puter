@@ -186,6 +186,16 @@ describe('ui.showTopUp_ on a signed-in first-party page', () => {
 });
 
 describe('ui.showTopUp_ elsewhere on the web', () => {
+    it('names the app the page runs as, so the dashboard can credit it', async () => {
+        fakePuter({ guiOrigin: 'https://puter.com' });
+        globalThis.puter.appID = 'app-0b8a6d4e-6c1f-4a52-9d3e-2f7b1c9e8a10';
+        await makeUI().showTopUp_();
+        expect(window.open).toHaveBeenCalledWith(
+            'https://puter.com/dashboard/?topup=&topup_app=app-0b8a6d4e-6c1f-4a52-9d3e-2f7b1c9e8a10#usage',
+            '_blank',
+        );
+    });
+
     it.each([
         ['a page outside the Puter origin', { guiOrigin: 'https://puter.com' }],
         ['a signed-out first-party page', { signedIn: false }],
