@@ -26,6 +26,7 @@
  */
 
 import type { Response } from 'express';
+import { onResponseClose } from '../../core/http/onResponseClose.js';
 import type { UsageDetails } from '../../drivers/ai/interfaces/chat/types.js';
 import { promoteStopForToolCalls } from '../../drivers/ai/interfaces/chat/utils/stopReason.js';
 import { anthropicUsage } from './anthropicWire.js';
@@ -79,7 +80,7 @@ export const startSse = (res: Response, opts: { ping?: boolean } = {}): Sse => {
         timer.unref?.();
     }
 
-    res.once('close', () => {
+    onResponseClose(res, () => {
         ended = true;
         if (timer) clearInterval(timer);
     });

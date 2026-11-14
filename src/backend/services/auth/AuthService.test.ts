@@ -124,6 +124,106 @@ describe('AuthService (integration)', () => {
         return u;
     };
 
+    const makeDebugApp = async (): Promise<string> => {
+        const uid = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+            [uid, `n-${uid}`, `t-${uid}`, `https://${uid}.example/`, 1],
+        );
+        return uid;
+    };
+
+    describe('createDebugAppToken', () => {
+        it('mints an app-under-user token on its own expiring, hidden session', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const { token, sessionUuid, expiresAt } =
+                await authService.createDebugAppToken(
+                    user as never,
+                    { uid: appUid },
+                    {
+                        ttlSeconds: 3600,
+                        label: 'debug',
+                        meta: { debug_admin_username: 'op' },
+                    },
+                );
+
+            // Its own dedicated row, not reusing a kind='app' session.
+            const row = (
+                (await server.clients.db.read(
+                    'SELECT `kind`, `app_uid`, `expires_at` FROM `sessions` WHERE `uuid` = ?',
+                    [sessionUuid],
+                )) as Array<Record<string, unknown>>
+            )[0];
+            expect(row?.kind).toBe('debug_app');
+            expect(row?.app_uid).toBe(appUid);
+            expect(Number(row?.expires_at)).toBeGreaterThan(
+                Math.floor(Date.now() / 1000) + 3500,
+            );
+            expect(expiresAt).toBeGreaterThan(Date.now() + 3500 * 1000);
+
+            // Authenticates as the user acting in the app.
+            const { actor } = await authService.authenticate(token);
+            expect(actor?.user.uuid).toBe(user.uuid);
+            expect(actor?.app?.uid).toBe(appUid);
+
+            // Hidden from the user's own session list.
+            const listed = await authService.listSessions({
+                user: { id: user.id },
+            } as Actor);
+            expect(listed.some((s) => s.uuid === sessionUuid)).toBe(false);
+        });
+
+        it('carries an exp, so the token lapses on its own', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const { token } = await authService.createDebugAppToken(
+                user as never,
+                { uid: appUid },
+                { ttlSeconds: 1234 },
+            );
+            const claims = server.services.token.verify('auth', token) as {
+                iat: number;
+                exp: number;
+            };
+            expect(claims.exp - claims.iat).toBe(1234);
+        });
+
+        it('records no activity for the user', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const { token } = await authService.createDebugAppToken(
+                user as never,
+                { uid: appUid },
+                { ttlSeconds: 600 },
+            );
+            const touch = vi.spyOn(server.stores.session, 'touch');
+            try {
+                const ctx = { ip: '9.9.9.9', userAgent: 'debug' };
+                expect(
+                    (await authService.authenticate(token, ctx)).actor,
+                ).toBeTruthy();
+                expect(touch).not.toHaveBeenCalled();
+            } finally {
+                touch.mockRestore();
+            }
+        });
+
+        it('is evicted by a password reset', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const { token } = await authService.createDebugAppToken(
+                user as never,
+                { uid: appUid },
+                { ttlSeconds: 600 },
+            );
+            await authService.revokeInteractiveSessionsForUserId(user.id);
+            const result = await authService.authenticate(token);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
+        });
+    });
+
     describe('authenticateFromToken', () => {
         it('returns null for a malformed/unverifiable token', async () => {
             const actor = await authService.authenticateFromToken('not-a-jwt');

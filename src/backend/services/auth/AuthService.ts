@@ -26,11 +26,13 @@ import {
     type Actor,
 } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { normalizeOrigin } from '../../core/http/middleware/originGate.js';
 import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
 import { awaitLater } from '../../util/concurrency.js';
 import { appGenerationStart } from '../../util/appGeneration.js';
 import {
     ASSET_WINDOW_SECONDS,
+    DEBUG_APP_SESSION_KIND,
     GODMODE_TOKEN_MAX_AGE_SECONDS,
     GODMODE_TOKEN_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
@@ -390,6 +392,68 @@ export class AuthService extends PuterService {
                 this.#authIdFor(user),
             ),
         );
+    }
+
+    /**
+     * Whether `origin` is one of the deployment's own pages that sign in with a
+     * session of their own (`first_party_session_origins`).
+     */
+    isFirstPartySessionOrigin(origin: unknown): boolean {
+        if (typeof origin !== 'string' || !origin) return false;
+        const wanted = normalizeOrigin(origin);
+        return (this.config.first_party_session_origins ?? []).some(
+            (listed) => normalizeOrigin(listed) === wanted,
+        );
+    }
+
+    /**
+     * Mint the GUI token one of the deployment's own pages signs in with: a
+     * `web` session of its own under the caller's sign-in, so it is listed and
+     * revoked apart from that sign-in and ends with it. Only a sign-in itself
+     * may ask, never a session handed out this way. No session cookie is ever
+     * issued for the row.
+     */
+    async createFirstPartySessionToken(
+        actor: Actor,
+        origin: string,
+        meta: Record<string, unknown> = {},
+    ): Promise<string> {
+        if (
+            !isPlainUserActor(actor) ||
+            !actor.user?.id ||
+            !actor.user.uuid ||
+            actor.session?.kind !== 'web' ||
+            actor.session.parentUid
+        ) {
+            throw new HttpError(
+                403,
+                'Only a signed-in browser session can sign this page in',
+                { legacyCode: 'forbidden' },
+            );
+        }
+        if (!this.isFirstPartySessionOrigin(origin)) {
+            throw new HttpError(403, 'This origin cannot be signed in', {
+                legacyCode: 'forbidden',
+            });
+        }
+
+        const auth_id = this.#authIdFor(actor.user as UserRow);
+        const row = await this.stores.session.getOrCreateFirstPartySession(
+            actor.user.id,
+            {
+                parentSessionUid: actor.session.uid,
+                origin: normalizeOrigin(origin),
+                expiresAt: nowSeconds() + WEB_WINDOW_SECONDS,
+                meta,
+                auth_id,
+            },
+        );
+        if (!row?.uuid) {
+            throw new HttpError(500, 'Could not sign this page in', {
+                legacyCode: 'internal_error',
+            });
+        }
+        return this.createGuiToken(actor.user as UserRow, row.uuid);
     }
 
     /** Sign a session token for an existing session (upgrade from GUI token). */
@@ -787,7 +851,9 @@ export class AuthService extends PuterService {
         const visible = [...live.values()].filter(
             (row) =>
                 row.kind !== 'asset' &&
-                (row.kind !== 'access_token' ||
+                // Operator-created debug sessions are never the user's own.
+                row.kind !== DEBUG_APP_SESSION_KIND &&
+                ((row.kind !== 'access_token' && row.kind !== 'web') ||
                     !row.parent_session_id ||
                     live.has(row.parent_session_id)),
         );
@@ -1075,7 +1141,12 @@ export class AuthService extends PuterService {
         });
         await this.#revokeCascades(
             rows
-                .filter((row) => row.kind === 'web' || row.kind === 'app')
+                .filter(
+                    (row) =>
+                        row.kind === 'web' ||
+                        row.kind === 'app' ||
+                        row.kind === DEBUG_APP_SESSION_KIND,
+                )
                 .map((row) => row.uuid as string),
         );
     }
@@ -1089,16 +1160,24 @@ export class AuthService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
-        const currentUuid = actor.session?.uid;
-        const rows = await this.stores.session.getByUserId(
+        // The current sign-in is the session, the sign-in it was handed out
+        // under, and the sessions handed out under either.
+        const current = new Set(
+            [actor.session?.uid, actor.session?.parentUid].filter(Boolean),
+        );
+        const rows = (await this.stores.session.getByUserId(
             actor.user.id as number,
             { primary: true },
-        );
+        )) as SessionRow[];
         await this.#revokeCascades(
             rows
                 .filter((row) =>
                     row.kind === 'web'
-                        ? opts.includeCurrent || row.uuid !== currentUuid
+                        ? opts.includeCurrent ||
+                          !(
+                              current.has(row.uuid) ||
+                              current.has(row.parent_session_id ?? '')
+                          )
                         : row.kind === 'app' && opts.includeApps,
                 )
                 .map((row) => row.uuid as string),
@@ -1856,6 +1935,49 @@ export class AuthService extends PuterService {
                   }
                 : {}),
         });
+    }
+
+    /**
+     * An app token acting as `user` in `app` on its own `debug_app` session,
+     * which expires after `ttlSeconds` and never touches the user's real
+     * sessions. The caller authorizes who may ask; `meta` lands on the row.
+     */
+    async createDebugAppToken(
+        user: UserRow,
+        app: { uid: string },
+        opts: {
+            ttlSeconds: number;
+            label?: string | null;
+            meta?: Record<string, unknown>;
+        },
+    ): Promise<{ token: string; sessionUuid: string; expiresAt: number }> {
+        const authId = this.#authIdFor(user);
+        const expiresAtSeconds = nowSeconds() + opts.ttlSeconds;
+        const session = await this.stores.session.create(user.id as number, {
+            kind: DEBUG_APP_SESSION_KIND,
+            app_uid: app.uid,
+            expires_at: expiresAtSeconds,
+            auth_id: authId,
+            label: opts.label ?? null,
+            meta: opts.meta ?? {},
+        });
+        const token = this.services.token.sign(
+            'auth',
+            {
+                type: 'app-under-user',
+                version: '2',
+                user_uid: user.uuid,
+                app_uid: app.uid,
+                session_uid: session.uuid,
+                auth_id: authId,
+            },
+            { expiresIn: opts.ttlSeconds },
+        );
+        return {
+            token,
+            sessionUuid: session.uuid as string,
+            expiresAt: expiresAtSeconds * 1000,
+        };
     }
 
     /**
@@ -2702,6 +2824,18 @@ export class AuthService extends PuterService {
         const session: SessionRow | null = rawRow;
 
         if (!session) return { invalid: true };
+        // A session handed to a first-party page lives no longer than the
+        // sign-in it was handed out under.
+        if (session.kind === 'web' && session.parent_session_id) {
+            const parent = (await this.stores.session.getByUuidAny(
+                session.parent_session_id,
+            )) as SessionRow | null;
+            if (!parent) {
+                return { reauth: { reason: 'session_revoked', auth_id } };
+            }
+            const parentEnded = this.#endedSession(parent, auth_id);
+            if (parentEnded) return parentEnded;
+        }
         if (!(await deployed)) return { invalid: true };
 
         void this.#touchSession(session.uuid, user.id, ctx);
@@ -2760,7 +2894,11 @@ export class AuthService extends PuterService {
 
         // An events handler's calls are background work, not the user being
         // active, and its session never expires, so they record no activity.
-        if (decoded.worker_name !== EVENTS_WORKER_SESSION_NAME)
+        // Nor do calls on a debug session, which aren't the user's own.
+        if (
+            decoded.worker_name !== EVENTS_WORKER_SESSION_NAME &&
+            session.kind !== DEBUG_APP_SESSION_KIND
+        )
             void this.#touchSession(session.uuid, user.id, ctx);
 
         const actor = this.#buildAppUnderUserActor(user, app, session);
@@ -2990,7 +3128,13 @@ export class AuthService extends PuterService {
         return makeActor({
             user: this.#actorUserFromRow(user),
             session: session
-                ? { uid: session.uuid, kind: session.kind ?? null }
+                ? {
+                      uid: session.uuid,
+                      kind: session.kind ?? null,
+                      ...(session.kind === 'web' && session.parent_session_id
+                          ? { parentUid: session.parent_session_id }
+                          : {}),
+                  }
                 : null,
         });
     }

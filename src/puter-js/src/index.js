@@ -104,6 +104,25 @@ class Lock {
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
+// The desktops Puter itself serves. An app learns which one launched it from
+// the URL (`puter.origin`), and only one of these is believed: the GUI origin
+// is what every message from the desktop is checked against, so taking an
+// arbitrary one would let any page that frames an app drive it.
+const FIRST_PARTY_GUI_ORIGINS = new Set([
+    'https://puter.com',
+    'https://desktop.puter.com',
+]);
+
+/** `value`'s origin when it is a first-party desktop, otherwise null. */
+const firstPartyGUIOrigin = (value) => {
+    try {
+        const { origin } = new URL(value);
+        return FIRST_PARTY_GUI_ORIGINS.has(origin) ? origin : null;
+    } catch {
+        return null;
+    }
+};
+
 // localStorage key for the auth token. The retired key below is never read —
 // only deleted, so a token from before the format change doesn't linger in a
 // visitor's browser (see `discardRetiredAuthToken_`).
@@ -213,6 +232,9 @@ export class Puter {
 
     #defaultAPIOrigin = 'https://api.puter.com';
     #defaultGUIOrigin = 'https://puter.com';
+    // In app mode, the first-party desktop that launched this app, when it
+    // isn't the build's default one.
+    #launchGUIOrigin = null;
 
     /** @returns {string} */
     get defaultAPIOrigin() {
@@ -230,6 +252,7 @@ export class Puter {
     get defaultGUIOrigin() {
         return (
             globalThis.PUTER_ORIGIN ||
+            this.#launchGUIOrigin ||
             globalThis.PUTER_ORIGIN_ENV ||
             this.#defaultGUIOrigin
         );
@@ -276,6 +299,15 @@ export class Puter {
      * @type {URLSearchParams | null}
      */
     openerLaunchItem_ = null;
+
+    /**
+     * Whether this is a tab the GUI opened for an app and handed a session
+     * token, which it then keeps in sessionStorage the way a framed app does.
+     *
+     * @internal
+     * @type {boolean}
+     */
+    appTabSession_ = false;
 
     // Holds the unique app instance ID that is provided by the host environment
     appInstanceID;
@@ -625,6 +657,15 @@ export class Puter {
             this.APIOrigin = `https://api.${URLParams.get('puter.domain')}`;
         }
 
+        // An app launched by a first-party desktop other than puter.com
+        // (e.g. desktop.puter.com) talks to that desktop: its messages come
+        // from there, and replies meant only for it go there.
+        if (this.env === 'app') {
+            this.#launchGUIOrigin = firstPartyGUIOrigin(
+                URLParams.get('puter.origin'),
+            );
+        }
+
         // === START :: Logger ===
 
         // Basic logger replacement (console-based)
@@ -751,6 +792,9 @@ export class Puter {
         // the SDK needs to show a dialog to the user to ask for permission to access their Puter account.
         else if (this.env === 'web') {
             try {
+                // A godmode app reloading in the tab the GUI opened it in;
+                // only that handoff stores a session token on this origin.
+                const godmodeToken = this.readStoredSessionToken_();
                 const storedToken = this.normalizeAuthTokenCandidate(
                     localStorage.getItem(STORAGE_KEY_V2),
                 );
@@ -763,7 +807,10 @@ export class Puter {
                 const boundOrigin = this.normalizeStringCandidate(
                     localStorage.getItem(STORAGE_KEY_ORIGIN_V2),
                 );
-                if (
+                if (godmodeToken) {
+                    this.appTabSession_ = true;
+                    this.setAuthToken(godmodeToken);
+                } else if (
                     storedToken &&
                     this._storedTokenUsableForCurrentOrigin(boundOrigin)
                 ) {
@@ -800,7 +847,12 @@ export class Puter {
                             launch.item,
                         );
                     }
-                    if (launch?.token) this.setAuthToken(launch.token);
+                    if (launch?.token) {
+                        this.appTabSession_ = this.isUserSessionToken_(
+                            launch.token,
+                        );
+                        this.setAuthToken(launch.token);
+                    }
                 });
             }
 
@@ -1041,10 +1093,10 @@ export class Puter {
 
         // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage.
         // A user session token (a godmode app's launch token) never goes there:
-        // an app keeps it in sessionStorage so a frame reload still has it.
+        // an app keeps it in sessionStorage so a reload still has it.
         if (this.env === 'web' || this.env === 'app') {
             this.storeSessionToken_(
-                this.env === 'app' &&
+                (this.env === 'app' || this.appTabSession_) &&
                     this.isUserSessionToken_(normalizedAuthToken)
                     ? normalizedAuthToken
                     : null,

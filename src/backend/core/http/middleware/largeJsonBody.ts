@@ -20,6 +20,7 @@
 import type { Request, RequestHandler, Response } from 'express';
 import { actorUid } from '../../actor';
 import { HttpError } from '../HttpError';
+import { onResponseClose } from '../onResponseClose';
 import { createJsonBodyParser } from './jsonBody';
 
 /** The global JSON parser's limit, which applies before auth. */
@@ -152,7 +153,7 @@ export const createLargeJsonBodyParser = ({
         }
         inFlightBytes += declared;
         inFlightByUser.set(user, userBytes + declared);
-        res.once('close', () => {
+        onResponseClose(res, () => {
             inFlightBytes -= declared;
             const left = (inFlightByUser.get(user) ?? 0) - declared;
             if (left > 0) inFlightByUser.set(user, left);

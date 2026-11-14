@@ -88,6 +88,7 @@ import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
+import { signInTokenForOpener } from './helpers/firstPartySession.js';
 import { readSignupBonusCode } from './helpers/signupBonusCode.js';
 import { guiTokenBootStep, pageRenderedForThisLoad, sameTokenClaims } from './helpers/guiToken.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
@@ -529,7 +530,7 @@ const postAuthActions = async (action) => {
                     window.opener?.postMessage({
                         msg: 'puter.token',
                         success: true,
-                        token: data.token,
+                        token: await signInTokenForOpener(origin, data.token),
                         app_uid: data.app_uid,
                         username: window.user.username,
                         msg_id: msg_id,
@@ -1088,12 +1089,17 @@ const postAuthActions = async (action) => {
 
     // -------------------------------------------------------------------------------------
     // Action: top-up — the deployment's top-up dialog for the first-party page framing it,
-    // which hears whether the user bought credit once the dialog closes.
+    // which hears whether the user bought credit once the dialog closes. The app it credits
+    // is the one the framing page's origin resolves to.
     // -------------------------------------------------------------------------------------
     if ( action === 'top-up' && window.embedded_in_frame ) {
         let toppedUp;
         try {
-            toppedUp = await showFramedTopUp(window, window.tell_popup_frame);
+            toppedUp = await showFramedTopUp(
+                window,
+                window.host_app_uid ? { appUid: window.host_app_uid } : {},
+                window.tell_popup_frame,
+            );
         } catch (e) {
             // A dialog that failed to open leaves the page to open the top-up in a tab.
             console.error('top-up action failed', e);
@@ -2861,7 +2867,10 @@ window.initgui = async function (options) {
                                                     msg: 'puter.token',
                                                     success: true,
                                                     msg_id: msg_id,
-                                                    token: data.token,
+                                                    token: await signInTokenForOpener(
+                                                        window.openerOrigin,
+                                                        data.token,
+                                                    ),
                                                     username: window.user.username,
                                                     app_uid: data.app_uid,
                                                 },
@@ -2948,7 +2957,10 @@ window.initgui = async function (options) {
                                                     msg: 'puter.token',
                                                     success: true,
                                                     msg_id: msg_id,
-                                                    token: data.token,
+                                                    token: await signInTokenForOpener(
+                                                        window.openerOrigin,
+                                                        data.token,
+                                                    ),
                                                     username: window.user.username,
                                                     app_uid: data.app_uid,
                                                 },
