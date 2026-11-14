@@ -23,8 +23,11 @@ import { createFingerprintMiddleware } from './fingerprint';
 
 const VALID_FP = 'dev-fingerprint-abc123';
 
-const run = (reqPartial: Partial<Request> & Record<string, unknown>) => {
-    const middleware = createFingerprintMiddleware();
+const run = (
+    reqPartial: Partial<Request> & Record<string, unknown>,
+    opts?: Parameters<typeof createFingerprintMiddleware>[0],
+) => {
+    const middleware = createFingerprintMiddleware(opts);
     const req = {
         headers: {},
         ...reqPartial,
@@ -89,5 +92,22 @@ describe('createFingerprintMiddleware', () => {
     it('leaves deviceFingerprint undefined when nothing was supplied', () => {
         const { req } = run({ ip: '203.0.113.1' });
         expect(req.deviceFingerprint).toBeUndefined();
+    });
+
+    it('reads the TLS fingerprint from the configured header only', () => {
+        const ja4 = 't13d1516h2_8daaf6152771_02713d6af862';
+        const headers = { 'x-tls-fp': ja4 };
+
+        expect(run({ headers }).req.tlsFingerprint).toBeUndefined();
+        expect(
+            run({ headers }, { tlsFingerprintHeader: 'X-TLS-FP' }).req
+                .tlsFingerprint,
+        ).toBe(ja4);
+        expect(
+            run(
+                { headers: { 'x-tls-fp': 'not a fingerprint!' } },
+                { tlsFingerprintHeader: 'x-tls-fp' },
+            ).req.tlsFingerprint,
+        ).toBeUndefined();
     });
 });

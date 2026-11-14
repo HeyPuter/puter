@@ -1510,6 +1510,7 @@ export class AuthController extends PuterController {
                     ip,
                     device_id: req.deviceFingerprint ?? undefined,
                     user_agent: userAgent,
+                    tls_fingerprint: req.tlsFingerprint,
                     dispatch_id: dispatchId,
                 },
             );
@@ -4486,6 +4487,34 @@ export class AuthController extends PuterController {
         res.json({ token: guiToken });
     }
 
+    @Post('/auth/first-party-session', {
+        subdomain: 'api',
+        rateLimit: SESSION_LIMIT,
+        // Hands out a session, so only the GUI's own page script may ask, and
+        // only as the user's sign-in itself.
+        guiOriginOnly: true,
+        requireUserActor: true,
+    })
+    async handleFirstPartySession(req: Request, res: Response): Promise<void> {
+        const { origin } = req.body ?? {};
+        if (typeof origin !== 'string' || !origin) {
+            throw new HttpError(400, 'Missing `origin`', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const token = await this.services.auth.createFirstPartySessionToken(
+            req.actor!,
+            origin,
+            {
+                ip: req.ip || req.socket?.remoteAddress,
+                user_agent: req.headers?.['user-agent'],
+                origin: req.headers?.origin,
+                host: req.headers?.host,
+            },
+        );
+        res.json({ token });
+    }
+
     @Get('/session/sync-cookie', {
         rateLimit: SESSION_LIMIT,
         // Installs the session cookie. Only page script on our own origin
@@ -4509,6 +4538,14 @@ export class AuthController extends PuterController {
         if (!req.actor?.session?.uid) {
             res.status(400).end();
             return;
+        }
+        // A session handed to a first-party page never gets a cookie.
+        if (req.actor.session.parentUid) {
+            throw new HttpError(
+                403,
+                'This session cannot install a session cookie',
+                { legacyCode: 'forbidden' },
+            );
         }
         // As in `/get-gui-token`: the actor is the user's row as auth read it.
         const sessionToken = this.services.auth.createSessionTokenForSession(

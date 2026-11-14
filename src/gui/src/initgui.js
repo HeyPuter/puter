@@ -88,6 +88,7 @@ import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
+import { signInTokenForOpener } from './helpers/firstPartySession.js';
 import { readSignupBonusCode } from './helpers/signupBonusCode.js';
 import { guiTokenBootStep, pageRenderedForThisLoad, sameTokenClaims } from './helpers/guiToken.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
@@ -529,7 +530,7 @@ const postAuthActions = async (action) => {
                     window.opener?.postMessage({
                         msg: 'puter.token',
                         success: true,
-                        token: data.token,
+                        token: await signInTokenForOpener(origin, data.token),
                         app_uid: data.app_uid,
                         username: window.user.username,
                         msg_id: msg_id,
@@ -2861,7 +2862,10 @@ window.initgui = async function (options) {
                                                     msg: 'puter.token',
                                                     success: true,
                                                     msg_id: msg_id,
-                                                    token: data.token,
+                                                    token: await signInTokenForOpener(
+                                                        window.openerOrigin,
+                                                        data.token,
+                                                    ),
                                                     username: window.user.username,
                                                     app_uid: data.app_uid,
                                                 },
@@ -2948,7 +2952,10 @@ window.initgui = async function (options) {
                                                     msg: 'puter.token',
                                                     success: true,
                                                     msg_id: msg_id,
-                                                    token: data.token,
+                                                    token: await signInTokenForOpener(
+                                                        window.openerOrigin,
+                                                        data.token,
+                                                    ),
                                                     username: window.user.username,
                                                     app_uid: data.app_uid,
                                                 },

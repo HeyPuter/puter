@@ -21,6 +21,7 @@ import type { Request, RequestHandler } from 'express';
 import { actorUid } from '../actor';
 import type { EventClient } from '../../clients/event/EventClient';
 import type { LifecycleRejectStatus } from '../../clients/event/types';
+import { onResponseClose } from './onResponseClose';
 import type { RouteMethod } from './types';
 
 type RoutePathValue = string | RegExp | Array<string | RegExp> | undefined;
@@ -179,7 +180,7 @@ export const createRouteLifecycleMiddleware = (
             );
         };
         res.once('finish', () => settle(false));
-        res.once('close', () => settle(!res.writableFinished));
+        onResponseClose(res, () => settle(!res.writableFinished));
         next();
     };
 };
