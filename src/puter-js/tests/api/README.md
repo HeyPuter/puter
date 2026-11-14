@@ -28,6 +28,21 @@ npm run test:puterjs:browser    # needs `npx playwright install chromium` once
 npm run test:puterjs:workerd
 ```
 
+## Coverage
+
+```sh
+npm run test:puterjs:coverage
+```
+
+This builds an istanbul-instrumented SDK bundle, runs the three runners and the SDK unit tests (`src/puter-js/src/**/*.test.js`), and merges everything into `src/puter-js/coverage/` (`index.html` locally, `coverage-summary.json` for CI). The unit tests import SDK source directly, so in coverage mode the vitest config instruments that source the same way and each unit test file writes a shard of its own next to the runners'.
+
+To see what one unit test file covers without the full run:
+
+```sh
+PUTER_COVERAGE=1 npx vitest run --config src/puter-js/tests/api/vitest.config.ts src/puter-js/src/modules/kv
+node tools/puterjsCoverageReport.mjs
+```
+
 ## How it works
 
 Each runner boots `setupPuterTestEnv()` (from `src/backend/testUtil.ts`) in

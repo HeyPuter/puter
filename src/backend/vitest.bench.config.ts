@@ -17,15 +17,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// vitest.bench.config.ts - Vitest benchmark configuration for Puter backend
+import path from 'node:path';
+import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
+import { backendAliases, lowerDecoratorsPlugin } from './vitest.config';
 
-export default defineConfig({
+// Benchmarks (`*.bench.ts`), run through `npm run bench`. See doc/benchmarks.md.
+export default defineConfig(({ mode }) => ({
+    plugins: [lowerDecoratorsPlugin],
+    resolve: { alias: backendAliases },
     test: {
         benchmark: {
-            include: ['src/**/*.bench.{js,ts}'],
-            reporters: ['default'],
+            include: [
+                'src/backend/**/*.bench.{js,ts}',
+                'extensions/**/*.bench.{js,ts}',
+            ],
         },
-        root: __dirname,
+        // Files sharing a CPU would time each other's load.
+        fileParallelism: false,
+        hookTimeout: 120_000,
+        env: loadEnv(mode, '', 'PUTER_'),
+        root: path.resolve(__dirname, '../..'),
     },
-});
+}));

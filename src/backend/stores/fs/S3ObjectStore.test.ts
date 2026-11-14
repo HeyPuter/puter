@@ -1473,6 +1473,182 @@ describe('S3ObjectStore batching and command shapes', () => {
         ]);
     });
 
+    describe('copy past the single-request cap', () => {
+        const GIB = 1024 * 1024 * 1024;
+        const overCap = S3ObjectStore.MAX_SINGLE_COPY_BYTES + 1;
+        const copyInput = {
+            sourceBucket: 'src-bucket',
+            sourceKey: 'big file',
+            destinationBucket: 'dst-bucket',
+            destinationKey: 'dst',
+        };
+        const partCopies = (sent: SentCommand[]) =>
+            sent.filter((command) => command.name === 'UploadPartCopyCommand');
+
+        it('copies in one request up to the cap', async () => {
+            const { store: fake, sent } = makeFakeStore({});
+
+            await fake.copyObjectOfAnySize(
+                copyInput,
+                region,
+                S3ObjectStore.MAX_SINGLE_COPY_BYTES,
+            );
+
+            expect(names(sent)).toEqual(['CopyObjectCommand']);
+        });
+
+        it('copies part by part and completes with every part', async () => {
+            const { store: fake, sent } = makeFakeStore({
+                partSize: 4 * GIB,
+                respond: (command) => {
+                    if (command.name === 'CreateMultipartUploadCommand') {
+                        return { UploadId: 'copy-1' };
+                    }
+                    if (command.name === 'UploadPartCopyCommand') {
+                        return {
+                            CopyPartResult: {
+                                ETag: `etag-${String(command.input.PartNumber)}`,
+                            },
+                        };
+                    }
+                    return {};
+                },
+            });
+
+            await fake.copyObjectOfAnySize(
+                { ...copyInput, contentType: 'video/mp4' },
+                region,
+                overCap,
+            );
+
+            expect(names(sent)).toEqual([
+                'CreateMultipartUploadCommand',
+                'UploadPartCopyCommand',
+                'UploadPartCopyCommand',
+                'CompleteMultipartUploadCommand',
+            ]);
+            expect(sent[0]?.input).toEqual({
+                Bucket: 'dst-bucket',
+                Key: 'dst',
+                ContentType: 'video/mp4',
+            });
+            expect(partCopies(sent).map((command) => command.input)).toEqual([
+                {
+                    Bucket: 'dst-bucket',
+                    Key: 'dst',
+                    UploadId: 'copy-1',
+                    PartNumber: 1,
+                    CopySource: 'src-bucket/big%20file',
+                    CopySourceRange: `bytes=0-${4 * GIB - 1}`,
+                },
+                {
+                    Bucket: 'dst-bucket',
+                    Key: 'dst',
+                    UploadId: 'copy-1',
+                    PartNumber: 2,
+                    CopySource: 'src-bucket/big%20file',
+                    CopySourceRange: `bytes=${4 * GIB}-${overCap - 1}`,
+                },
+            ]);
+            expect(sent[3]?.input).toMatchObject({
+                Bucket: 'dst-bucket',
+                Key: 'dst',
+                UploadId: 'copy-1',
+                MultipartUpload: {
+                    Parts: [
+                        { PartNumber: 1, ETag: 'etag-1' },
+                        { PartNumber: 2, ETag: 'etag-2' },
+                    ],
+                },
+            });
+        });
+
+        it('grows the part size so the copy fits in ten thousand parts', async () => {
+            const { store: fake, sent } = makeFakeStore({
+                partSize: 5,
+                respond: (command) => {
+                    if (command.name === 'CreateMultipartUploadCommand') {
+                        return { UploadId: 'copy-2' };
+                    }
+                    if (command.name === 'UploadPartCopyCommand') {
+                        return { CopyPartResult: { ETag: 'e' } };
+                    }
+                    return {};
+                },
+            });
+
+            await fake.copyObjectOfAnySize(copyInput, region, overCap);
+
+            const copies = partCopies(sent);
+            const partSize = Math.ceil(overCap / 10_000);
+            expect(copies).toHaveLength(10_000);
+            expect(copies[0]?.input.CopySourceRange).toBe(
+                `bytes=0-${partSize - 1}`,
+            );
+            expect(copies.at(-1)?.input.CopySourceRange).toBe(
+                `bytes=${partSize * 9_999}-${overCap - 1}`,
+            );
+            // No content type given, so the destination keeps the default.
+            expect(sent[0]?.input).toEqual({
+                Bucket: 'dst-bucket',
+                Key: 'dst',
+            });
+        });
+
+        it('fails before copying anything when the upload cannot be opened', async () => {
+            const { store: fake, sent } = makeFakeStore({});
+
+            await expect(
+                fake.copyObjectOfAnySize(copyInput, region, overCap),
+            ).rejects.toThrow('Copy could not start a multipart upload');
+            expect(names(sent)).toEqual(['CreateMultipartUploadCommand']);
+        });
+
+        it('aborts the upload when a part comes back without an ETag', async () => {
+            const { store: fake, sent } = makeFakeStore({
+                partSize: 4 * GIB,
+                respond: (command) =>
+                    command.name === 'CreateMultipartUploadCommand'
+                        ? { UploadId: 'copy-3' }
+                        : {},
+            });
+
+            await expect(
+                fake.copyObjectOfAnySize(copyInput, region, overCap),
+            ).rejects.toThrow('Copy returned no ETag for part 1');
+            expect(names(sent)).toEqual([
+                'CreateMultipartUploadCommand',
+                'UploadPartCopyCommand',
+                'AbortMultipartUploadCommand',
+            ]);
+            expect(sent[2]?.input).toEqual({
+                Bucket: 'dst-bucket',
+                Key: 'dst',
+                UploadId: 'copy-3',
+            });
+        });
+
+        it('reports the copy failure even when the abort fails too', async () => {
+            const { store: fake, sent } = makeFakeStore({
+                partSize: 4 * GIB,
+                respond: (command) => {
+                    if (command.name === 'CreateMultipartUploadCommand') {
+                        return { UploadId: 'copy-4' };
+                    }
+                    if (command.name === 'UploadPartCopyCommand') {
+                        throw new Error('part copy refused');
+                    }
+                    throw new Error('abort refused');
+                },
+            });
+
+            await expect(
+                fake.copyObjectOfAnySize(copyInput, region, overCap),
+            ).rejects.toThrow('part copy refused');
+            expect(names(sent).at(-1)).toBe('AbortMultipartUploadCommand');
+        });
+    });
+
     it('sends the upload id when aborting', async () => {
         const { store: fake, sent } = makeFakeStore({});
 

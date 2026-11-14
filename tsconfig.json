@@ -40,6 +40,7 @@
     "**/*.test.mts",
     "**/*.spec.ts",
     "**/*.spec.mts",
+    "**/*.bench.ts",
     "**/tests/**",
     "**/node_modules/**",
     "dist/**",

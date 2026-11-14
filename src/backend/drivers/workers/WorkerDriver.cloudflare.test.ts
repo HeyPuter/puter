@@ -53,7 +53,7 @@ import {
     INTERNAL_ADMIN_DESTROY,
     INTERNAL_ADMISSION_BYPASS,
     INTERNAL_DEPLOY_TARGET,
-    type WorkerDriver,
+    WorkerDriver,
 } from './WorkerDriver.js';
 
 const ACCOUNT_ID = 'cf-account';
@@ -2009,5 +2009,290 @@ describe('WorkerDriver keeps a worker`s token tied to the worker', () => {
             async () => !(await workerSession(user.id, name)),
             'worker session removal after subdomain.delete',
         );
+    });
+});
+
+// -- Deploy targets and grouping --------------------------------------
+
+describe('WorkerDriver deploy target options', () => {
+    const deployWithTarget = async (
+        label: string,
+        deployTarget: Record<string, unknown>,
+    ) => {
+        const { user, actor } = await makeUser();
+        const path = `/${user.username}/${label}.worker.js`;
+        await writeSource(actor, user.id, path, 'export default {}');
+        const scriptName = `${label}-${user.username}`;
+        const result = inCtx(actor, () =>
+            target.create({
+                appId: '',
+                workerName: scriptName,
+                filePath: path,
+                [INTERNAL_DEPLOY_TARGET]: { scriptName, ...deployTarget },
+            }),
+        );
+        return { scriptName, result };
+    };
+
+    it('deploys into the target`s own namespace instead of the default grouping', async () => {
+        const { scriptName, result } = await deployWithTarget('dt-ns', {
+            namespace: 'tenant-ns',
+        });
+        expect(await result).toMatchObject({ success: true });
+        expect(putCalls().at(-1)![0]).toBe(
+            `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/dispatch/namespaces/tenant-ns/scripts/${scriptName}/`,
+        );
+    });
+
+    it('binds each target secret as secret_text next to the worker token', async () => {
+        const { result } = await deployWithTarget('dt-sec', {
+            secrets: { api_key: 'k-123', 'other-key': 'k-456' },
+        });
+        await result;
+        const [, init] = putCalls().at(-1)!;
+        const metadata = JSON.parse(
+            ((init as RequestInit).body as FormData).get('metadata') as string,
+        );
+        expect(
+            metadata.bindings.map((b: { name: string }) => b.name),
+        ).toEqual(['puter_auth', 'api_key', 'other-key', 'puter_endpoint']);
+        expect(metadata.bindings.slice(1, 3)).toEqual([
+            { type: 'secret_text', name: 'api_key', text: 'k-123' },
+            { type: 'secret_text', name: 'other-key', text: 'k-456' },
+        ]);
+    });
+
+    it.each([
+        ['script name', { scriptName: 'bad/name' }],
+        ['namespace', { namespace: 'has space' }],
+        ['secret name', { secrets: { 'bad name': 'v' } }],
+    ])(
+        'refuses a target whose %s is not URL-safe, before any edge call',
+        async (_label, deployTarget) => {
+            const { result } = await deployWithTarget('dt-bad', deployTarget);
+            await expect(result).rejects.toMatchObject({
+                statusCode: 500,
+                legacyCode: 'internal_error',
+            });
+            expect(putCalls()).toEqual([]);
+        },
+    );
+});
+
+describe('WorkerDriver with a configured dispatch namespace', () => {
+    let nsServer: PuterServer;
+
+    beforeAll(async () => {
+        nsServer = await setupTestServer({
+            workers: {
+                XAUTHKEY: AUTH_KEY,
+                ACCOUNTID: ACCOUNT_ID,
+                namespace: 'default-ns',
+            },
+        } as never);
+    });
+
+    afterAll(async () => {
+        await nsServer?.shutdown();
+    });
+
+    it('deploys ordinary workers into that namespace and stamps the preamble version', async () => {
+        const username = `wkns${Math.random().toString(36).slice(2, 8)}`;
+        const created = await nsServer.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 50 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            nsServer.clients.db,
+            nsServer.stores.user,
+            created,
+        );
+        const actor = {
+            user: {
+                id: created.id,
+                uuid: created.uuid,
+                username,
+                email: `${username}@test.local`,
+                email_confirmed: true,
+            },
+        } as Actor;
+        const path = `/${username}/ns.js`;
+        const name = `ns-${username}`;
+        await inCtx(actor, () =>
+            nsServer.services.fs.write(created.id, {
+                fileMetadata: {
+                    path,
+                    size: 3,
+                    contentType: 'application/javascript',
+                    overwrite: true,
+                },
+                fileContent: Buffer.from('src'),
+            }),
+        );
+
+        await inCtx(actor, () =>
+            (nsServer.drivers.workers as unknown as WorkerDriver).create({
+                appId: '',
+                workerName: name,
+                filePath: path,
+            }),
+        );
+
+        expect(putCalls().at(-1)![0]).toBe(
+            `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/dispatch/namespaces/default-ns/scripts/${name}/`,
+        );
+        const row = await nsServer.stores.subdomain.getBySubdomain(
+            `workers.puter.${name}`,
+        );
+        const version = WorkerDriver.currentPreambleVersion();
+        expect(version).toEqual(expect.any(String));
+        expect(row!.preamble_version).toBe(version);
+    });
+});
+
+// -- Source event failures ----------------------------------------------
+
+describe('WorkerDriver source events when the edge fails', () => {
+    const subdomainRow = (name: string) =>
+        server.stores.subdomain.getBySubdomain(`workers.puter.${name}`);
+    const warned = (spy: MockInstance, text: string) =>
+        spy.mock.calls.some((call) => String(call[0]).includes(text));
+
+    it('notifies the owner when a hot-reload deploy cannot reach the edge', async () => {
+        const { user, actor, name } = await deployWorker('hrfail');
+        const notifySpy = vi.spyOn(server.services.notification, 'notify');
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        fetchSpy.mockRejectedValue(new Error('edge unreachable'));
+
+        await writeSource(actor, user.id, `/${user.username}/hrfail.js`, 'v2');
+
+        await waitFor(
+            () => notifySpy.mock.calls.length > 0,
+            'hot-reload failure notification',
+        );
+        expect(notifySpy).toHaveBeenCalledWith(
+            [user.id],
+            expect.objectContaining({
+                title: `Failed to deploy ${name}! Error: edge unreachable`,
+            }),
+            expect.objectContaining({
+                type: 'app.worker.deployFailed',
+                appUid: null,
+            }),
+        );
+    });
+
+    it('keeps the worker row when its source is deleted but the edge refuses the delete', async () => {
+        const { user, actor, name } = await deployWorker('srcdel');
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        fetchSpy.mockResolvedValue(
+            edgeResponse(
+                { success: false, errors: [{ message: 'not allowed' }] },
+                403,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(
+            `/${user.username}/srcdel.js`,
+        );
+
+        await inCtx(actor, () =>
+            server.services.fs.remove(user.id, { entry: entry! }),
+        );
+
+        await waitFor(
+            () => warned(warnSpy, `source cleanup failed for ${name}`),
+            'source cleanup failure',
+        );
+        expect(await subdomainRow(name)).toBeTruthy();
+        expect(await workerSession(user.id, name)).toBeTruthy();
+    });
+
+    it('still drops the worker session when a deleted row`s script cannot be removed', async () => {
+        const { user, name } = await deployWorker('rowgone');
+        const row = await subdomainRow(name);
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        fetchSpy.mockRejectedValue(new Error('edge unreachable'));
+
+        await server.stores.subdomain.deleteByUuid(String(row!.uuid));
+        server.clients.event.emit(
+            'subdomain.delete',
+            {
+                subdomain: `workers.puter.${name}`,
+                uid: String(row!.uuid),
+                userId: user.id,
+            },
+            {},
+        );
+
+        await waitFor(
+            async () => !(await workerSession(user.id, name)),
+            'worker session removal',
+        );
+        await waitFor(
+            () => warned(warnSpy, `script cleanup failed for ${name}`),
+            'script cleanup failure',
+        );
+    });
+});
+
+describe('WorkerDriver when a folder holding worker sources is trashed', () => {
+    it('tears down the workers under that folder and leaves the others', async () => {
+        const { user, actor } = await makeUser();
+        const folder = await inCtx(actor, () =>
+            server.services.fs.mkdir(user.id, {
+                path: `/${user.username}/proj`,
+            }),
+        );
+        const insidePath = `/${user.username}/proj/in.js`;
+        const outsidePath = `/${user.username}/out.js`;
+        await writeSource(actor, user.id, insidePath, 'in');
+        await writeSource(actor, user.id, outsidePath, 'out');
+        const inside = `in-${user.username}`;
+        const outside = `out-${user.username}`;
+        await inCtx(actor, () =>
+            target.create({
+                appId: '',
+                workerName: inside,
+                filePath: insidePath,
+            }),
+        );
+        await inCtx(actor, () =>
+            target.create({
+                appId: '',
+                workerName: outside,
+                filePath: outsidePath,
+            }),
+        );
+        fetchSpy.mockClear();
+        const trash = await server.stores.fsEntry.getEntryByPath(
+            `/${user.username}/Trash`,
+        );
+
+        await inCtx(actor, () =>
+            server.services.fs.move(user.id, {
+                source: folder,
+                destinationParent: trash!,
+            }),
+        );
+
+        await waitFor(
+            async () =>
+                !(await server.stores.subdomain.getBySubdomain(
+                    `workers.puter.${inside}`,
+                )),
+            'trashed folder worker removal',
+        );
+        expect(deleteCalls().map((call) => call[0])).toEqual([
+            `${SCRIPTS_BASE}/${inside}/`,
+        ]);
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${outside}`,
+            ),
+        ).toBeTruthy();
     });
 });

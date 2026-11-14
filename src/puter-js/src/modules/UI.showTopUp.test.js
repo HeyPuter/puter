@@ -209,6 +209,19 @@ describe('ui.showTopUp_ elsewhere on the web', () => {
         expect(topUpFrame()).toBeNull();
         await expect(result).resolves.toEqual({ toppedUp: false });
     });
+
+    // An `<iframe sandbox>` without `allow-modals` refuses the consent dialog.
+    it('resolves without a tab when the click has expired and the page allows no dialog', async () => {
+        fakePuter({ guiOrigin: 'https://puter.com' });
+        setActivation(false);
+        vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(() => {
+            throw new DOMException('Modals are not allowed here.', 'InvalidStateError');
+        });
+
+        await expect(makeUI().showTopUp_()).resolves.toEqual({ toppedUp: false });
+        expect(window.open).not.toHaveBeenCalled();
+        expect(document.querySelector('puter-dialog')).toBeNull();
+    });
 });
 
 describe('ui.requestUpgrade beside the top-up', () => {

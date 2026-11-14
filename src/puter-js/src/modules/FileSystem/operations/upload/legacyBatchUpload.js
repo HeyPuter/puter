@@ -91,6 +91,7 @@ export function performLegacyBatchUpload (ctx) {
         dirs,
         thumbnails,
         resolve,
+        reject,
         error,
         flags,
     } = ctx;
@@ -293,12 +294,23 @@ export function performLegacyBatchUpload (ctx) {
     // -----------------------------------------------
     // onabort
     // -----------------------------------------------
+    // An aborted request reaches readyState 4 too, with nothing to parse.
+    let aborted = false;
     xhr.onabort = () => {
+        aborted = true;
         stopProgressTracking();
-        // if an 'abort' callback is provided, call it
-        if ( options.abort && typeof options.abort === 'function' )
-        {
-            options.abort(operationId);
+        try {
+            // if an 'abort' callback is provided, call it
+            if ( options.abort && typeof options.abort === 'function' )
+            {
+                options.abort(operationId);
+            }
+        } finally {
+            // Not through `error`: a cancelled upload is not a failed one.
+            const abortError = new Error('Upload aborted.');
+            abortError.code = 'upload_aborted';
+            abortError.aborted = true;
+            reject(abortError);
         }
     };
 
@@ -312,6 +324,7 @@ export function performLegacyBatchUpload (ctx) {
         }
 
         const resp = await parseResponse(xhr);
+        if ( aborted ) return;
         const results = Array.isArray(resp?.results) ? resp.results : null;
 
         // Request-level failure: pass the server's body through unchanged.

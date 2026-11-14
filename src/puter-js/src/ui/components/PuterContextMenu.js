@@ -1195,6 +1195,12 @@ class PuterContextMenu extends PuterWebComponent {
     _closeAll () {
         if ( this._closing ) return;
         this._closing = true;
+        // A submenu closing on its own (Escape, Tab) is no longer its
+        // parent's open submenu.
+        const parent = this._parentMenu;
+        if ( parent && !parent._closing && parent._getActiveSubmenu()?.element === this ) {
+            parent._hideActiveSubmenu();
+        }
         this._cancelSubmenuClose();
         clearTimeout(this.#submenuTimeout);
         clearTimeout(this.#typeaheadTimer);
@@ -1316,15 +1322,19 @@ class PuterContextMenu extends PuterWebComponent {
     }
 
     /**
-     * Returns true if a document-level event targets this menu or any
-     * submenu nested below it. e.target on shadow-DOM-crossing events is
-     * the submenu's host element, so we use contains() on each host in the
-     * chain.
+     * Returns true if a document-level event targets this menu, any
+     * submenu nested below it, or a menu it is a submenu of (which decides
+     * for itself what the event does to its submenu). e.target on
+     * shadow-DOM-crossing events is the menu's host element, so we use
+     * contains() on each host in the chain.
      */
     _isEventInChain (e) {
         const target = e.target;
         if ( ! target ) return false;
         if ( this.contains(target) ) return true;
+        for ( let menu = this._parentMenu; menu; menu = menu._parentMenu ) {
+            if ( menu.contains(target) ) return true;
+        }
         let cur = this.#activeSubmenu;
         while ( cur && cur.element ) {
             if ( cur.element.contains(target) ) return true;

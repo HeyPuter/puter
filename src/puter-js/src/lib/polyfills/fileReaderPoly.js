@@ -36,7 +36,8 @@ export class FileReaderPoly {
                 } else if (blob instanceof ArrayBuffer) {
                     buffer = blob;
                 } else if (ArrayBuffer.isView(blob)) {
-                    buffer = blob.buffer;
+                    // Only the bytes the view covers, not its whole buffer.
+                    buffer = new Uint8Array(blob.buffer, blob.byteOffset, blob.byteLength);
                 } else {
                     buffer = new Uint8Array(0).buffer;
                 }

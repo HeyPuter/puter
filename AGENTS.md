@@ -10,6 +10,7 @@ Use these as the source of truth before exploring further:
 - [doc/architecture.md](doc/architecture.md) — backend layered stack (controllers → drivers → services → stores → clients), `PuterServer` wiring, `Context` (ALS), actors, and extensions.
 - [doc/contributing-apis.md](doc/contributing-apis.md) — adding and maintaining public APIs end to end (backend surface → puter.js → types → docs → tests). Follow it for any API work.
 - [doc/ai-drivers.md](doc/ai-drivers.md) — where AI driver code lives (interfaces, providers, protocols, shared), the import rules between those folders, and how to add a provider or an AI interface.
+- [doc/benchmarks.md](doc/benchmarks.md) — the backend benchmarks: what a scenario measures, how to add one, and what to do when CI reports a regression.
 - [doc/pagination.md](doc/pagination.md) — the one pagination convention for list APIs (limit/cursor/offset/includeTotal, envelope shape, cursor semantics).
 - [doc/alarms.md](doc/alarms.md) — raising alarms and picking a severity (what pages, what only gets recorded), plus the config that routes them.
 - [doc/self-hosting.md](doc/self-hosting.md) — running Puter outside hosted infra.
@@ -64,10 +65,24 @@ Commit messages and PR descriptions never credit anyone or mention a bug report.
 - Build clients, catalogs, and config-derived lookups once, not per request.
 - Listeners on fleet-wide events (`fs.write.file`, route lifecycle) return before any I/O for requests they don't concern.
 
+### Distributed deployment
+
+Puter runs as many backend processes in several regions at once. The tests boot one process with in-memory clients that answer in microseconds, which hides every cost below. Write for the deployed shape:
+
+- **Every round trip is latency.** Issue independent reads together (`Promise.all`, or the store's batch method) instead of awaiting them one after another. Five awaits in a row cost five round trips of waiting where one would do.
+- **SQL has one writable primary.** A region reads from a replica near it (`db.read`), but every write and every primary read (`db.pread`, the fallback in `tryHardRead`) travels to the primary's region, which from most regions costs tens of milliseconds. Count them: batch writes into one `batchWrite`, and don't read the primary where a replica's answer is acceptable.
+- **Replicas lag.** A row written a moment ago may not be on the replica yet. Use `tryHardRead` where a request must see a write that was just made, and only there.
+- **Caches are per process or per region; correctness is not.** A module-level map exists once per process, and Redis is shared only within a region. State that must hold everywhere (limits, locks, ownership) can't live in a variable, and a write must invalidate through the owning store so the other nodes hear about it.
+- **Hot read paths are cached on purpose.** Resolving the actor, permission checks, FS entry lookups, and hosted-site resolution run on nearly every request and are answered from cache. A new lookup on one of them needs a cache with invalidation, or a stated reason.
+- **Data crosses regions asynchronously.** The key-value store and events between nodes converge eventually; file contents live in one region's object storage. Don't assume another region has already seen a write.
+
+The [benchmarks](#benchmarks) measure these costs on each pull request.
+
 ### Working rules of thumb
 
 - **Run it, don't just compile it.** "It type-checks" is not "it works." Exercise the code path end-to-end at least once.
 - **Read the neighbors before writing.** Match the shape of similar things already in the tree. If you think the existing pattern is wrong, raise it — don't quietly diverge.
+- **Run `npm run check` before opening a pull request.** It lints and type-checks the files you changed, runs the tests that import them, and compares the benchmarks with the base commit: the gates CI applies, in one command. Fix what it reports rather than leaving it for CI.
 - **Test new behavior.** Every new function, endpoint, driver method, or logic branch gets a test; every bug fix gets a regression test that fails before the fix. If something is genuinely hard to test, skip it but say so in the PR.
 - **Boy Scout Rule, proportional to the change.** In files you're already touching, fix the typo, the dead import, the missing test, the bit you had to read twice. Don't ride a refactor along with a bug fix.
 - **Understand what you commit.** AI assistance is fine; shipping code you couldn't have written, debugged, or defended in review is not.
@@ -112,6 +127,15 @@ AI drivers live in [src/backend/drivers/ai/](src/backend/drivers/ai/): `interfac
 - **Mock data, not methods.** Stub inputs (fixtures, fake rows, payloads), not the function under test or the layer beneath it — over-mocking produces tests that pass while production breaks. If you must mock, mock at a real boundary (a client/external service).
 - **Prefer the test server over mocking deps.** `setupPuterTestEnv()` in [src/backend/testUtil.ts](src/backend/testUtil.ts) boots a fully in-memory backend; hit a real database/client shape where reasonable — integration shapes catch what mocked unit tests miss.
 - **Test code, not docs.** Never write a test that reads a file under `src/docs/` and asserts on its wording or numbers. Docs are kept in step by the PR (see the limits rule above) and checked in review; a test that greps a markdown page fails on every rewording and verifies nothing about behavior.
+
+### Benchmarks
+
+`*.bench.ts` files sit next to the code they exercise and run with `npm run bench`. A scenario ([`useBenchEnv()`](src/backend/benchUtil.ts)) runs a request against the in-memory backend while each database, key-value, cache and object-storage round trip takes the latency it would in a multi-region deployment, and reports the round trips per destination, how many of them ran one after another, and the latency that adds up to. [doc/benchmarks.md](doc/benchmarks.md) is the full reference.
+
+- **CI compares every pull request with its base commit** and fails it when a scenario makes more round trips, runs more of them serially, or waits longer. Run `npm run bench:compare` before pushing a backend change.
+- **A regression is a finding about the change.** Fix it by batching, issuing calls together, or caching; never by editing the scenario.
+- **An intended trade-off is stated, not hidden.** Put a `bench-accept: <benchmark> -- <reason>` line in the pull request description so a reviewer sees the cost and why it's worth it.
+- **Add a scenario** with each endpoint or driver method that will be called often, and with each performance fix.
 
 ---
 
