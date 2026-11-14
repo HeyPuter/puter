@@ -261,3 +261,109 @@ describe('remote names and a rejected description', () => {
         expect(conn.media.get('screen').getTracks()).toContain(audio);
     });
 });
+
+/** A track that can end, as a remote one does when its sender stops. */
+const endableTrack = (kind, id = kind) => {
+    const listeners = [];
+    return {
+        kind,
+        id,
+        readyState: 'live',
+        addEventListener (type, listener) {
+            if ( type === 'ended' ) listeners.push(listener);
+        },
+        end () {
+            this.readyState = 'ended';
+            for ( const listener of listeners ) listener();
+        },
+    };
+};
+
+describe('remote tracks ending', () => {
+    it('ends a name once every one of its tracks has ended', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        const ended = [];
+        conn.addEventListener('mediaended', (e) => ended.push([e.name, e.stream]));
+        const video = endableTrack('video');
+        const audio = endableTrack('audio');
+
+        channel.onoffer({ type: 'offer', sdp: 'two' }, { 0: 'camera', 1: 'camera' });
+        await flush();
+        pc.receiveTrack(video, '0');
+        pc.receiveTrack(audio, '1');
+        const stream = conn.media.get('camera');
+
+        video.end();
+        expect(stream.getTracks()).toEqual([audio]);
+        expect(ended).toEqual([]);
+
+        audio.end();
+        expect(ended).toEqual([['camera', stream]]);
+        expect(conn.media.has('camera')).toBe(false);
+    });
+
+    it('leaves a name alone when a track of the stream it replaced ends', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        const ended = [];
+        conn.addEventListener('mediaended', (e) => ended.push(e.name));
+        const old = endableTrack('video', 'old');
+        const fresh = endableTrack('video', 'fresh');
+
+        channel.onoffer({ type: 'offer', sdp: 'first' }, { 0: 'camera' });
+        await flush();
+        pc.receiveTrack(old, '0');
+        // The peer unpublishes, then publishes the name again.
+        channel.onoffer({ type: 'offer', sdp: 'dropped' }, {});
+        await flush();
+        expect(ended).toEqual(['camera']);
+        channel.onoffer({ type: 'offer', sdp: 'again' }, { 1: 'camera' });
+        await flush();
+        pc.receiveTrack(fresh, '1');
+
+        old.end();
+        expect(ended).toEqual(['camera']);
+        expect(conn.media.get('camera').getTracks()).toEqual([fresh]);
+    });
+});
+
+describe('publishing and withdrawing', () => {
+    it('publishes a bare track as a stream of one', async () => {
+        const { conn, pc } = await makeConnection();
+        const mic = track('audio');
+        conn.publish('mic', mic);
+        await flush();
+        expect(pc.transceivers[0].sender.track).toBe(mic);
+        expect(conn.publications.get('mic').getTracks()).toEqual([mic]);
+    });
+
+    it('stops a paused publication on a transceiver that only sends', async () => {
+        // removeTrack does nothing for a sender with no track, so the
+        // transceiver's direction is what tells the peer it ended.
+        const { conn, pc } = await makeConnection();
+        conn.publish('camera', new FakeMediaStream([track('video')]));
+        await flush();
+        conn.publish('camera', null);
+        await flush();
+        const [transceiver] = pc.transceivers;
+        transceiver.setDirectionQuietly('sendonly');
+
+        conn.unpublish('camera');
+        expect(transceiver.direction).toBe('inactive');
+        expect(conn.publications.has('camera')).toBe(false);
+    });
+
+    it('lets go of the tracks it was sending when the connection closes', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        const camera = track('video');
+        conn.publish('camera', new FakeMediaStream([camera]));
+        channel.onoffer({ type: 'offer', sdp: 'theirs' }, { 1: 'screen' });
+        await flush();
+        pc.receiveTrack(track('video', 'screen'), '1');
+
+        conn.close();
+        await flush();
+        expect(pc.transceivers[0].sender.replacements).toEqual([null]);
+        expect(conn.publications.size).toBe(0);
+        expect(conn.media.size).toBe(0);
+    });
+});
