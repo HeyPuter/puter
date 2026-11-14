@@ -66,6 +66,7 @@ const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
     'signup_ip',
     'signup_ip_forwarded',
     'signup_user_agent',
+    'signup_tls_fingerprint',
     'signup_origin',
     'signup_server',
     'audit_metadata',

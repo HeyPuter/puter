@@ -132,6 +132,28 @@ describe('PreludeClient', () => {
         });
     });
 
+    it('forwards a JA4 TLS fingerprint and drops any other shape', async () => {
+        fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
+        const client = makeClient('sk_test');
+        const ja4 = 't13d1516h2_8daaf6152771_02713d6af862';
+
+        await client.createVerification('+14155550123', {
+            tls_fingerprint: ja4,
+        });
+        await client.createVerification('+14155550123', {
+            ip: '203.0.113.7',
+            // A JA3 hash.
+            tls_fingerprint: 'e7d705a3286e19ea42f587b344ee6865',
+        });
+
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body).signals).toEqual({
+            ja4_fingerprint: ja4,
+        });
+        expect(JSON.parse(fetchMock.mock.calls[1][1].body).signals).toEqual({
+            ip: '203.0.113.7',
+        });
+    });
+
     it('omits the signals object entirely when none are supplied', async () => {
         fetchMock.mockResolvedValue(okJson({ id: 'v', status: 'success' }));
         const client = makeClient('sk_test');
