@@ -21,6 +21,7 @@ import {
     isAccessTokenActor,
     isAccountContext,
     isAppActor,
+    viaWorkerOf,
 } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
@@ -201,6 +202,13 @@ export class AppController extends PuterController {
             },
             async (req, res) => {
                 const actor = req.actor;
+                // Server-side code running as the account (a worker, an events
+                // handler) is not someone opening the app. Answered as success
+                // so deployed workers, which still ask, don't log a failure.
+                if (viaWorkerOf(actor)) {
+                    res.json({});
+                    return;
+                }
                 const bodyAppUid = req.body?.app_uid;
                 const callerAppUid = actor?.effectiveApp?.uid;
                 const app_uid =

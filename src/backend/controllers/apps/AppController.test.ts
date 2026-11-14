@@ -1143,6 +1143,34 @@ describe('AppController POST /rao actor gating', () => {
         ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
     });
 
+    it('records nothing for a worker running as the app', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        const workerActor = makeActor({
+            ...owner.actor,
+            app: { uid: app.uid as string },
+            session: { uid: uuidv4(), kind: 'worker' },
+        } as unknown as Actor);
+
+        const { res, captured } = makeRes();
+        await withActor(workerActor, () =>
+            callRoute(
+                'post',
+                '/rao',
+                makeReq({ body: {}, actor: workerActor }),
+                res,
+            ),
+        );
+        expect(captured.body).toEqual({});
+
+        await server.controllers.apps.drainPendingAppOpens();
+        const rows = (await server.clients.db.read(
+            'SELECT `app_uid` FROM `app_opens` WHERE `app_uid` = ? AND `user_id` = ?',
+            [app.uid, owner.userId],
+        )) as unknown[];
+        expect(rows).toHaveLength(0);
+    });
+
     it("refuses to let an app actor record another app's open", async () => {
         const { actor } = await makeUser();
         const own = await createApp(actor);

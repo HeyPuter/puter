@@ -369,4 +369,44 @@ export default suite('workers', {
         const worker = await t.puter.workers.get('workers-suite-delete');
         t.assert.ok(!worker, 'deleted worker should no longer be returned');
     },
+
+    'delete removes the worker sandbox app, freeing its name': async (t) => {
+        const name = 'workers-suite-delete-sbx';
+        await deployWorker(t, name);
+        t.assert.equal(await appExists(t, `sandbox-${name}`), true);
+        await t.puter.workers.delete(name);
+        t.assert.equal(
+            await appExists(t, `sandbox-${name}`),
+            false,
+            'the sandbox app should go with the worker',
+        );
+    },
+
+    'create refuses a sandbox app another user owns': async (t) => {
+        const name = 'workers-suite-sbx-taken';
+        const res = await fetch(`${t.env.apiOrigin}/drivers/call`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${t.env.users.other.token}`,
+                Origin: t.env.apiOrigin,
+            },
+            body: JSON.stringify({
+                interface: 'puter-apps',
+                method: 'create',
+                args: {
+                    object: {
+                        name: `sandbox-${name}`,
+                        title: name,
+                        index_url: 'https://worker-sandbox.puter.com/',
+                    },
+                },
+            }),
+        });
+        t.assert.equal(res.status, 200, 'the other user owns the sandbox app');
+        const err = (await t.assert.rejects(() => deployWorker(t, name))) as {
+            code?: string;
+        };
+        t.assert.equal(err.code, 'sandbox_not_owned');
+    },
 });
