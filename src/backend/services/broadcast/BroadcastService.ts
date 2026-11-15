@@ -18,6 +18,7 @@
  */
 
 import axios from 'axios';
+import type { Cluster } from 'ioredis';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
 import { IBroadcastPeerConfig } from '../../types.js';
@@ -390,13 +391,26 @@ export class BroadcastService extends PuterService {
             });
     }
 
+    #subscribePubsub(sub: ReturnType<Cluster['duplicate']>, attempt: number) {
+        sub.subscribe('pubsub').catch((err: unknown) => {
+            if (this.#redisSub !== sub) return;
+            const delayMs = Math.min(1000 * 2 ** attempt, 30_000);
+            console.warn(
+                `[broadcast] pubsub subscribe failed, retrying in ${delayMs}ms`,
+                err,
+            );
+            setTimeout(
+                () => this.#subscribePubsub(sub, attempt + 1),
+                delayMs,
+            ).unref();
+        });
+    }
+
     // outer.pubsub.* events will be broadcast to other clusters through webhooks
     // pubsub.* will only fan-out to same-cluster nodes.
     #subscribeRedisOutbound(): void {
         this.#redisSub = this.clients.redis.duplicate();
-        this.#redisSub.subscribe('pubsub').catch((err: unknown) => {
-            console.warn('[broadcast] pubsub subscribe failed', err);
-        });
+        this.#subscribePubsub(this.#redisSub, 0);
         this.#redisSub.on('message', (channel: string, message: string) => {
             if (channel !== 'pubsub') return;
             const parsed = JSON.parse(message);

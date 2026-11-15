@@ -1336,6 +1336,64 @@ describe('BroadcastService — same-cluster pub/sub fan-out', () => {
     });
 });
 
+describe('BroadcastService — pubsub subscribe retry', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('retries a rejected subscribe until it lands', async () => {
+        const subscribe = vi
+            .fn()
+            .mockRejectedValueOnce(new Error('Connection is closed.'))
+            .mockRejectedValueOnce(new Error('Connection is closed.'))
+            .mockResolvedValue(1);
+        const sub = {
+            subscribe,
+            on: vi.fn(),
+            unsubscribe: vi.fn().mockResolvedValue(1),
+            quit: vi.fn(),
+        };
+        const live = server.services.broadcast as unknown as {
+            config: unknown;
+            stores: unknown;
+            services: unknown;
+            constructor: new (...args: unknown[]) => BroadcastService;
+        };
+        const service = new live.constructor(
+            live.config,
+            {
+                ...server.clients,
+                redis: {
+                    duplicate: () => sub,
+                    publish: vi.fn().mockResolvedValue(0),
+                },
+            },
+            live.stores,
+            live.services,
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.useFakeTimers({ toFake: ['setTimeout'] });
+        try {
+            service.onServerStart();
+            await vi.advanceTimersByTimeAsync(1000);
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(subscribe).toHaveBeenCalledTimes(3);
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(subscribe).toHaveBeenCalledTimes(3);
+        } finally {
+            vi.useRealTimers();
+            await service.onServerPrepareShutdown();
+            warn.mockRestore();
+        }
+    });
+});
+
 describe('BroadcastService shutdown drain', () => {
     let server: PuterServer;
     let broadcast: BroadcastService;
