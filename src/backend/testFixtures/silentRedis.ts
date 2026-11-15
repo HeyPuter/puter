@@ -46,11 +46,7 @@ const takeCommands = (buf: string): { commands: string[][]; rest: string } => {
 const replyTo = (name: string) =>
     name === 'get' ? '$-1\r\n' : name === 'eval' ? ':1\r\n' : '+OK\r\n';
 
-/**
- * Accepts and never replies; `clusterReady` answers only the handshake. Other
- * commands land in `seen`, and are answered in order once `answer()` is
- * called.
- */
+/** Answers only the handshake until `answer()`; commands land in `seen`. */
 export const startSilentRedis = async (clusterReady = false) => {
     const sockets = new Set<Socket>();
     const seen: string[] = [];

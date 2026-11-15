@@ -79,9 +79,9 @@ class TimedCluster extends Redis.Cluster {
     failFastMs = 0;
     #openUntil = 0;
     #probing = false;
-    // The cluster's offline queue re-enters sendCommand; admit each command once.
+    // The offline queue re-enters sendCommand; admit each command once.
     #admitted = new WeakSet<Command>();
-    // A pipeline only writes once every command is written, so admit all or none.
+    // A pipeline writes only once all its commands are in; admit all or none.
     #pipelines = new WeakMap<object, boolean>();
 
     constructor(...args: ConstructorParameters<typeof Redis.Cluster>) {
@@ -123,7 +123,7 @@ class TimedCluster extends Redis.Cluster {
     }
 
     #admit(name: string): { admit: boolean; probe: boolean } {
-        // The ready check sends CLUSTER INFO; failing it fast would block 'ready'.
+        // The ready check sends CLUSTER INFO; failing it would block 'ready'.
         if (this.#openUntil === 0 || isSendingUndo() || name === 'cluster') {
             return { admit: true, probe: false };
         }
