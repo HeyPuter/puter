@@ -2502,14 +2502,19 @@ describe('the push record inside the Puter GUI', () => {
         guiNav();
         store.set(CHANGED, { at: 1 });
         const { module } = makeModule({ env: 'gui' });
-        await module._noteWebPushSynced('https://push.example/1');
+        await expect(
+            module._noteWebPushSynced('https://push.example/1'),
+        ).resolves.toBe(true);
         await expect(module._webPushRecord()).resolves.toEqual({
             endpoint: 'https://push.example/1',
             changed: { at: 1 },
         });
+        await expect(
+            module._webPushRecord({ endpoint: false }),
+        ).resolves.toEqual({ endpoint: null, changed: { at: 1 } });
     });
 
-    it('reads nulls when IndexedDB fails', async () => {
+    it('reads nulls, and records nothing, when IndexedDB fails', async () => {
         guiNav();
         storage.broken = true;
         const { module } = makeModule({ env: 'gui' });
@@ -2517,6 +2522,9 @@ describe('the push record inside the Puter GUI', () => {
             endpoint: null,
             changed: null,
         });
+        await expect(
+            module._noteWebPushSynced('https://push.example/1'),
+        ).resolves.toBe(false);
     });
 
     it('ends a removed subscription and forgets its receipt and the mark', async () => {
