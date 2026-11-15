@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as names from './pushNames.js';
-import { hasPushNames } from './pushNamesBlock.js';
+import {
+    hasPushNames,
+    withPushNames,
+} from '../../../../../../tools/pushNamesBlock.mjs';
 import * as pushStore from './pushStore.js';
 
 const WORKERS = {
@@ -12,9 +15,11 @@ const WORKERS = {
 /** Every `const NAME = '...';` the source declares. */
 const declared = (source) =>
     Object.fromEntries(
-        [...source.matchAll(/^\s*const ([A-Z_]+) = '([^']*)';$/gm)].map(
-            ([, name, value]) => [name, value],
-        ),
+        [
+            ...source
+                .replace(/\r\n/g, '\n')
+                .matchAll(/^\s*const ([A-Z_]+) = '([^']*)';$/gm),
+        ].map(([, name, value]) => [name, value]),
     );
 
 describe('the puter-push database names', () => {
@@ -32,4 +37,17 @@ describe('the puter-push database names', () => {
             expect(hasPushNames(source)).toBe(true);
         },
     );
+
+    it('read the same from a CRLF checkout, and keep its line endings when rewritten', () => {
+        const crlf = readFileSync(WORKERS['push-sw.js'], 'utf8').replace(
+            /\n/g,
+            '\r\n',
+        );
+        expect(hasPushNames(crlf)).toBe(true);
+        expect(declared(crlf)).toMatchObject(names);
+        const stale = crlf.replace("'puter-push';", "'puter-push-0';");
+        const rewritten = withPushNames(stale);
+        expect(rewritten).toBe(crlf);
+        expect(rewritten.replace(/\r\n/g, '')).not.toContain('\n');
+    });
 });

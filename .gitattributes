@@ -1,2 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+src/gui/src/sw.js text eol=lf
+src/puter-js/src/push-sw.js text eol=lf

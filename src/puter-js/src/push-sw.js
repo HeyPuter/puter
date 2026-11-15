@@ -20,8 +20,7 @@
 (() => {
     if (self.puterPush) return;
 
-    // Shared with puter.js on the same origin (modules/notifications/lib/pushStore.js).
-    // Generated from pushNames.js by tools/pushWorkerNames.mjs.
+    // Shared with puter.js: generated from lib/pushNames.js by tools/pushWorkerNames.mjs.
     const CLICKS_STORE = 'clicks';
     const HANDLERS_STORE = 'handlers';
     const OPT_IN_PREFIX = 'puter:opt-in:';

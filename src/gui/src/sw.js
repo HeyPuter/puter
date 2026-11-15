@@ -35,8 +35,7 @@ const CLICK_PARAM = 'puter.notification';
 // Browsers allow openWindow only shortly after the click.
 const CLICK_ACK_BUDGET_MS = 600;
 const GUI_PATHS = /^\/(?:$|desktop(?:\/|$)|dashboard(?:\/|$)|app\/|settings(?:\/|$)|@)/;
-// Entries puter.js keeps here (modules/notifications/lib/pushStore.js).
-// Generated from pushNames.js by tools/pushWorkerNames.mjs.
+// Shared with puter.js: generated from lib/pushNames.js by tools/pushWorkerNames.mjs.
 const CLICKS_STORE = 'clicks';
 const HANDLERS_STORE = 'handlers';
 const OPT_IN_PREFIX = 'puter:opt-in:';

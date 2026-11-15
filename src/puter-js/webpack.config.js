@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import webpack from 'webpack';
-import { hasPushNames } from './src/modules/notifications/lib/pushNamesBlock.js';
+import { hasPushNames } from '../../tools/pushNamesBlock.mjs';
 
 // '__dirname' isn't defined by default in ES modules.
 // We didn't really want to migrate this file to ESM because

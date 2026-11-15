@@ -26,7 +26,7 @@ import { lib_paths, css_paths, js_paths } from './src/static-assets.js';
 import { fileURLToPath } from 'url';
 import BaseConfig from './webpack/BaseConfig.cjs';
 import { copyPdfThumbnailAssets } from './tools/copyPdfThumbnailAssets.js';
-import { hasPushNames } from '../puter-js/src/modules/notifications/lib/pushNamesBlock.js';
+import { hasPushNames } from '../../tools/pushNamesBlock.mjs';
 
 // Polyfill __dirname, which doesn't exist in modules mode
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,6 +54,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 async function build (options) {
     const PUTER_ENV = process.env.PUTER_ENV || 'prod';
+    if ( ! hasPushNames(fs.readFileSync(path.join(__dirname, 'src', 'sw.js'), 'utf8')) ) {
+        throw new Error('sw.js: stale push names; run node tools/pushWorkerNames.mjs');
+    }
     // -----------------------------------------------
     // Delete ./dist/ directory if it exists and create a new one
     // -----------------------------------------------
@@ -193,9 +196,6 @@ async function build (options) {
         }
     };
 
-    if ( ! hasPushNames(fs.readFileSync(path.join(__dirname, 'src', 'sw.js'), 'utf8')) ) {
-        throw new Error('sw.js: stale push names; run node tools/pushWorkerNames.mjs');
-    }
     for ( const to_copy of copy_these ) {
         recursive_copy(path.join(__dirname, 'src', to_copy), path.join(__dirname, 'dist', to_copy));
     }

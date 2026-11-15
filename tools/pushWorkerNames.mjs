@@ -2,7 +2,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { withPushNames } from '../src/puter-js/src/modules/notifications/lib/pushNamesBlock.js';
+import { withPushNames } from './pushNamesBlock.mjs';
 
 const check = process.argv.includes('--check');
 let stale = false;
