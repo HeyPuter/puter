@@ -1252,9 +1252,10 @@ export class ShareService extends PuterService {
                 row.issuer_user_id,
             );
         }
-        const liveFlat = await this.stores.permission.withoutOrphanedFlatPerms(
-            flat.filter(({ value }) => !value.deleted),
-        );
+        const { kept: liveFlat } =
+            await this.stores.permission.withoutOrphanedFlatPerms(
+                flat.filter(({ value }) => !value.deleted),
+            );
         for (const { ref, value } of liveFlat) {
             record(ref.holderUserId, ref.permission, value.issuer_user_id);
         }

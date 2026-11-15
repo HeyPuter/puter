@@ -187,6 +187,12 @@ export interface FlatPermRef {
 const subtreeRoot = (prefix: string): string =>
     prefix.endsWith(':') ? prefix.slice(0, -1) : prefix;
 
+/** A flat entry's issuer id, or null when it names none usable. */
+const flatIssuerId = (value: FlatPermValue): number | null => {
+    const id = Number(value.issuer_user_id);
+    return Number.isFinite(id) && id > 0 ? id : null;
+};
+
 /** Match a permission and everything beneath it. */
 const subtreeClause = (
     permissions: string[],
@@ -328,28 +334,59 @@ export class PermissionStore extends PuterStore {
     /** Drops entries whose issuer is gone, deleting them off the request path. */
     async withoutOrphanedFlatPerms<
         T extends { ref: FlatPermRef; value: FlatPermValue },
-    >(items: T[]): Promise<T[]> {
-        const issuerIds = [
-            ...new Set(items.map(({ value }) => Number(value.issuer_user_id))),
-        ].filter((id) => Number.isFinite(id) && id > 0);
-        if (issuerIds.length === 0) return items;
-        const issuers = await this.stores.user.getByIds(issuerIds);
-        const orphaned: FlatPermRef[] = [];
+    >(items: T[]): Promise<{ kept: T[]; issuers: Map<number, UserRow> }> {
+        const ids = [
+            ...new Set(items.map(({ value }) => flatIssuerId(value))),
+        ].filter((id): id is number => id !== null);
+        if (ids.length === 0) return { kept: items, issuers: new Map() };
+        const issuers = await this.stores.user.getByIds(ids);
+        // A lagging replica can miss part of a batch; the primary decides.
+        const reread = await Promise.all(
+            ids
+                .filter((id) => !issuers.has(id))
+                .map((id) => this.stores.user.getById(id, { force: true })),
+        );
+        for (const user of reread) if (user) issuers.set(Number(user.id), user);
+
+        const orphaned: T[] = [];
         const kept = items.filter((item) => {
-            const issuerId = item.value.issuer_user_id;
-            if (!issuerId || issuers.has(Number(issuerId))) return true;
-            orphaned.push(item.ref);
+            const issuerId = flatIssuerId(item.value);
+            if (issuerId === null || issuers.has(issuerId)) return true;
+            orphaned.push(item);
             return false;
         });
         if (orphaned.length > 0) {
-            this.delFlatUserPerms(orphaned).catch((e) =>
+            this.#deleteOrphanedFlatPerms(orphaned).catch((e) =>
                 console.warn(
                     '[PermissionStore] orphaned flat entries kept:',
                     e,
                 ),
             );
         }
-        return kept;
+        return { kept, issuers };
+    }
+
+    /** Only where the entry still names the gone issuer; a fresh grant stays. */
+    async #deleteOrphanedFlatPerms(
+        orphaned: Array<{ ref: FlatPermRef; value: FlatPermValue }>,
+    ): Promise<void> {
+        const goneBy = new Map(
+            orphaned.map(({ ref, value }) => [
+                `${ref.holderUserId}:${ref.permission}`,
+                flatIssuerId(value),
+            ]),
+        );
+        const current = await this.getFlatUserPermsForRefs(
+            orphaned.map(({ ref }) => ref),
+        );
+        const stale = current
+            .filter(
+                ({ ref, value }) =>
+                    flatIssuerId(value) ===
+                    goneBy.get(`${ref.holderUserId}:${ref.permission}`),
+            )
+            .map(({ ref }) => ref);
+        if (stale.length > 0) await this.delFlatUserPerms(stale);
     }
 
     /**

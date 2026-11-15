@@ -327,6 +327,97 @@ describe('PermissionStore', () => {
 
     // -- user → app ----------------------------------------------------
 
+    describe('flat entries of a gone issuer', () => {
+        const GONE_ISSUER_ID = 2_000_000_000;
+
+        const flatEntry = async (
+            holderId: number,
+            permission: string,
+            issuerId: unknown,
+        ) => {
+            await store.setFlatUserPerm(holderId, permission, {
+                permission,
+                deleted: false,
+                issuer_user_id: issuerId,
+            } as never);
+            return { holderUserId: holderId, permission };
+        };
+
+        const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
+        it('keeps an issuer a lagging replica has not seen yet', async () => {
+            const older = await makeUser();
+            const newer = await makeUser();
+            const holder = await makeUser();
+            const refs = [
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, older.id),
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, newer.id),
+            ];
+            for (const id of [older.id, newer.id]) {
+                await server.clients.redis.del(`users:id:${id}`);
+            }
+            const items = await store.getFlatUserPermsForRefs(refs);
+
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) => {
+                    const rows = await primaryRead(sql, params);
+                    return String(sql).startsWith(
+                        'SELECT * FROM `user` WHERE `id` IN',
+                    )
+                        ? rows.filter((row) => Number(row.id) !== newer.id)
+                        : rows;
+                });
+            let kept;
+            try {
+                ({ kept } = await store.withoutOrphanedFlatPerms(items));
+            } finally {
+                read.mockRestore();
+            }
+            await settle();
+
+            expect(kept).toHaveLength(2);
+            expect(await store.getFlatUserPermsForRefs(refs)).toHaveLength(2);
+        });
+
+        it('leaves an entry a live issuer rewrote after it was read', async () => {
+            const live = await makeUser();
+            const holder = await makeUser();
+            const permission = `fs:${uuidv4()}:read`;
+            const ref = await flatEntry(holder.id, permission, GONE_ISSUER_ID);
+            const [read] = await store.getFlatUserPermsForRefs([ref]);
+            await flatEntry(holder.id, permission, live.id);
+
+            const { kept } = await store.withoutOrphanedFlatPerms([read!]);
+            await settle();
+
+            expect(kept).toEqual([]);
+            const [now] = await store.getFlatUserPermsForRefs([ref]);
+            expect(now?.value.issuer_user_id).toBe(live.id);
+        });
+
+        it('keeps an entry that names no usable issuer', async () => {
+            const holder = await makeUser();
+            const refs = [
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, 'legacy'),
+                await flatEntry(
+                    holder.id,
+                    `fs:${uuidv4()}:read`,
+                    GONE_ISSUER_ID,
+                ),
+            ];
+            const items = await store.getFlatUserPermsForRefs(refs);
+
+            const { kept } = await store.withoutOrphanedFlatPerms(items);
+            await settle();
+
+            expect(kept.map(({ ref }) => ref)).toEqual([refs[0]]);
+            expect(await store.getFlatUserPermsForRefs(refs)).toHaveLength(1);
+        });
+    });
+
     describe('user-to-app permissions', () => {
         it('does not cache a read that raced a revoke', async () => {
             const user = await makeUser();

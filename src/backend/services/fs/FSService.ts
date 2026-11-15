@@ -474,24 +474,18 @@ export class FSService extends PuterService {
                         wanted,
                     ),
                     permissionStore.readUserGroupPerms(actor.user.id, wanted),
-                    permissionStore.getFlatUserPerms(actor.user.id, wanted),
+                    permissionStore.getFlatUserPermsForRefs(
+                        wanted.map((permission) => ({
+                            holderUserId: actor.user!.id!,
+                            permission,
+                        })),
+                    ),
                 ]);
                 if (linked.length > 0 || group.length > 0) return {};
-                const live = await permissionStore.withoutOrphanedFlatPerms(
-                    flat
-                        .filter(
-                            (value) =>
-                                value && !value.deleted && value.permission,
-                        )
-                        .map((value) => ({
-                            ref: {
-                                holderUserId: actor.user!.id!,
-                                permission: value.permission!,
-                            },
-                            value,
-                        })),
+                const { kept } = await permissionStore.withoutOrphanedFlatPerms(
+                    flat.filter(({ value }) => !value.deleted),
                 );
-                return live.length > 0 ? {} : undefined;
+                return kept.length > 0 ? {} : undefined;
             },
         });
 
