@@ -325,10 +325,7 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    /**
-     * Drops entries whose issuer account is gone; a failed purge can leave them
-     * for good, so they are deleted here, off the request path.
-     */
+    /** Drops entries whose issuer is gone, deleting them off the request path. */
     async withoutOrphanedFlatPerms<
         T extends { ref: FlatPermRef; value: FlatPermValue },
     >(items: T[]): Promise<T[]> {
