@@ -308,6 +308,43 @@ describe('AnthropicSseWriter', () => {
         });
     });
 
+    it('writes a fallback marker as its own block between the text on either side', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'text', text: 'partial' });
+        writer.onChunk({
+            type: 'refusal_fallback',
+            from: { model: 'claude-test' },
+            to: { model: 'claude-opus-4-8' },
+            trigger: { type: 'refusal', category: 'cyber' },
+        });
+        writer.onChunk({ type: 'text', text: 'answer' });
+        writer.onChunk({ type: 'usage', usageDetails: {} });
+        const blocks = events(written).filter((e) =>
+            e.event.startsWith('content_block_'),
+        );
+        expect(
+            blocks.map((e) => [e.event, (e.data as { index: number }).index]),
+        ).toEqual([
+            ['content_block_start', 0],
+            ['content_block_delta', 0],
+            ['content_block_stop', 0],
+            ['content_block_start', 1],
+            ['content_block_stop', 1],
+            ['content_block_start', 2],
+            ['content_block_delta', 2],
+            ['content_block_stop', 2],
+        ]);
+        expect(blocks[3]!.data).toMatchObject({
+            content_block: {
+                type: 'fallback',
+                from: { model: 'claude-test' },
+                to: { model: 'claude-opus-4-8' },
+                trigger: { type: 'refusal', category: 'cyber' },
+            },
+        });
+    });
+
     it('a server-tool result block arrives whole — no deltas', () => {
         const { writer, written } = newWriter();
         writer.start();

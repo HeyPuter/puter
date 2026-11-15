@@ -41,7 +41,7 @@ import {
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
-import { awaitLater } from '../../util/concurrency.js';
+import { awaitLater, runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { assertRentedUnitRoom } from '../../util/rentedUnits.js';
 import { loadFileInput } from '../util/fileInput.js';
@@ -58,8 +58,26 @@ const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 export const WORKER_COMPATIBILITY_DATE = '2025-07-15';
 export const WORKER_COMPATIBILITY_FLAGS = ['global_fetch_strictly_public'];
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
+/** `subdomains.subdomain` is varchar(64) and holds `workers.puter.<name>`. */
+export const WORKER_NAME_MAX_LENGTH = 64 - WORKER_SUBDOMAIN_PREFIX.length;
+/** Puter.js names a worker's default sandbox app `sandbox-<workerName>`. */
+const SANDBOX_APP_PREFIX = 'sandbox-';
+/** The page a sandbox app points at, served on the `worker-sandbox` subdomain. */
+const isWorkerSandboxUrl = (url: unknown): boolean => {
+    try {
+        return new URL(String(url)).hostname.split('.')[0] === 'worker-sandbox';
+    } catch {
+        return false;
+    }
+};
 /** Cap on ordinary workers while user-scope handlers are off. */
 const MAX_WORKERS_PER_USER = 100;
+/**
+ * Worker rows read per page, and edge calls in flight, when an owner's
+ * suspension changes.
+ */
+const SUSPENSION_PAGE = 500;
+const SUSPENSION_CONCURRENCY = 5;
 
 /**
  * Opt-in key for `create()` that skips the admission checks a _new_ worker has
@@ -434,6 +452,15 @@ export class WorkerDriver extends PuterDriver {
                 { legacyCode: 'bad_request' },
             );
         }
+        // A deploy target names its own script, so only a worker that becomes
+        // a subdomain row is bound by the column's width.
+        if (!deployTarget && workerName.length > WORKER_NAME_MAX_LENGTH) {
+            throw new HttpError(
+                400,
+                `Worker name must be at most ${WORKER_NAME_MAX_LENGTH} characters`,
+                { legacyCode: 'bad_request' },
+            );
+        }
         this.#rejectReserved(workerName);
         const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
 
@@ -777,6 +804,50 @@ export class WorkerDriver extends PuterDriver {
             );
         } catch {
             // Non-critical.
+        }
+        await this.#releaseSandboxApp(row, workerName);
+    }
+
+    /**
+     * Delete the `sandbox-<name>` app puter.js made for this worker, so the
+     * next owner of the worker name can make their own. Only when nothing else
+     * runs as it: deleting an app cascades to every row bound to it.
+     */
+    async #releaseSandboxApp(
+        row: SubdomainRow,
+        workerName: string,
+    ): Promise<void> {
+        if (row.app_owner === null || row.app_owner === undefined) return;
+        try {
+            const app = await this.stores.app.getById(Number(row.app_owner));
+            if (
+                !app ||
+                app.protected ||
+                app.name !== `${SANDBOX_APP_PREFIX}${workerName}` ||
+                Number(app.owner_user_id) !== Number(row.user_id) ||
+                !isWorkerSandboxUrl(app.index_url)
+            )
+                return;
+            const stillBound = await this.stores.subdomain.listAppCascade({
+                appId: Number(app.id),
+            });
+            if (stillBound.length > 0) return;
+            await this.stores.app.delete(Number(app.id));
+            this.clients.event.emit(
+                'app.changed',
+                {
+                    app_uid: app.uid,
+                    app: null,
+                    old_app: app,
+                    action: 'deleted',
+                },
+                {},
+            );
+        } catch (e) {
+            console.error(
+                `[workers] sandbox app cleanup failed for ${workerName}`,
+                e,
+            );
         }
     }
 
@@ -1363,6 +1434,83 @@ export class WorkerDriver extends PuterDriver {
                     });
             },
         );
+        // A suspended owner's scripts come down and return when the
+        // suspension lifts; the rows stay throughout.
+        this.clients.event.on(
+            'user.suspended',
+            async (_key: string, data: { userId?: number }) => {
+                try {
+                    await this.#takeDownScriptsOf(Number(data?.userId));
+                } catch (err) {
+                    console.error('[workers] suspension takedown error', err);
+                }
+            },
+        );
+        this.clients.event.on(
+            'user.unsuspended',
+            async (_key: string, data: { userId?: number }) => {
+                try {
+                    await this.#redeployScriptsOf(Number(data?.userId));
+                } catch (err) {
+                    console.error('[workers] unsuspension redeploy error', err);
+                }
+            },
+        );
+    }
+
+    /** Every worker row the user owns, a page at a time. */
+    async #workerRowsOf(userId: number): Promise<SubdomainRow[]> {
+        const rows: SubdomainRow[] = [];
+        let afterId: number | undefined;
+        for (;;) {
+            const page = await this.stores.subdomain.listByUserIdAndPrefix(
+                userId,
+                WORKER_SUBDOMAIN_PREFIX,
+                { limit: SUSPENSION_PAGE, afterId },
+            );
+            rows.push(...page);
+            if (page.length < SUSPENSION_PAGE) return rows;
+            afterId = Number(page[page.length - 1]!.id);
+        }
+    }
+
+    /** Remove the user's deployed scripts, keeping their rows. */
+    async #takeDownScriptsOf(userId: number): Promise<void> {
+        const rows = await this.#workerRowsOf(userId);
+        await runWithConcurrencyLimit(
+            rows,
+            SUSPENSION_CONCURRENCY,
+            async (row) => {
+                const workerName = String(row.subdomain).slice(
+                    WORKER_SUBDOMAIN_PREFIX.length,
+                );
+                try {
+                    await this.#cfDelete(workerName);
+                } catch (err) {
+                    console.warn(
+                        `[workers] suspension takedown failed for ${workerName}`,
+                        err,
+                    );
+                }
+            },
+        );
+    }
+
+    /** Deploy the user's workers again from their source files. */
+    async #redeployScriptsOf(userId: number): Promise<void> {
+        // The local runtime deploys a worker from source on its next request.
+        if (this.#useLocalWorkerd) return;
+        const rows = await this.#workerRowsOf(userId);
+        const sources = await this.stores.fsEntry.getEntriesByIds(
+            rows
+                .map((row) => row.root_dir_id)
+                .filter((id): id is number => typeof id === 'number'),
+        );
+        await runWithConcurrencyLimit(
+            [...sources.values()],
+            SUSPENSION_CONCURRENCY,
+            (entry) => this.#deploySource(entry, { notify: false }),
+        );
     }
 
     async #handleSourceWrite(
@@ -1409,7 +1557,10 @@ export class WorkerDriver extends PuterDriver {
         return state.promise;
     }
 
-    async #deploySource(entry: FSEntry): Promise<void> {
+    async #deploySource(
+        entry: FSEntry,
+        { notify = true }: { notify?: boolean } = {},
+    ): Promise<void> {
         const matched = await this.#listWorkerRowsForEntry(entry);
         if (matched.length === 0) return;
 
@@ -1424,7 +1575,9 @@ export class WorkerDriver extends PuterDriver {
 
             try {
                 const ownerUser = await this.stores.user.getById(entry.userId);
-                if (!ownerUser) continue;
+                // A write by someone the file is shared with must not bring a
+                // suspended owner's script back.
+                if (!ownerUser || ownerUser.suspended) continue;
                 const ownerActor = makeActor({ user: ownerUser });
 
                 // Read the updated file content. `ownerActor` is the file's
@@ -1499,24 +1652,27 @@ export class WorkerDriver extends PuterDriver {
                     );
                 }
 
-                // Notify the user
-                await this.#notifyUser(
-                    entry.userId,
-                    workerName,
-                    cfResult,
-                    appUid,
-                );
+                if (notify) {
+                    await this.#notifyUser(
+                        entry.userId,
+                        workerName,
+                        cfResult,
+                        appUid,
+                    );
+                }
             } catch (err) {
                 console.warn(
                     `[workers] hot-reload deploy failed for ${workerName}`,
                     err,
                 );
-                await this.#notifyUser(
-                    entry.userId,
-                    workerName,
-                    { success: false, errors: [String(err)] },
-                    appUid,
-                );
+                if (notify) {
+                    await this.#notifyUser(
+                        entry.userId,
+                        workerName,
+                        { success: false, errors: [String(err)] },
+                        appUid,
+                    );
+                }
             }
         }
     }

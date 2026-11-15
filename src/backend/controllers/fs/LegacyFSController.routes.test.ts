@@ -1409,6 +1409,35 @@ describe('LegacyFSController.writeFile operations', () => {
         });
     });
 
+    it('writes only the first file part of a multipart write', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/first-part.txt`;
+        await writeFileEntry(actor, path, 'x');
+        const { query } = await signedFor(path);
+        const filePart = (content: string): MultipartPart => ({
+            kind: 'file',
+            name: 'file',
+            filename: 'part.txt',
+            content,
+        });
+
+        await withActor(actor, () =>
+            controller.writeFile(
+                multipartReq([filePart('first'), filePart('second-ignored')], {
+                    actor,
+                    query: { ...query, operation: 'write' },
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const stored = (await server.stores.fsEntry.getEntryByPath(path))!;
+        const { body } = await server.services.fs.readContent(stored);
+        const chunks: Buffer[] = [];
+        for await (const chunk of body) chunks.push(Buffer.from(chunk));
+        expect(Buffer.concat(chunks).toString()).toBe('first');
+    });
+
     it('rejects a signed write when the owning account is suspended', async () => {
         const { actor, userId, username } = await makeUser();
         const path = `/${username}/Documents/suspended-write.txt`;
@@ -1634,6 +1663,45 @@ describe('LegacyFSController.batch (multipart)', () => {
                 ),
             ),
         ).rejects.toBeInstanceOf(Error);
+    });
+
+    it('refuses a multipart batch with more files or parts than it buffers', async () => {
+        const { actor, username } = await makeUser();
+        const files: MultipartPart[] = Array.from({ length: 65 }, (_, i) => ({
+            kind: 'file',
+            name: 'file',
+            filename: `f${i}.txt`,
+            content: 'x',
+        }));
+        const fields: MultipartPart[] = Array.from({ length: 257 }, (_, i) => ({
+            kind: 'field',
+            name: 'operation',
+            value: JSON.stringify({
+                op: 'mkdir',
+                path: `/${username}/Documents`,
+                name: `too-many-${i}`,
+            }),
+        }));
+
+        for (const [parts, message] of [
+            [files, 'Too many files in batch (max 64)'],
+            [fields, 'Too many parts in batch (max 256)'],
+        ] as const) {
+            await expect(
+                withActor(actor, () =>
+                    controller.batch(
+                        multipartReq(parts, { actor }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 413, message });
+        }
+        // Nothing ran: the limit is hit before any operation does.
+        expect(
+            await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents/too-many-0`,
+            ),
+        ).toBeNull();
     });
 
     it('ignores unrelated multipart fields', async () => {

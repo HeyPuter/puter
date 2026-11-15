@@ -26,16 +26,19 @@
  */
 
 /**
- * Fetches the token the app signs in with.
+ * Fetches the token the app signs in with. An app without a known uid is
+ * named by its `origin`, and the uid the server resolved comes back with the
+ * token.
  *
- * @param {{ appUid?: string } & AppLaunchServer} options
+ * @param {{ appUid?: string, origin?: string } & AppLaunchServer} options
  */
 export const fetchUserAppTokenForLaunch = async ({
     appUid,
+    origin,
     apiOrigin = window.api_origin,
     authToken = window.auth_token,
 } = {}) => {
-    if ( ! appUid ) {
+    if ( !appUid && !origin ) {
         return {
             token: null,
             reason: 'missing-app-uid',
@@ -48,7 +51,7 @@ export const fetchUserAppTokenForLaunch = async ({
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${authToken}`,
             },
-            body: JSON.stringify({ app_uid: appUid }),
+            body: JSON.stringify(appUid ? { app_uid: appUid } : { origin }),
             method: 'POST',
         });
 
@@ -62,6 +65,7 @@ export const fetchUserAppTokenForLaunch = async ({
         if ( response.ok && responseBody?.token ) {
             return {
                 token: responseBody.token,
+                appUid: responseBody.app_uid ?? appUid,
             };
         }
 

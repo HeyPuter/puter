@@ -1,0 +1,210 @@
+name: Benchmarks
+
+# Runs the backend benchmarks on a change and on the commit before it (a pull
+# request's base, or the previous commit on main), then compares the two. Both
+# sides run on one runner, so the comparison never spans machines. A pull
+# request fails on a regression it does not accept in its description; see
+# doc/benchmarks.md. `edited` re-runs the check when the description changes.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: benchmarks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v4.0.3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src/backend/**'
+              - 'extensions/**'
+              - 'tools/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/benchmarks.yaml'
+
+  # Benchmark files are split across runners; each runs its share on both
+  # commits and uploads the two reports.
+  bench-shard:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    name: bench shard ${{ matrix.shard }}/${{ strategy.job-total }}
+    runs-on: ubuntu-latest
+    # A shard takes about two minutes; a stuck scenario fails here instead of
+    # holding the runner for hours.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+
+    steps:
+      # A pull request is checked out merged into its base, and compared with
+      # that base (the merge's first parent). Comparing the branch's own head
+      # would count what the base gained since the branch was cut.
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Pick the commit to compare against
+        id: base
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            sha=$(git rev-parse HEAD^1)
+          else
+            sha=$BEFORE
+            git fetch --no-tags --depth=1 origin "$sha"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '26'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run benchmarks on both commits
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          CI: 'true'
+        run: >-
+          npm run bench:compare --
+          "$BASE_SHA"
+          --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+          --report-only
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: bench-${{ matrix.shard }}
+          path: |
+            .bench/base/report.json
+            .bench/head/report.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The check to require. A skipped job would satisfy it, so this always runs:
+  # it passes when nothing relevant changed and fails when a shard did.
+  benchmarks:
+    needs: [changes, bench-shard]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check shard results
+        id: shards
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
+          SHARDS_RESULT: ${{ needs.bench-shard.result }}
+        run: |
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "changes job: $CHANGES_RESULT"
+            exit 1
+          fi
+          if [ "$BACKEND_CHANGED" != "true" ]; then
+            echo "No backend changes."
+            exit 0
+          fi
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "bench shards: $SHARDS_RESULT"
+            exit 1
+          fi
+          echo "compare=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        if: steps.shards.outputs.compare == 'true'
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: steps.shards.outputs.compare == 'true'
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '26'
+
+      - name: Download reports
+        if: steps.shards.outputs.compare == 'true'
+        uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: bench-*
+          path: .bench/shards
+
+      - name: Gather reports
+        if: steps.shards.outputs.compare == 'true'
+        run: |
+          mkdir -p .bench/all/base .bench/all/head
+          for shard in .bench/shards/bench-*; do
+            for side in base head; do
+              if [ -f "$shard/$side/report.json" ]; then
+                cp "$shard/$side/report.json" ".bench/all/$side/$(basename "$shard").json"
+              fi
+            done
+          done
+
+      # The description is passed through the environment, never interpolated
+      # into the script.
+      - name: Compare
+        id: compare
+        if: steps.shards.outputs.compare == 'true'
+        continue-on-error: true
+        env:
+          BENCH_ACCEPT_TEXT: ${{ github.event.pull_request.body }}
+        run: |
+          set +e
+          node tools/bench.mjs compare .bench/all/base .bench/all/head --markdown .bench/comparison.md
+          status=$?
+          cat .bench/comparison.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      # A fork's token cannot comment; the job summary carries the same table.
+      - name: Comment on the pull request
+        if: steps.shards.outputs.compare == 'true' && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          marker='<!-- puter-benchmarks -->'
+          { echo "$marker"; cat .bench/comparison.md; } > .bench/comment.md
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n 1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@.bench/comment.md > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -F body=@.bench/comment.md > /dev/null
+          fi
+
+      # On main there is no description to accept a trade-off in, so a push
+      # only reports.
+      - name: Fail on unaccepted regressions
+        if: steps.compare.outcome == 'failure' && github.event_name == 'pull_request'
+        run: |
+          echo "Benchmarks regressed. See the job summary, and doc/benchmarks.md for how to accept a trade-off."
+          exit 1

@@ -1,0 +1,235 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { HttpError } from '../../../../../core/http/HttpError.js';
+import type { Actor } from '../../../../../core/actor.js';
+import { withAiCreditHold } from '../../../../../util/aiCostFactor.js';
+import { loadFileInput } from '../../../../util/fileInput.js';
+import { upstreamFetch } from '../../../../util/upstreamErrors.js';
+import type {
+    ISpeechToTextDeps,
+    ISpeechToTextModel,
+    ITranscribeArgs,
+} from '../../../interfaces/speechToText/types.js';
+import { SpeechToTextProvider } from '../../../interfaces/speechToText/SpeechToTextProvider.js';
+
+/**
+ * Speech-to-text via the xAI (Grok) STT API.
+ *
+ * Uses the xAI /v1/stt REST endpoint which accepts multipart/form-data with an
+ * audio file and returns a JSON transcript with word-level timestamps.
+ *
+ * Pricing: $0.10/hr REST = 10 cents/hr = 10 * 1_000_000 / 3600 ≈ 2778
+ * microcents/second
+ */
+
+const API_BASE = 'https://api.x.ai/v1';
+const MAX_AUDIO_FILE_SIZE = 500 * 1024 * 1024; // 500 MB per xAI docs
+// Covers the upload as well as the transcription.
+const STT_TIMEOUT_MS = 10 * 60 * 1000;
+// $0.10 per hour = 10 cents per hour = 10 * 1_000_000 microcents per hour
+// Per second: 10_000_000 / 3600 ≈ 2778 microcents per second
+const UCENTS_PER_SECOND = 2778;
+
+// `xai-stt` sends no `model` and gets xAI's default; pinned ids are forwarded
+// as-is. All versions share the same per-hour rate.
+const DEFAULT_MODEL = 'xai-stt';
+const PINNED_MODELS = ['grok-voice-transcribe-2.0'];
+
+const SAMPLE_TRANSCRIPT = {
+    text: 'Hello! This is a sample transcription returned while test mode is enabled.',
+    language: 'English',
+    duration: 2.0,
+    words: [
+        { text: 'Hello!', start: 0.0, end: 0.5 },
+        { text: 'This', start: 0.6, end: 0.8 },
+        { text: 'is', start: 0.8, end: 0.9 },
+        { text: 'a', start: 0.9, end: 1.0 },
+        { text: 'sample', start: 1.0, end: 1.3 },
+        { text: 'transcription.', start: 1.3, end: 2.0 },
+    ],
+};
+
+export class XAISpeechToTextProvider extends SpeechToTextProvider {
+    readonly providerName = 'xai';
+
+    // Null when the deployment has no xAI credentials. The provider still
+    // registers so its model catalogue stays listable; transcription rejects.
+    #apiKey: string | null;
+
+    constructor(deps: ISpeechToTextDeps, config: { apiKey?: string }) {
+        super(deps);
+        this.#apiKey = config.apiKey ?? null;
+    }
+
+    override getReportedCosts(): Record<string, unknown>[] {
+        return [
+            {
+                usageType: 'xai:stt:second',
+                ucentsPerUnit: UCENTS_PER_SECOND,
+                unit: 'second',
+                source: 'driver:aiSpeech2Txt/xai',
+            },
+        ];
+    }
+
+    async listModels(): Promise<ISpeechToTextModel[]> {
+        return [
+            {
+                id: DEFAULT_MODEL,
+                name: 'xAI Speech to Text',
+                type: 'transcription',
+                response_formats: ['json'],
+                supports_prompt: false,
+                supports_logprobs: false,
+                supports_diarization: true,
+            },
+            {
+                id: 'grok-voice-transcribe-2.0',
+                name: 'Grok Voice Transcribe 2.0',
+                type: 'transcription',
+                response_formats: ['json'],
+                supports_prompt: false,
+                supports_logprobs: false,
+                supports_diarization: true,
+            },
+        ];
+    }
+
+    async transcribe(args: ITranscribeArgs) {
+        return this.#handleTranscription(args);
+    }
+
+    async translate(args: ITranscribeArgs) {
+        // xAI STT doesn't have a separate translation endpoint;
+        // delegate to transcribe which auto-detects language
+        return this.#handleTranscription(args);
+    }
+
+    #isHttpUrl(value: unknown): value is string {
+        return (
+            typeof value === 'string' &&
+            (value.startsWith('https://') || value.startsWith('http://'))
+        );
+    }
+
+    async #handleTranscription(args: ITranscribeArgs) {
+        const pinnedModel =
+            args.model && PINNED_MODELS.includes(args.model)
+                ? args.model
+                : undefined;
+
+        if (args.test_mode) {
+            return {
+                ...SAMPLE_TRANSCRIPT,
+                model: pinnedModel ?? DEFAULT_MODEL,
+            };
+        }
+
+        if (!this.#apiKey) {
+            throw new HttpError(500, 'xAI API key not configured', {
+                legacyCode: 'internal_error',
+            });
+        }
+        this.requireFile(args);
+
+        const actor = this.requireActor();
+
+        const formData = new FormData();
+        if (pinnedModel) formData.append('model', pinnedModel);
+        if (args.language) formData.append('language', args.language);
+        if (args.format !== undefined)
+            formData.append('format', String(args.format));
+        if (args.diarize) formData.append('diarize', 'true');
+        if (args.multichannel) formData.append('multichannel', 'true');
+        if (args.channels) formData.append('channels', String(args.channels));
+        if (args.audio_format)
+            formData.append('audio_format', args.audio_format);
+        if (args.sample_rate)
+            formData.append('sample_rate', String(args.sample_rate));
+
+        // A URL goes to xAI as-is and is downloaded there; its duration can't
+        // be known upfront, so the hold covers a conservative 60 seconds.
+        // Actual usage is metered from the duration xAI reports.
+        let estimatedSeconds = 60;
+        if (this.#isHttpUrl(args.file)) {
+            formData.append('url', args.file);
+        } else {
+            // The file must be the last field, per xAI's docs.
+            const { blob, filename } = await this.#loadAudio(args.file, actor);
+            estimatedSeconds = Math.max(1, Math.ceil(blob.size / 16000));
+            formData.append('file', blob, filename);
+        }
+
+        const metering = this.deps.metering;
+        return withAiCreditHold(
+            metering,
+            actor,
+            'xai:stt:second',
+            UCENTS_PER_SECOND * estimatedSeconds,
+            async () => {
+                const response = await upstreamFetch(
+                    'xai',
+                    `${API_BASE}/stt`,
+                    {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${this.#apiKey}` },
+                        body: formData,
+                    },
+                    { providerLabel: 'xAI STT', timeoutMs: STT_TIMEOUT_MS },
+                );
+                const result = await response.json();
+                const actualSeconds =
+                    typeof result.duration === 'number'
+                        ? Math.ceil(result.duration)
+                        : estimatedSeconds;
+                metering.incrementUsage(
+                    actor,
+                    'xai:stt:second',
+                    actualSeconds,
+                    UCENTS_PER_SECOND * actualSeconds,
+                );
+                return result;
+            },
+        );
+    }
+
+    /**
+     * The audio as the Blob the upload sends. The loaded buffer stays local, so
+     * only the Blob's copy is held for the upload.
+     */
+    async #loadAudio(
+        file: unknown,
+        actor: Actor,
+    ): Promise<{ blob: Blob; filename: string }> {
+        const loaded = await loadFileInput(
+            this.deps.stores,
+            this.deps.fs,
+            actor,
+            file,
+            { maxBytes: MAX_AUDIO_FILE_SIZE },
+        );
+        return {
+            blob: new Blob([loaded.buffer as BlobPart], {
+                type: loaded.mimeType || 'audio/mpeg',
+            }),
+            filename: loaded.filename || 'audio.mp3',
+        };
+    }
+}

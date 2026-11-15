@@ -24,6 +24,7 @@ import UIAuthLogin from './Auth/UIAuthLogin.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
+import { setFolderView } from '../helpers/folderViewPrefs.js';
 import { atPath } from '../helpers/pathElements.js';
 import { resolve_typed_path } from '../helpers/expandHomePath.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
@@ -3089,9 +3090,6 @@ window.update_window_path = async function (el_window, target_path) {
             $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
             $(el_window).addClass(`window-${ fsentry.id}`);
             $(el_window).attr('data-uid', fsentry.id);
-            $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
-            $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
-            $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
             $(el_window_item_container).attr('data-uid', fsentry.id);
             // title - use i18n for system directories
             if ( target_path === window.home_path )
@@ -3132,12 +3130,7 @@ window.update_window_path = async function (el_window, target_path) {
             $(el_window).attr('data-path', target_path);
             $(el_window_navbar_path_input).val(target_path);
             $(el_window_navbar_path_input).attr('data-path', target_path);
-            // update layout
-            window.update_window_layout(el_window, fsentry.layout);
-            // update explore header if in details view
-            if ( fsentry.layout === 'details' ) {
-                window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
-            }
+            // The folder's sort and layout are applied by refresh_item_container below.
         }).catch(() => {
             if ( $(el_window).attr('data-path') !== target_path ) {
                 return;
@@ -3489,27 +3482,7 @@ window.set_sort_by = function (item_uid, sort_by, sort_order) {
         sort_order = 'asc';
     }
 
-    $.ajax({
-        url: `${window.api_origin }/set_sort_by`,
-        type: 'POST',
-        data: JSON.stringify({
-            sort_by: sort_by,
-            item_uid: item_uid,
-            sort_order: sort_order,
-        }),
-        async: true,
-        contentType: 'application/json',
-        headers: {
-            'Authorization': `Bearer ${window.auth_token}`,
-        },
-        statusCode: {
-            401: function (xhr) {
-                        window.handle401(xhr);
-                    },
-        },
-        success: function () {
-        },
-    });
+    setFolderView(item_uid, { sort_by, sort_order });
     // update the sort_by & sort_order attr of every matching element
     $(`[data-uid="${item_uid}"]`).attr({
         'data-sort_by': sort_by,
@@ -4987,34 +4960,15 @@ $(document).on('click', '.explore-table-headers-th', function (e) {
 });
 
 window.set_layout = function (item_uid, layout) {
-    $.ajax({
-        url: `${window.api_origin }/set_layout`,
-        type: 'POST',
-        data: JSON.stringify({
-            item_uid: item_uid,
-            layout: layout,
-        }),
-        async: true,
-        contentType: 'application/json',
-        headers: {
-            'Authorization': `Bearer ${window.auth_token}`,
-        },
-        statusCode: {
-            401: function (xhr) {
-                        window.handle401(xhr);
-                    },
-        },
-        success: function () {
-            if ( layout === 'details' ) {
-                let el_window = $(`.window[data-uid="${item_uid}"]`);
-                if ( el_window.length > 0 ) {
-                    let sort_by = el_window.attr('data-sort_by');
-                    let sort_order = el_window.attr('data-sort_order');
-                    window.update_details_layout_sort_visuals(el_window, sort_by, sort_order);
-                }
-            }
-        },
-    });
+    setFolderView(item_uid, { layout });
+    if ( layout === 'details' ) {
+        let el_window = $(`.window[data-uid="${item_uid}"]`);
+        if ( el_window.length > 0 ) {
+            let sort_by = el_window.attr('data-sort_by');
+            let sort_order = el_window.attr('data-sort_order');
+            window.update_details_layout_sort_visuals(el_window, sort_by, sort_order);
+        }
+    }
 };
 
 window.update_details_layout_sort_visuals = function (el_window, sort_by, sort_order) {

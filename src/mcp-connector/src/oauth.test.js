@@ -66,6 +66,7 @@ describe('mcp oauth bridge', () => {
 
         // What authme does once the user approves.
         const callbackUrl = new URL(authme.searchParams.get('redirectURL'));
+        expect(callbackUrl.searchParams.get('forwards_to')).toBe('client.example');
         callbackUrl.searchParams.set('token', 'puter-token');
         const callback = await call('GET', `${callbackUrl.pathname}${callbackUrl.search}`);
         expect(callback.status).toBe(302);
@@ -82,6 +83,39 @@ describe('mcp oauth bridge', () => {
             }),
         });
         expect((await tokenRes.json()).access_token).toBe('puter-token');
+    });
+
+    it('completes only a flow that still names the host it delivers to', async () => {
+        const redirectUri = 'http://127.0.0.1:33418/callback';
+        const { body: client } = await registerClient([redirectUri]);
+        const res = await authorize({ client_id: client.client_id, redirect_uri: redirectUri });
+        const approved = new URL(new URL(res.headers.get('Location')).searchParams.get('redirectURL'));
+        // A loopback client is named with its port.
+        expect(approved.searchParams.get('forwards_to')).toBe('127.0.0.1:33418');
+        approved.searchParams.set('token', 'puter-token');
+
+        const deliver = (edit) => {
+            const url = new URL(approved);
+            edit(url.searchParams);
+            return call('GET', `${url.pathname}${url.search}`);
+        };
+
+        for (const edit of [
+            (p) => p.set('forwards_to', 'client.example'),
+            (p) => p.delete('forwards_to'),
+            // The dialog reads the first value, so the first one is what counts.
+            (p) => {
+                p.delete('forwards_to');
+                p.append('forwards_to', 'client.example');
+                p.append('forwards_to', '127.0.0.1:33418');
+            },
+        ]) {
+            const refused = await deliver(edit);
+            expect(refused.status).toBe(400);
+            expect(refused.headers.get('Location')).toBeNull();
+        }
+
+        expect((await deliver(() => {})).status).toBe(302);
     });
 
     it('refuses a redirect_uri the client did not register', async () => {

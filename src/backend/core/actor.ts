@@ -76,8 +76,14 @@ export interface Actor {
     /**
      * Set when authenticated by a session token or an app-under-user token
      * carrying one. `kind` mirrors the session row (`web`, `app`, `worker`).
+     * `parentUid` is the sign-in a `web` session was handed out under, set only
+     * on a first-party page's session.
      */
-    session?: { uid: string; kind?: string | null } | null;
+    session?: {
+        uid: string;
+        kind?: string | null;
+        parentUid?: string | null;
+    } | null;
     /**
      * Events handler runs behind this actor's writes; set only from an events
      * handler token or a token one minted. Provenance, not authority, so

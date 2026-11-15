@@ -72,6 +72,7 @@ import create_gui_token from './helpers/createGuiToken.js';
 import {
     authmeRequestUrl,
     authmeReturnUrl,
+    forwardedDestination,
     fullTokenAllowed,
     isDeliverableRedirect,
     shouldUseRemoteAuthme,
@@ -88,6 +89,7 @@ import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
+import { signInTokenForOpener } from './helpers/firstPartySession.js';
 import { readSignupBonusCode } from './helpers/signupBonusCode.js';
 import { guiTokenBootStep, pageRenderedForThisLoad, sameTokenClaims } from './helpers/guiToken.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
@@ -227,9 +229,17 @@ const postAuthActions = async (action) => {
             );
         }
         if ( redirectURL ) {
+            // The configured domain, not the host this page was reached on:
+            // an alias of the GUI is still the same deployment.
+            const forwards_to = forwardedDestination(
+                redirectURL,
+                window.gui_params?.domain || window.app_domain,
+                window.hosting_domain,
+            );
             const approved = await UIWindowAuthMe({
                 redirect_url: redirectURL,
                 full_token: wants_full_token,
+                forwards_to,
             });
             if ( approved ) {
                 // Default: a named, revocable full-API-access token rather
@@ -243,13 +253,20 @@ const postAuthActions = async (action) => {
                 // get a session — the password is still only ever typed here.
                 let host = '';
                 try { host = new URL(redirectURL).host; } catch ( e ) { /* ignore */ }
+                // Destination first: the label is cut to a fixed length.
+                const named = forwards_to && host
+                    ? i18n('token_label_forwarded', {
+                        destination: forwards_to,
+                        relay: host,
+                    })
+                    : host;
                 let token;
                 try {
                     token = wants_full_token
                         ? await create_gui_token()
                         : await create_access_token({
-                            label: host
-                                ? `${i18n('token_label_external_app')} (${host})`
+                            label: named
+                                ? `${i18n('token_label_external_app')} (${named})`
                                 : i18n('token_label_external_app'),
                         });
                 } catch ( e ) {
@@ -529,7 +546,7 @@ const postAuthActions = async (action) => {
                     window.opener?.postMessage({
                         msg: 'puter.token',
                         success: true,
-                        token: data.token,
+                        token: await signInTokenForOpener(origin, data.token),
                         app_uid: data.app_uid,
                         username: window.user.username,
                         msg_id: msg_id,
@@ -1088,12 +1105,17 @@ const postAuthActions = async (action) => {
 
     // -------------------------------------------------------------------------------------
     // Action: top-up — the deployment's top-up dialog for the first-party page framing it,
-    // which hears whether the user bought credit once the dialog closes.
+    // which hears whether the user bought credit once the dialog closes. The app it credits
+    // is the one the framing page's origin resolves to.
     // -------------------------------------------------------------------------------------
     if ( action === 'top-up' && window.embedded_in_frame ) {
         let toppedUp;
         try {
-            toppedUp = await showFramedTopUp(window, window.tell_popup_frame);
+            toppedUp = await showFramedTopUp(
+                window,
+                window.host_app_uid ? { appUid: window.host_app_uid } : {},
+                window.tell_popup_frame,
+            );
         } catch (e) {
             // A dialog that failed to open leaves the page to open the top-up in a tab.
             console.error('top-up action failed', e);
@@ -2861,7 +2883,10 @@ window.initgui = async function (options) {
                                                     msg: 'puter.token',
                                                     success: true,
                                                     msg_id: msg_id,
-                                                    token: data.token,
+                                                    token: await signInTokenForOpener(
+                                                        window.openerOrigin,
+                                                        data.token,
+                                                    ),
                                                     username: window.user.username,
                                                     app_uid: data.app_uid,
                                                 },
@@ -2948,7 +2973,10 @@ window.initgui = async function (options) {
                                                     msg: 'puter.token',
                                                     success: true,
                                                     msg_id: msg_id,
-                                                    token: data.token,
+                                                    token: await signInTokenForOpener(
+                                                        window.openerOrigin,
+                                                        data.token,
+                                                    ),
                                                     username: window.user.username,
                                                     app_uid: data.app_uid,
                                                 },

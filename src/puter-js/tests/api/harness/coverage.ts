@@ -1,17 +1,17 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 /**
  * SDK coverage collection for the API suites. Enabled by `PUTER_COVERAGE=1`
  * (the `test:puterjs:coverage` script), which expects the instrumented SDK
- * bundle (`npm run build:coverage` in src/puter-js) — every first-party
- * module then accumulates istanbul counters on `globalThis.__coverage__`
- * in whatever runtime executes it.
+ * bundle (`npm run build:coverage` in src/puter-js) — every first-party module
+ * then accumulates istanbul counters on `globalThis.__coverage__` in whatever
+ * runtime executes it.
  *
- * Each runner collects the counters from its runtime (vm contexts, the
- * browser page, workerd responses) and writes one merged shard per
- * platform; `tools/puterjsCoverageReport.mjs` merges the shards into the
- * final reports in src/puter-js/coverage.
+ * Each runner collects the counters from its runtime (vm contexts, the browser
+ * page, workerd responses) and writes one merged shard per platform;
+ * `tools/puterjsCoverageReport.mjs` merges the shards into the final reports in
+ * src/puter-js/coverage.
  *
  * Node-side only: imported by the runners, never bundled into suites.
  */
@@ -21,17 +21,16 @@ export type IstanbulCoverage = Record<string, unknown>;
 export const coverageEnabled = (): boolean =>
     Boolean(process.env.PUTER_COVERAGE);
 
-const SHARD_DIR = fileURLToPath(
-    new URL('../../../coverage/shards/', import.meta.url),
-);
+// Not derived from `import.meta.url`, which isn't a file URL under jsdom.
+const SHARD_DIR = path.resolve(import.meta.dirname, '../../../coverage/shards');
 
 /** Merge per-runtime coverage objects and write this platform's shard. */
 export const writeCoverageShard = async (
     platform: string,
     coverages: Array<IstanbulCoverage | null | undefined>,
 ): Promise<void> => {
-    const present = coverages.filter(
-        (c): c is IstanbulCoverage => Boolean(c && Object.keys(c).length > 0),
+    const present = coverages.filter((c): c is IstanbulCoverage =>
+        Boolean(c && Object.keys(c).length > 0),
     );
     if (present.length === 0) {
         throw new Error(
@@ -46,7 +45,7 @@ export const writeCoverageShard = async (
     }
     mkdirSync(SHARD_DIR, { recursive: true });
     writeFileSync(
-        `${SHARD_DIR}coverage-${platform}.json`,
+        path.join(SHARD_DIR, `coverage-${platform}.json`),
         JSON.stringify(map.toJSON()),
     );
 };

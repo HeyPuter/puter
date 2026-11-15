@@ -20,13 +20,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it } from 'vitest';
 
-import { ChatCompletionDriver } from './ai-chat/ChatCompletionDriver.js';
-import { ImageGenerationDriver } from './ai-image/ImageGenerationDriver.js';
-import { OCRDriver } from './ai-ocr/OCRDriver.js';
-import { VoiceChangerDriver } from './ai-speech2speech/VoiceChangerDriver.js';
-import { SpeechToTextDriver } from './ai-speech2txt/SpeechToTextDriver.js';
-import { TTSDriver } from './ai-tts/TTSDriver.js';
-import { VideoGenerationDriver } from './ai-video/VideoGenerationDriver.js';
+import { ChatCompletionDriver } from './ai/interfaces/chat/ChatCompletionDriver.js';
+import { ImageGenerationDriver } from './ai/interfaces/image/ImageGenerationDriver.js';
+import { OCRDriver } from './ai/interfaces/ocr/OCRDriver.js';
+import { VoiceChangerDriver } from './ai/interfaces/speechToSpeech/VoiceChangerDriver.js';
+import { SpeechToTextDriver } from './ai/interfaces/speechToText/SpeechToTextDriver.js';
+import { TTSDriver } from './ai/interfaces/textToSpeech/TTSDriver.js';
+import { VideoGenerationDriver } from './ai/interfaces/video/VideoGenerationDriver.js';
 import { AppDriver } from './apps/AppDriver.js';
 import { KVStoreDriver } from './kv/KVStoreDriver.js';
 import { NotificationDriver } from './notification/NotificationDriver.js';
@@ -39,7 +39,7 @@ import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../services/metering/consts.js';
-import { AI_CONCURRENT, AI_RATE_LIMIT } from './util/aiLimits.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from './ai/shared/aiLimits.js';
 
 // Regression guards on each driver class's declared rate-limit /
 // concurrency policy. The `readonly rateLimit = ...` field is a class

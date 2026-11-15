@@ -32,11 +32,13 @@ export const upgradeUrl = ({ reason, appID, method } = {}) => {
  * The dashboard page that opens the top-up flow, for buying add-on credit.
  *
  * @param {string} [guiOrigin] The deployment whose dashboard it is; Puter's by default.
+ * @param {string} [appID] The app whose page asked for the top-up.
  * @returns {string}
  */
-export const topUpUrl = (guiOrigin) => {
+export const topUpUrl = (guiOrigin, appID) => {
     const url = new URL('/dashboard/', guiOrigin || UPGRADE_PAGE);
     url.searchParams.set('topup', '');
+    if ( appID ) url.searchParams.set('topup_app', appID);
     url.hash = 'usage';
     return url.href;
 };

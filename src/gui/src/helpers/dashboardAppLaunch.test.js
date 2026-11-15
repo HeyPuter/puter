@@ -31,7 +31,7 @@ globalThis.i18n = key => key;
 
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
-const { openAppInNewTab } = await import('./dashboardAppLaunch.js');
+const { openAppInNewTab, openDesktopInNewTab } = await import('./dashboardAppLaunch.js');
 
 describe('openAppInNewTab', () => {
     let opened;
@@ -90,5 +90,91 @@ describe('openAppInNewTab', () => {
         launch_app.mockRejectedValueOnce(new Error('offline'));
         await openAppInNewTab('notes');
         expect(UIAlert).toHaveBeenCalledWith('something_went_wrong');
+    });
+});
+
+describe('openDesktopInNewTab', () => {
+    const DESKTOP = 'https://desktop.puter.com';
+    let tab;
+
+    const answerTokenRequest = (status, body) => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({
+            ok: status === 200,
+            status,
+            json: async () => body,
+        })));
+    };
+
+    /** Asks for the launch as the desktop's SDK would, from `source` at `origin`. */
+    const requestLaunch = (appInstanceID, { source = tab, origin = DESKTOP } = {}) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            origin,
+            source,
+            data: { msg: 'puter.requestLaunch', appInstanceID },
+        }));
+    };
+
+    beforeEach(() => {
+        tab = { closed: false, location: { href: '' }, postMessage: vi.fn() };
+        vi.spyOn(window, 'open').mockImplementation(() => tab);
+        window.api_origin = 'https://api.puter.test';
+        window.auth_token = 'session-token';
+        window.app_domain = 'puter.site';
+        window.locale = 'en';
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+    });
+
+    it('sends the tab to the desktop with the launch params and hands its token over on request', async () => {
+        answerTokenRequest(200, { token: 'app-token', app_uid: 'app-desktop' });
+        await openDesktopInNewTab();
+
+        expect(window.open).toHaveBeenCalledWith('', '_blank');
+        const [endpoint, request] = fetch.mock.calls[0];
+        expect(endpoint).toBe('https://api.puter.test/auth/get-user-app-token');
+        expect(JSON.parse(request.body)).toEqual({ origin: DESKTOP });
+
+        const url = new URL(tab.location.href);
+        expect(url.origin).toBe(DESKTOP);
+        expect(url.searchParams.get('puter.app.id')).toBe('app-desktop');
+        expect(url.searchParams.get('puter.api_origin')).toBe('https://api.puter.test');
+        expect(url.searchParams.get('puter.origin')).toBe(window.location.origin);
+        expect(url.searchParams.get('utm_campaign')).toBe('dashboard');
+        expect(url.href).not.toContain('app-token');
+
+        const appInstanceID = url.searchParams.get('puter.app_instance_id');
+        requestLaunch(appInstanceID, { origin: 'https://evil.example' });
+        requestLaunch(appInstanceID, { source: {} });
+        expect(tab.postMessage).not.toHaveBeenCalled();
+
+        requestLaunch(appInstanceID);
+        expect(tab.postMessage).toHaveBeenCalledWith(
+            { msg: 'puter.launch', appInstanceID, token: 'app-token', item: null },
+            DESKTOP,
+        );
+    });
+
+    it('opens the desktop without launch params when no token came back', async () => {
+        answerTokenRequest(500, null);
+        await openDesktopInNewTab();
+        expect(tab.location.href).toBe(`${DESKTOP}/`);
+    });
+
+    it('leaves a tab the user closed alone', async () => {
+        answerTokenRequest(200, { token: 'app-token', app_uid: 'app-desktop' });
+        const launch = openDesktopInNewTab();
+        tab.closed = true;
+        await launch;
+        expect(tab.location.href).toBe('');
+    });
+
+    it('returns null when the browser refuses the tab', () => {
+        window.open.mockReturnValue(null);
+        vi.stubGlobal('fetch', vi.fn());
+        expect(openDesktopInNewTab()).toBeNull();
+        expect(fetch).not.toHaveBeenCalled();
     });
 });

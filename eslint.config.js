@@ -50,6 +50,7 @@ const tsIgnores = [
     '**/*.test.mts',
     '**/*.spec.ts',
     '**/*.spec.mts',
+    '**/*.bench.ts',
     'src/backend/test/**',
     'src/backend/tools/**',
     'src/backend/vitest.config.ts',

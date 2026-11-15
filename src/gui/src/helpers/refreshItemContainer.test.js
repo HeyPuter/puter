@@ -229,3 +229,57 @@ describe('refresh_item_container after the window moves to another folder', () =
         expect(renderedPaths()).toEqual(['/alice/Documents/a.txt']);
     });
 });
+
+describe('refresh_item_container and the folder\'s stored view', () => {
+    let views;
+
+    beforeEach(() => {
+        views = {};
+        puter.kv = {
+            get: vi.fn((key) => {
+                views[key] ??= deferred();
+                return views[key].promise;
+            }),
+        };
+        puter.fs.stat.mockImplementation(async ({ path }) => ({ id: path.slice(1), name: path.slice(1) }));
+        puter.fs.readdir.mockResolvedValue([]);
+        vi.spyOn(window, 'sort_items');
+        vi.spyOn(window, 'update_window_layout');
+        document.body.innerHTML =
+            '<div class="window"><div class="item-container" data-sort_by="name" data-sort_order="asc"></div></div>';
+    });
+
+    afterEach(() => {
+        delete puter.kv;
+    });
+
+    it('lays out and re-sorts the folder by what is stored for it', async () => {
+        navigate('/docs');
+        await vi.waitFor(() => expect(views['folder_view:docs']).toBeDefined());
+        views['folder_view:docs'].resolve({ sort_by: 'size', sort_order: 'desc', layout: 'details' });
+
+        await vi.waitFor(() => expect(window.sort_items).toHaveBeenCalledWith(
+            expect.anything(), 'size', 'desc',
+        ));
+        expect($('.item-container').attr('data-sort_by')).toBe('size');
+        expect($('.window').attr('data-sort_order')).toBe('desc');
+        expect(window.update_window_layout).toHaveBeenCalledWith(expect.anything(), 'details');
+    });
+
+    it('ignores the view of a folder the window has left', async () => {
+        navigate('/docs');
+        await vi.waitFor(() => expect(views['folder_view:docs']).toBeDefined());
+        navigate('/pics');
+        await vi.waitFor(() => expect(views['folder_view:pics']).toBeDefined());
+
+        views['folder_view:pics'].resolve(null);
+        views['folder_view:docs'].resolve({ sort_by: 'size', layout: 'list' });
+        await vi.waitFor(() => expect(window.update_window_layout).toHaveBeenCalledOnce());
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(window.update_window_layout).toHaveBeenCalledWith(expect.anything(), 'icons');
+        expect(window.update_window_layout).not.toHaveBeenCalledWith(expect.anything(), 'list');
+        expect($('.item-container').attr('data-sort_by')).toBe('name');
+        expect(window.sort_items).not.toHaveBeenCalledWith(expect.anything(), 'size', expect.anything());
+    });
+});

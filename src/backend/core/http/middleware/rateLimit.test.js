@@ -29,6 +29,7 @@ import {
     vi,
 } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { Context, runWithContext } from '../../context.js';
 import { isHttpError } from '../HttpError.js';
 import { setupTestServer } from '../../../testUtil.ts';
 import {
@@ -975,6 +976,27 @@ describe('concurrencyGate — memory backend', () => {
         // would be admitted too. Confirm it isn't.
         const third = await runGate(opts, baseReq());
         expect(isHttpError(third.err)).toBe(true);
+    });
+
+    it('holds the slot past the response for work the handler keeps', async () => {
+        const opts = { limit: 1, key: 'ip', scope: 'cg-kept-work' };
+        let finishWork;
+        const work = new Promise((resolve) => {
+            finishWork = resolve;
+        });
+        const res = makeRes();
+        await runWithContext({}, async () => {
+            await concurrencyGate(opts)(baseReq(), res, () => {
+                Context.get('keepConcurrencySlot')(work);
+            });
+        });
+        res.emit('close');
+        await new Promise((r) => setImmediate(r));
+        expect((await runGate(opts, baseReq())).err?.statusCode).toBe(429);
+
+        finishWork();
+        await new Promise((r) => setImmediate(r));
+        expect((await runGate(opts, baseReq())).err).toBeUndefined();
     });
 
     it('different keys do not share slots', async () => {
