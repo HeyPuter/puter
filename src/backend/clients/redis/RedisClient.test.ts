@@ -245,6 +245,7 @@ describe('RedisClient — command timeout', () => {
         client = null;
         await silent?.close();
         silent = null;
+        vi.restoreAllMocks();
     });
 
     const connect = async (clusterReady: boolean) => {

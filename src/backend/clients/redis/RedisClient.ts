@@ -67,7 +67,11 @@ const attachClusterEventHandlers = (clusterClient: Cluster): void => {
     });
 };
 
-// Not redisOptions.commandTimeout: that misses the cluster's offline queue.
+/** True for the rejection of a command that got no reply within the timeout. */
+export const isCommandTimeout = (error: unknown): boolean =>
+    error instanceof Error && error.message === 'Command timed out';
+
+// A timed-out command is not withdrawn: queued or sent, it may still run.
 class TimedCluster extends Redis.Cluster {
     commandTimeoutMs = 0;
 
@@ -77,6 +81,7 @@ class TimedCluster extends Redis.Cluster {
             this.commandTimeoutMs > 0 &&
             !Command.checkFlag('BLOCKING_COMMANDS', command.name)
         ) {
+            // Not redisOptions.commandTimeout: that misses the cluster's queue.
             command.setTimeout(this.commandTimeoutMs);
         }
         return super.sendCommand(...args);
