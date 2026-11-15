@@ -937,6 +937,8 @@ export class PermissionService extends PuterService {
             const issuer = issuer_user_id
                 ? await this.stores.user.getById(issuer_user_id)
                 : null;
+            // A deleted issuer's entry may outlive it briefly; it grants nothing.
+            if (issuer_user_id && !issuer) continue;
             return [
                 {
                     $: 'option',

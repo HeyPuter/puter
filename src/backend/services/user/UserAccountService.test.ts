@@ -456,6 +456,52 @@ describe('UserAccountService', () => {
             ).toBe(false);
         });
 
+        it('refuses a holder whose issuer is gone though the flat entry stayed', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await holdOwn(issuer.id, permission);
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+
+            // The purge fails, so the entry outlives its issuer.
+            const purge = vi
+                .spyOn(server.stores.permission, 'delFlatUserPerms')
+                .mockRejectedValue(new Error('kv down'));
+            try {
+                await server.services.userAccount.cascadeDelete(issuer.id);
+            } finally {
+                purge.mockRestore();
+            }
+            expect(
+                (
+                    await server.stores.permission.getFlatUserPerms(holder.id, [
+                        permission,
+                    ])
+                )[0]?.permission,
+            ).toBe(permission);
+
+            expect(
+                await server.services.permission.check(
+                    await actorOf(holder.id),
+                    permission,
+                ),
+            ).toBe(false);
+        });
+
         it('clears the flat entries for grants the account issued', async () => {
             const issuer = await seedUser();
             const holder = await seedUser();
