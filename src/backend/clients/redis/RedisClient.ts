@@ -17,13 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import Redis, { Cluster } from 'ioredis';
+import Redis, { Cluster, Command } from 'ioredis';
 import MockRedis from 'ioredis-mock';
 import type { IConfig, WithLifecycle } from '../../types';
 
 const redisStartupRetryMaxDelayMs = 2000;
 const redisSlotsRefreshTimeoutMs = 5000;
 const redisConnectTimeoutMs = 10000;
+const defaultCommandTimeoutMs = 2000;
 const redisBootRetryRegex =
     /Cluster(All)?FailedError|None of startup nodes is available/i;
 
@@ -66,6 +67,22 @@ const attachClusterEventHandlers = (clusterClient: Cluster): void => {
     });
 };
 
+// Not redisOptions.commandTimeout: that misses the cluster's offline queue.
+class TimedCluster extends Redis.Cluster {
+    commandTimeoutMs = 0;
+
+    override sendCommand(...args: Parameters<Cluster['sendCommand']>) {
+        const [command] = args;
+        if (
+            this.commandTimeoutMs > 0 &&
+            !Command.checkFlag('BLOCKING_COMMANDS', command.name)
+        ) {
+            command.setTimeout(this.commandTimeoutMs);
+        }
+        return super.sendCommand(...args);
+    }
+}
+
 const buildCluster = (config: IConfig): Cluster => {
     const redisConfig = config.redis ?? {};
     const startupNodes = redisConfig.startupNodes ?? [];
@@ -83,7 +100,7 @@ const buildCluster = (config: IConfig): Cluster => {
     // `redis.tls: false` to opt out.
     const tlsEnabled = redisConfig.tls !== false;
 
-    const cluster = new Redis.Cluster(
+    const cluster = new TimedCluster(
         startupNodes as ConstructorParameters<typeof Redis.Cluster>[0],
         {
             dnsLookup: (address, callback) => callback(null, address),
@@ -101,6 +118,8 @@ const buildCluster = (config: IConfig): Cluster => {
             },
         },
     );
+    cluster.commandTimeoutMs =
+        redisConfig.commandTimeoutMs ?? defaultCommandTimeoutMs;
     attachClusterEventHandlers(cluster);
     console.log('connecting to redis from config');
     return cluster;
