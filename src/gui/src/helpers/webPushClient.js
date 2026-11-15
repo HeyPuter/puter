@@ -19,18 +19,11 @@
 
 // Puter's own push client: standard Web Push through `/sw.js` via `puter.notifications`, used when the server publishes `pushWebPushKey`.
 
-import {
-    HANDLERS_STORE,
-    RECEIPT_PREFIX,
-    SUBSCRIPTION_CHANGED_MESSAGE,
-    SUBSCRIPTION_CHANGED_PREFIX,
-    idbDelete,
-    idbGet,
-} from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
+import { SUBSCRIPTION_CHANGED_MESSAGE } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import { forgetPushApps, webPushEndpointState } from './notificationApi.js';
 
-/** The endpoint the server last confirmed here for each user, in `localStorage`. */
-export const LAST_ENDPOINT_PREFIX = 'puter.push.last-endpoint:';
+/** Where earlier builds kept the endpoint the server last confirmed, per user. */
+export const LEGACY_LAST_ENDPOINT_PREFIX = 'puter.push.last-endpoint:';
 
 const removedError = () => Object.assign(new Error('this browser was removed from push in Puter'), { code: 'push_device_removed' });
 const busyError = () => Object.assign(new Error('Puter asked to wait before registering this browser'), { code: 'too_many_requests' });
@@ -45,7 +38,6 @@ export const webPushClient = ({
     NotificationApi = globalThis.Notification,
     nav = globalThis.navigator,
     userUid = () => globalThis.user?.uuid,
-    idb = globalThis.indexedDB,
     endpointState = webPushEndpointState,
     storage = globalThis.localStorage,
     now = Date.now,
@@ -79,56 +71,33 @@ export const webPushClient = ({
         return devices.find((d) => d.current && d.platform === 'webpush') ?? null;
     };
     const registration = async () => await nav.serviceWorker?.getRegistration('/');
-    /** The worker's mark for a replaced subscription, else null. */
-    const marker = async (scope) => {
+    const legacyKey = (user) => LEGACY_LAST_ENDPOINT_PREFIX + user;
+    // A puter.js from before these reads keeps nothing for the desktop.
+    const pushRecord = async () => (await notifications._webPushRecord?.()) ?? { endpoint: null, changed: null };
+    const record = async () => {
+        const known = await pushRecord();
+        if ( known.endpoint ) return known;
         try {
-            return (await idbGet(HANDLERS_STORE, SUBSCRIPTION_CHANGED_PREFIX + scope, idb)) ?? null;
+            return { ...known, endpoint: storage.getItem(legacyKey(userUid())) };
         } catch ( e ) {
-            return null;
+            return known;
         }
     };
-    const rememberEndpoint = (endpoint) => {
-        const user = userUid();
-        if ( ! user ) return;
+    const forgetLegacy = (user) => {
+        if ( ! notifications._webPushRecord ) return;
         try {
-            storage.setItem(LAST_ENDPOINT_PREFIX + user, endpoint);
+            storage.removeItem(legacyKey(user));
         } catch ( e ) {
-            // Only the removed-elsewhere check below reads it.
-        }
-    };
-    const lastEndpoint = () => {
-        try {
-            return storage.getItem(LAST_ENDPOINT_PREFIX + userUid());
-        } catch ( e ) {
-            return null;
-        }
-    };
-    const clearChanged = async () => {
-        try {
-            const scope = (await registration())?.scope;
-            if ( scope ) await idbDelete(HANDLERS_STORE, SUBSCRIPTION_CHANGED_PREFIX + scope, idb);
-        } catch ( e ) {
-            // The next load registers again.
+            // Read only while puter.js has no record of its own.
         }
     };
     /** `'removed'` when the user removed any earlier endpoint of this browser, ending the subscription here; `'busy'` on a 429. */
     const removedElsewhere = async () => {
-        const worker = await registration();
-        const mark = worker?.scope ? await marker(worker.scope) : null;
-        const earlier = [...new Set([mark?.oldEndpoint, lastEndpoint()].filter((e) => typeof e === 'string' && e))];
-        const states = await Promise.all(earlier.map((endpoint) => endpointState(endpoint)));
+        const { endpoint, changed } = await record();
+        const earlier = [...new Set([changed?.oldEndpoint, endpoint].filter((e) => typeof e === 'string' && e))];
+        const states = await Promise.all(earlier.map((e) => endpointState(e)));
         if ( ! states.includes('removed') ) return states.includes('busy') ? 'busy' : null;
-        try {
-            await (await worker?.pushManager?.getSubscription())?.unsubscribe();
-        } catch ( e ) {
-            // The next background run asks again.
-        }
-        try {
-            if ( worker?.scope ) await idbDelete(HANDLERS_STORE, RECEIPT_PREFIX + worker.scope, idb);
-        } catch ( e ) {
-            // A receipt is only sent for its own endpoint.
-        }
-        await clearChanged();
+        await notifications._dropRemovedWebPush?.();
         return 'removed';
     };
     return {
@@ -153,10 +122,9 @@ export const webPushClient = ({
                 const user = userUid();
                 const device = await currentDevice();
                 if ( ! device ) throw new Error('this browser was not registered');
-                await clearChanged();
                 const subscription = await (await registration())?.pushManager?.getSubscription();
                 if ( subscription?.endpoint && user === userUid() ) {
-                    rememberEndpoint(subscription.endpoint);
+                    if ( user ) forgetLegacy(user);
                     if ( reading === generation && user ) {
                         lastOn = { userUid: user, endpoint: subscription.endpoint, deviceUid: device.uid, at: now(), enabled: true };
                     }
@@ -185,8 +153,9 @@ export const webPushClient = ({
                 forgetOn();
                 return { permission, registered: false };
             }
+            const known = await pushRecord();
             // A subscription the browser replaced is registered again in full.
-            if ( await marker(worker.scope) != null ) {
+            if ( known.changed != null ) {
                 forgetOn();
                 return { permission, registered: false };
             }
@@ -202,7 +171,10 @@ export const webPushClient = ({
             // The server's answer can trail what `enable()` just registered in this page.
             const trailing = state === 'unknown' && kept && lastOn?.enabled === true;
             const registered = !! device && (state === 'active' || state === null || state === 'busy' || trailing);
-            if ( registered && state === 'active' && user === userUid() ) rememberEndpoint(subscription.endpoint);
+            if ( registered && state === 'active' && user && user === userUid() ) {
+                if ( known.endpoint !== subscription.endpoint ) await notifications._noteWebPushSynced?.(subscription.endpoint);
+                forgetLegacy(user);
+            }
             if ( reading === generation && ! trailing ) {
                 // Only an `on` the server confirmed for this endpoint and user is kept.
                 lastOn = registered && state === 'active' && user && user === userUid()

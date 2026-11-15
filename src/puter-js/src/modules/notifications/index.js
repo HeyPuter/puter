@@ -885,7 +885,11 @@ export class NotificationsModule extends EventListener {
 
     /** Remembers the subscription the server confirmed, for the next loads. */
     async #noteSynced(worker, endpoint) {
-        if (this.puter.env !== 'web') return;
+        await this.#recordSynced(endpoint);
+        await this.#clearChanged(worker);
+    }
+
+    async #recordSynced(endpoint) {
         try {
             const uuid = await this.#userUuid();
             if (uuid) {
@@ -894,6 +898,13 @@ export class NotificationsModule extends EventListener {
                     at: Date.now(),
                 });
             }
+        } catch {
+            // The next load registers again.
+        }
+    }
+
+    async #clearChanged(worker) {
+        try {
             await idbDelete(
                 HANDLERS_STORE,
                 SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
@@ -901,6 +912,62 @@ export class NotificationsModule extends EventListener {
         } catch {
             // The next load registers again.
         }
+    }
+
+    /**
+     * What this browser keeps about its push: the endpoint the server last
+     * confirmed for the signed-in user, and the worker's mark for a
+     * subscription the browser replaced. Each is null when unknown.
+     *
+     * @returns {Promise<{
+     *     endpoint: string | null;
+     *     changed: { at?: number; oldEndpoint?: string } | null;
+     * }>}
+     * @internal
+     */
+    async _webPushRecord() {
+        const worker = workerFor(this.puter.env);
+        const [synced, changed] = await Promise.all([
+            this.#userUuid()
+                .then((uuid) =>
+                    uuid ? idbGet(HANDLERS_STORE, SYNCED_PREFIX + uuid) : null,
+                )
+                .catch(() => null),
+            idbGet(
+                HANDLERS_STORE,
+                SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
+            ).catch(() => null),
+        ]);
+        return {
+            endpoint:
+                typeof synced?.endpoint === 'string' && synced.endpoint
+                    ? synced.endpoint
+                    : null,
+            changed: changed ?? null,
+        };
+    }
+
+    /**
+     * Records `endpoint` as the one the server confirmed for the signed-in
+     * user, as a sync does.
+     *
+     * @param {string} endpoint
+     * @internal
+     */
+    async _noteWebPushSynced(endpoint) {
+        await this.#recordSynced(endpoint);
+    }
+
+    /**
+     * Ends this browser's subscription after the user removed it in Puter, and
+     * forgets its receipt and the worker's mark. Never throws.
+     *
+     * @internal
+     */
+    async _dropRemovedWebPush() {
+        const worker = workerFor(this.puter.env);
+        await this.#dropRemoved(worker);
+        await this.#clearChanged(worker);
     }
 
     /** Ends a subscription left here without an opt-in, in the browser only. */
