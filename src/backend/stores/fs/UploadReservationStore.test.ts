@@ -447,4 +447,28 @@ describe('UploadReservationStore', () => {
         });
         spy.mockRestore();
     });
+
+    it('gives back leases whose take timed out but landed', async () => {
+        const id = owner();
+        await store.take(id, [lease(1)], 10_000);
+        const before = await store.outstanding(id);
+
+        const redis = server.clients.redis as unknown as {
+            uploadReservationTake: (...args: string[]) => Promise<unknown>;
+        };
+        const real = redis.uploadReservationTake.bind(redis);
+        const late = vi
+            .spyOn(redis, 'uploadReservationTake')
+            .mockImplementationOnce(async (...args) => {
+                await real(...args);
+                throw new Error('Command timed out');
+            });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        expect(await store.take(id, [lease(500)], 10_000)).toBeNull();
+        late.mockRestore();
+        warn.mockRestore();
+
+        expect(await store.outstanding(id)).toEqual(before);
+    });
 });
