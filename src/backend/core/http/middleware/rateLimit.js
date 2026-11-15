@@ -19,6 +19,7 @@
  */
 
 import crypto from 'node:crypto';
+import { isCommandTimeout } from '../../../clients/redis/RedisClient.js';
 import { withSpan } from '../../../util/span.js';
 import { Context } from '../../context.js';
 import { CallSlot } from '../callSlot.js';
@@ -481,6 +482,8 @@ async function acquireRedisConcurrent(redis, key, limit, retried = false) {
             await redis.del(redisKey);
             return acquireRedisConcurrent(redis, key, limit, true);
         }
+        // Same key, so this runs behind the timed-out MULTI if that ever does.
+        if (isCommandTimeout(err)) redis.zrem(redisKey, member).catch(noop);
         throw err;
     }
     if (count > limit) {

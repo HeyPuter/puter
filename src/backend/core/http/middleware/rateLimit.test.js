@@ -1155,6 +1155,28 @@ describe('acquireConcurrent — orphan recovery (redis)', () => {
         expect((await acquireConcurrent(key, 1)).ok).toBe(true);
     });
 
+    it('takes back a slot whose MULTI timed out but landed', async () => {
+        configureRateLimit({ default: 'redis', redis });
+        const key = 'timed-out-acquire';
+        const realMulti = redis.multi.bind(redis);
+        const multi = vi.spyOn(redis, 'multi').mockImplementationOnce(() => {
+            const chain = realMulti();
+            const exec = chain.exec.bind(chain);
+            chain.exec = async () => {
+                await exec();
+                throw new Error('Command timed out');
+            };
+            return chain;
+        });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        await acquireConcurrent(key, 1);
+        multi.mockRestore();
+        warn.mockRestore();
+
+        expect(await redis.zcard(`concurrent:${key}`)).toBe(0);
+    });
+
     it('heals a legacy string counter key and enforces the limit again', async () => {
         // The pre-zset implementation stored these buckets as INCR string
         // counters. Against such a key every zset command fails WRONGTYPE
