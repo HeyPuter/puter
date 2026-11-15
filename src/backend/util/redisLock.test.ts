@@ -239,6 +239,26 @@ describe('withRedisLock', () => {
             expect(onBusy).toHaveBeenCalledWith(down);
         });
     });
+
+    it('frees a claim that timed out but landed', async () => {
+        const key = lockKey();
+        const late = {
+            set: async (...args: Parameters<RedisClient['set']>) => {
+                await redis.set(...args);
+                throw new Error('Command timed out');
+            },
+            eval: redis.eval.bind(redis),
+        } as unknown as RedisClient;
+
+        const result = await withRedisLock(late, key, async () => 'ran', {
+            ttlMs: 60_000,
+            onUnavailable: 'busy',
+            onBusy: busy,
+        });
+
+        expect(result).toBe('busy');
+        expect(await redis.get(key)).toBeNull();
+    });
 });
 
 describe('deleteIfEqual', () => {
