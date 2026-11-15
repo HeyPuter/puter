@@ -482,6 +482,15 @@ describe('webPushClient and a browser removed from another device', () => {
         expect(made.storage.map.get(OPT_OUT)).toBe('1');
     });
 
+    it('also asks about a newer endpoint only localStorage holds, and stays off when it was removed', async () => {
+        const made = removedElsewhere({ subscription: null, kept: synced('https://push.test/x'), storage: fakeStorage({ [LAST_ENDPOINT_KEY]: OLD }) });
+        await expect(sync(made.storage)).resolves.toBe('removed');
+        expect(made.endpointState).toHaveBeenCalledWith('https://push.test/x');
+        expect(made.endpointState).toHaveBeenCalledWith(OLD);
+        expect(made.notifications.enable).not.toHaveBeenCalled();
+        expect(made.storage.map.get(OPT_OUT)).toBe('1');
+    });
+
     it('asks about the endpoint confirmed for the signed-in user only', async () => {
         const made = removedElsewhere({ subscription: null, user: 'u-2', kept: synced(OLD), storage: fakeStorage({ [LAST_ENDPOINT_KEY]: OLD }) });
         made.notifications.listDevices.mockResolvedValue([current]);

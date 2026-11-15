@@ -101,13 +101,11 @@ export const webPushClient = ({
     const pushRecord = async ({ endpoint = true } = {}) => (viaSdk()
         ? await notifications._webPushRecord({ endpoint })
         : { endpoint: null, changed: await directMark() });
-    const record = async () => {
-        const known = await pushRecord();
-        if ( known.endpoint ) return known;
+    const storedEndpoint = () => {
         try {
-            return { ...known, endpoint: storage.getItem(endpointKey(userUid())) };
+            return storage.getItem(endpointKey(userUid()));
         } catch ( e ) {
-            return known;
+            return null;
         }
     };
     /** Keeps `endpoint` as the one the server confirmed for `user`. */
@@ -123,8 +121,8 @@ export const webPushClient = ({
     };
     /** `'removed'` when the user removed any earlier endpoint of this browser, ending the subscription here; `'busy'` on a 429. */
     const removedElsewhere = async () => {
-        const { endpoint, changed } = await record();
-        const earlier = [...new Set([changed?.oldEndpoint, endpoint].filter((e) => typeof e === 'string' && e))];
+        const { endpoint, changed } = await pushRecord();
+        const earlier = [...new Set([changed?.oldEndpoint, endpoint, storedEndpoint()].filter((e) => typeof e === 'string' && e))];
         const states = await Promise.all(earlier.map((e) => endpointState(e)));
         if ( ! states.includes('removed') ) return states.includes('busy') ? 'busy' : null;
         if ( viaSdk() ) {
