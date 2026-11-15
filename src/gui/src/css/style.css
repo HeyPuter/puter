@@ -3247,8 +3247,37 @@ fieldset[name=number-code] {
     border-radius: 4px;
 }
 
-.driver-usage-details-content.visible {
-    display: block;
+.usage-details-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
+    opacity: 0.85;
+    cursor: pointer;
+}
+
+.usage-details-toggle:hover,
+.usage-details-toggle[aria-expanded='true'] {
+    opacity: 1;
+}
+
+.usage-details-toggle:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+.usage-details-chevron {
+    flex-shrink: 0;
+    transition: transform 0.15s;
+}
+
+.usage-details-toggle[aria-expanded='true'] .usage-details-chevron {
+    transform: rotate(90deg);
 }
 
 /* Usage table wrapper for collapsed/expanded states */

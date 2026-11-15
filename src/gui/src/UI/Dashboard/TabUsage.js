@@ -93,8 +93,13 @@ const TabUsage = {
                             <span class="usage-addon-note">${i18n('addon_credits_note')}</span>
                         </p>
                     </div>
-                    <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">${i18n('usage_details')}</h3>
-                    <div class="driver-usage-details-content visible">
+                    <h3 style="margin:22px 0 10px 0; font-size: 13px; font-weight: 400;">
+                        <button type="button" class="usage-details-toggle" aria-expanded="false" aria-controls="usage-details-content">
+                            <svg class="usage-details-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+                            ${i18n('usage_details')}
+                        </button>
+                    </h3>
+                    <div class="driver-usage-details-content" id="usage-details-content" hidden>
                     </div>
                 </div>
             </div>`;
@@ -119,6 +124,12 @@ const TabUsage = {
             if ( ! $($el_window).find('.dashboard-section-usage').hasClass('active') ) return;
             setupPlanButton($el_window);
             refreshUsageDetails($el_window);
+        });
+
+        $($el_window).on('click', '.usage-details-toggle', function () {
+            const expanded = $(this).attr('aria-expanded') === 'true';
+            $(this).attr('aria-expanded', expanded ? 'false' : 'true');
+            $($el_window).find('.driver-usage-details-content').prop('hidden', expanded);
         });
 
         // Click handler for sortable table headers

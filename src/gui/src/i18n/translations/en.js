@@ -723,7 +723,7 @@ const en = {
         used_of: '{{used}} used of {{available}}',
         usage_subtitle: 'Puter resources and AI usage',
         usage_credits: 'Credits',
-        usage_details: 'Usage Details',
+        usage_details: 'Usage details',
         usage_details_unavailable: 'Usage details are unavailable right now.',
         usage_show_more: 'Show {{count}} more',
         show_less: 'Show less',
