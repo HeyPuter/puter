@@ -10996,6 +10996,7 @@ describe('AuthController.loginWait audience binding', () => {
             redis: {
                 startupNodes: [{ host: '127.0.0.1', port: silent.port }],
                 tls: false,
+                commandTimeoutMs: 1000,
             },
         } as unknown as IConfig);
         await new Promise<void>((r) => stalled.once('ready', () => r()));
@@ -11012,7 +11013,8 @@ describe('AuthController.loginWait audience binding', () => {
             const elapsed = Date.now() - started;
             expect(outcome).toBe('ok');
             expect((res.body as { auth_token: string }).auth_token).toBe(token);
-            expect(elapsed).toBeLessThan(3000);
+            // One timeout, not one per call: two calls would take 2000 ms.
+            expect(elapsed).toBeLessThan(1800);
         } finally {
             clients.redis = real;
             stalled.disconnect();

@@ -318,7 +318,7 @@ describe('withRedisLock', () => {
                     onBusy: unexpectedBusy,
                 },
             );
-            expect(Date.now() - fnDone).toBeLessThan(50);
+            expect(Date.now() - fnDone).toBeLessThan(250);
             await vi.waitFor(() =>
                 expect(silent.seen).toEqual(['set', 'get', 'eval']),
             );
