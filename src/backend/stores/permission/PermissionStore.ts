@@ -67,10 +67,10 @@ export const FLAT_PERM_SCAN_CONCURRENCY = 4;
 export const U2U_EXACT_DELETE_CHUNK = 500;
 /** Flat entries one page of a deleted holder's purge lists, and the pages. */
 const HELD_FLAT_PURGE_PAGE = 500;
+const HELD_FLAT_PURGE_MAX_PAGES = 200;
 /** Groups and members read for a deleted issuer; past these the TTLs apply. */
 const ISSUED_GROUPS_CAP = 200;
 const ISSUED_GROUP_MEMBERS_CAP = 2000;
-const HELD_FLAT_PURGE_MAX_PAGES = 200;
 
 /** The user-to-app grant a user's first sign-in to an app records. */
 export const APP_AUTHENTICATED_FLAG = 'flag:app-is-authenticated';
