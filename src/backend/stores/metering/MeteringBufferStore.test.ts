@@ -384,6 +384,32 @@ describe('MeteringBufferStore', () => {
             boom.mockRestore();
         });
 
+        it('counts an increment once when its buffering times out but lands', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const real = redis.meterIncr.bind(redis);
+            const late = vi
+                .spyOn(redis, 'meterIncr')
+                .mockImplementationOnce(async (...args) => {
+                    await real(...args);
+                    throw new Error('Command timed out');
+                });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { res, exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 6 },
+            });
+            late.mockRestore();
+            warn.mockRestore();
+
+            expect(exact).toBe(true);
+            expect((res as { total: number }).total).toBe(6);
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(6);
+        });
+
         it('counts an increment once when the base read fails after buffering', async () => {
             await kv.incr({ key, pathAndAmountMap: { total: 80 } });
             const boom = vi
@@ -455,6 +481,26 @@ describe('MeteringBufferStore', () => {
 
             expect(await storedTotal(key)).toBe(4);
             boom.mockRestore();
+        });
+        it('counts an aggregate once when its buffering times out but lands', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const real = redis.meterIncr.bind(redis);
+            const late = vi
+                .spyOn(redis, 'meterIncr')
+                .mockImplementationOnce(async (...args) => {
+                    await real(...args);
+                    throw new Error('Command timed out');
+                });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await target.incrAux({ key, pathAndAmountMap: { total: 3 } });
+            late.mockRestore();
+            warn.mockRestore();
+
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(3);
         });
     });
 

@@ -25,6 +25,7 @@ import {
     KvFencedWriteError,
     type RecursiveRecord,
 } from '../systemKv/SystemKVStore';
+import { isCommandTimeout } from '../../clients/redis/RedisClient.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { PuterStore } from '../types';
 import {
@@ -916,9 +917,8 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] buffered incr failed, writing through: ${(e as Error).message}`,
             );
             const { res } = await this.#writeThrough(input);
-            // Only the running total was missing: the buffered copy comes back
-            // out, or the next flush writes this increment a second time.
-            if (buffered) await this.#unbuffer(input);
+            // A buffered copy, or a timed-out one that may land, comes back out.
+            if (buffered || isCommandTimeout(e)) await this.#unbuffer(input);
             // The cached base doesn't have this write; the next read reseeds it.
             await this.forgetBase(input.key);
             return { res, exact: true };
@@ -937,6 +937,7 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] buffered aux incr failed, writing through: ${(e as Error).message}`,
             );
             await this.#writeThrough(input);
+            if (isCommandTimeout(e)) await this.#unbuffer(input);
         }
     }
 
