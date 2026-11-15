@@ -22,6 +22,7 @@ const da = {
     english_name: 'Danish',
     code: 'da',
     dictionary: {
+        about: 'Om',
         account: 'Konto',
         account_password: 'Bekræft kontoens adgangskode',
         access_granted_to: 'Adgang givet til',
@@ -39,6 +40,7 @@ const da = {
         close_all_windows_and_log_out: 'Luk vinduer og log ud',
         change_always_open_with: 'Vil du altid åbne denne filtype med',
         confirm: 'Bekræft',
+        confirm_account_for_free_referral_storage_c2a: 'Opret en konto og bekræft din e-mailadresse for at modtage 1 GB gratis lagerplads. Din ven vil også få 1 GB gratis lagerplads.',
         confirm_code_generic_incorrect: 'Forkert kode.',
         confirm_code_generic_too_many_requests: 'For mange anmodninger. Vent et par minutter.',
         confirm_code_2fa_instruction: 'Indtast den 6-cifrede kode fra din autentifikator-app.',
@@ -54,10 +56,12 @@ const da = {
         continue: 'Fortsæt',
         copy: 'Kopier',
         copy_link: 'Kopier link',
+        copying: 'Kopierer',
         copying_file: 'Kopierer %%',
         create_account: 'Opret konto',
         create_free_account: 'Opret gratis konto',
         create_shortcut: 'Opret genvej',
+        credits: 'Kreditter',
         current_password: 'Nuværende adgangskode',
         cut: 'Klip',
         close_all: 'Luk alle',
@@ -85,6 +89,7 @@ const da = {
         empty_trash: 'Tøm papirkurv',
         empty_trash_confirmation: 'Er du sikker på, at du vil slette elementerne i papirkurven permanent?',
         emptying_trash: 'Tømmer papirkurv…',
+        enable_2fa: 'Aktivér 2FA',
         end_hard: 'Afslut hårdt',
         end_soft: 'Afslut blødt',
         enlarged_qr_code: 'Forstørret QR-kode',
@@ -98,14 +103,19 @@ const da = {
         feedback_sent_confirmation: 'Tak fordi du kontaktede os. Hvis du har en e-mail knyttet til din konto, vil du høre fra os så hurtigt som muligt.',
         folder: 'Mappe',
         forgot_pass_c2a: 'Glemt adgangskode?',
+        from: 'Fra',
         general: 'Generelt',
         home: 'Hjem',
         html_document: 'HTML-dokument',
+        hue: 'Farvetone',
         incorrect_password: 'Forkert adgangskode',
         item: 'element',
         items_in_trash_cannot_be_renamed: 'Dette element kan ikke omdøbes, fordi det er i papirkurven. For at omdøbe dette element, skal du først trække det ud af papirkurven.',
         jpeg_image: 'JPEG-billede',
         language: 'Sprog',
+        license: 'Licens',
+        lightness: 'Lysstyrke',
+        link_copied: 'Link kopieret',
         loading: 'Indlæser',
         log_in: 'Log ind',
         log_out: 'Log ud',
@@ -148,12 +158,15 @@ const da = {
         plural_suffix: 's',
         preparing: 'Forbereder...',
         print: 'Udskriv',
+        privacy: 'Privatliv',
         proceed_to_login: 'Fortsæt til login',
         properties: 'Egenskaber',
         public: 'Offentlig',
         publish: 'Offentliggør',
         publish_as_website: 'Offentliggør som websted',
+        reading_file: 'Læser %strong%',
         recover_password: 'Gendan adgangskode',
+        refer_friends_c2a: 'Få 1 GB for hver ven, der opretter og bekræfter en konto på Puter. Din ven vil også få 1 GB!',
         refresh: 'Opdater',
         rename: 'Omdøb',
         replace: 'Erstat',
@@ -161,10 +174,12 @@ const da = {
         resend_confirmation_code: 'Send bekræftelseskode igen',
         restore: 'Gendan',
         save: 'Gem',
+        saturation: 'Mætning',
         save_account: 'Gem konto',
         save_account_to_publish: 'Opret venligst en konto for at fortsætte.',
         save_session: 'Gem session',
         save_session_c2a: 'Opret en konto for at gemme din nuværende session og undgå at miste dit ændringer.',
+        search: 'Søg',
         seconds: 'sekunder',
         security: 'Sikkerhed',
         select: 'Vælg',
@@ -173,12 +188,14 @@ const da = {
         send: 'Send',
         send_password_recovery_email: 'Send e-mail til gendannelse af adgangskode',
         session_saved: 'Tak fordi du oprettede en konto. Denne session er blevet gemt.',
+        settings: 'Indstillinger',
         set_new_password: 'Indstil ny adgangskode',
         share: 'Del',
         share_to: 'Del til',
         shortcut_to: 'Genvej til',
         show_hidden: 'Vis skjulte',
         sign_in_with_puter: 'Log ind med Puter',
+        sign_up: 'Tilmeld dig',
         size: 'Størrelse',
         skip: 'Spring over',
         something_went_wrong: 'Noget gik galt.',
@@ -186,8 +203,10 @@ const da = {
         status: 'Status',
         storage_puter_used: 'brugt af Puter',
         taking_longer_than_usual: 'Tager lidt længere tid end normalt. Vent venligst...',
+        terms: 'Vilkår',
         text_document: 'Tekstdokument',
         tos_fineprint: 'Ved at klikke på \'Opret gratis konto\' accepterer du Puters {{link=terms}}Brugsvilkår{{/link}} og {{link=privacy}}Privatlivspolitik{{/link}}.',
+        transparency: 'Gennemsigtighed',
         trash: 'Papirkurv',
         two_factor: 'To-faktor autentifikation',
         two_factor_disabled: '2FA deaktiveret',
@@ -197,6 +216,7 @@ const da = {
         ui_manage_sessions: 'Sessionshåndtering',
         ui_revoke: 'Tilbagekald',
         undo: 'Fortryd',
+        unlimited: 'Ubegrænset',
         unzip: 'Udpak',
         upload: 'Upload',
         upload_here: 'Upload her',
@@ -206,8 +226,10 @@ const da = {
         username_required: 'Brugernavn er påkrævet.',
         versions: 'Versioner',
         videos: 'Videoer',
+        visibility: 'Synlighed',
         yes: 'Ja',
         zip: 'Zip',
+        zipping_file: 'Zipper %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -232,11 +254,65 @@ const da = {
         login2fa_use_recovery_code: 'Brug en gendannelseskode',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        change: 'Skift',
         reading: 'Læser %strong%',
         writing: 'Skriver %strong%',
         unzipping: 'Udpakker %strong%',
         sequencing: 'Sekventerer %strong%',
         zipping: 'Zipper %strong%',
+        Editor: 'Redaktør',
+        Viewer: 'Seer',
+        People_with_access: 'Personer med adgang',
+        Share_With: 'Del med…',
+        Owner: 'Ejer',
+        You_cant_share_with_yourself: 'Du kan ikke dele med dig selv.',
+        This_user_already_has_access_to_this_item: 'Denne bruger har allerede adgang til dette element',
+        billing_change_payment_method: 'Skift betalingsmetode',
+        billing_cancel: 'Annuller',
+        billing_download_invoice: 'Download faktura',
+        billing_payment_method: 'Betalingsmetode',
+        billing_payment_method_updated: 'Betalingsmetode opdateret!',
+        billing_confirm_payment_method: 'Bekræft betalingsmetode',
+        billing_payment_history: 'Betalingshistorik',
+        billing_refunded: 'Refunderet',
+        billing_paid: 'Betalt',
+        billing_ok: 'OK',
+        billing_resume_subscription: 'Genoptag abonnement',
+        billing_subscription_cancelled: 'Dit abonnement er blevet annulleret.',
+        billing_subscription_cancelled_description: 'Du vil stadig have adgang til dit abonnement indtil slutningen af denne faktureringsperiode.',
+        billing_offering_free: 'Gratis',
+        billing_offering_pro: 'Professionel',
+        billing_offering_business: 'Forretning',
+        billing_cloud_storage: 'Cloud-lager',
+        billing_ai_access: 'AI-adgang',
+        billing_bandwidth: 'Båndbredde',
+        billing_apps_and_games: 'Apps & Spil',
+        billing_upgrade_to_pro: 'Opgrader til %strong%',
+        billing_switch_to: 'Skift til %strong%',
+        billing_payment_setup: 'Betalingsopsætning',
+        billing_back: 'Tilbage',
+        billing_you_are_now_subscribed_to: 'Du er nu abonneret på %strong% niveau.',
+        billing_you_are_now_subscribed_to_without_tier: 'Du har nu et abonnement',
+        billing_subscription_cancellation_confirmation: 'Er du sikker på, at du vil annullere dit abonnement?',
+        billing_subscription_setup: 'Abonnementsopsætning',
+        billing_cancel_it: 'Annuller det',
+        billing_keep_it: 'Behold det',
+        billing_subscription_resumed: 'Dit %strong% abonnement er blevet genoptaget!',
+        billing_upgrade_now: 'Opgrader nu',
+        billing_upgrade: 'Opgrader',
+        billing_currently_on_free_plan: 'Du bruger i øjeblikket den gratis version.',
+        billing_download_receipt: 'Download kvittering',
+        billing_subscription_check_error: 'Der opstod et problem under kontrol af din abonnementsstatus.',
+        billing_email_confirmation_needed: 'Din e-mail er ikke blevet bekræftet. Vi sender dig en kode for at bekræfte den nu.',
+        billing_sub_cancelled_but_valid_until: 'Du har annulleret dit abonnement, og det vil automatisk skifte til den gratis plan ved slutningen af faktureringsperioden. Du vil ikke blive opkrævet igen, medmindre du genabonnerer.',
+        billing_current_plan_until_end_of_period: 'Din nuværende plan indtil slutningen af denne faktureringsperiode.',
+        billing_current_plan: 'Nuværende plan',
+        billing_cancelled_subscription_tier: 'Annulleret abonnement (%%)',
+        billing_manage: 'Administrer',
+        billing_limited: 'Begrænset',
+        billing_expanded: 'Udvidet',
+        billing_accelerated: 'Accelereret',
+        billing_enjoy_msg: 'Nyd %% af Cloud-lager plus andre fordele.',
 
         // =============================================================
         // Missing translations
@@ -247,8 +323,58 @@ const da = {
         'publish_as_serverless_worker': undefined, // In English: "Publish as Worker"
         'used_of': undefined, // In English: "{{used}} used of {{available}}"
         'worker': undefined, // In English: "Worker"
+        'People with access': undefined, // In English: "People with access"
+        'Share With…': undefined, // In English: "Share With…"
+        "You can't share with yourself.": undefined, // In English: "You can't share with yourself."
+        'This user already has access to this item': undefined, // In English: "This user already has access to this item"
+        'billing.change_payment_method': undefined, // In English: "Change"
+        'billing.cancel': undefined, // In English: "Cancel"
+        'billing.download_invoice': undefined, // In English: "Download"
+        'billing.payment_method': undefined, // In English: "Payment Method"
+        'billing.payment_method_updated': undefined, // In English: "Payment method updated!"
+        'billing.confirm_payment_method': undefined, // In English: "Confirm Payment Method"
+        'billing.payment_history': undefined, // In English: "Payment History"
+        'billing.refunded': undefined, // In English: "Refunded"
+        'billing.paid': undefined, // In English: "Paid"
+        'billing.ok': undefined, // In English: "OK"
+        'billing.resume_subscription': undefined, // In English: "Resume Subscription"
+        'billing.subscription_cancelled': undefined, // In English: "Your subscription has been canceled."
+        'billing.subscription_cancelled_description': undefined, // In English: "You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': undefined, // In English: "Free"
+        'billing.offering.basic': undefined, // In English: "Basic"
+        'billing.offering.pro': undefined, // In English: "Professional"
+        'billing.offering.professional': undefined, // In English: "Professional"
+        'billing.offering.business': undefined, // In English: "Business"
+        'billing.cloud_storage': undefined, // In English: "Cloud Storage"
+        'billing.ai_access': undefined, // In English: "AI Access"
+        'billing.bandwidth': undefined, // In English: "Bandwidth"
+        'billing.apps_and_games': undefined, // In English: "Apps & Games"
+        'billing.upgrade_to_pro': undefined, // In English: "Upgrade to %strong%"
+        'billing.switch_to': undefined, // In English: "Switch to %strong%"
+        'billing.payment_setup': undefined, // In English: "Payment Setup"
+        'billing.back': undefined, // In English: "Back"
+        'billing.you_are_now_subscribed_to': undefined, // In English: "You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': undefined, // In English: "You are now subscribed"
+        'billing.subscription_cancellation_confirmation': undefined, // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': undefined, // In English: "Subscription Setup"
+        'billing.cancel_it': undefined, // In English: "Cancel It"
+        'billing.keep_it': undefined, // In English: "Keep It"
+        'billing.subscription_resumed': undefined, // In English: "Your %strong% subscription has been resumed!"
+        'billing.upgrade_now': undefined, // In English: "Upgrade Now"
         'billing.upgrade': undefined, // In English: "Upgrade"
+        'billing.currently_on_free_plan': undefined, // In English: "You are currently on the free plan."
+        'billing.download_receipt': undefined, // In English: "Download Receipt"
+        'billing.subscription_check_error': undefined, // In English: "A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed': undefined, // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until': undefined, // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period': undefined, // In English: "Your current plan until the end of this billing period."
+        'billing.current_plan': undefined, // In English: "Current plan"
+        'billing.cancelled_subscription_tier': undefined, // In English: "Cancelled Subscription (%%)"
+        'billing.manage': undefined, // In English: "Manage"
+        'billing.limited': undefined, // In English: "Limited"
+        'billing.expanded': undefined, // In English: "Expanded"
+        'billing.accelerated': undefined, // In English: "Accelerated"
+        'billing.enjoy_msg': undefined, // In English: "Enjoy %% of Cloud Storage plus other benefits."
         'server_timeout': undefined, // In English: "The server took too long to respond. Please try again."
         'signup_error': undefined, // In English: "An error occurred during signup. Please try again."
         'alert_error_title': undefined, // In English: "Error!"

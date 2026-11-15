@@ -22,6 +22,7 @@ const ta = {
     english_name: 'Tamil',
     code: 'ta',
     dictionary: {
+        about: 'பற்றி',
         account: 'கணக்கு',
         account_password: 'கணக்கு கடவுச்சொல்லை சரிபார்க்கவும்',
         access_granted_to: 'அனுமதி வழங்கப்பட்ட',
@@ -39,6 +40,8 @@ const ta = {
         close_all_windows_and_log_out: 'விண்டோஸை மூடிவிட்டு வெளியேறவும்',
         change_always_open_with:
       'இந்த வகையான கோப்பை எப்போதும் திறக்க விரும்புகிறீர்களா?',
+        confirm_account_for_free_referral_storage_c2a:
+      '1 ஜிபி இலவச சேமிப்பிடத்தைப் பெற, கணக்கை உருவாக்கி உங்கள் மின்னஞ்சல் முகவரியை உறுதிப்படுத்தவும். உங்கள் நண்பருக்கு 1 ஜிபி இலவச சேமிப்பகமும் கிடைக்கும்.',
         confirm_code_generic_incorrect: 'தவறான குறியீடு.',
         confirm_code_generic_too_many_requests:
       'பல கோரிக்கைகள். தயவுசெய்து சில நிமிடங்கள் காத்திருக்கவும்.',
@@ -60,10 +63,12 @@ const ta = {
         continue: 'தொடரவும்',
         copy: 'நகலெடுக்கவும்',
         copy_link: 'இணைப்பை நகலெடுக்கவும்',
+        copying: 'நகலெடுக்கிறது',
         copying_file: 'நகலெடுக்கிறது %%',
         create_account: 'உங்கள் கணக்கை துவங்குங்கள்',
         create_free_account: 'இலவச கணக்கை உருவாக்கவும்',
         create_shortcut: 'குறுக்குவழியை உருவாக்க',
+        credits: 'கடன்கள்',
         current_password: 'தற்போதைய கடவுச்சொல்',
         cut: 'வெட்டு',
         close_all: 'அனைத்தையும் மூடு',
@@ -93,6 +98,7 @@ const ta = {
         empty_trash_confirmation:
       'குப்பையில் உள்ள உருப்படிகளை நிரந்தரமாக நீக்க விரும்புகிறீர்களா?',
         emptying_trash: 'குப்பையைக் காலியாக்குகிறது…',
+        enable_2fa: '2FA ஐ இயக்கவும்',
         end_hard: 'கடினமாக முடிக்கவும்',
         end_soft: 'மென்மையான முடிக்கவும்',
         enlarged_qr_code: 'விரிவாக்கப்பட்ட QR குறியீடு',
@@ -109,15 +115,20 @@ const ta = {
       'எங்களை தொடர்பு கொண்டதற்கு நன்றி. உங்கள் கணக்குடன் தொடர்புடைய மின்னஞ்சலை நீங்கள் வைத்திருந்தால், கூடிய விரைவில் எங்களிடமிருந்து பதிலளிப்பீர்கள்.',
         folder: 'கோப்புறை',
         forgot_pass_c2a: 'கடவுச்சொல்லை மறந்துவிட்டீர்களா?',
+        from: 'இருந்து',
         general: 'பொது',
         home: 'வீடு',
         html_document: 'HTML ஆவணம்',
+        hue: 'சாயல்',
         incorrect_password: 'தவறான கடவுச்சொல்',
         item: 'பொருள்',
         items_in_trash_cannot_be_renamed:
       'இந்த உருப்படி குப்பையில் இருப்பதால் மறுபெயரிட முடியாது. இந்த உருப்படியை மறுபெயரிட, முதலில் அதை குப்பையிலிருந்து வெளியே இழுக்கவும்.',
         jpeg_image: 'JPEG படம்',
         language: 'மொழி',
+        license: 'உரிமம்',
+        lightness: 'லேசான தன்மை',
+        link_copied: 'இணைப்பு நகலெடுக்கப்பட்டது',
         loading: 'ஏற்றுகிறது',
         log_in: 'உள்நுழைய',
         log_out: 'வெளியேறு',
@@ -165,12 +176,16 @@ const ta = {
         plural_suffix: 'கள்',
         preparing: 'தயாராகிறது...',
         print: 'அச்சிடுக',
+        privacy: 'தனியுரிமை',
         proceed_to_login: 'உள்நுழைய தொடரவும்',
         properties: 'பண்புகள்',
         public: 'பொது',
         publish: 'வெளியிடு',
         publish_as_website: 'இணையதளமாக வெளியிடவும்',
+        reading_file: 'படித்தல் %strong%',
         recover_password: 'கடவுச்சொல்லை மீட்டெடுக்கவும்',
+        refer_friends_c2a:
+      'புட்டர் இல் கணக்கை உருவாக்கி உறுதிப்படுத்தும் ஒவ்வொரு நண்பருக்கும் 1 GB கிடைக்கும். உங்கள் நண்பருக்கும் 1 ஜிபி கிடைக்கும்!',
         refresh: 'புதுப்பிப்பு',
         rename: 'மறுபெயரிடவும்',
         replace: 'மாற்றவும்',
@@ -178,11 +193,13 @@ const ta = {
         resend_confirmation_code: 'உறுதிப்படுத்தல் குறியீட்டை மீண்டும் அனுப்பவும்',
         restore: 'மீட்டமை',
         save: 'சேமிக்கவும்',
+        saturation: 'செறிவூட்டல்',
         save_account: 'கணக்கைச் சேமிக்கவும்',
         save_account_to_publish: 'தொடர ஒரு கணக்கை உருவாக்கவும்.',
         save_session: 'அமர்வை சேமிக்கவும்',
         save_session_c2a:
       'உங்கள் தற்போதைய அமர்வைச் சேமிக்க ஒரு கணக்கை உருவாக்கவும் மற்றும் உங்கள் வேலையை இழப்பதைத் தவிர்க்கவும்.',
+        search: 'தேடு',
         seconds: 'வினாடிகள்',
         security: 'பாதுகாப்பு',
         select: 'தேர்ந்தெடு',
@@ -192,12 +209,14 @@ const ta = {
         send_password_recovery_email: 'கடவுச்சொல் மீட்பு மின்னஞ்சலை அனுப்பவும்',
         session_saved:
       'கணக்கை உருவாக்கியதற்கு நன்றி. இந்த அமர்வு சேமிக்கப்பட்டது.',
+        settings: 'அமைப்புகள்',
         set_new_password: 'புதிய கடவுச்சொல்லை அமை',
         share: 'பகிர்',
         share_to: 'பகிரவும்',
         shortcut_to: 'குறுக்குவழி',
         show_hidden: 'மறைக்கப்பட்டதைக் காட்டு',
         sign_in_with_puter: 'புட்டர் மூலம் உள்நுழையவும்',
+        sign_up: 'பதிவு செய்யவும்',
         size: 'அளவு',
         skip: 'தவிர்க்கவும்',
         something_went_wrong: 'ஏதோ தவறு நடந்துவிட்டது.',
@@ -206,9 +225,11 @@ const ta = {
         storage_puter_used: 'புட்டரால் பயன்படுத்தப்பட்டது',
         taking_longer_than_usual:
       'வழக்கத்தை விட சிறிது நேரம் எடுக்கும். தயவுசெய்து காத்திருங்கள்...',
+        terms: 'விதிமுறை',
         text_document: 'உரை ஆவணம்',
         tos_fineprint:
       '\'இலவச கணக்கை உருவாக்கு\' என்பதைக் கிளிக் செய்வதன் மூலம், புட்டர் இன் {{link=terms}}சேவை விதிமுறைகள்{{/link}} மற்றும் {{link=privacy}}தனியுரிமைக் கொள்கையை{{/link}} ஏற்கிறீர்கள்.',
+        transparency: 'வெளிப்படைத்தன்மை',
         trash: 'குப்பை',
         two_factor: 'இரண்டு காரணி அங்கீகாரம்',
         two_factor_disabled: '2FA முடக்கப்பட்டது',
@@ -219,6 +240,7 @@ const ta = {
         ui_manage_sessions: 'அமர்வு மேலாளர்',
         ui_revoke: 'திரும்பப் பெறு',
         undo: 'செயல்தவிர்',
+        unlimited: 'வரம்பற்ற',
         unzip: 'அன்ஜிப்',
         upload: 'பதிவேற்றவும்',
         upload_here: 'இங்கே பதிவேற்றவும்',
@@ -228,8 +250,10 @@ const ta = {
         username_required: 'பயனர் பெயர் தேவை.',
         versions: 'Versions',
         videos: 'வீடியோக்கள்',
+        visibility: 'தெரிவுநிலை',
         yes: 'ஆம்',
         zip: 'ஜிப்',
+        zipping_file: 'ஜிப்பிங் %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -257,15 +281,79 @@ const ta = {
         login2fa_use_recovery_code: 'மீட்புக் குறியீட்டைப் பயன்படுத்தவும்',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        change: 'மாற்றம்',
         confirm: 'உறுதி',
         reading: 'வாசித்தல் %strong%',
         writing: 'எழுதுதல் %strong%',
         unzipping: 'அவிழ்ப்பது %strong%',
         sequencing: 'வரிசைப்படுத்துதல் %strong%',
         zipping: 'சுருக்குதல் %strong%',
+        Editor: 'பதிப்பாசிரியர்',
+        Viewer: 'பார்வையாளர்',
+        'People with access': 'அணுகல் உள்ளவர்கள்',
+        'Share With…': 'உடன் பகிர்ந்து கொள்..',
+        Owner: 'உரிமையாளர்',
+        "You can't share with yourself.": 'உங்களுடன் பகிர்ந்து கொள்ள முடியாது',
+        'This user already has access to this item':
+      'இந்தப் பயனருக்கு ஏற்கனவே இந்த உருப்படிக்கான அணுகல் உள்ளது',
 
+        'billing.change_payment_method': 'மாற்று',
+        'billing.cancel': 'ரத்து செய்',
+        'billing.download_invoice': 'பதிவிறக்கு',
+        'billing.payment_method': 'பணம் செலுத்தும் முறை',
+        'billing.payment_method_updated': 'பணம் செலுத்தும் முறை புதுப்பிக்கப்பட்டது!',
+        'billing.confirm_payment_method': 'பணம் செலுத்தும் முறையை உறுதிப்படுத்து',
+        'billing.payment_history': 'பணம் செலுத்திய வரலாறு',
+        'billing.refunded': 'திரும்பப் பெற்றது',
+        'billing.paid': 'செலுத்தப்பட்டது',
+        'billing.ok': 'சரி',
+        'billing.resume_subscription': 'சப்ஸ்கிரிப்ஷன் மீண்டும் தொடங்கு',
+        'billing.subscription_cancelled': 'உங்கள் சப்ஸ்கிரிப்ஷன் ரத்து செய்யப்பட்டு விட்டது.',
+        'billing.subscription_cancelled_description':
+      'நீங்கள் இந்த பில்லிங் காலத்தின் முடிவுவரை உங்கள் சப்ஸ்கிரிப்ஷனுக்கு அணுகல் பெறுவீர்கள்.',
+        'billing.offering.free': 'இலவசம்',
+        'billing.offering.pro': 'தொழில்முறை',
+        'billing.offering.professional': 'தொழில்முறை',
+        'billing.offering.business': 'வியாபாரம்',
+        'billing.cloud_storage': 'மேக சேமிப்பு',
+        'billing.ai_access': 'AI அணுகல்',
+        'billing.bandwidth': 'அலைவரிசை',
+        'billing.apps_and_games': 'ஆப்ஸ் & கேம்ஸ்',
+        'billing.upgrade_to_pro': '%strong%க்கு மேம்படுத்தவும்',
+        'billing.switch_to': '%strong% இதற்கு மாறவும்',
+        'billing.payment_setup': 'கட்டண அமைப்பு',
+        'billing.back': 'திரும்ப',
+        'billing.you_are_now_subscribed_to':
+      'நீங்கள் இப்போது %strong% அடுக்குக்கு குழுசேர்ந்துள்ளீர்கள்.',
+        'billing.you_are_now_subscribed_to_without_tier':
+      'நீங்கள் இப்போது குழுசேர்ந்துள்ளீர்கள்',
+        'billing.subscription_cancellation_confirmation':
+      'உங்கள் சந்தாவை நிச்சயமாக ரத்துசெய்ய விரும்புகிறீர்களா?',
         'billing.subscription_setup': 'சந்தா அமைப்பு',
+        'billing.cancel_it': 'ரத்து செய்',
+        'billing.keep_it': 'வைத்துக்கொள்',
+        'billing.subscription_resumed':
+      'உங்கள் %strong% சந்தா மீண்டும் தொடங்கப்பட்டது!',
+        'billing.upgrade_now': 'இப்போது மேம்படுத்து',
         'billing.upgrade': 'மேம்படுத்து',
+        'billing.currently_on_free_plan': 'நீங்கள் தற்போது இலவச திட்டத்தில் உள்ளீர்கள்.',
+        'billing.download_receipt': 'ரசீதைப் பதிவிறக்கவும்',
+        'billing.subscription_check_error':
+      'உங்கள் சந்தா நிலையைச் சரிபார்க்கும் போது சிக்கல் ஏற்பட்டது.',
+        'billing.email_confirmation_needed':
+      'உங்கள் மின்னஞ்சல் உறுதிப்படுத்தப்படவில்லை. இப்போது அதை உறுதிப்படுத்த ஒரு குறியீட்டை அனுப்புவோம்.',
+        'billing.sub_cancelled_but_valid_until':
+      'உங்கள் சந்தாவை ரத்து செய்துவிட்டீர்கள், பில்லிங் காலத்தின் முடிவில் அது தானாகவே இலவச அடுக்குக்கு மாறும். நீங்கள் மீண்டும் சந்தா செலுத்தும் வரை உங்களிடம் கட்டணம் வசூலிக்கப்படாது.',
+        'billing.current_plan_until_end_of_period':
+      'இந்த பில்லிங் காலம் முடியும் வரை உங்களின் தற்போதைய திட்டம்.',
+        'billing.current_plan': 'தற்போதைய திட்டம்',
+        'billing.cancelled_subscription_tier': 'ரத்துசெய்யப்பட்ட சந்தா (%%)',
+        'billing.manage': 'நிர்வகிக்கவும்',
+        'billing.limited': 'வரையறுக்கப்பட்டவை',
+        'billing.expanded': 'விரிவாக்கப்பட்டது',
+        'billing.accelerated': 'வேகப்படுத்தப்பட்டது',
+        'billing.enjoy_msg':
+      '%% கிளவுட் ஸ்டோரேஜ் மற்றும் பிற பலன்களை அனுபவிக்கவும்.',
 
         // =============================================================
         // Completed missing translations
@@ -276,6 +364,7 @@ const ta = {
         publish_as_serverless_worker: 'வொர்க்கராக வெளியிடு',
         used_of: '{{available}} இல் {{used}} பயன்படுத்தப்பட்டது',
         worker: 'வொர்க்கர்',
+        'billing.offering.basic': 'அடிப்படை',
         server_timeout:
       'சர்வர் பதில் அளிக்க தாமதமாகிறது. மீண்டும் முயற்சிக்கவும்.',
         signup_error: 'பதிவின் போது பிழை ஏற்பட்டது. மீண்டும் முயற்சிக்கவும்.',

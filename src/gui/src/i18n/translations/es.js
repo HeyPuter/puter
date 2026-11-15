@@ -29,6 +29,7 @@ const es = {
     english_name: 'Spanish',
     code: 'es',
     dictionary: {
+        about: 'Acerca De',
         account: 'Cuenta',
         account_password: 'Verifica Contraseña De La Cuenta',
         access_granted_to: 'Acceso Permitido A',
@@ -46,6 +47,8 @@ const es = {
         close_all_windows_and_log_out: 'Cerrar ventanas y cerrar sesión',
         change_always_open_with: '¿Quieres abrir siempre este tipo de archivos con',
         confirm: 'Confirmar',
+        confirm_account_for_free_referral_storage_c2a:
+      'Crea una cuenta y confirma tu correo electrónico para recibir 1 GB de almacenamiento gratuito. Tu amigo recibirá 1 GB de almacenamiento gratuito también.',
         confirm_code_generic_incorrect: 'Código incorrecto.',
         confirm_code_generic_too_many_requests:
       'Too many requests. Please wait a few minutes.',
@@ -67,10 +70,12 @@ const es = {
         continue: 'Continuar',
         copy: 'Copiar',
         copy_link: 'Copiar Enlace',
+        copying: 'Copiando',
         copying_file: 'Copiando %%',
         create_account: 'Crear una cuenta',
         create_free_account: 'Crear una cuenta gratuita',
         create_shortcut: 'Crear un acceso directo',
+        credits: 'Creditos',
         current_password: 'Contraseña actual',
         cut: 'Cortar',
         close_all: 'Cerrar todo',
@@ -99,6 +104,7 @@ const es = {
         empty_trash: 'Vaciar la papelera',
         empty_trash_confirmation: '¿Estás seguro de que quieres borrar permanentemente todos los elementos de la Papelera?',
         emptying_trash: 'Vaciando la papelera…',
+        enable_2fa: 'Habilitar 2FA',
         end_hard: 'Finalizar abruptamente',
         end_soft: 'Finalizar suavemente',
         enlarged_qr_code: 'Código QR ampliado',
@@ -115,14 +121,19 @@ const es = {
       'Gracias por ponerte en contacto con nosotros. Si tienes un correo electrónico vinculado a esta cuenta, nos pondremos en contacto contigo tan pronto como podamos.',
         folder: 'Carpeta',
         forgot_pass_c2a: '¿Olvidaste tu contraseña?',
+        from: 'De',
         general: 'General',
         home: 'Inicio',
         html_document: 'Documento HTML',
+        hue: 'Hue',
         incorrect_password: 'Contraseña incorrecta',
         item: 'elemento',
         items_in_trash_cannot_be_renamed: 'Este elemento no se puede renombrar porque está en la papelera. Para cambiar el nombre de este archivo, primero extráelo fuera de la misma.',
         jpeg_image: 'Imagen JPEG',
         language: 'Lenguage',
+        license: 'Licencia',
+        lightness: 'Claridad',
+        link_copied: 'Enlace copiado',
         loading: 'Cargando',
         log_in: 'Iniciar sesión',
         log_out: 'Cerrar sesión',
@@ -171,12 +182,16 @@ const es = {
         plural_suffix: 's',
         preparing: 'Preparando...',
         print: 'Imprimir',
+        privacy: 'Privacidad',
         proceed_to_login: 'Procede a iniciar sesión',
         properties: 'Propiedades',
         public: 'Publico',
         publish: 'Publicar',
         publish_as_website: 'Publicar como página web',
+        reading_file: 'Leyendo %strong%',
         recover_password: 'Recuperar Contraseña',
+        refer_friends_c2a:
+      'Consigue 1 GB por cada amigo que cree y confirme una cuenta en Puter ¡Tu amigo recibirá 1GB también!',
         refresh: 'Refrescar',
         rename: 'Renombrar',
         replace: 'Remplazar',
@@ -184,11 +199,13 @@ const es = {
         resend_confirmation_code: 'Reenviar Código de Confirmación',
         restore: 'Restaurar',
         save: 'Guardar',
+        saturation: 'Saturación',
         save_account: 'Guardar cuenta',
         save_account_to_publish: 'Por favor, crea una cuenta para continuar.',
         save_session: 'Guardar sesión',
         save_session_c2a:
       'Crea una cuenta para guardar tu sesión actual y evitar así perder tu trabajo.',
+        search: 'Buscar',
         seconds: 'segundos',
         security: 'Seguridad',
         select: 'Seleccionar',
@@ -199,11 +216,13 @@ const es = {
       'Enviar la contraseña al correo de recuperación',
         session_saved: 'Gracias por crear una cuenta. La sesión ha sido guardada.',
         set_new_password: 'Establecer una nueva contraseña',
+        settings: 'Opciones',
         share: 'Compartir',
         share_to: 'Compartir a',
         shortcut_to: 'Acceso directo a',
         show_hidden: 'Mostrar ocultos',
         sign_in_with_puter: 'Inicia sesión con Puter',
+        sign_up: 'Registrarse',
         size: 'Tamaño',
         skip: 'Saltar',
         something_went_wrong: 'Algo salió mal.',
@@ -212,8 +231,10 @@ const es = {
         storage_puter_used: 'Usado por Puter',
         taking_longer_than_usual:
       'Tardando un poco más de lo habitual. Por favor, espere...',
+        terms: 'Terminos',
         text_document: 'Documento de Texto',
         tos_fineprint: 'Al hacer clic en \'Crear una cuenta gratuita\' aceptas los {{link=terms}}términos del servicio{{/link}} y {{link=privacy}}la política de privacidad{{/link}} de Puter.',
+        transparency: 'Transparencia',
         trash: 'Papelera',
         two_factor: 'Autenticación de dos factores',
         two_factor_disabled: '2FA Deshabilitadp',
@@ -224,6 +245,7 @@ const es = {
         ui_manage_sessions: 'Administrador de sesión',
         ui_revoke: 'Revocar',
         undo: 'Deshacer',
+        unlimited: 'Ilimitado',
         unzip: 'Descomprimir',
         upload: 'Subir',
         upload_here: 'Subir aquí',
@@ -233,8 +255,10 @@ const es = {
         username_required: 'El nombre de usuario es obligatorio.',
         versions: 'Versiones',
         videos: 'Videos',
+        visibility: 'Visibilidad',
         yes: 'Si',
         zip: 'Zip',
+        zipping_file: 'Compriminendo %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -262,16 +286,79 @@ const es = {
         login2fa_use_recovery_code: 'Usar un código de recuperación',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        change: 'cambiar', // In English: "Change"
         reading: 'lectura %strong%', // In English: "Reading %strong%"
         writing: 'escribiendo %strong%', // In English: "Writing %strong%"
         unzipping: 'descomprimiendo %strong%', // In English: "Unzipping %strong%"
         sequencing: 'secuenciación %strong%', // In English: "Sequencing %strong%"
         zipping: 'comprimiendo %strong%', // In English: "Zipping %strong%"
+        Editor: 'Editor', // In English: "Editor"
+        Viewer: 'Espectador', // In English: "Viewer"
+        'People with access': 'Personas con acceso', // In English: "People with access"
+        'Share With…': 'Compartir con…', // In English: "Share With…"
+        Owner: 'Propietario', // In English: "Owner"
+        "You can't share with yourself.": 'No puedes compartir contigo mismo.', // In English: "You can't share with yourself."
+        'This user already has access to this item':
+      'Este usuario ya tiene acceso a este elemento.', // In English: "This user already has access to this item"
 
         // === Billing ===
 
+        'billing.change_payment_method': 'Cambiar método de pago', // In English: "Change Payment Method"
+        'billing.cancel': 'Cancelar', // In English: "Cancel"
+        'billing.download_invoice': 'Descargar factura', // In English: "Download Invoice"
+        'billing.payment_method': 'Método de pago', // In English: "Payment Method"
+        'billing.payment_method_updated': '¡Método de pago actualizado!', // In English: "Payment method updated!"
+        'billing.confirm_payment_method': 'Confirmar método de pago', // In English: "Confirm Payment Method"
+        'billing.payment_history': 'Historial de pagos', // In English: "Payment History"
+        'billing.refunded': 'Reembolsado', // In English: "Refunded"
+        'billing.paid': 'Pagado', // In English: "Paid"
+        'billing.ok': 'Aceptar', // In English: "OK"
+        'billing.resume_subscription': 'Reanudar suscripción', // In English: "Resume Subscription"
+        'billing.subscription_cancelled': 'Tu suscripción ha sido cancelada.', // In English: "Your subscription has been canceled."
+        'billing.subscription_cancelled_description':
+      'Aún tendrás acceso a tu suscripción hasta el final de este periodo de facturación.', // In English: "You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': 'Gratis', // In English: "Free"
+        'billing.offering.pro': 'Profesional', // In English: "Professional"
+        'billing.offering.professional': 'Profesional', // In English: "Professional"
+        'billing.offering.business': 'Negocios', // In English: "Business"
+        'billing.cloud_storage': 'Almacenamiento en la nube', // In English: "Cloud Storage"
+        'billing.ai_access': 'Acceso a IA', // In English: "AI Access"
+        'billing.bandwidth': 'Ancho de banda', // In English: "Bandwidth"
+        'billing.apps_and_games': 'Aplicaciones y juegos', // In English: "Apps & Games"
+        'billing.upgrade_to_pro': 'Actualizar a %strong%', // In English: "Upgrade to %strong%"
+        'billing.switch_to': 'Cambiar a %strong%', // In English: "Switch to %strong%"
+        'billing.payment_setup': 'Configuración de pago', // In English: "Payment Setup"
+        'billing.back': 'Atrás', // In English: "Back"
+        'billing.you_are_now_subscribed_to':
+      'Ahora estás suscrito al nivel %strong%.', // In English: "You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': 'Ahora estás suscrito', // In English: "You are now subscribed"
+        'billing.subscription_cancellation_confirmation':
+      '¿Estás seguro de que deseas cancelar tu suscripción?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'Configuración de suscripción', // In English: "Subscription Setup"
+        'billing.cancel_it': 'Cancelar', // In English: "Cancel It"
+        'billing.keep_it': 'Mantenerlo', // In English: "Keep It"
+        'billing.subscription_resumed':
+      '¡Tu suscripción %strong% ha sido reanudada!', // In English: "Your %strong% subscription has been resumed!"
+        'billing.upgrade_now': 'Actualizar ahora', // In English: "Upgrade Now"
         'billing.upgrade': 'Actualizar', // In English: "Upgrade"
+        'billing.currently_on_free_plan': 'Actualmente estás en el plan gratuito.', // In English: "You are currently on the free plan."
+        'billing.download_receipt': 'Descargar recibo', // In English: "Download Receipt"
+        'billing.subscription_check_error':
+      'Ocurrió un problema al verificar el estado de tu suscripción.', // In English: "A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed':
+      'Tu correo electrónico no ha sido confirmado. Te enviaremos un código para confirmarlo ahora.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until':
+      'Has cancelado tu suscripción y se cambiará automáticamente al nivel gratuito al final del periodo de facturación. No se te cobrará nuevamente a menos que te vuelvas a suscribir.', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period':
+      'Tu plan actual hasta el final de este periodo de facturación.', // In English: "Your current plan until the end of this billing period."
+        'billing.current_plan': 'Plan actual', // In English: "Current plan"
+        'billing.cancelled_subscription_tier': 'Suscripción cancelada (%%)', // In English: "Cancelled Subscription (%%)"
+        'billing.manage': 'Gestionar', // In English: "Manage"
+        'billing.limited': 'Limitado', // In English: "Limited"
+        'billing.expanded': 'Expandido', // In English: "Expanded"
+        'billing.accelerated': 'Acelerado', // In English: "Accelerated"
+        'billing.enjoy_msg':
+      'Disfruta %% de almacenamiento en la nube junto con otros beneficios.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
         'create_shortcut_s': 'Crear atajos', // In English: "Create Shortcuts"
         'minimize': 'Minimizar', // In English: "Minimize"
@@ -279,6 +366,7 @@ const es = {
         'publish_as_serverless_worker': 'Publicar como un Worker', // In English: "Publish as Worker"
         'used_of': '{{used}} en uso. {{available}} disponible', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
+        'billing.offering.basic': 'Básico', // In English: "Basic"
         'server_timeout': 'El servidor ha tardado mucho en responder. Intenta nuevamente', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Ocurrió un error durante el registro. Intente nuevamente', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': '¡Error!', // In English: "Error!"

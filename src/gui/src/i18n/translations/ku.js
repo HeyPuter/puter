@@ -22,6 +22,7 @@ const ku = {
     english_name: 'Kurdish',
     code: 'ku',
     dictionary: {
+        about: 'دەربارە',
         account: 'هەژمار',
         account_password: 'وشەی تێپەڕی هەژمارەکەت پشتڕاست بکەوە',
         access_granted_to: 'ڕێگەپێدان درا بۆ',
@@ -39,6 +40,8 @@ const ku = {
         close_all_windows_and_log_out: 'داخستن و چوونە دەرەوە',
         change_always_open_with: 'ئەتەوێت هەمیشە ئەم جۆرە فایلە بکرێتەوە بە',
         confirm: 'پشتڕاستکردنەوە',
+        confirm_account_for_free_referral_storage_c2a:
+      'هەژمارێک دروست بکە و پەیوەندیدانی ئیمەیلەکەت پشتڕاست بکە بۆ وەرگرتنی 1 گیگابایت بەرەوپێشەوە. هاوڕێتیش 1 گیگابایت بەرەوپێشەوە دەبێت.',
         confirm_code_generic_incorrect: 'کۆدی هەڵە.',
         confirm_code_generic_too_many_requests:
       'داواکاریی زۆر. تکایە چەند خولەکێک چاوەڕوانبە.',
@@ -58,10 +61,12 @@ const ku = {
         continue: 'بەردەوامبوون',
         copy: 'کۆپی',
         copy_link: 'کۆپی کردنەوەی بەستەر',
+        copying: 'کۆپی کردنەوە',
         copying_file: 'کۆپی کردنەوەی %%',
         create_account: 'دروستکردنی هەژمار',
         create_free_account: 'دروستکردنی هەژماری ئازاد',
         create_shortcut: 'دروستکردنی شارتی',
+        credits: 'بڕگەکان',
         current_password: 'وشەی تێپەڕی ئێستا',
         cut: 'برین',
         close_all: 'داخستنەوەی هەموو',
@@ -90,6 +95,7 @@ const ku = {
         empty_trash: 'بەتاڵکردنەوەی کوڵە',
         empty_trash_confirmation: 'دڵنیایت کە ئەتەوێت هەموو بابەتەکان لە کوڵەیەکدا هەمی سڕی؟',
         emptying_trash: 'بەتاڵکردنەوەی کوڵە...',
+        enable_2fa: 'چالاککردنی 2FA',
         end_hard: 'کۆتای بەهێز',
         end_soft: 'کۆتای هەواڵ',
         enlarged_qr_code: 'کۆدی QR گەورەکراو',
@@ -106,14 +112,19 @@ const ku = {
       'سوپاس بۆ پەیوەندی کردن. گەر ناونیشانی ئیمەیلەکەت هەیە، بە زووترین کات لەگەڵت پەیوەندیدەکەین.',
         folder: 'فۆڵدەر',
         forgot_pass_c2a: 'وشەی تێپەڕت لەبیرچووە؟',
+        from: 'لە',
         general: 'گشتی',
         home: 'ماڵەوە',
         html_document: 'بەڵگەی HTML',
+        hue: 'هیو',
         incorrect_password: 'وشەی تێپەڕ هەڵەیە',
         item: 'بابەت',
         items_in_trash_cannot_be_renamed: 'ئەم بابەتە ناتوانرێت ناونوسێت چونکە لە کوڵەدا هەیە. بۆ ناونوسین، سەبارەکەی لە کوڵەکە دەر بکە.',
         jpeg_image: 'وێنەی JPEG',
         language: 'زمان',
+        license: 'لایسەنس',
+        lightness: 'رووناکی',
+        link_copied: 'بەستەر کۆپی کرا',
         loading: 'بارکردنەوە',
         log_in: 'چوونەژوورەوە',
         log_out: 'چوونە دەرەوە',
@@ -161,12 +172,16 @@ const ku = {
         plural_suffix: 'کان',
         preparing: 'ئامادەکردن...',
         print: 'چاپکردن',
+        privacy: 'تایبەتمەندی',
         proceed_to_login: 'بەردەوام بوون بۆ چوونەژوورەوە',
         properties: 'تایبەتمەندیەکان',
         public: 'گشتی',
         publish: 'بڵاوکردنەوە',
         publish_as_website: 'بڵاوکردنەوە وەک وێبسایت',
+        reading_file: 'خوێندنی %strong%',
         recover_password: 'ڕێکخستنەوەی وشەی تێپەڕ',
+        refer_friends_c2a:
+      '1 گیگابایت بۆ هەر هاوڕێک دەست بەرکە، پەیوەندیدانی هەژمارێک بۆ پوتەر دروست بکە و پشتڕاست بکە. هاوڕێتیش 1 گیگابایت وەرگرتن دەبێت!',
         refresh: 'بوژانەوە',
         rename: 'ناونانەوە',
         replace: 'لە نوێکردنەوە',
@@ -174,11 +189,13 @@ const ku = {
         resend_confirmation_code: 'دووبارە ناردنی کۆدی پشتڕاستکردنەوە',
         restore: 'گەڕاندنەوە',
         save: 'پاشەکەوت',
+        saturation: 'سەرەخۆشی',
         save_account: 'پاشەکەوتکردنی هەژمار',
         save_account_to_publish: 'تکایە هەژمارێک دروست بکە بۆ بەردەوامبوون.',
         save_session: 'پاشەکەوتکردنی دانیشتن',
         save_session_c2a:
       'هەژمارێک دروست بکە بۆ پاشەکەوتکردنی دانیشتنەکەت و جلە نبەرینەوەی کاریەکانت.',
+        search: 'گەڕان',
         seconds: 'چرکە',
         security: 'پاراستن',
         select: 'دیاریکردن',
@@ -187,12 +204,14 @@ const ku = {
         send: 'ناردن',
         send_password_recovery_email: 'پەیامی ڕێکخستنەوەی وشەی تێپەڕ ناردن',
         session_saved: 'سوپاس بۆ دروستکردنی هەژمار. ئەم دانیشتنە پاشەکەوتکرا.',
+        settings: 'ڕێکخستنەکان',
         set_new_password: 'وشەی تێپەڕی نوێ دانان',
         share: 'هاوبەشکردن',
         share_to: 'هاوبەشکردن بۆ',
         shortcut_to: 'شارتی بۆ',
         show_hidden: 'پیشاندانی شاردراوەکان',
         sign_in_with_puter: 'چوونەژوورەوە بە پوتەر',
+        sign_up: 'خۆتۆمارکردن',
         size: 'قەبارە',
         skip: 'هەڵگرتن',
         something_went_wrong: 'هەڵەیەکی رووی دا.',
@@ -200,9 +219,11 @@ const ku = {
         status: 'دۆخ',
         storage_puter_used: 'بەکاربردنی لەلایەن پوتەر',
         taking_longer_than_usual: 'کەمێک زیاتر کەوتە، تکایە چاوەڕوانبە...',
+        terms: 'مەرجەکان',
         text_document: 'بەڵگەی دەقی',
         tos_fineprint:
       " `بە گەیشتن بۆ 'دروستکردنی هەژماری ئازاد' ڕازییەتی بە {{link=terms}}مەرجەکانی خزمەتگوزاری{{/link}} و {{link=privacy}}پاراستنی تایبەتمەندی{{/link}}ی پوتەر.",
+        transparency: 'ڕووناکی',
         trash: 'کوڵە',
         two_factor: 'پشتڕاستکردنی دووجۆرا',
         two_factor_disabled: '2FA ناچالاک کرا',
@@ -212,6 +233,7 @@ const ku = {
         ui_manage_sessions: 'بەڕێوەبردنی دانیشتنەکان',
         ui_revoke: 'ڕەتکردنەوە',
         undo: 'پەشیمانبوون',
+        unlimited: 'بێ سنوور',
         unzip: 'کردنەوەی زیپ',
         upload: 'بارکردن',
         upload_here: 'بارکردن لێرە',
@@ -221,8 +243,10 @@ const ku = {
         username_required: 'ناوی بەکارهێنەر پێویستە.',
         versions: 'وەشاندنەکان',
         videos: 'ڤیدیۆکان',
+        visibility: 'پیشاندانی',
         yes: 'بەڵێ',
         zip: 'زیپ',
+        zipping_file: 'زیپ کردنەوەی %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -250,20 +274,74 @@ const ku = {
         login2fa_use_recovery_code: 'بەکارهێنانی کۆدی پشتڕاستکردنەوە',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        'change': 'بیگۆڕە', // In English: "Change"
         'reading': 'خوێندنەوە', // In English: "Reading %strong%"
         'writing': 'دەنوسێ', // In English: "Writing %strong%"
         'unzipping': 'كردنەوەی فایلی زیپ', // In English: "Unzipping %strong%"
         'sequencing': 'زنجیرەکردن', // In English: "Sequencing %strong%"
         'zipping': 'داخستنی فایلی زیپ', // In English: "Zipping %strong%"
+        'Editor': 'دەستکاریکەر', // In English: "Editor"
+        'Viewer': 'بینەر', // In English: "Viewer"
+        'People with access': 'كەسانی دەست گەیشتوو بە', // In English: "People with access"
+        'Share With…': 'بڵاوکردنەوە لەگەڵ...', // In English: "Share With…"
+        'Owner': 'خاوەن', // In English: "Owner"
+        "You can't share with yourself.": 'ناتوانیت لەگەڵ خودی خۆت بڵاوی کەیتەوە', // In English: "You can't share with yourself."
+        'This user already has access to this item': 'ئەم بەکارهێنەرە پێشتر ڕێپێدراوە بۆ ئەم فایلە', // In English: "This user already has access to this item"
 
+        'billing.change_payment_method': 'گۆڕانکاری',
+        'billing.cancel': 'بڕینەوە',
+        'billing.download_invoice': 'داونلۆد بکە',
+        'billing.payment_method': 'شێوازی پارەدان',
+        'billing.payment_method_updated': 'شێوازی پارەدان نوێ کراوەتەوە!',
+        'billing.confirm_payment_method': 'دروستکردنی شێوازی پارەدان',
+        'billing.payment_history': 'مێژووی پارەدان',
+        'billing.refunded': 'بەپێچەوانە کراوە',
+        'billing.paid': 'پارەی دا',
+        'billing.ok': 'باشە',
+        'billing.resume_subscription': 'پاشەکەوتی بەردەوام بکە',
+        'billing.subscription_cancelled': 'بەژداربوونەکەت هەڵوەشێنراوەتەوە',
+        'billing.subscription_cancelled_description': 'تا کۆتایی ئەم ماوەیە تۆ هێشتا دەستت بە بەشداربوونەکەت هەیە',
+        'billing.offering.free': 'بە خۆڕایی',
+        'billing.offering.pro': 'پیشەیی',
+        'billing.offering.professional': 'پیشەیی',
+        'billing.offering.business': 'بزنس',
+        'billing.cloud_storage': 'خزێنەی هەور',
+        'billing.ai_access': 'دەستڕاگەیشتن بە AI',
+        'billing.bandwidth': 'باندفیدت',
+        'billing.apps_and_games': 'ئەپەکان & یارییەکان',
+        'billing.upgrade_to_pro': 'بە %strong% بەرز بکەرەوە',
+        'billing.switch_to': 'گۆڕە بۆ %strong%',
+        'billing.payment_setup': 'بەکارھێنانی پارەدان',
+        'billing.back': 'باک',
+        'billing.you_are_now_subscribed_to': 'ئێستا تۆ بەشداریت لە %strong% tier',
+        'billing.you_are_now_subscribed_to_without_tier': 'ئێستا تۆ بەشداریت',
+        'billing.subscription_cancellation_confirmation': 'ئایا دڵنیایت کە دەتەوێت بەشداربوونەکەت هەڵوەشێنیتەوە؟',
         'billing.subscription_setup': 'دەستکاریی بەشداربوون',
+        'billing.cancel_it': 'داوایی لێ بکەوە',
+        'billing.keep_it': 'هێشتەوە',
+        'billing.subscription_resumed': 'بەژداربوونت %strong% دەستپێکرایەوە!',
+        'billing.upgrade_now': 'ئێستا نوێکەرەوە',
         'billing.upgrade': 'Upgrade',
+        'billing.currently_on_free_plan': 'ئێستا لە پلانی بێبەرامبەریت',
+        'billing.download_receipt': 'دانەوەی وەرگیراو',
+        'billing.subscription_check_error': 'کێشەیەک ڕوویدا لەکاتی پشکنینی دۆخی بەشداربوونەکەت',
+        'billing.email_confirmation_needed': ' ئیمەیڵەکەت پشتڕاست نەکراوەتەوە. کۆدێکت بۆ دەنێرین بۆ پشتڕاستکردنەوەی ئێستا',
+        'billing.sub_cancelled_but_valid_until': 'تۆ بەشداربوونەکەت هەڵوەشاندەوە و بە ئۆتۆماتیکی دەگۆڕێت بۆ پلەی خۆڕایی لە کۆتایی ماوەی فۆڕمی فۆرم. جارێكی دیكە هیچ پارەیەكتان لێناگیرێت مەگەر دووبارە بەشداربن',
+        'billing.current_plan_until_end_of_period': 'پلانی ئێستای تۆ تا کۆتایی ئەم ماوەیە بۆ فۆڕمی فۆرم',
+        'billing.current_plan': 'پلانی ئێستا',
+        'billing.cancelled_subscription_tier': 'بەژمارەی هەڵوەشێندراو (%%) ',
+        'billing.manage': 'بەڕێوەبەری',
+        'billing.limited': 'Limited',
+        'billing.expanded': 'بڵاوکراوەتەوە',
+        'billing.accelerated': 'بە خێرایی',
+        'billing.enjoy_msg': '%% لە هەڵگرتنی هەور و سوودی تر وەربگرە',
         'create_shortcut_s': 'دروستکردنی کورتەڕەوەکان', // In English: "Create Shortcuts"
         'minimize': 'بچووککردنەوە', // In English: "Minimize"
         'reload_app': 'ئەپلیکەیشن دووبارە بار بکە', // In English: "Reload App"
         'publish_as_serverless_worker': 'بڵاوکردنەوە وەک کارمەند', // In English: "Publish as Worker"
         'used_of': '{{used}} بەکارهاتوو لە {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'کارمەند', // In English: "Worker"
+        'billing.offering.basic': 'بنەڕەتی', // In English: "Basic"
         'server_timeout': 'سێرڤەرەکە زۆر ماوەیەکی درێژ وەڵامی نەدا. تکایە دووبارە هەوڵ بدە.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'هەڵەیەک ڕووی دا لە کاتی تۆماربووندا. تکایە دووبارە هەوڵبدە.', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'هەڵە', // In English: "Error!"

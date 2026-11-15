@@ -22,6 +22,7 @@ const th = {
     english_name: 'Thai',
     code: 'th',
     dictionary: {
+        about: 'เกี่ยวกับ',
         account: 'บัญชี',
         account_password: 'ยืนยันรหัสผ่านบัญชี',
         access_granted_to: 'อนุญาตให้เข้าถึง',
@@ -38,6 +39,7 @@ const th = {
         close: 'ปิด',
         close_all_windows_and_log_out: 'ปิดหน้าต่างและออกจากระบบ',
         change_always_open_with: 'คุณต้องการเปิดไฟล์ประเภทนี้ด้วย',
+        confirm_account_for_free_referral_storage_c2a: 'สร้างบัญชีและยืนยันที่อยู่อีเมลของคุณเพื่อรับพื้นที่จัดเก็บข้อมูลฟรี 1 GB เพื่อนของคุณจะได้รับพื้นที่จัดเก็บข้อมูลฟรี 1 GB เช่นกัน',
         confirm_code_generic_incorrect: 'รหัสไม่ถูกต้อง',
         confirm_code_generic_too_many_requests: 'ส่งรีเควสมากเกินไป กรุณารอสักสองสามนาที',
         confirm_code_2fa_instruction: 'กรอกรหัส6หลักจากใน authenticator แอฟ',
@@ -53,10 +55,12 @@ const th = {
         continue: 'ดำเนินการต่อ',
         copy: 'คัดลอก',
         copy_link: 'คัดลอกลิงก์',
+        copying: 'กำลังคัดลอก',
         copying_file: 'กำลังคัดลอก %%',
         create_account: 'สร้างบัญชี',
         create_free_account: 'สร้างบัญชีฟรี',
         create_shortcut: 'สร้างทางลัด',
+        credits: 'Credits',
         current_password: 'รหัสผ่านปัจจุบัน',
         cut: 'ตัด',
         close_all: 'ปิดหมด',
@@ -84,6 +88,7 @@ const th = {
         empty_trash: 'ลบไฟล์ในถังขยะ',
         empty_trash_confirmation: 'คุณแน่ใจหรือไม่ว่าต้องการลบรายการในถังขยะอย่างถาวร?',
         emptying_trash: 'กำลังลบไฟล์ในถังขยะ...',
+        enable_2fa: 'เปิดใช้งาน 2FA',
         end_hard: 'ปิดแบบหนัก',
         end_soft: 'ปิดแบบเบา',
         enlarged_qr_code: 'ขยายคิวอาร์โค้ด',
@@ -97,14 +102,19 @@ const th = {
         feedback_sent_confirmation: 'ขอบคุณที่ติดต่อเรา หากคุณมีอีเมลที่เชื่อมโยงกับบัญชีของคุณ คุณจะได้รับการติดต่อกลับจากเราโดยเร็วที่สุด',
         folder: 'โฟลเดอร์',
         forgot_pass_c2a: 'ลืมรหัสผ่าน?',
+        from: 'จาก',
         general: 'ทั่วไป',
         home: 'บ้าน',
         html_document: 'เอกสาร HTML',
+        hue: 'สี',
         incorrect_password: 'รหัสไม่ถูกต้อง',
         item: 'รายการ',
         items_in_trash_cannot_be_renamed: 'ไม่สามารถเปลี่ยนชื่อรายการนี้ได้เนื่องจากอยู่ในถังขยะ หากต้องการเปลี่ยนชื่อรายการนี้ ให้ลากออกจากถังขยะก่อน',
         jpeg_image: 'ภาพ JPEG',
         language: 'ภาษา',
+        license: 'ใบอนุญาต',
+        lightness: 'ความสว่าง',
+        link_copied: 'คัดลอกลิงค์แล้ว',
         loading: 'กำลังโหลด',
         log_in: 'เข้าสู่ระบบ',
         log_out: 'ออกจากระบบ',
@@ -146,22 +156,27 @@ const th = {
         plural_suffix: '',
         preparing: 'กำลังเตรียม...',
         print: 'พิมพ์',
+        privacy: 'ความเป็นส่วนตัว',
         proceed_to_login: 'ดำเนินการเข้าสู่ระบบ',
         properties: 'คุณสมบัติ',
         public: 'สาธารณะ',
         publish: 'เผยแพร่',
         publish_as_website: 'เผยแพร่เป็นเว็บไซต์',
+        reading_file: 'กำลังอ่าน %strong%',
         recover_password: 'กู้คืนรหัสผ่าน',
+        refer_friends_c2a: 'รับพื้นที่ 1 GB สำหรับเพื่อนทุกคนที่สร้าง และยืนยันบัญชีบน Puter เพื่อนของคุณจะได้รับพื้นที่ 1 GB เช่นกัน!',
         refresh: 'รีเฟรช',
         rename: 'เปลี่ยนชื่อ',
         replace: 'แทนที่',
         replace_all: 'แทนที่ทั้งหมด',
         resend_confirmation_code: 'ส่งรหัสยืนยันอีกครั้ง',
         restore: 'คืนค่า',
+        saturation: 'ความอิ่มตัว',
         save_account: 'บันทึกบัญชี',
         save_account_to_publish: 'กรุณาสร้างบัญชีเพื่อดำเนินการต่อ',
         save_session: 'บันทึกเซสชัน',
         save_session_c2a: 'สร้างบัญชีเพื่อบันทึกเซสชันปัจจุบัน และป้องกันการสูญเสียข้อมูลการทำงานของคุณ',
+        search: 'ค้นหา',
         seconds: 'วินาที',
         security: 'ความปลอดภัย',
         select: 'เลือก',
@@ -170,12 +185,14 @@ const th = {
         send: 'ส่ง',
         send_password_recovery_email: 'ส่งอีเมลกู้คืนรหัสผ่าน',
         session_saved: 'ขอบคุณสำหรับการสร้างบัญชี เซสชันนี้ได้รับการบันทึกแล้ว',
+        settings: 'Settings',
         set_new_password: 'ตั้งรหัสผ่านใหม่',
         share: 'แชร์',
         share_to: 'แชร์ไปยัง',
         shortcut_to: 'ทางลัดไป',
         show_hidden: 'แสดงที่ซ่อนไว้',
         sign_in_with_puter: 'ลงชื่อเข้าใช้ด้วย Puter',
+        sign_up: 'สมัครสมาชิก',
         size: 'ขนาด',
         skip: 'ข้าม',
         something_went_wrong: 'บางสิ่งผิดพลาด',
@@ -183,8 +200,10 @@ const th = {
         status: 'สถานะ',
         storage_puter_used: 'ถูกใช้โดย Puter',
         taking_longer_than_usual: 'ใช้เวลานานกว่าปกติเล็กน้อย กรุณารอสักครู่...',
+        terms: 'เงื่อนไข',
         text_document: 'เอกสารข้อความ',
         tos_fineprint: 'การคลิก \'สร้างบัญชีฟรี\' หมายความว่าคุณยอมรับ {{link=terms}}ข้อกำหนดการให้บริการ{{/link}} และ {{link=privacy}}นโยบายความเป็นส่วนตัว{{/link}}.',
+        transparency: 'ความโปร่งใส',
         trash: 'ถังขยะ',
         two_factor: 'ยืนยันตัวตนสองขั้นตอน',
         two_factor_disabled: 'ปิดการใช้งาน 2FA',
@@ -194,6 +213,7 @@ const th = {
         ui_manage_sessions: 'ตัวจัดการเซสชั่น',
         ui_revoke: 'เพิกถอน',
         undo: 'เลิกทำ',
+        unlimited: 'ไม่จำกัด',
         unzip: 'คลายการบีบอัด',
         upload: 'อัปโหลด',
         upload_here: 'อัปโหลดที่นี่',
@@ -203,8 +223,10 @@ const th = {
         username_required: 'ต้องกรอกชื่อผู้ใช้',
         versions: 'รุ่น',
         videos: 'วีดีโอ',
+        visibility: 'การมองเห็น',
         yes: 'ใช่',
         zip: 'บีบอัด',
+        zipping_file: 'กำลังบีบอัด %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -229,6 +251,7 @@ const th = {
         login2fa_use_recovery_code: 'ใช้รหัสกู้คืน',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        'change': 'เปลี่ยนแปลง', // In English: "Change"
         'confirm': 'ยืนยัน', // In English: "Confirm"
         'path': 'ที่อยู่', // In English: "Path"
         'plural_suffix': 's', // In English: "s"
@@ -238,15 +261,68 @@ const th = {
         'unzipping': 'กำลังแยก %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'กำลังจัดลำดับ %strong%', // In English: "Sequencing %strong%"
         'zipping': 'กำลังบีบอัด %strong%', // In English: "Zipping %strong%"
+        'Editor': 'ตัวแก้ไข', // In English: "Editor"
+        'Viewer': 'ผู้ชม', // In English: "Viewer"
+        'People with access': 'บุคคลที่สามารถเข้าถึงได้', // In English: "People with access"
+        'Share With…': 'แบ่งปันร่วมกับ...', // In English: "Share With…"
+        'Owner': 'เจ้าของ', // In English: "Owner"
+        "You can't share with yourself.": 'คุณไม่สามารถแบ่งปันกับตัวเองได้', // In English: "You can't share with yourself."
+        'This user already has access to this item': 'ผู้ใช้นี้สามารถเข้าถึงรายการนี้ได้แล้ว', // In English: "This user already has access to this item"
 
+        'billing.change_payment_method': 'เปลี่ยน', // In English: "Change"
+        'billing.cancel': 'ยกเลิก', // In English: "Cancel"
+        'billing.download_invoice': 'ดาวน์โหลด', // In English: "Download"
+        'billing.payment_method': 'วิธีการชำระเงิน', // In English: "Payment Method"
+        'billing.payment_method_updated': 'เปลี่ยนแปลงวิธีการชำระเงินสำเร็จ', // In English: "Payment method updated!"
+        'billing.confirm_payment_method': 'ยืนยันวิธีการชำระเงิน', // In English: "Confirm Payment Method"
+        'billing.payment_history': 'ประวัติการชำระเงิน', // In English: "Payment History"
+        'billing.refunded': 'คืนเงินสำเร็จ', // In English: "Refunded"
+        'billing.paid': 'จ่ายแล้ว', // In English: "Paid"
+        'billing.ok': 'ตกลง', // In English: "OK"
+        'billing.resume_subscription': 'ต่ออายุสมาชิก', // In English: "Resume Subscription"
+        'billing.subscription_cancelled': 'สมาชิกของคุณถูกยกเลิกแล้ว', // In English: "Your subscription has been canceled."
+        'billing.subscription_cancelled_description': 'คุณยังเป็นสมาชิกอยู่จนถึงวันสิ้นสุดรอบบิลนี้', // In English: "You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': 'ฟรี', // In English: "Free"
+        'billing.offering.pro': 'มืออาชีพ', // In English: "Professional"
+        'billing.offering.professional': 'มืออาชีพ', // In English: "Professional"
+        'billing.offering.business': 'ธุรกิจ', // In English: "Business"
+        'billing.cloud_storage': 'จัดเก็บบนคลาวด์', // In English: "Cloud Storage"
+        'billing.ai_access': 'การเข้าถึงโดย AI', // In English: "AI Access"
+        'billing.bandwidth': 'แบนด์วิดท์', // In English: "Bandwidth"
+        'billing.apps_and_games': 'แอป และ เกมส์', // In English: "Apps & Games"
+        'billing.upgrade_to_pro': 'เพิ่ม %strong%', // In English: "Upgrade to %strong%"
+        'billing.switch_to': 'เปลี่ยนเป็น %strong%', // In English: "Switch to %strong%"
+        'billing.payment_setup': 'ตั้งค่าการชำระเงิน', // In English: "Payment Setup"
+        'billing.back': 'ย้อนกลับ', // In English: "Back"
+        'billing.you_are_now_subscribed_to': 'คุณได้สมัครเป็นระดับ %strong แล้ว', // In English: "You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': 'คุณเป็นสมาชิกใหม่แล้ว', // In English: "You are now subscribed"
+        'billing.subscription_cancellation_confirmation': 'คุณแน่ใจที่จะยกเลิกการเป็นสมาชิกหรือไม่?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'การตั้งค่าการเป็นสมาชิก', // In English: "Subscription Setup"
+        'billing.cancel_it': 'ยกเลิก', // In English: "Cancel It"
+        'billing.keep_it': 'เก็บไว้', // In English: "Keep It"
+        'billing.subscription_resumed': 'คุณได้กลับคืนสู่การเป็นสมาชิกระดับ %strong%', // In English: "Your %strong% subscription has been resumed!"
+        'billing.upgrade_now': 'อัพเกรดตอนนี้', // In English: "Upgrade Now"
         'billing.upgrade': 'อัพเกรด', // In English: "Upgrade"
+        'billing.currently_on_free_plan': 'คุณเป็นสมาชิกระดับฟรีในตอนนี้', // In English: "You are currently on the free plan."
+        'billing.download_receipt': 'ดาวน์โหลดใบเสร็จ', // In English: "Download Receipt"
+        'billing.subscription_check_error': 'มีปัญหาในการตรวจสอบสถานะสมาชิกของคุณ', // In English: "A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed': 'อีเมล์ของคุณยังไม่ได้รับการยืนยัน เราจะส่งโค้ดไปทางอีเมล์ของคุณเพื่อทำการยืนยันตอนนี้', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until': 'สมาชิกของคุณได้ถูกยกเลิกแล้วและจะถูกเปลี่ยนเป็นระดับฟรีหลังจากสิ้นสุดรอบบิลนี้ จะไม่มีการเรียกเก็บค่าใช้จ่ายหลังจากนี้ ยกเว้นกรณีสมัครสมาชิกใหม่', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period': 'ระดับสมาชิกของคุณจนกว่าจะสิ้นสุดรอบบิลนี้', // In English: "Your current plan until the end of this billing period."
+        'billing.current_plan': 'ระดับสมาชิกปัจจุบัน', // In English: "Current plan"
+        'billing.cancelled_subscription_tier': 'สมาชิกที่ถูกยกเลิกไปแล้ว (%%)', // In English: "Cancelled Subscription (%%)"
+        'billing.manage': 'จัดการ', // In English: "Manage"
+        'billing.limited': 'จำกัด', // In English: "Limited"
+        'billing.expanded': 'ขยาย', // In English: "Expanded"
+        'billing.accelerated': 'เร่ง', // In English: "Accelerated"
+        'billing.enjoy_msg': 'ขอให้สนุกกับพื้นที่จัดเก็บบนคลาด์ที่เพิ่มขึ้น %% ของคุณ', // In English: "Enjoy "" of Cloud Storage plus other benefits."
         'create_shortcut_s': 'สร้างทางลัด',
         'minimize': 'ย่อเล็กสุด',
         'reload_app': 'โหลดแอปใหม่',
         'publish_as_serverless_worker': 'เผยแพร่เป็น Worker',
         'used_of': 'ใช้ {{used}} จาก {{available}}',
         'worker': 'Worker',
+        'billing.offering.basic': 'พื้นฐาน',
         'server_timeout': 'เซิร์ฟเวอร์ใช้เวลานานเกินไปในการตอบสนอง กรุณาลองใหม่',
         'signup_error': 'เกิดข้อผิดพลาดระหว่างการสมัครสมาชิก กรุณาลองใหม่',
         'alert_error_title': 'ข้อผิดพลาด!',

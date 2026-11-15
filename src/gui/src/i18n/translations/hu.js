@@ -22,6 +22,7 @@ const hu = {
     english_name: 'Hungarian',
     code: 'hu',
     dictionary: {
+        about: 'Névjegy',
         account: 'Fiók',
         account_password: 'Fiók jelszó megerősítése',
         access_granted_to: 'Hozzáférés engedélyezve',
@@ -39,6 +40,7 @@ const hu = {
         close_all_windows_and_log_out: 'Ablakok bezárása és kijelentkezés',
         change_always_open_with: 'Mindig ezzel az alkalmazással nyitja meg ezt a fájlt?',
         confirm: 'Megerősít',
+        confirm_account_for_free_referral_storage_c2a: 'Hozz létre egy fiókot és erősítsd meg email címedet, hogy 1 GB ingyenes tárhelyet kapj. A barátod is kap 1 GB ingyenes tárhelyet.',
         confirm_code_generic_incorrect: 'Hibás kód.',
         confirm_code_generic_too_many_requests: 'Túl sok kérés. Kérlek, várj néhány percet.',
         confirm_code_2fa_instruction: 'Add meg a 6-jegyű kódot a hitelesítő alkalmazásodból.',
@@ -54,10 +56,12 @@ const hu = {
         continue: 'Folytatás',
         copy: 'Másolás',
         copy_link: 'Link másolása',
+        copying: 'Másolás',
         copying_file: 'Másolás: %%',
         create_account: 'Fiók létrehozása',
         create_free_account: 'Ingyenes fiók létrehozása',
         create_shortcut: 'Parancsikon létrehozása',
+        credits: 'Kreditek',
         current_password: 'Jelenlegi jelszó',
         cut: 'Kivágás',
         close_all: 'Összes bezárása',
@@ -85,6 +89,7 @@ const hu = {
         empty_trash: 'Kuka ürítése',
         empty_trash_confirmation: 'Biztosan véglegesen törölni akarod a Kukában lévő elemeket?',
         emptying_trash: 'Kuka ürítése...',
+        enable_2fa: '2FA engedélyezése',
         end_hard: 'Kemény befejezés',
         end_soft: 'Lágy befejezés',
         enlarged_qr_code: 'Nagyított QR kód',
@@ -98,14 +103,19 @@ const hu = {
         feedback_sent_confirmation: 'Köszönjük, hogy kapcsolatba léptél velünk. Ha van email címed a fiókodhoz társítva, hamarosan hallani fogsz rólunk.',
         folder: 'Mappa',
         forgot_pass_c2a: 'Elfelejtetted a jelszavad?',
+        from: 'Tól',
         general: 'Általános',
         home: 'Otthon',
         html_document: 'HTML dokumentum',
+        hue: 'Színárnyalat',
         incorrect_password: 'Helytelen jelszó',
         item: 'elem',
         items_in_trash_cannot_be_renamed: 'Ez az elem nem nevezhető át, mert a kukában van. A név megváltoztatásához először húzd ki a Kukából.',
         jpeg_image: 'JPEG kép',
         language: 'Nyelv',
+        license: 'Licenc',
+        lightness: 'Világosság',
+        link_copied: 'Link másolva',
         loading: 'Betöltés',
         log_in: 'Bejelentkezés',
         log_out: 'Kijelentkezés',
@@ -148,12 +158,15 @@ const hu = {
         plural_suffix: 'k',
         preparing: 'Előkészítés...',
         print: 'Nyomtatás',
+        privacy: 'Adatvédelem',
         proceed_to_login: 'Folytatás a bejelentkezéshez',
         properties: 'Tulajdonságok',
         public: 'Nyilvános',
         publish: 'Közzététel',
         publish_as_website: 'Közzététel weboldalként',
+        reading_file: 'Fájl olvasása: %strong%',
         recover_password: 'Jelszó visszaállítása',
+        refer_friends_c2a: 'Kapj 1 GB-ot minden barátodért, aki létrehoz és megerősít egy fiókot a Puteren. A barátod is kap 1 GB-ot!',
         refresh: 'Frissítés',
         rename: 'Átnevezés',
         replace: 'Csere',
@@ -161,10 +174,12 @@ const hu = {
         resend_confirmation_code: 'Megerősítő kód újraküldése',
         restore: 'Visszaállítás',
         save: 'Mentés',
+        saturation: 'Telítettség',
         save_account: 'Fiók mentése',
         save_account_to_publish: 'A folytatáshoz kérlek, hozz létre egy fiókot.',
         save_session: 'Munkamenet mentése',
         save_session_c2a: 'Hozz létre egy fiókot, hogy mentsd az aktuális munkamenetedet és elkerüld a munkád elvesztését.',
+        search: 'Keresés',
         seconds: 'másodperc',
         security: 'Biztonság',
         select: 'Kiválasztás',
@@ -173,12 +188,14 @@ const hu = {
         send: 'Küldés',
         send_password_recovery_email: 'Jelszó visszaállító email küldése',
         session_saved: 'Köszönjük, hogy létrehoztál egy fiókot. Ez a munkamenet mentésre került.',
+        settings: 'Beállítások',
         set_new_password: 'Új jelszó beállítása',
         share: 'Megosztás',
         share_to: 'Megosztás ide:',
         shortcut_to: 'Parancsikon ide:',
         show_hidden: 'Rejtett megjelenítése',
         sign_in_with_puter: 'Bejelentkezés Puterrel',
+        sign_up: 'Regisztráció',
         size: 'Méret',
         skip: 'Kihagyás',
         something_went_wrong: 'Valami hiba történt.',
@@ -186,8 +203,10 @@ const hu = {
         status: 'Állapot',
         storage_puter_used: 'Puter által használt',
         taking_longer_than_usual: 'Kicsit tovább tart, mint általában. Kérlek várj...',
+        terms: 'Feltételek',
         text_document: 'Szöveges dokumentum',
         tos_fineprint: "A 'Ingyenes fiók létrehozása' gombra kattintva elfogadod a Puter {{link=terms}}Szolgáltatási feltételeit{{/link}} és {{link=privacy}}Adatvédelmi irányelveit{{/link}}.",
+        transparency: 'Átlátszóság',
         trash: 'Kuka',
         two_factor: 'Kétfaktoros hitelesítés',
         two_factor_disabled: '2FA letiltva',
@@ -197,6 +216,7 @@ const hu = {
         ui_manage_sessions: 'Munkamenetkezelő',
         ui_revoke: 'Visszavonás',
         undo: 'Visszavonás',
+        unlimited: 'Korlátlan',
         unzip: 'Kibontás',
         upload: 'Feltöltés',
         upload_here: 'Feltöltés ide',
@@ -206,8 +226,10 @@ const hu = {
         username_required: 'Felhasználónév szükséges.',
         versions: 'Verziók',
         videos: 'Videók',
+        visibility: 'Láthatóság',
         yes: 'Igen',
         zip: 'Zip',
+        zipping_file: 'Tömörítés: %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: "Bármely hitelesítő alkalmazást használhatod, amely támogatja az időalapú egyszeri jelszó (TOTP) protokollt. Sok választási lehetőség van, de ha nem vagy biztos benne, az <a target='_blank' href='https://authy.com/download'>Authy</a> jó választás Android és iOS rendszeren.",
@@ -224,20 +246,76 @@ const hu = {
         login2fa_use_recovery_code: 'Használj helyreállítási kódot',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        'change': 'Módosítás', // In English: "Change"
         'reading': 'Olvasás %strong%', // In English: "Reading %strong%"
         'writing': 'Írás %strong%', // In English: "Writing %strong%"
         'unzipping': 'Kibontás %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'Sorba rendezés %strong%', // In English: "Sequencing %strong%"
         'zipping': 'Tömörítés %strong%', // In English: "Zipping %strong%"
+        'Editor': 'Szerkesztő', // In English: "Editor"
+        'Viewer': 'Megtekintő', // In English: "Viewer"
+        'People with access': 'Hozzáféréssel rendelkező emberek', // In English: "People with access"
+        'Share With…': 'Oszd Meg…', // In English: "Share With…"
+        'Owner': 'Tulajdonos', // In English: "Owner"
+        "You can't share with yourself.": 'Nem oszthatod meg magaddal.', // In English: "You can't share with yourself."
+        'This user already has access to this item': 'Ez a felhasználó már hozzáfér ehhez az elemhez', // In English: "This user already has access to this item"
 
+        'billing.change_payment_method': 'Módosítás', // In English: "Change"
+        'billing.cancel': 'Lemondás', // In English: "Cancel"
+        'billing.change_payment_method': 'Fizetési mód megváltoztatása', // In English: "Change"
+        'billing.cancel': 'Mégse', // In English: "Cancel"
+        'billing.download_invoice': 'Letöltés', // In English: "Download"
+        'billing.payment_method': 'Fizetési mód', // In English: "Payment Method"
+        'billing.payment_method_updated': 'A fizetési mód frissítve!', // In English: "Payment method updated!"
+        'billing.confirm_payment_method': 'Fizetési mód megerősítése', // In English: "Confirm Payment Method"
+        'billing.payment_history': 'Fizetési előzmények', // In English: "Payment History"
+        'billing.refunded': 'Visszatérítve', // In English: "Refunded"
+        'billing.paid': 'Fizetve', // In English: "Paid"
+        'billing.ok': 'OK', // In English: "OK"
+        'billing.resume_subscription': 'Előfizetés folytatása', // In English: "Resume Subscription"
+        'billing.subscription_cancelled': 'Az előfizetésed lemondva.', // In English: "Your subscription has been canceled."
+        'billing.subscription_cancelled_description': 'Az aktuális számlázási időszak végéig továbbra is hozzáférsz az előfizetésedhez.', // In English: "You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': 'Ingyenes', // In English: "Free"
+        'billing.offering.pro': 'Professzionális', // In English: "Professional"
+        'billing.offering.professional': 'Professzionális', // In English: "Professional"
+        'billing.offering.business': 'Üzleti', // In English: "Business"
+        'billing.cloud_storage': 'Felhő Tárhely', // In English: "Cloud Storage"
+        'billing.ai_access': 'AI hozzáférés', // In English: "AI Access"
+        'billing.bandwidth': 'Sávszélesség', // In English: "Bandwidth"
+        'billing.apps_and_games': 'Alkalmazások és játékok', // In English: "Apps & Games"
+        'billing.upgrade_to_pro': 'Csomag váltása erre: %strong%', // In English: "Upgrade to %strong%"
+        'billing.switch_to': 'Váltás erre: %strong%', // In English: "Switch to %strong%"
+        'billing.payment_setup': 'Fizetési beállítás', // In English: "Payment Setup"
+        'billing.back': 'Vissza', // In English: "Back"
+        'billing.you_are_now_subscribed_to': 'Mostantól feliratkoztál a %strong% csomagra.', // In English: "You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': 'Mostantól előfizettél', // In English: "You are now subscribed"
+        'billing.subscription_cancellation_confirmation': 'Biztos, hogy le akarod mondani az előfizetésedet?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'Előfizetés beállítása', // In English: "Subscription Setup"
+        'billing.cancel_it': 'Mondd le', // In English: "Cancel It"
+        'billing.keep_it': 'Tartsd meg', // In English: "Keep It"
+        'billing.subscription_resumed': 'A(z) %strong% előfizetésed folytatva lett!', // In English: "Your %strong% subscription has been resumed!"
+        'billing.upgrade_now': 'Válts magasabb csomagra most', // In English: "Upgrade Now"
         'billing.upgrade': 'Csomag Váltása', // In English: "Upgrade"
+        'billing.currently_on_free_plan': 'Jelenleg az ingyenes csomagon vagy.', // In English: "You are currently on the free plan."
+        'billing.download_receipt': 'Nyugta letöltése', // In English: "Download Receipt"
+        'billing.subscription_check_error': 'Hiba történt az előfizetési állapot ellenőrzése közben.', // In English: "A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed': 'Az e-mail címed még nincs megerősítve. Most küldünk egy kódot a megerősítéshez.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until': 'Lemondtad az előfizetésedet, és a számlázási időszak végén automatikusan az ingyenes csomagra vált. Nem fogsz újra díjat fizetni, hacsak nem fizetsz elő újra.', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period': 'Az aktuális csomagod a számlázási időszak végéig.', // In English: "Your current plan until the end of this billing period."
+        'billing.current_plan': 'Jelenlegi csomag', // In English: "Current plan"
+        'billing.cancelled_subscription_tier': 'Lemondott Előfizetés (%%)', // In English: "Cancelled Subscription (%%)"
+        'billing.manage': 'Kezelés', // In English: "Manage"
+        'billing.limited': 'Korlátozott', // In English: "Limited"
+        'billing.expanded': 'Bővített', // In English: "Expanded"
+        'billing.accelerated': 'Gyorsított', // In English: "Accelerated"
+        'billing.enjoy_msg': 'Élvezd a %% Felhőtárhelyet és további előnyöket.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
         'create_shortcut_s': 'Parancsikonok létrehozása', // English: "Create Shortcuts"
         'minimize': 'Minimalizálás', // English: "Minimize"
         'reload_app': 'Alkalmazás újratöltése', // English: "Reload App"
         'publish_as_serverless_worker': 'Munkás közzététele', // English: "Publish as Worker"
         'used_of': '{{used}} használt a {{available}}-ból', // English: "{{used}} used of {{available}}"
         'worker': 'Munkás', // English: "Worker"
+        'billing.offering.basic': 'Alap', // English: "Basic"
         'server_timeout': 'A szerver túl sokáig válaszolt. Kérjük, próbálja meg újra.', // English: "The server took too long to respond. Please try again."
         'signup_error': 'Hiba történt a regisztráció során. Kérjük, próbálja újra.', // English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Hiba!', // English: "Error!"

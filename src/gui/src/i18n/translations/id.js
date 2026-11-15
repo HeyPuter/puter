@@ -22,6 +22,7 @@ const id = {
     english_name: 'Indonesian',
     code: 'id',
     dictionary: {
+        about: 'Tentang',
         account: 'Akun',
         account_password: 'Verifikasi Kata Sandi Akun',
         access_granted_to: 'Akses Diberikan Kepada',
@@ -39,6 +40,8 @@ const id = {
         close_all_windows_and_log_out: 'Tutup Jendela dan Keluar',
         change_always_open_with: 'Apakah Anda ingin selalu membuka jenis file ini dengan',
         confirm: 'Konfirmasi',
+        confirm_account_for_free_referral_storage_c2a:
+      'Buat akun dan konfirmasi alamat email Anda untuk menerima 1 GB kapasitas penyimpanan gratis. Teman Anda juga akan mendapatkan 1 GB kapasitas penyimpanan gratis.',
         confirm_code_generic_incorrect: 'Kode Salah.',
         confirm_code_generic_too_many_requests:
       'Terlalu banyak permintaan. Silakan tunggu beberapa menit.',
@@ -59,10 +62,12 @@ const id = {
         continue: 'Lanjutkan',
         copy: 'Salin',
         copy_link: 'Salin Tautan',
+        copying: 'Menyalin',
         copying_file: 'Menyalin berkas',
         create_account: 'Buat Akun',
         create_free_account: 'Buat Akun Gratis',
         create_shortcut: 'Buat Pintasan',
+        credits: 'Kredit',
         current_password: 'Kata Sandi Saat Ini',
         cut: 'Potong',
         close_all: 'Tutup Semua',
@@ -91,6 +96,7 @@ const id = {
         empty_trash: 'Kosongkan Sampah',
         empty_trash_confirmation: 'Apakah Anda yakin ingin menghapus barang-barang di Sampah secara permanen?',
         emptying_trash: 'Mengosongkan Sampah…',
+        enable_2fa: 'Aktifkan 2FA',
         end_hard: 'Paksa Akhiri',
         end_soft: 'Akhiri',
         enlarged_qr_code: 'Kode QR Diperbesar',
@@ -107,14 +113,19 @@ const id = {
       'Terima kasih telah menghubungi kami. Jika Anda memiliki email yang terhubung dengan akun Anda, Anda akan menerima balasan dari kami sesegera mungkin.',
         folder: 'Folder',
         forgot_pass_c2a: 'Lupa kata sandi?',
+        from: 'Dari',
         general: 'Umum',
         home: 'Beranda',
         html_document: 'Dokumen HTML',
+        hue: 'Hue',
         incorrect_password: 'Kata sandi salah',
         item: 'barang',
         items_in_trash_cannot_be_renamed: 'Barang ini tidak dapat diganti namanya karena berada di sampah. Untuk mengganti nama barang ini, pindahkan dahulu dari Sampah.',
         jpeg_image: 'Gambar JPEG',
         language: 'Bahasa',
+        license: 'Lisensi',
+        lightness: 'Kecerahan',
+        link_copied: 'Tautan disalin',
         loading: 'Memuat',
         log_in: 'Masuk',
         log_out: 'Keluar',
@@ -161,12 +172,16 @@ const id = {
         plural_suffix: 's',
         preparing: 'Mempersiapkan...',
         print: 'Cetak',
+        privacy: 'Privasi',
         proceed_to_login: 'Lanjutkan masuk',
         properties: 'Properti',
         public: 'Publik',
         publish: 'Publikasi',
         publish_as_website: 'Publikasikan sebagai situs web',
+        reading_file: 'Membaca %strong%',
         recover_password: 'Pulihkan Kata Sandi',
+        refer_friends_c2a:
+      'Dapatkan 1 GB untuk setiap teman yang membuat dan mengonfirmasi akun di Puter. Teman Anda juga akan mendapatkan 1 GB!',
         refresh: 'Muat Ulang',
         rename: 'Ganti Nama',
         replace: 'Ganti',
@@ -174,11 +189,13 @@ const id = {
         resend_confirmation_code: 'Kirim Ulang Kode Konfirmasi',
         restore: 'Pulihkan',
         save: 'Simpan',
+        saturation: 'Saturasi',
         save_account: 'Simpan akun',
         save_account_to_publish: 'Silakan buat akun untuk melanjutkan.',
         save_session: 'Simpan sesi',
         save_session_c2a:
       'Buat akun untuk menyimpan sesi Anda saat ini agar yang Anda kerjakan tidak hilang.',
+        search: 'Pencarian',
         seconds: 'detik',
         security: 'Keamanan',
         select: 'Pilih',
@@ -187,12 +204,14 @@ const id = {
         send: 'Kirim',
         send_password_recovery_email: 'Kirim Email Pemulihan Kata Sandi',
         session_saved: 'Terima kasih telah membuat akun. Sesi ini telah disimpan.',
+        settings: 'Pengaturan',
         set_new_password: 'Tetapkan Kata Sandi Baru',
         share: 'Bagikan',
         share_to: 'Bagikan ke',
         shortcut_to: 'Pintasan ke',
         show_hidden: 'Tampilkan yang tersembunyi',
         sign_in_with_puter: 'Masuk dengan Puter',
+        sign_up: 'Daftar',
         size: 'Ukuran',
         skip: 'Lewatkan',
         something_went_wrong: 'Terjadi kesalahan.',
@@ -201,8 +220,10 @@ const id = {
         storage_puter_used: 'digunakan oleh Puter',
         taking_longer_than_usual:
       'Memakan waktu sedikit lebih lama dari biasanya. Silakan tunggu...',
+        terms: 'Persyaratan',
         text_document: 'Dokumen Teks',
         tos_fineprint: 'Dengan mengklik \'Buat Akun Gratis\', Anda menyetujui {{link=terms}}Syarat Layanan{{/link}} dan {{link=privacy}}Kebijakan Privasi{{/link}} Puter.',
+        transparency: 'Transparansi',
         trash: 'Tempat Sampah',
         two_factor: 'Otentikasi Dua Faktor',
         two_factor_disabled: '2FA Dinonaktifkan',
@@ -212,6 +233,7 @@ const id = {
         ui_manage_sessions: 'Pengelola Sesi',
         ui_revoke: 'Batalkan',
         undo: 'Batalkan',
+        unlimited: 'Tak Terbatas',
         unzip: 'Ekstrak',
         upload: 'Unggah',
         upload_here: 'Unggah di sini',
@@ -221,8 +243,10 @@ const id = {
         username_required: 'Nama pengguna diperlukan.',
         versions: 'Versi',
         videos: 'Video',
+        visibility: 'Visibilitas',
         yes: 'Ya',
         zip: 'Zip',
+        zipping_file: 'Mengekstrak %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -249,15 +273,68 @@ const id = {
         login2fa_use_recovery_code: 'Gunakan kode pemulihan',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        'change': 'Ubah', // In English: "Change"
         'reading': 'Membaca %strong%', // In English: "Reading %strong%"
         'writing': 'Menulis %strong%', // In English: "Writing %strong%"
         'unzipping': 'Mengekstrak %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'Mengurutkan %strong%', // In English: "Sequencing %strong%"
         'zipping': 'Mengarsipkan %strong%', // In English: "Zipping %strong%"
+        'Editor': 'Editor', // In English: "Editor"
+        'Viewer': 'Penampil', // In English: "Viewer"
+        'People with access': 'Orang yang memiliki akses', // In English: "People with access"
+        'Share With…': 'Bagikan Dengan...', // In English: "Share With…"
+        'Owner': 'Pemilik', // In English: "Owner"
+        "You can't share with yourself.": 'Anda tidak bisa berbagi dengan diri sendiri.', // In English: "You can't share with yourself."
+        'This user already has access to this item': 'Pengguna ini telah memiliki akses ke barang ini', // In English: "This user already has access to this item"
 
+        'billing.change_payment_method': 'Ubah', // In English: "Change"
+        'billing.cancel': 'Batal', // In English: "Cancel"
+        'billing.download_invoice': 'Unduh', // In English: "Download"
+        'billing.payment_method': 'Metode Pembayaran', // In English: "Payment Method"
+        'billing.payment_method_updated': 'Metode pembayaran diperbarui!', // In English: "Payment method updated!"
+        'billing.confirm_payment_method': 'Konfirmasi Metode Pembayaran', // In English: "Confirm Payment Method"
+        'billing.payment_history': 'Riwayat Pembayaran', // In English: "Payment History"
+        'billing.refunded': 'Dikembalikan', // In English: "Refunded"
+        'billing.paid': 'Dibayar', // In English: "Paid"
+        'billing.ok': 'OK', // In English: "OK"
+        'billing.resume_subscription': 'Lanjutkan Berlangganan', // In English: "Resume Subscription"
+        'billing.subscription_cancelled': 'Langganan Anda telah dibatalkan.', // In English: "Your subscription has been canceled."
+        'billing.subscription_cancelled_description': 'Anda masih memiliki akses ke langganan Anda hingga akhir periode penagihan ini.', // In English: "You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': 'Gratis', // In English: "Free"
+        'billing.offering.pro': 'Profesional', // In English: "Professional"
+        'billing.offering.professional': 'Profesional', // In English: "Professional"
+        'billing.offering.business': 'Bisnis', // In English: "Business"
+        'billing.cloud_storage': 'Penyimpanan Cloud', // In English: "Cloud Storage"
+        'billing.ai_access': 'Akses AI', // In English: "AI Access"
+        'billing.bandwidth': 'Bandwidth', // In English: "Bandwidth"
+        'billing.apps_and_games': 'Aplikasi & Permainan', // In English: "Apps & Games"
+        'billing.switch_to': 'Beralih ke %strong%', // In English: "Switch to %strong%"
+        'billing.payment_setup': 'Pengaturan Pembayaran', // In English: "Payment Setup"
+        'billing.back': 'Kembali', // In English: "Back"
+        'billing.you_are_now_subscribed_to': 'Anda sekarang berlangganan paket %strong%.', // In English: "You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': 'Anda sekarang berlangganan', // In English: "You are now subscribed"
+        'billing.subscription_cancellation_confirmation': 'Apakah Anda yakin ingin membatalkan langganan Anda?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'Pengaturan Langganan', // In English: "Subscription Setup"
+        'billing.cancel_it': 'Batalkan', // In English: "Cancel It"
+        'billing.keep_it': 'Pertahankan', // In English: "Keep It"
+        'billing.subscription_resumed': 'Langganan %strong% Anda telah dilanjutkan!', // In English: "Your %strong% subscription has been resumed!"
         //Note: literal translation of 'upgrade' is 'tingkatkan' but for this context 'upgrade' more commonly used
         'billing.upgrade': 'Upgrade', // In English: "Upgrade"
+        'billing.upgrade_to_pro': 'Upgrade ke %strong%', // In English: "Upgrade to %strong%"
+        'billing.upgrade_now': 'Upgrade Sekarang', // In English: "Upgrade Now"
+        'billing.currently_on_free_plan': 'Anda saat ini menggunakan paket gratis.', // In English: "You are currently on the free plan."
+        'billing.download_receipt': 'Unduh Bukti Pembayaran', // In English: "Download Receipt"
+        'billing.subscription_check_error': 'Terjadi masalah saat memeriksa status langganan Anda.', // In English: "A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed': 'Email Anda belum dikonfirmasi. Kami akan mengirimkan kode untuk mengonfirmasinya sekarang.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until': 'Anda telah membatalkan langganan Anda dan secara otomatis akan beralih ke paket gratis di akhir periode penagihan. Anda tidak akan dikenakan biaya lagi kecuali Anda berlangganan ulang.', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period': 'Paket Anda saat ini berlaku hingga akhir periode penagihan ini.', // In English: "Your current plan until the end of this billing period."
+        'billing.current_plan': 'Paket saat ini', // In English: "Current plan"
+        'billing.cancelled_subscription_tier': 'Langganan Dibatalkan (%%)', // In English: "Cancelled Subscription (%%)"
+        'billing.manage': 'Kelola', // In English: "Manage"
+        'billing.limited': 'Terbatas', // In English: "Limited"
+        'billing.expanded': 'Diperluas', // In English: "Expanded"
+        'billing.accelerated': 'Dipercepat', // In English: "Accelerated"
+        'billing.enjoy_msg': 'Nikmati %% dari Penyimpanan Cloud dan manfaat lainnya.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
         // =============================================================
         // Missing translations
@@ -268,6 +345,7 @@ const id = {
         'publish_as_serverless_worker': 'Publikasikan sebagai Worker', // In English: "Publish as Worker"
         'used_of': 'terpakai {{used}} dari {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker".
+        'billing.offering.basic': 'Basic', // In English: "Basic"
         'server_timeout': 'Server terlalu lama merespons. Silakan coba kembali nanti', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Terjadi kegagalan saat proses daftar. Silakan coba kembali nanti', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Galat!', // In English: "Error!"

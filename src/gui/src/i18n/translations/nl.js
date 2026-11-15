@@ -22,6 +22,7 @@ const nl = {
     english_name: 'Dutch',
     code: 'nl',
     dictionary: {
+        about: 'Over',
         account: 'Account',
         account_password: 'Verifieer Account Wachtwoord',
         access_granted_to: 'Toegang gegeven aan',
@@ -39,6 +40,7 @@ const nl = {
         close_all_windows_and_log_out: 'Vensters sluiten en afmelden',
         change_always_open_with: 'Wilt u dit bestandstype altijd openen met',
         confirm: 'Bevestig',
+        confirm_account_for_free_referral_storage_c2a: 'Maak een account aan en bevestig uw e-mailadres om 1 GB gratis opslag te ontvangen. Uw vriend krijgt ook 1 GB gratis opslag.',
         confirm_code_generic_incorrect: 'Onjuiste code.',
         confirm_code_generic_too_many_requests: 'Te veel aanvragen. Wacht een paar minuten.',
         confirm_code_2fa_instruction: 'Voer de 6-cijferige code in van uw authenticatie-app.',
@@ -54,10 +56,12 @@ const nl = {
         continue: 'Doorgaan',
         copy: 'Kopiëren',
         copy_link: 'Link Kopiëren',
+        copying: 'Kopiëren',
         copying_file: 'Bestand Kopiëren %%',
         create_account: 'Account Aanmaken',
         create_free_account: 'Gratis Account Aanmaken',
         create_shortcut: 'Snelkoppeling Maken',
+        credits: 'Credits',
         current_password: 'Huidig Wachtwoord',
         cut: 'Knippen',
         close_all: 'Alles Sluiten',
@@ -85,6 +89,7 @@ const nl = {
         empty_trash: 'Prullenbak Leegmaken',
         empty_trash_confirmation: 'Weet u zeker dat u de items in de prullenbak permanent wilt verwijderen?',
         emptying_trash: 'Prullenbak Legen…',
+        enable_2fa: '2FA Inschakelen',
         end_hard: 'Hard Stoppen',
         end_soft: 'Zacht Stoppen',
         enlarged_qr_code: 'Vergrote QR Code',
@@ -98,18 +103,24 @@ const nl = {
         feedback_sent_confirmation: 'Bedankt dat u contact met ons heeft opgenomen. Als u een e-mail heeft gekoppeld aan uw account, hoort u zo snel mogelijk van ons.',
         folder: 'Map',
         forgot_pass_c2a: 'Wachtwoord vergeten?',
+        from: 'Van',
         general: 'Algemeen',
         home: 'Home',
         html_document: 'HTML-document',
+        hue: 'Tint',
         incorrect_password: 'Onjuist wachtwoord',
         item: 'item',
         items_in_trash_cannot_be_renamed: 'Dit item kan niet worden hernoemd omdat het in de prullenbak zit. Om dit item te hernoemen, sleept u het eerst uit de prullenbak.',
         jpeg_image: 'JPEG-afbeelding',
         language: 'Taal',
+        license: 'Licentie',
+        lightness: 'Helderheid',
+        link_copied: 'Link gekopieerd',
         loading: 'Laden',
         log_in: 'Inloggen',
         log_out: 'Uitloggen',
         manage_sessions: 'Sessies Beheren',
+        mobile_device: 'Mobiel apparaat',
         modified: 'Gewijzigd',
         move: 'Verplaatsen',
         moving_file: 'Verplaatsen %%',
@@ -148,12 +159,15 @@ const nl = {
         plural_suffix: 'en',
         preparing: 'Voorbereiden...',
         print: 'Afdrukken',
+        privacy: 'Privacy',
         proceed_to_login: 'Doorgaan naar inloggen',
         properties: 'Eigenschappen',
         public: 'Openbaar',
         publish: 'Publiceren',
         publish_as_website: 'Publiceer als website',
+        reading_file: 'Lezen %strong%',
         recover_password: 'Wachtwoord herstellen',
+        refer_friends_c2a: 'Krijg 1 GB voor elke vriend die een account aanmaakt en bevestigt op Puter. Je vriend krijgt ook 1 GB!',
         refresh: 'Vernieuwen',
         rename: 'Hernoemen',
         replace: 'Vervangen',
@@ -161,10 +175,12 @@ const nl = {
         resend_confirmation_code: 'Bevestigingscode opnieuw verzenden',
         restore: 'Herstellen',
         save: 'Opslaan',
+        saturation: 'Verzadiging',
         save_account: 'Account opslaan',
         save_account_to_publish: 'Maak een account aan om verder te gaan.',
         save_session: 'Sessie opslaan',
         save_session_c2a: 'Maak een account aan om je huidige sessie op te slaan en verlies van werk te voorkomen.',
+        search: 'Zoeken',
         seconds: 'seconden',
         security: 'Beveiliging',
         select: 'Selecteren',
@@ -173,12 +189,14 @@ const nl = {
         send: 'Verzenden',
         send_password_recovery_email: 'Wachtwoordherstelsmail verzenden',
         session_saved: 'Bedankt voor het aanmaken van een account. Deze sessie is opgeslagen.',
+        settings: 'Instellingen',
         set_new_password: 'Nieuw wachtwoord instellen',
         share: 'Delen',
         share_to: 'Delen met',
         shortcut_to: 'Snelkoppeling naar',
         show_hidden: 'Toon verborgen',
         sign_in_with_puter: 'Inloggen met Puter',
+        sign_up: 'Aanmelden',
         size: 'Grootte',
         skip: 'Overslaan',
         something_went_wrong: 'Er is iets misgegaan.',
@@ -186,8 +204,10 @@ const nl = {
         status: 'Status',
         storage_puter_used: 'gebruikt door Puter',
         taking_longer_than_usual: 'Het duurt langer dan normaal. Even geduld alstublieft...',
+        terms: 'Voorwaarden',
         text_document: 'Tekstdocument',
         tos_fineprint: 'Door op \'Gratis Account Aanmaken\' te klikken, ga je akkoord met de {{link=terms}}Servicevoorwaarden{{/link}} en de {{link=privacy}}Privacybeleid{{/link}} van Puter.',
+        transparency: 'Transparantie',
         trash: 'Prullenbak',
         two_factor: 'Tweestapsverificatie',
         two_factor_disabled: '2FA Uitgeschakeld',
@@ -197,6 +217,7 @@ const nl = {
         ui_manage_sessions: 'Sessiebeheer',
         ui_revoke: 'Intrekken',
         undo: 'Ongedaan maken',
+        unlimited: 'Onbeperkt',
         unzip: 'Uitpakken',
         upload: 'Uploaden',
         upload_here: 'Hier uploaden',
@@ -206,8 +227,10 @@ const nl = {
         username_required: 'Gebruikersnaam is vereist.',
         versions: 'Versies',
         videos: 'Video\'s',
+        visibility: 'Zichtbaarheid',
         yes: 'Ja',
         zip: 'Zip',
+        zipping_file: 'Bestand inpakken %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -232,14 +255,67 @@ const nl = {
         login2fa_use_recovery_code: 'Gebruik een herstelcode',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        'change': 'Wijzig',
         'reading': 'Lezen %strong%',
         'writing': 'Schrijven %strong%',
         'unzipping': 'Decomprimeren %strong%',
         'sequencing': 'Alles op een rijtje aan het zetten %strong%',
         'zipping': 'Aan het comprimeren %strong%',
+        'Editor': 'Redacteur',
+        'Viewer': 'Kijker',
+        'People with access': 'Mensen met toegang',
+        'Share With…': 'Deel met...',
+        'Owner': 'Eigenaar',
+        "You can't share with yourself.": 'Je kan niet met jezelf delen.',
+        'This user already has access to this item': 'De gebruiker heeft al toegang tot dit item',
 
+        'billing.change_payment_method': 'Wijzig', // In English: 'Change"
+        'billing.cancel': 'Annuleer', // In English: 'Cancel"
+        'billing.download_invoice': 'Download', // In English: 'Download"
+        'billing.payment_method': 'Betaalmethode', // In English: 'Payment Method"
+        'billing.payment_method_updated': 'Betaalmethode bijgewerkt!', // In English: 'Payment method updated!"
+        'billing.confirm_payment_method': 'Bevestig Betaalmethode', // In English: 'Confirm Payment Method"
+        'billing.payment_history': 'Betaalgeschiedenis', // In English: 'Payment History"
+        'billing.refunded': 'Terugbetaald', // In English: 'Refunded"
+        'billing.paid': 'Betaald', // In English: 'Paid"
+        'billing.ok': 'OK', // In English: 'OK"
+        'billing.resume_subscription': 'Zet Abonnement voort', // In English: 'Resume Subscription"
+        'billing.subscription_cancelled': 'Uw abonnement is stopgezet.', // In English: 'Your subscription has been canceled."
+        'billing.subscription_cancelled_description': 'U behoudt toegang tot uw abonnement tot het einde van deze factureringsperiode.', // In English: 'You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': 'Gratis', // In English: 'Free"
+        'billing.offering.pro': 'Professioneel', // In English: 'Professional"
+        'billing.offering.professional': 'Professioneel', // In English: 'Professional"
+        'billing.offering.business': 'Bedrijf', // In English: 'Business"
+        'billing.cloud_storage': 'Cloudopslag', // In English: 'Cloud Storage"
+        'billing.ai_access': 'AI Toegang', // In English: 'AI Access"
+        'billing.bandwidth': 'Bandbreedte', // In English: 'Bandwidth"
+        'billing.apps_and_games': 'Apps & Spelletjes', // In English: 'Apps & Games"
+        'billing.upgrade_to_pro': 'Upgraden naar %strong%', // In English: 'Upgrade to %strong%"
+        'billing.switch_to': 'Wissel naar %strong%', // In English: 'Switch to %strong%"
+        'billing.payment_setup': 'Betaal', // In English: 'Payment Setup"
+        'billing.back': 'Terug', // In English: 'Back"
+        'billing.you_are_now_subscribed_to': 'U bent nu geabonneerd op de %strong% rang.', // In English: 'You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': 'U bent nu geabonneerd', // In English: 'You are now subscribed"
+        'billing.subscription_cancellation_confirmation': 'Bent u zeker dat u uw abonnement wilt stopzetten?', // In English: 'Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'Abonnement Instellen ', // In English: 'Subscription Setup"
+        'billing.cancel_it': 'Annuleer het', // In English: 'Cancel It"
+        'billing.keep_it': 'Hou het', // In English: 'Keep It"
+        'billing.subscription_resumed': 'Uw %strong% abonnement is voortgezet!', // In English: 'Your %strong% subscription has been resumed!"
+        'billing.upgrade_now': 'Upgrade Nu', // In English: 'Upgrade Now"
         'billing.upgrade': 'Upgrade', // In English: 'Upgrade"
+        'billing.currently_on_free_plan': 'U hebt momenteel het gratis abonnement.', // In English: 'You are currently on the free plan."
+        'billing.download_receipt': 'Download Ontvangstbewijs', // In English: 'Download Receipt"
+        'billing.subscription_check_error': 'Er is een probleem opgetreden bij het controleren van uw abonnementsstatus.', // In English: 'A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed': 'Uw e-mail is nog niet bevestigd. We zullen u een code sturen om het te bevestigen.', // In English: 'Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until': 'U hebt uw abonnement stopgezet en het zal automatisch overschakelen naar het gratis abonnement op het einde van deze factureringsperiode. Er worden geen kosten in rekening gebracht, tenzij u opnieuw abonneert.', // In English: 'You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period': 'Uw huidige abonnement tot het einde van deze factureringsperiode.', // In English: 'Your current plan until the end of this billing period."
+        'billing.current_plan': 'Huidige Abonnement', // In English: 'Current plan"
+        'billing.cancelled_subscription_tier': 'Stop Abonnement', // In English: 'Cancelled Subscription (%%)"
+        'billing.manage': 'Beheer', // In English: 'Manage"
+        'billing.limited': 'Beperkt', // In English: 'Limited"
+        'billing.expanded': 'Uitgebreid', // In English: 'Expanded"
+        'billing.accelerated': 'Versneld', // In English: 'Accelerated"
+        'billing.enjoy_msg': 'Geniet %% van Cloudopslag en meer voordelen.', // In English: 'Enjoy %% of Cloud Storage plus other benefits."
 
         // =============================================================
         // Missing translations
@@ -250,6 +326,7 @@ const nl = {
         'publish_as_serverless_worker': 'Publiceer als Worker', // In English: "Publish as Worker"
         'used_of': '{{used}} van {{available}} gebruikt', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker" (No direct Dutch equivalent, commonly used in tech context)
+        'billing.offering.basic': 'Basis', // In English: "Basic"
         'server_timeout': 'De server reageerde te langzaam. Probeer het opnieuw.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Er is een fout opgetreden bij het aanmelden. Probeer het opnieuw.', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Fout!', // In English: "Error!"

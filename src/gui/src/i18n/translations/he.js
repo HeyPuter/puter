@@ -22,6 +22,7 @@ const he = {
     english_name: 'Hebrew',
     code: 'he',
     dictionary: {
+        about: 'אודות',
         account: 'חשבון',
         account_password: 'אמת את סיסמת החשבון',
         access_granted_to: 'ניתנת גישה ל',
@@ -39,6 +40,8 @@ const he = {
         close_all_windows_and_log_out: 'סגור את החלונות והתנתק',
         change_always_open_with: 'האם אתה רוצה תמיד לפתוח סוג זה של קובץ עם',
         confirm: 'לאשר',
+        confirm_account_for_free_referral_storage_c2a:
+      'צור חשבון ואשר את כתובת הדוא"ל שלך כדי לקבל 1 גיגה בייט של אחסון בחינם. חברך יקבל גם 1 גיגה בייט של אחסון בחינם.',
         confirm_code_generic_incorrect: 'קוד שגוי.',
         confirm_code_generic_too_many_requests:
       'יותר מדי בקשות. אנא המתינו מספר דקות.',
@@ -58,10 +61,12 @@ const he = {
         continue: 'המשיך',
         copy: 'העתק',
         copy_link: 'העתק קישור',
+        copying: 'מעתיק',
         copying_file: 'מעתיק %%',
         create_account: 'יצירת חשבון',
         create_free_account: 'יצירת חשבון חנמי',
         create_shortcut: 'יצירת קיצור דרך',
+        credits: 'הערכה',
         current_password: 'סיסמה נוכחית',
         cut: 'גזירה',
         close_all: 'סגירת הכל',
@@ -90,6 +95,7 @@ const he = {
         empty_trash: 'ריקון אשפה',
         empty_trash_confirmation: 'האם אתה בטוח שברצונך למחוק לצמיתות את הפריטים באשפה?',
         emptying_trash: 'מרוקן אשפה…',
+        enable_2fa: 'הפעלת אימות דו-שלבי',
         end_hard: 'נגמר קשה',
         end_soft: 'נגמר ברכות',
         enlarged_qr_code: 'קוד QR מוגדל',
@@ -106,14 +112,19 @@ const he = {
       'תודה שפנית אלינו. אם יש לך איממיל המשויך לחשבון שלך, נחזור אליכם בהקדם האפשרי.',
         folder: 'תיקיה',
         forgot_pass_c2a: 'שכחת את הסיסמא?',
+        from: 'טופס',
         general: 'כללי',
         home: 'בית',
         html_document: 'מסמך HTML',
+        hue: 'דרגת צבע',
         incorrect_password: 'סיסמה שגויה',
         item: 'פריט',
         items_in_trash_cannot_be_renamed: 'לא ניתן לשנות את שם הפריט הזה כי הוא נמצא באשפה. כדי לשנות את שם הפריט הזה, תחילה גרור אותו מחוץ לאשפה.',
         jpeg_image: 'JPEG תמונת',
         language: 'שפה',
+        license: 'רישיון',
+        lightness: 'בהירות',
+        link_copied: 'הקישור הועתק',
         loading: 'טוען',
         log_in: 'התחברות',
         log_out: 'התנתק',
@@ -159,12 +170,16 @@ const he = {
         plural_suffix: 's',
         preparing: 'מכין...',
         print: 'הדפס',
+        privacy: 'פרטיות',
         proceed_to_login: 'המשך לכניסה',
         properties: 'תכונות',
         public: 'ציבורי',
         publish: 'פרסם',
         publish_as_website: 'פרסום כאתר אינטרנט',
+        reading_file: 'קורא %strong%',
         recover_password: 'שחזור סיסמה',
+        refer_friends_c2a:
+      'קבל 1 גיגה בייט עבור כל חבר שיוצר ומאשר חשבון ב  Puter. גם החבר שלך יקבל 1 גיגה בייט!',
         refresh: 'רענן',
         rename: 'שנה שם',
         replace: 'החלף',
@@ -172,11 +187,13 @@ const he = {
         resend_confirmation_code: 'שליחה מחדש של קוד אישור',
         restore: 'שחזור',
         save: 'שמירה',
+        saturation: 'סטורציה',
         save_account: 'שמירת חשבון',
         save_account_to_publish: 'אנא צור חשבון כדי להמשיך.',
         save_session: 'שמירת חיבור',
         save_session_c2a:
       'צור חשבון כדי לשמור את החיבור הנוכחי שלך ולהימנע מאובדן העבודה שלך.',
+        search: 'חיפוש',
         seconds: 'שניות',
         security: 'אבטחה',
         select: 'לבחירה',
@@ -185,12 +202,14 @@ const he = {
         send: 'שלח',
         send_password_recovery_email: 'שלח אימייל שחזור סיסמה',
         session_saved: 'תודה שיצרת חשבון. חיבור זה נשמרה',
+        settings: 'הגדרות',
         set_new_password: 'הגדרת סיסמה חדשה',
         share: 'שיתוף',
         share_to: 'שתף אל',
         shortcut_to: 'קיצור דרך אל',
         show_hidden: 'הצג מוסתר',
         sign_in_with_puter: 'להתחבר עם Puter',
+        sign_up: 'הרשמה',
         size: 'גודל',
         skip: 'דלג',
         something_went_wrong: 'משהו השתבש.',
@@ -198,8 +217,10 @@ const he = {
         status: 'סטטוס',
         storage_puter_used: 'Puter בשימוש על ידי',
         taking_longer_than_usual: 'לוקח קצת יותר זמן מהרגיל. חכה בבקשה...',
+        terms: 'תנאים',
         text_document: 'מסמך טקסטואלי',
         tos_fineprint: 'על ידי לחיצה על \'צור חשבון חינם\' אתה מסכים Puter\'s {{link=terms}}תנאי שימוש{{/link}} ו {{link=privacy}}מדיניות פרטיות{{/link}}.',
+        transparency: 'שקיפות',
         trash: 'אשפה',
         two_factor: 'אימות דו-שלבי',
         two_factor_disabled: 'אימות דו-שלבי הושבת',
@@ -209,6 +230,7 @@ const he = {
         ui_manage_sessions: 'מנהל חיבורים',
         ui_revoke: 'בטל',
         undo: 'בטל',
+        unlimited: 'ללא הגבלה',
         unzip: 'פתח קובץ מכווץ',
         upload: 'העלאה',
         upload_here: 'העלה כאן',
@@ -218,8 +240,10 @@ const he = {
         username_required: 'שם משתמש חובה.',
         versions: 'גרסאות',
         videos: 'סרטונים',
+        visibility: 'נראות',
         yes: 'כן',
         zip: 'מכווץ',
+        zipping_file: 'מכווץ קובץ %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -245,20 +269,74 @@ const he = {
         login2fa_use_recovery_code: 'שימוש בקוד שחזור',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        'change': 'שנה', // In English: "Change"
         'reading': 'קורא %strong%', // In English: "Reading %strong%"
         'writing': 'כותב %strong%', // In English: "Writing %strong%"
         'unzipping': 'מחלץ %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'רצף %strong%', // In English: "Sequencing %strong%"
         'zipping': 'מכווץ %strong%', // In English: "Zipping %strong%"
+        'Editor': 'עורך', // In English: "Editor"
+        'Viewer': 'צופה', // In English: "Viewer"
+        'People with access': 'אנשים עם גישה', // In English: "People with access"
+        'Share With…': 'שתף עם…', // In English: "Share With…"
+        'Owner': 'בעלים', // In English: "Owner"
+        "You can't share with yourself.": 'אינך יכול לשתף עם עצמך.', // In English: "You can't share with yourself."
+        'This user already has access to this item': 'למשתמש זה כבר יש גישה לפריט זה', // In English: "This user already has access to this item"
 
+        'billing.change_payment_method': 'שינוי', // In English: "Change"
+        'billing.cancel': 'ביטול', // In English: "Cancel"
+        'billing.download_invoice': 'הורדה', // In English: "Download"
+        'billing.payment_method': 'שיטת תשלום', // In English: "Payment Method"
+        'billing.payment_method_updated': 'שיטת תשלום עודכנה!', // In English: "Payment method updated!"
+        'billing.confirm_payment_method': 'אישור שיטת תשלום', // In English: "Confirm Payment Method"
+        'billing.payment_history': 'היסטוריית תשלומים', // In English: "Payment History"
+        'billing.refunded': 'הוחזר', // In English: "Refunded"
+        'billing.paid': 'שולם', // In English: "Paid"
+        'billing.ok': 'אוקיי', // In English: "OK"
+        'billing.resume_subscription': 'חידוש מנוי', // In English: "Resume Subscription"
+        'billing.subscription_cancelled': 'המנוי שלכם בוטל', // In English: "Your subscription has been canceled."
+        'billing.subscription_cancelled_description': 'עדיין תהיה לכם גישה למנוי עד סוף תקופת החיוב.', // In English: "You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': 'חינם', // In English: "Free"
+        'billing.offering.pro': 'מקצועי', // In English: "Professional"
+        'billing.offering.professional': 'מקצועי', // In English: "Professional"
+        'billing.offering.business': 'עסקי', // In English: "Business"
+        'billing.cloud_storage': 'אחסון בענן', // In English: "Cloud Storage"
+        'billing.ai_access': 'גישה לAI', // In English: "AI Access"
+        'billing.bandwidth': 'רוחב פס', // In English: "Bandwidth"
+        'billing.apps_and_games': 'אפליקציות ומשחקים', // In English: "Apps & Games"
+        'billing.upgrade_to_pro': 'שדרוג ל %strong%', // In English: "Upgrade to %strong%"
+        'billing.switch_to': 'שינוי ל %strong%', // In English: "Switch to %strong%"
+        'billing.payment_setup': 'הגדרות תשלום', // In English: "Payment Setup"
+        'billing.back': 'חזרה', // In English: "Back"
+        'billing.you_are_now_subscribed_to': 'אתם עכשיו מנויים למסלול %strong%', // In English: "You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': 'אתם עכשיו מנויים', // In English: "You are now subscribed"
+        'billing.subscription_cancellation_confirmation': 'אתם בטוחים שאתם מעוניינים לבטל את המנוי?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'הגדרות מנוי', // In English: "Subscription Setup"
+        'billing.cancel_it': 'ביטול', // In English: "Cancel It"
+        'billing.keep_it': 'שמירה', // In English: "Keep It"
+        'billing.subscription_resumed': '%strong% המנוי שוחזר!', // In English: "Your %strong% subscription has been resumed!"
+        'billing.upgrade_now': 'שדרגו עכשיו', // In English: "Upgrade Now"
         'billing.upgrade': 'שדרוג', // In English: "Upgrade"
+        'billing.currently_on_free_plan': 'אתם כרגע בתכנית החינמית', // In English: "You are currently on the free plan."
+        'billing.download_receipt': 'הורדת קבלה', // In English: "Download Receipt"
+        'billing.subscription_check_error': 'קרתה תקלה בזמן בדיקת סטאטוס המנוי שלכם.', // In English: "A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed': 'האימייל שלכם לא אומת. נשלח עכשיו קוד אימות לאימייל', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until': 'ביטלתם את המנוי והוא אוטומתית יעבור למנוי חינמי בסוף תקופת החיוב. לא יתבצעו עוד חיובים אלא אם תשחזרו את המנוי', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period': 'המנוי שלכם עד סוף תקופת החיוב.', // In English: "Your current plan until the end of this billing period."
+        'billing.current_plan': 'תכנית עכשווית', // In English: "Current plan"
+        'billing.cancelled_subscription_tier': 'ביטול מנוי (%%)', // In English: "Cancelled Subscription (%%)"
+        'billing.manage': 'ניהול', // In English: "Manage"
+        'billing.limited': 'מוגבל', // In English: "Limited"
+        'billing.expanded': 'מורחב', // In English: "Expanded"
+        'billing.accelerated': 'מואץ', // In English: "Accelerated"
+        'billing.enjoy_msg': 'תהנו מ  %% של אחסון ענן בנוסף להטבות נוספות', // In English: "Enjoy %% of Cloud Storage plus other benefits."
         'create_shortcut_s': 'צור קיצורי דרך', // In English: "Create Shortcuts"
         'minimize': 'מזער', // In English: "Minimize"
         'reload_app': 'טען מחדש', // In English: "Reload App"
         'publish_as_serverless_worker': 'פרסם כעובד', // In English: "Publish as Worker"
         'used_of': '{{available}} משומש מתוך {{used}}', // In English: "{{used}} used of {{available}}"
         'worker': 'עובד', // In English: "Worker"
+        'billing.offering.basic': 'בסיסי', // In English: "Basic"
         'server_timeout': '.לשרת לקח זמן רב מדי להגיב. אנא נסה שנית', // In English: "The server took too long to respond. Please try again."
         'signup_error': '.ארעה תקלה בעת ההרשמה. אנא נסה שנית', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': '!תקלה', // In English: "Error!"

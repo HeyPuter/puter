@@ -22,6 +22,7 @@ const fi = {
     english_name: 'Finnish',
     code: 'fi',
     dictionary: {
+        about: 'Tietoa',
         account: 'Tili',
         account_password: 'Vahvista tilin salasana',
         access_granted_to: 'Käyttöoikeus myönnetty',
@@ -46,6 +47,8 @@ const fi = {
         change_always_open_with:
       'Haluatko aina avata tämän tyyppisen tiedoston sovelluksella',
         confirm: 'Vahvista',
+        confirm_account_for_free_referral_storage_c2a:
+      'Luo tili ja vahvista sähköpostiosoitteesi saadaksesi 1 Gt ilmaista tallennustilaa. Myös kaverisi saa 1 Gt:n ilmaista tallennustilaa.',
         confirm_code_generic_incorrect: 'Väärä koodi.',
         confirm_code_generic_too_many_requests:
       'Liikaa pyyntöjä. Ole hyvä ja odota muutama minuutti.',
@@ -73,6 +76,7 @@ const fi = {
         // Verb "To copy something" => 'Kopioi'?
 
         copy_link: 'Kopioi linkki',
+        copying: 'Kopioidaan',
         copying_file: 'Kopioidaan %%',
         // Noun (shelter) => 'Suoja' or
         // Noun (lid) => 'Kansi' or
@@ -82,6 +86,7 @@ const fi = {
         create_account: 'Luo tili',
         create_free_account: 'Luo ilmainen tili',
         create_shortcut: 'Luo pikakuvake',
+        credits: 'Tekijät',
         current_password: 'Nykyinen salasana',
         cut: 'Leikkaa',
         close_all: 'Sulje kaikki',
@@ -111,6 +116,7 @@ const fi = {
         empty_trash: 'Tyhjennä roskakori',
         empty_trash_confirmation: 'Haluatko varmasti poistaa roskakorissa olevat kohteet pysyvästi?',
         emptying_trash: 'Tyhjennetään roskakoria...',
+        enable_2fa: 'Ota käyttöön kaksivaiheinen tunnistautuminen',
         end_hard: 'Pakotettu lopetus',
         end_soft: 'Pehmeä lopetus',
         enlarged_qr_code: 'Suurennettu QR-koodi',
@@ -128,6 +134,7 @@ const fi = {
         folder: 'Kansio',
         forgot_pass_c2a: 'Unohditko salasanasi?',
 
+        from: 'Henkilöltä', // TODO: Context dependent, examples
         // "from address" => "osoitteesta" or
         // "from sender" => "lähettäjältä".
         // In the finnish language these are usually translated as case suffixes.
@@ -143,11 +150,15 @@ const fi = {
 
         home: 'Koti',
         html_document: 'HTML-dokumentti',
+        hue: 'Sävy',
         incorrect_password: 'Väärä salasana',
         item: 'kohde',
         items_in_trash_cannot_be_renamed: 'Tätä kohdetta ei voi nimetä uudelleen, koska se on roskakorissa. Jos haluat nimetä kohteen uudelleen, palauta se ensin roskakorista.',
         jpeg_image: 'JPEG-kuva',
         language: 'Kieli',
+        license: 'Lisenssi',
+        lightness: 'Valoisuus',
+        link_copied: 'Linkki kopioitu',
         loading: 'Ladataan',
         log_in: 'Kirjaudu Sisään',
         log_out: 'Kirjaudu ulos',
@@ -206,12 +217,16 @@ const fi = {
         plural_suffix: 't',
         preparing: 'Valmistellaan...',
         print: 'Tulosta',
+        privacy: 'Yksityisyys',
         proceed_to_login: 'Jatka sisäänkirjautumiseen',
         properties: 'Ominaisuudet',
         public: 'Julkinen',
         publish: 'Julkaise',
         publish_as_website: 'Julkaise verkkosivustona',
+        reading_file: 'Luetaan %strong%',
         recover_password: 'Palauta salasanasi',
+        refer_friends_c2a:
+      'Saat 1 Gt ilmaista tallennustilaa jokaisesta ystävästä, joka luo ja vahvistaa tilin Puterissa. Myös ystäväsi saa 1 Gt:n ilmaista tallennustilaa!',
         refresh: 'Päivitä',
 
         // "get rid of" => "Oletko varma, että haluat luovuttaa tämän osoitteen?" or
@@ -223,11 +238,13 @@ const fi = {
         resend_confirmation_code: 'Lähetä vahvistuskoodi Uudelleen',
         restore: 'Palauta',
         save: 'Tallenna',
+        saturation: 'Kylläisyys',
         save_account: 'Tallenna tili',
         save_account_to_publish: 'Luo tili jatkaaksesi.',
         save_session: 'Tallenna istunto',
         save_session_c2a:
       'Luo tili tallentaaksesi nykyisen istuntosi ja välttääksesi työsi menettämisen.',
+        search: 'Etsi',
         seconds: 'sekuntia',
         security: 'Turvallisuus',
         select: 'Valitse',
@@ -236,6 +253,7 @@ const fi = {
         send: 'Lähetä',
         send_password_recovery_email: 'Lähetä salasanan palautussähköposti',
         session_saved: 'Kiitos tilin luomisesta. Tämä istunto on tallennettu.',
+        settings: 'Asetukset',
         set_new_password: 'Aseta uusi salasana',
         share: 'Jaa',
 
@@ -246,6 +264,7 @@ const fi = {
         shortcut_to: 'Pikakuvake',
         show_hidden: 'Näytä piilotetut',
         sign_in_with_puter: 'Kirjaudu sisään Puterilla',
+        sign_up: 'Rekisteröidy',
         size: 'Koko',
         skip: 'Ohita',
         something_went_wrong: 'Jokin meni pieleen.',
@@ -254,8 +273,10 @@ const fi = {
         storage_puter_used: 'Puterin käyttämä',
         taking_longer_than_usual:
       'Kestää hieman tavallista kauemmin. Ole hyvä ja odota...',
+        terms: 'Ehdot',
         text_document: 'Tekstiasiakirja',
         tos_fineprint: 'Klikkaamalla \'Luo ilmainen tili\' hyväksyt Puterin {{link=terms}}käyttöehdot{{/link}} ja {{link=privacy}}tietosuojakäytännön{{/link}}.',
+        transparency: 'Läpinäkyvyys',
 
         trash: 'Roskakori', // TODO: Ambiguous meaning
         // "Trash" is oft used to just mean "Trash bin" => 'Roskakori' or
@@ -273,6 +294,7 @@ const fi = {
         ui_manage_sessions: 'Istunnon hallinta',
         ui_revoke: 'Peruuta',
         undo: 'Kumoa',
+        unlimited: 'Rajoittamaton',
         unzip: 'Pura zip-tiedosto',
         upload: 'Lataa',
         upload_here: 'Lataa tähän',
@@ -282,8 +304,10 @@ const fi = {
         username_required: 'Käyttäjänimi vaaditaan.',
         versions: 'Versiot',
         videos: 'Videot',
+        visibility: 'Näkyvyys',
         yes: 'Kyllä',
         zip: 'Zip',
+        zipping_file: 'Zipataan %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -311,14 +335,68 @@ const fi = {
         login2fa_use_recovery_code: 'Käytä palautuskoodi',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        change: 'muutos', // In English: "Change"
         reading: 'lukeminen', // In English: "Reading %strong%"
         writing: 'kirjoittaminen', // In English: "Writing %strong%"
         unzipping: 'purkaminen', // In English: "Unzipping %strong%"
         sequencing: 'järjestäminen', // In English: "Sequencing %strong%"
         zipping: 'pakkaaminen', // In English: "Zipping %strong%"
+        Editor: 'Muokkaaja', // In English: "Editor"
+        Viewer: 'Katselija', // In English: "Viewer"
+        'People with access': 'Henkilöt, joilla on käyttöoikeus', // In English: "People with access"
+        'Share With…': 'Jaa kanssa…', // In English: "Share With…"
+        Owner: 'Omistaja', // In English: "Owner"
+        "You can't share with yourself.": 'Et voi jakaa itsellesi.', // In English: "You can't share with yourself."
+        'This user already has access to this item':
+    'Tällä käyttäjällä on jo pääsy tähän kohteeseen', // In English: "This user already has access to this item"
 
+        'billing.change_payment_method': 'Vaihda', // In English: "Change"
+        'billing.cancel': 'Peruuta', // In English: "Cancel"
+        'billing.download_invoice': 'Lataa', // In English: "Download"
+        'billing.payment_method': 'Maksutapa', // In English: "Payment Method"
+        'billing.payment_method_updated': 'Maksutapa päivitetty!', // In English: "Payment method updated!"
+        'billing.confirm_payment_method': 'Vahvista maksutapa', // In English: "Confirm Payment Method"
+        'billing.payment_history': 'Maksuhistoria', // In English: "Payment History"
+        'billing.refunded': 'Hyvitetty', // In English: "Refunded"
+        'billing.paid': 'Maksettu', // In English: "Paid"
+        'billing.ok': 'OK', // In English: "OK"
+        'billing.resume_subscription': 'Jatka tilausta', // In English: "Resume Subscription"
+        'billing.subscription_cancelled': 'Tilauksesi on peruutettu.', // In English: "Your subscription has been canceled."
+        'billing.subscription_cancelled_description': 'Voit jatkaa tilauksesi käyttöä laskutuskauden loppuun asti.', // In English: "You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': 'Ilmainen', // In English: "Free"
+        'billing.offering.pro': 'Ammattilainen', // In English: "Professional"
+        'billing.offering.professional': 'Ammattilainen', // In English: "Professional"
+        'billing.offering.business': 'Yritys', // In English: "Business"
+        'billing.cloud_storage': 'Pilvitallennustila', // In English: "Cloud Storage"
+        'billing.ai_access': 'Tekoälykäyttö', // In English: "AI Access"
+        'billing.bandwidth': 'Kaistanleveys', // In English: "Bandwidth"
+        'billing.apps_and_games': 'Sovellukset ja pelit', // In English: "Apps & Games"
+        'billing.upgrade_to_pro': 'Vaihda %strong% tilaukseen', // In English: "Upgrade to %strong%"
+        'billing.switch_to': 'Vaiha %strong% tilaukseen', // In English: "Switch to %strong%"
+        'billing.payment_setup': 'Maksuasetukset', // In English: "Payment Setup"
+        'billing.back': 'Takaisin', // In English: "Back"
+        'billing.you_are_now_subscribed_to': 'Olet nyt tilannut %strong% tason.', // In English: "You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': 'Olet nyt tehnyt tilauksen', // In English: "You are now subscribed"
+        'billing.subscription_cancellation_confirmation': 'Haluatko varmasti peruuttaa tilauksesi?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'Tilauksen määritys', // In English: "Subscription Setup"
+        'billing.cancel_it': 'Peruuta', // In English: "Cancel It"
+        'billing.keep_it': 'Säilytä', // In English: "Keep It"
+        'billing.subscription_resumed': '%strong% -tilaustasi on jatkettu.', // In English: "Your %strong% subscription has been resumed!"
+        'billing.upgrade_now': 'Päivitä nyt', // In English: "Upgrade Now"
         'billing.upgrade': 'Päivitä', // In English: "Upgrade"
+        'billing.currently_on_free_plan': 'Olet tällä hetkellä ilmaisella suunnitelmalla.', // In English: "You are currently on the free plan."
+        'billing.download_receipt': 'Lataa kuitti', // In English: "Download Receipt"
+        'billing.subscription_check_error': 'Tilauksesi tarkistuksessa tapahtui virhe.', // In English: "A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed': 'Sähköpostiosoitettasi ei ole vahvistettu. Lähetämme sinulle vahvistuskoodin nyt.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until': 'Olet peruuttanut tilauksesi, ja se vaihtuu automaattisesti ilmaiseen tasoon laskutuskauden lopussa. Sinulta ei veloiteta enää, ellet päätä uusia tilaustasi.', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period': 'Nykyinen suunnitelmasi on voimassa tämän laskutuskauden loppuun asti.', // In English: "Your current plan until the end of this billing period."
+        'billing.current_plan': 'Nykyinen suunnitelma', // In English: "Current plan"
+        'billing.cancelled_subscription_tier': 'Peruutettu tilaus (%%)', // In English: "Cancelled Subscription (%%)"
+        'billing.manage': 'Hallinnoi', // In English: "Manage"
+        'billing.limited': 'Rajallinen', // In English: "Limited"
+        'billing.expanded': 'Laajennettu', // In English: "Expanded"
+        'billing.accelerated': 'Nopeutettu', // In English: "Accelerated"
+        'billing.enjoy_msg': 'Nauti %% pilvitallennustilasta ja muista eduista.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
         'create_shortcut_s': 'Luo pikakuvakkeita',
         'minimize': 'Pienennä',
@@ -326,6 +404,7 @@ const fi = {
         'publish_as_serverless_worker': 'Julkaise työntekijänä',
         'used_of': '{{used}} käytetty {{available}}:sta',
         'worker': 'Työntekijä',
+        'billing.offering.basic': 'Perus',
         'server_timeout': 'Palvelimen vastaus kesti liian kauan. Yritä uudelleen.',
         'signup_error': 'Rekisteröitymisen aikana tapahtui virhe. Yritä uudelleen.',
         'alert_error_title': 'Virhe!',

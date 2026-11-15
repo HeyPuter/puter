@@ -22,6 +22,7 @@ const hi = {
     english_name: 'Hindi',
     code: 'hi',
     dictionary: {
+        about: 'के बारे में',
         account: 'खाता',
         account_password: 'खाता पासवर्ड सत्यापित करें',
         access_granted_to: 'प्रवेश की अनुमति दी गई',
@@ -38,6 +39,7 @@ const hi = {
         close: 'बंद ',
         close_all_windows_and_log_out: 'विंडोज़ बंद करें और लॉग आउट करें',
         change_always_open_with: 'क्या आप इस प्रकार की फ़ाइल को हमेशा खोलना चाहते हैं?',
+        confirm_account_for_free_referral_storage_c2a: 'एक खाता बनाएं और 1 जीबी निःशुल्क संग्रहण प्राप्त करने के लिए अपने ईमेल पते की पुष्टि करें। आपके दोस्त को भी 1 जीबी मुफ्त स्टोरेज मिलेगा।',
         confirm_code_generic_incorrect: 'गलत कोड़।',
         confirm_code_generic_too_many_requests: 'बहुत सारे अनुरोध. कृपया कुछ मिनट प्रतीक्षा करें.',
         confirm_code_2fa_instruction: 'अपने प्रमाणक ऐप से 6 अंकों का कोड दर्ज करें।',
@@ -53,10 +55,12 @@ const hi = {
         continue: 'निरंतर',
         copy: 'प्रतिलिपि',
         copy_link: 'लिंक की प्रतिलिपि करें',
+        copying: 'प्रतिलिपि बनाई जा रही',
         copying_file: 'प्रतिलिपि बनाई जा रही %%',
         create_account: 'खाता बनाएं',
         create_free_account: 'मुफ्त खाता बनाएं',
         create_shortcut: 'शॉर्टकट बनाएं',
+        credits: 'क्रेडिट',
         current_password: 'वर्तमान पासवर्ड',
         cut: 'काटना',
         close_all: 'सब बंद करें',
@@ -84,6 +88,7 @@ const hi = {
         empty_trash: 'ट्रैश खाली करें',
         empty_trash_confirmation: 'क्या आप वाकई ट्रैश में मौजूद आइटम को स्थायी रूप से हटाना चाहते हैं?',
         emptying_trash: 'ट्रैश खाली करना…',
+        enable_2fa: '2एफए सक्षम करें',
         end_hard: 'कठिन अंत',
         end_soft: 'अंत नरम',
         enlarged_qr_code: 'उन्नत क्यूआर कोड',
@@ -97,14 +102,19 @@ const hi = {
         feedback_sent_confirmation: 'हमसे संपर्क करने के लिए धन्यवाद। यदि आपके पास अपने खाते से जुड़ा कोई ईमेल है, तो आप यथाशीघ्र हमसे जवाब प्राप्त करेंगे।',
         folder: 'फ़ोल्डर',
         forgot_pass_c2a: 'पासवर्ड भूल गए?',
+        from: 'से',
         general: 'सामान्य',
         home: 'घर',
         html_document: 'एचटीएमएल दस्तावेज़',
+        hue: 'रंग',
         incorrect_password: 'गलत पासवर्ड',
         item: 'वस्तु',
         items_in_trash_cannot_be_renamed: 'इस वस्तु का नाम नहीं बदला जा सकता क्योंकि यह कूड़ेदान में है। इस वस्तु का नाम बदलने के लिए, पहले इसे ट्रैश से बाहर खींचें।',
         jpeg_image: 'जेपीईजी छवि',
         language: 'भाषा',
+        license: 'लाइसेंस',
+        lightness: 'चमक',
+        link_copied: 'लिंक कॉपी किया गया',
         loading: 'लोड हो रहा है',
         log_in: 'लॉग इन करें',
         log_out: 'लॉग आउट',
@@ -147,12 +157,15 @@ const hi = {
         plural_suffix: 'एस',
         preparing: 'तैयार कर रहे हैं...',
         print: 'छाप',
+        privacy: 'गोपनीयता',
         proceed_to_login: 'लॉगिन करने के लिए आगे बढ़ें',
         properties: 'गुण',
         public: 'लोग',
         publish: 'प्रकाशित',
         publish_as_website: 'वेबसाइट के रूप में प्रकाशित करें',
+        reading_file: 'पढ़ना  %strong%',
         recover_password: 'पासवर्ड वापस लाये',
+        refer_friends_c2a: 'पुटर पर खाता बनाने और पुष्टि करने वाले प्रत्येक मित्र के लिए 1 जीबी प्राप्त करें। आपके दोस्त को भी मिलेगा 1 जीबी!',
         refresh: 'ताजा करना ',
         rename: 'नाम बदलें',
         replace: 'प्रतिस्थापित करें',
@@ -160,10 +173,12 @@ const hi = {
         resend_confirmation_code: 'पुष्टिकरण कोड पुनः भेजें',
         restore: 'पुनर्स्थापित',
         save: 'सहेजें',
+        saturation: 'परिपूर्णता',
         save_account: 'खाता सहेजें',
         save_account_to_publish: 'कृपया आगे बढ़ने के लिए एक खाता बनाएँ।',
         save_session: 'सत्र को बचाए',
         save_session_c2a: 'अपने वर्तमान सत्र को सहेजने और अपना काम खोने से बचने के लिए एक खाता बनाएं।',
+        search: 'खोजे',
         seconds: 'सेकंड',
         security: 'सुरक्षा',
         select: 'चुने',
@@ -172,12 +187,14 @@ const hi = {
         send: 'भेजे',
         send_password_recovery_email: 'पासवर्ड पुनर्प्राप्ति ईमेल भेजें',
         session_saved: 'खाता बनाने के लिए धन्यवाद. यह सत्र सहेजा गया है',
+        settings: 'समायोजन',
         set_new_password: 'नया पासवर्ड सेट करें',
         share: 'आदान-प्रदान',
         share_to: 'साझा',
         shortcut_to: 'के लिए शॉर्टकट',
         show_hidden: 'छिपा हुआ दिखाएं',
         sign_in_with_puter: 'पुटर के साथ साइन इन करें',
+        sign_up: 'साइन अप करें',
         size: 'आकार',
         skip: 'छोडना',
         something_went_wrong: 'कुछ गलत हो गया।',
@@ -185,8 +202,10 @@ const hi = {
         status: 'स्थिति',
         storage_puter_used: 'पुटर द्वारा उपयोग किया गया',
         taking_longer_than_usual: 'सामान्य से थोड़ा अधिक समय लग रहा है. कृपया प्रतीक्षा करें...',
+        terms: 'Terms',
         text_document: 'Text document',
         tos_fineprint: "'निःशुल्क खाता बनाएं' पर क्लिक करके आप पुटर की {{link=terms}}सेवा की शर्तों{{/लिंक}} और {{link=privacy}}गोपनीयता नीति{{/लिंक}} से सहमत होते हैं।",
+        transparency: 'पारदर्शिता',
         trash: 'कचरा',
         two_factor: 'दो तरीकों से प्रमाणीकरण',
         two_factor_disabled: '2एफए अक्षम',
@@ -196,6 +215,7 @@ const hi = {
         ui_manage_sessions: 'सत्र प्रबंधक',
         ui_revoke: 'रद्द',
         undo: 'पूर्ववत',
+        unlimited: 'असीमित',
         unzip: 'खोलना',
         upload: 'डालना',
         upload_here: 'यहाँ अपलोड करें',
@@ -205,8 +225,10 @@ const hi = {
         username_required: 'उपयोगकर्ता नाम आवश्यक है।',
         versions: 'संस्करणों',
         videos: 'वीडियो',
+        visibility: 'दृश्यता',
         yes: 'हाँ',
         zip: 'ज़िप',
+        zipping_file: 'ज़िपिंग  %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: "आप किसी भी प्रमाणक ऐप का उपयोग कर सकते हैं जो टाइम-आधारित वन-टाइम पासवर्ड (टीओटीपी) प्रोटोकॉल का समर्थन करता है।चुनने के लिए बहुत कुछ है, लेकिन यदि आप अनिश्चित हैं <a target='_blank' href='https://authy.com/download'>Authy</a>Android और iOS के लिए एक ठोस विकल्प है",
@@ -223,15 +245,68 @@ const hi = {
         login2fa_use_recovery_code: 'पुनर्प्राप्ति कोड का उपयोग करें',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        'change': 'बदलें', // In English: "Change"
         'confirm': 'पुष्टि करें', // In English: "Confirm"
         'reading': 'पढ़ना %strong%', // In English: "Reading %strong%"
         'writing': 'लिखना %strong%', // In English: "Writing %strong%"
         'unzipping': 'अनज़िपिंग %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'क्रमबद्ध करना %strong%', // In English: "Sequencing %strong%"
         'zipping': 'ज़िपिंग %strong%', // In English: "Zipping %strong%"
+        'Editor': 'संपादक', // In English: "Editor"
+        'Viewer': 'दर्शक', // In English: "Viewer"
+        'People with access': 'प्रवेश वाले लोग', // In English: "People with access"
+        'Share With…': 'के साथ साझा करें…', // In English: "Share With…"
+        'Owner': 'मालिक', // In English: "Owner"
+        "You can't share with yourself.": 'आप अपने आप के साथ साझा नहीं कर सकते।', // In English: "You can't share with yourself."
+        'This user already has access to this item': 'इस उपयोगकर्ता के पास पहले से ही इस वस्तु का प्रवेश है', // In English: "This user already has access to this item"
 
+        'billing.change_payment_method': 'बदलें', // In English: "Change"
+        'billing.cancel': 'रद्द करें', // In English: "Cancel"
+        'billing.download_invoice': 'डाउनलोड करें', // In English: "Download"
+        'billing.payment_method': 'भुगतान की विधि', // In English: "Payment Method"
+        'billing.payment_method_updated': 'भुगतान विधि अद्यतन किया गया!', // In English: "Payment method updated!"
+        'billing.confirm_payment_method': 'भुगतान विधि की पुष्टि करें।', // In English: "Confirm Payment Method"
+        'billing.payment_history': 'भुगतान इतिहास', // In English: "Payment History"
+        'billing.refunded': 'धनवापसी पूरी हुई।', // In English: "Refunded"
+        'billing.paid': 'भुगतान चुकाया गया है।', // In English: "Paid"
+        'billing.ok': 'ठीक है।', // In English: "OK"
+        'billing.resume_subscription': 'सदस्यता फिर से शुरू करें।', // In English: "Resume Subscription"
+        'billing.subscription_cancelled': 'आपकी सदस्यता रद्द कर दी गई है।', // In English: "Your subscription has been canceled."
+        'billing.subscription_cancelled_description': 'इस विधेयक अवधि के अंत तक आप अपनी सदस्यता का उपयोग कर पाएंगे।', // In English: "You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': 'मुक्त', // In English: "Free"
+        'billing.offering.pro': 'पेशेवर', // In English: "Professional"
+        'billing.offering.professional': 'पेशेवर', // In English: "Professional"
+        'billing.offering.business': 'व्यापार', // In English: "Business"
+        'billing.cloud_storage': 'क्लाउड स्टोरेज', // In English: "Cloud Storage"
+        'billing.ai_access': 'एआई पहुँच', // In English: "AI Access"
+        'billing.bandwidth': 'डाटा संचरण क्षमता', // In English: "Bandwidth"
+        'billing.apps_and_games': 'अनुप्रयोग और खेल', // In English: "Apps & Games"
+        'billing.upgrade_to_pro': '%strong% में अपग्रेड करें', // In English: "Upgrade to %strong%"
+        'billing.switch_to': '%strong% पर बदलें', // In English: "Switch to %strong%"
+        'billing.payment_setup': 'भुगतान व्यवस्था', // In English: "Payment Setup"
+        'billing.back': 'पीछे', // In English: "Back"
+        'billing.you_are_now_subscribed_to': 'अब आप %strong% स्तर की सदस्यता ले चुके हैं।', // In English: "You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': 'अब आप सदस्य बन चुके हैं।', // In English: "You are now subscribed"
+        'billing.subscription_cancellation_confirmation': 'क्या आप वाकई अपनी सदस्यता रद्द करना चाहते हैं?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'सदस्यता व्यवस्था', // In English: "Subscription Setup"
+        'billing.cancel_it': 'इसे रद्द करें', // In English: "Cancel It"
+        'billing.keep_it': 'इसे रखें', // In English: "Keep It"
+        'billing.subscription_resumed': 'आपकी %strong% सदस्यता फिर से सक्रिय हो गई है!', // In English: "Your %strong% subscription has been resumed!"
+        'billing.upgrade_now': 'अभी उन्नत करें।', // In English: "Upgrade Now"
         'billing.upgrade': 'उन्नति करें', // In English: "Upgrade"
+        'billing.currently_on_free_plan': 'आप वर्तमान में मुफ्त योजना पर हैं।', // In English: "You are currently on the free plan."
+        'billing.download_receipt': 'रसीद डाउनलोड करें', // In English: "Download Receipt"
+        'billing.subscription_check_error': 'आपकी सदस्यता स्थिति जांचते समय एक समस्या हुई।', // In English: "A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed': 'आपका ईमेल सत्यापित नहीं हुआ है। हम इसे सत्यापित करने के लिए आपको एक कोड भेजेंगे।', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until': 'आपने अपनी सदस्यता रद्द कर दी है और यह विधेयक अवधि के अंत में स्वचालित रूप से मुफ्त योजना पर बदल जाएगी। जब तक आप फिर से सदस्यता नहीं लेते, तब तक आपसे फिर से शुल्क नहीं लिया जाएगा।', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period': 'आपकी वर्तमान योजना इस विधेयक अवधि के अंत तक।', // In English: "Your current plan until the end of this billing period."
+        'billing.current_plan': 'वर्तमान योजना', // In English: "Current plan"
+        'billing.cancelled_subscription_tier': 'रद्द की गई (%%) सदस्यता', // In English: "Cancelled Subscription (%%)"
+        'billing.manage': 'प्रबंधन', // In English: "Manage"
+        'billing.limited': 'सीमित', // In English: "Limited"
+        'billing.expanded': 'विस्तारित ', // In English: "Expanded"
+        'billing.accelerated': 'त्वरित ', // In English: "Accelerated"
+        'billing.enjoy_msg': '%% क्लाउड स्टोरेज का आनंद लें और अन्य लाभ प्राप्त करें।', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
         'create_shortcut_s': 'शॉर्टकट्स बनाएँ', // In English: "Create Shortcuts"
         'minimize': 'मिनिमाइज़ करें', // In English: "Minimize"
@@ -239,6 +314,7 @@ const hi = {
         'publish_as_serverless_worker': 'वर्कर के रूप में प्रकाशित करें', // In English: "Publish as Worker"
         'used_of': '{{available}} में से {{used}} उपयोग', // In English: "{{used}} used of {{available}}"
         'worker': 'वर्कर', // In English: "Worker"
+        'billing.offering.basic': 'मूल', // In English: "Basic"
         'server_timeout': 'सर्वर को उत्तर देने में बहुत समय लगा। कृपया फिर से प्रयास करें।', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'साइन अप करते समय एक त्रुटि हुई। कृपया पुनः प्रयास करें।', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'त्रुटि!', // In English: "Error!"

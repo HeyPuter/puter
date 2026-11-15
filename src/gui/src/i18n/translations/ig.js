@@ -22,6 +22,7 @@ const ig = {
     english_name: 'Igbo',
     code: 'ig',
     dictionary: {
+        about: 'banyere',
         account: 'akaụntụ',
         account_password: 'nyochaa paswọọdụ akaụntụ',
         access_granted_to: 'Enyere ohere',
@@ -39,6 +40,9 @@ const ig = {
         close_all_windows_and_log_out: 'mmechi Windows na wee pụọ',
         change_always_open_with: 'Ị chọrọ I na mepee ụdị faịlụ site na',
         confirm: 'gosi',
+        hue: 'Hue',
+        confirm_account_for_free_referral_storage_c2a:
+      'Mepụta akaụntụ wee kwado adreesị ozi-e gị iji nweta 1 GB nke nchekwa efu. Enyi gị ga-enwetakwa 1 GB nke nchekwa efu.',
         confirm_code_generic_incorrect: 'Koodu ezighi ezi.',
         confirm_code_generic_too_many_requests:
       'Ọtụtụ ọchịchọ. Biko chere nkeji ole na ole.',
@@ -59,10 +63,12 @@ const ig = {
         continue: "Gaa n'ihu",
         copy: 'Detuo',
         copy_link: 'Detuo njikọ',
+        copying: "n'ide",
         copying_file: "n'ide %%",
         create_account: 'Mepe akaụntụ',
         create_free_account: 'Mepụta Akaụntụ efu',
         create_shortcut: 'Mepụta Ụzọ mkpirisi',
+        credits: 'Ebe e si nweta',
         current_password: 'paswọọdụ Ugbu a',
         cut: 'Bee',
         close_all: 'Mechie ha niile',
@@ -91,6 +97,7 @@ const ig = {
         empty_trash: 'Mkpofu ahịhịa',
         empty_trash_confirmation: 'Ị ji n\'aka na ịchọrọ ihichapụ ihe ndị dị na ahịhịa?',
         emptying_trash: 'Mkpofu ahịhịa…',
+        enable_2fa: 'Kwado 2FA',
         end_hard: 'Kwụsị ike',
         end_soft: 'Kwụsị nwayọọ',
         enlarged_qr_code: 'gbasawanyere QR Koodu',
@@ -107,14 +114,19 @@ const ig = {
       'Daalụ maka ịkpọtụrụ anyị. Ọ bụrụ na ị nwere email metụtara akaụntụ gị, ị ga-anụghachi anyị ozugbo enwere ike.',
         folder: 'nchekwa',
         forgot_pass_c2a: 'Chefuru paswọọdụ?',
+        from: 'si',
         general: 'Izugbe',
         home: 'ụlọ',
         html_document: 'akwụkwọ HTML',
+        hue: 'Hue',
         incorrect_password: 'paswọọdụ ezighi ezi',
         item: 'ihe',
         items_in_trash_cannot_be_renamed: 'Enweghị ike ịnyegharị ihe a aha n\'ihi na ọ nọ na ahịhịa. Iji nyegharịa ihe a aha, buru ụzọ dọrọ ya na ahịhịa.',
         jpeg_image: 'Foto JPEG',
         language: 'Asụsụ',
+        license: 'ikike',
+        lightness: 'ìhè',
+        link_copied: 'depụtagha njikọ',
         loading: 'Na-ebugo ibu',
         log_in: 'Banye',
         log_out: 'pụọ',
@@ -162,12 +174,16 @@ const ig = {
         plural_suffix: 's',
         preparing: 'Na-akwado...',
         print: 'ebipụta',
+        privacy: 'Nzuzo',
         proceed_to_login: 'Gaba na nbanye',
         properties: 'Njirimara',
         public: 'eze',
         publish: 'Bipụta',
         publish_as_website: 'Bipụta dị ka webụsaịtị',
+        reading_file: 'ọgụgụ %strong%',
         recover_password: 'Weghachite paswọọdụ',
+        refer_friends_c2a:
+      'Nweta 1 GB maka enyi ọ bụla mepụtara ma kwado akaụntụ na Puter. Enyi gị ga-enwetakwa 1 GB!',
         refresh: 'Weghachite ume',
         rename: 'Nyegharịa aha',
         replace: 'Dochie',
@@ -175,11 +191,13 @@ const ig = {
         resend_confirmation_code: 'Tinyegharịa koodu nkwenye',
         restore: 'weghachi',
         save: 'chekwa',
+        saturation: 'juputa',
         save_account: 'Chekwa akaụntụ',
         save_account_to_publish: "Biko mepụta akaụntụ iji gaa n'ihu.",
         save_session: 'Chekwa oge',
         save_session_c2a:
       "Mepụta akaụntụ iji chekwaa nnọkọ gị ugbu a ma zere ịla n'iyi ọrụ gị.",
+        search: 'Chọọ',
         seconds: 'sekọnd',
         security: 'nche',
         select: 'Họrọ',
@@ -188,12 +206,14 @@ const ig = {
         send: 'Ziga',
         send_password_recovery_email: 'Zipu ozi-e mgbake paswọọdụ ',
         session_saved: 'Daalụ maka ịmepụta akaụntụ. Achekwala nnọkọ a.',
+        settings: 'Ntọala',
         set_new_password: 'Tinye paswọọdụ ọhụrụ',
         share: 'ike',
         share_to: 'ike nye',
         shortcut_to: 'Ụzọ mkpirisi ka',
         show_hidden: 'Gosi ihe ezozo',
         sign_in_with_puter: 'Jiri Puter banye',
+        sign_up: 'Debanye aha',
         size: 'Nha',
         skip: 'Mafee',
         something_went_wrong: 'Ọ nwere ihe adịghị mma.',
@@ -202,8 +222,10 @@ const ig = {
         storage_puter_used: 'nke Puter na-ji',
         taking_longer_than_usual:
       'Na-ewe obere oge karịa ka ọ dị na mbụ. Biko chere...',
+        terms: 'Usoro',
         text_document: 'Akwụkwọ ederede',
         tos_fineprint: 'Site na ịpị \'Mepụta Akaụntụ efu\' ị kwenyere na Puter {{link=terms}} Usoro ọrụ{{/link}} na {{link=privacy}}Amụma nzuzo{{/link}} Puter.',
+        transparency: 'nghọta',
         trash: 'ahịhịa',
         two_factor: 'Nyocha ihe abụọ',
         two_factor_disabled: 'Agbanyụrụ 2FA',
@@ -213,6 +235,7 @@ const ig = {
         ui_manage_sessions: 'Onye njikwa oge',
         ui_revoke: 'Kagbuo',
         undo: 'Megharịa',
+        unlimited: 'Enweghị oke',
         unzip: 'Wepụ ya',
         upload: 'Bulite',
         upload_here: 'Bulite ebe a',
@@ -222,8 +245,10 @@ const ig = {
         username_required: 'Achọrọ aha njirimara.',
         versions: 'Ụdịdị',
         videos: 'Vidiyo',
+        visibility: 'Nhụta',
         yes: 'Ee',
         zip: 'Zip',
+        zipping_file: 'Zipping %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -249,20 +274,81 @@ const ig = {
         login2fa_use_recovery_code: 'Ji koodu mgbake',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
+        change: 'gbanwee',
         reading: 'ogụgụ %strong%',
         writing: 'Na-ede %strong%',
         unzipping: 'na mkpọpu ya %strong%',
         sequencing: 'usoro %strong%',
         zipping: 'zipụ %strong%',
+        Editor: 'Onye nchịgharị',
+        Viewer: 'Onye na-ekiri',
+        'People with access': 'Ndị nwere ohere',
+        'Share With…': 'Kekọrịta na',
+        Owner: 'Onye nwe',
+        "You can't share with yourself.": 'Ị nweghị ike ịkekọrịta ya onwe gị.',
+        'This user already has access to this item':
+      'Onye a enweela ohere ịbanye ihe a',
 
+        'billing.change_payment_method': 'Gbanwee', // In English: "Change"
+        'billing.cancel': 'Kagbuo', // In English: "Cancel"
+        'billing.download_invoice': 'Budata', // In English: "Download"
+        'billing.payment_method': 'Ụzọ nkwụnye ụgwọ', // In English: "Payment Method"
+        'billing.payment_method_updated': 'Emelitere usoro ịkwụ ụgwọ!', // In English: "Payment method updated!"
+        'billing.confirm_payment_method': 'Kwenye usoro ịkwụ ụgwọ', // In English: "Confirm Payment Method"
+        'billing.payment_history': 'Akụkọ ịkwụ ụgwọ', // In English: "Payment History"
+        'billing.refunded': 'Akwụghachitere', // In English: "Refunded"
+        'billing.paid': 'Akwụ ụgwọ', // In English: "Paid"
+        'billing.ok': 'Ọ DỊ MMA', // In English: "OK"
+        'billing.resume_subscription': 'Malitegharịa ndenye aha', // In English: "Resume Subscription"
+        'billing.subscription_cancelled': 'Akagbuola ndenye aha gị', // In English: "Your subscription has been canceled."
+        'billing.subscription_cancelled_description':
+      'Ị ka ga-enwe ike ịnweta ndenye aha gị ruo na njedebe nke oge ịgba ụgwọ a', // In English: "You will still have access to your subscription until the end of this billing period."
+        'billing.offering.free': "N'efu", // In English: "Free"
+        'billing.offering.pro': 'Ọkachamara', // In English: "Professional"
+        'billing.offering.professional': 'Ọkachamara', // In English: "Professional"
+        'billing.offering.business': 'Azụmahịa', // In English: "Business"
+        'billing.cloud_storage': 'Nchekwa igwe ojii', // In English: "Cloud Storage"
+        'billing.ai_access': 'Nweta AI', // In English: "AI Access"
+        'billing.bandwidth': 'Bandwit', // In English: "Bandwidth"
+        'billing.apps_and_games': 'Ngwa & Egwuregwu', // In English: "Apps & Games"
+        'billing.upgrade_to_pro': 'Kwalite ka sie ike', // In English: "Upgrade to %strong%"
+        'billing.switch_to': 'Gbanwee na ike', // In English: "Switch to %strong%"
+        'billing.payment_setup': 'Ntọala ịkwụ ụgwọ', // In English: "Payment Setup"
+        'billing.back': 'Azu', // In English: "Back"
+        'billing.you_are_now_subscribed_to': 'Ị debanyere aha na ọkwa siri ike.', // In English: "You are now subscribed to %strong% tier."
+        'billing.you_are_now_subscribed_to_without_tier': 'Ị debanyere aha ugbu a', // In English: "You are now subscribed"
+        'billing.subscription_cancellation_confirmation':
+      "Ị ji n'aka na ịchọrọ ịkagbu ndenye aha gị?", // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'Ntọala ndenye aha', // In English: "Subscription Setup"
+        'billing.cancel_it': 'Kagbuo ya', // In English: "Cancel It"
+        'billing.keep_it': 'Debe ya', // In English: "Keep It"
+        'billing.subscription_resumed': 'Eweghachila ndenye aha siri ike gị!', // In English: "Your %strong% subscription has been resumed!"
+        'billing.upgrade_now': 'Kwalite Ugbu a', // In English: "Upgrade Now"
         'billing.upgrade': 'Nweta nkwalite', // In English: "Upgrade"
+        'billing.currently_on_free_plan': 'Ị nọ ugbu a na atụmatụ efu.', // In English: "You are currently on the free plan."
+        'billing.download_receipt': 'Budata nnata', // In English: "Download Receipt"
+        'billing.subscription_check_error':
+      'Nsogbu mere mgbe ị na-elele ọkwa ndenye aha gị.', // In English: "A problem occurred while checking your subscription status."
+        'billing.email_confirmation_needed':
+      'Ekwenyeghị email gị. Anyị ga-ezitere gị koodu iji gosi ya ugbu a.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
+        'billing.sub_cancelled_but_valid_until':
+      'Ị kagbuola ndenye aha gị, ọ ga-agbanyekwa na ọkwa efu na-akpaghị aka na njedebe nke oge ịgba ụgwọ. Agaghị akwụ gị ụgwọ ọzọ ọ gwụla ma ị debanyere aha ọzọ', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
+        'billing.current_plan_until_end_of_period':
+      'Atụmatụ gị ugbu a ruo ọgwụgwụ nke oge ịgba ụgwọ a.', // In English: "Your current plan until the end of this billing period."
+        'billing.current_plan': 'Atụmatụ ugbu a', // In English: "Current plan"
+        'billing.cancelled_subscription_tier': 'Kagbuo ndenye aha', // In English: "Cancelled Subscription (%%)"
+        'billing.manage': 'jikwaa', // In English: "Manage"
+        'billing.limited': 'Oke', // In English: "Limited"
+        'billing.expanded': 'Gbasaa', // In English: "Expanded"
+        'billing.accelerated': 'Ọsọ ọsọ', // In English: "Accelerated"
+        'billing.enjoy_msg': 'Nwee obi ụtọ na Nchekwa igwe ojii gbakwunyere uru ndị ọzọ', // In English: "Enjoy %% of Cloud Storage plus other benefits."
         'create_shortcut_s': 'Mepụta ụzọ mkpirisi', // In English: "Create Shortcuts"
         'minimize': 'Wedata', // In English: "Minimize"
         'reload_app': 'Bugharịa ngwa', // In English: "Reload App"
         'publish_as_serverless_worker': 'Bipụta dị ka onye ọrụ', // In English: "Publish as Worker"
         'used_of': '{{used}} ejiri {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Onye ọrụ', // In English: "Worker"
+        'billing.offering.basic': 'Isi', // In English: "Basic"
         'server_timeout': 'Ihe nkesa ahụ were ogologo oge iji zaghachi. Biko nwaa ọzọ.', // In English: "The server took too long to respond. Please try again."
         'signup_error': "Enwere mperi n'oge ndebanye aha. Biko nwaa ọzọ.", // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Njehie!', // In English: "Error!"
