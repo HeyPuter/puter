@@ -96,16 +96,18 @@ export const actorHasCredits = async (
 
 /**
  * Reject an actor with nothing left to spend. Same status and code the AI
- * surfaces use, so a client that already handles one handles this.
+ * surfaces use, so a client that already handles one handles this. With
+ * `events`, a listener that tops the actor up lets the request through.
  */
 export const assertActorHasCredits = async (
     metering: CreditMetering | undefined,
     actor: Actor | undefined,
     config: EnforcementConfig,
+    events?: Pick<EventClient, 'emitAndWait'>,
 ): Promise<void> => {
-    if (!(await actorHasCredits(metering, actor, config))) {
-        throw insufficientCreditsError();
-    }
+    if (await actorHasCredits(metering, actor, config)) return;
+    if (await creditsRefilled(events, actor)) return;
+    throw insufficientCreditsError();
 };
 
 /** The 402 for a request the account's remaining credits can't cover. */
@@ -115,6 +117,26 @@ export const insufficientCreditsError = (): HttpError =>
         "Your account doesn't have enough credits left for this request. Upgrade your plan at https://puter.com/#billing to continue.",
         { legacyCode: 'insufficient_funds' },
     );
+
+/** Whether `error` is the refusal `insufficientCreditsError` makes. */
+export const isInsufficientCreditsError = (error: unknown): boolean => {
+    const { statusCode, legacyCode } = (error ?? {}) as Partial<HttpError>;
+    return statusCode === 402 && legacyCode === 'insufficient_funds';
+};
+
+/**
+ * Tells listeners an actor is about to be refused for lack of credit. True when
+ * one of them added credit, so the refused work is worth one more try.
+ */
+export const creditsRefilled = async (
+    events: Pick<EventClient, 'emitAndWait'> | undefined,
+    actor: Actor | undefined,
+): Promise<boolean> => {
+    if (!events || !actor?.user?.uuid) return false;
+    const refusal = { actor, refilled: false };
+    await events.emitAndWait('metering.out-of-credits', refusal, {});
+    return refusal.refilled;
+};
 
 /** The part of the metering service the subscription check calls. */
 export type SubscriptionMetering = Pick<

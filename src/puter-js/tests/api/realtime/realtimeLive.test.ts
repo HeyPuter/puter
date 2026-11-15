@@ -4,7 +4,7 @@ import { closeNodePuter, loadNodePuter } from '../harness/nodeSdkLoader';
 import type { EnvManifest, PuterSDK } from '../harness/types';
 import type { Conversation } from '../../../types/modules/ai/realtime';
 import type { RealtimeServerEvent } from '../../../types/modules/ai/types';
-import { optionalEnv } from '@heyputer/backend/drivers/integrationTestUtil.ts';
+import { optionalEnv } from '@heyputer/backend/testEnv.ts';
 import {
     setupPuterTestEnv,
     type PuterTestEnv,

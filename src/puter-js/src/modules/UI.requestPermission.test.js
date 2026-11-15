@@ -172,6 +172,20 @@ describe('ui.requestPermission when the check does not settle it', () => {
         await vi.waitFor(() => expect(promptCalls()).toHaveLength(1), { timeout: 10_000 });
     }, 15_000);
 
+    it.each([
+        ['an empty list', { permissions: [] }],
+        ['a list longer than one prompt covers', { permissions: Array.from({ length: 17 }, (_, i) => `user:u-${i}:email:read`) }],
+        ['a permission that is not a string', { permissions: ['user:u-1:email:read', 42] }],
+        ['no permission at all', {}],
+    ])('leaves %s to the prompt, without asking the server', async (_shape, options) => {
+        const ui = makeUI();
+
+        ui.requestPermission(options);
+
+        await vi.waitFor(() => expect(promptCalls()).toHaveLength(1));
+        expect(mockReq).not.toHaveBeenCalled();
+    });
+
     it('does not ask the server when there is no token to ask with', async () => {
         const ui = makeUI({ authToken: null });
 

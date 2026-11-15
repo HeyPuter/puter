@@ -1624,4 +1624,24 @@ describe('ShareStore', () => {
             });
         });
     });
+
+    // -- required fields ------------------------------------------------
+
+    it.each([
+        ['upsertPending', { issuerUserId: 1, fsentryId: 1, mode: 'read' }],
+        ['upsertActiveGroup', { issuerUserId: 1, fsentryId: 1, mode: 'read' }],
+        ['upsertAnyone', { issuerUserId: 1, fsentryId: 1 }],
+        ['applyPending', { uid: 'share-uid' }],
+    ])('%s refuses a write missing a required field', async (method, input) => {
+        const before = await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `share`',
+        );
+        await expect(store[method](input)).rejects.toThrow(
+            new RegExp(`^${method}: .* required$`),
+        );
+        const after = await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `share`',
+        );
+        expect(Number(after[0].n)).toBe(Number(before[0].n));
+    });
 });

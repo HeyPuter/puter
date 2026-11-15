@@ -233,6 +233,27 @@ describe('LocalWorkerService.cfCallLocal', () => {
         expect(res.status).toBe(404);
         expect(await res.text()).toBe('subdomain not found');
     });
+
+    it('404s a request for a suspended owner’s worker', async () => {
+        const name = `lws-susp-${Date.now()}`;
+        const src = await writeSource(
+            `${name}.js`,
+            "router.get('/', () => new Response('up'));",
+        );
+        await seedWorkerRow(name, { root_dir_id: src.id });
+        const call = () =>
+            localWorkers.cfCallLocal(name, new Request('http://x.localhost/'));
+
+        await server.stores.user.update(ownerUserId, { suspended: 1 });
+        try {
+            expect((await call()).status).toBe(404);
+        } finally {
+            await server.stores.user.update(ownerUserId, { suspended: 0 });
+        }
+        const res = await call();
+        expect(await res.text()).toBe('up');
+        await localWorkers.cfDeleteLocal(name);
+    });
 });
 
 describe('LocalWorkerService.cfDeleteLocal', () => {

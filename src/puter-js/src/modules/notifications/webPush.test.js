@@ -2459,6 +2459,142 @@ describe('status', () => {
             await expect(module.status()).resolves.toBe('off');
             expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
         });
+
+        describe('when Puter doesn`t know the endpoint', () => {
+            const routes = () => mockRequest.mock.calls.map(([, , r]) => r);
+            const devicesSay = (reply) =>
+                mockRequest.mockImplementation(async (_p, _m, route) => {
+                    if (route === '/push/web/subscriptions/status')
+                        return { state: 'unknown' };
+                    if (route === '/push/devices') return await reply();
+                    throw new Error(`unexpected ${route}`);
+                });
+            const inGui = () => {
+                store.delete(OPT_IN);
+                withBrowser(
+                    makeNav({
+                        existing: subscription,
+                        active: { scriptURL: `${ORIGIN}/sw.js` },
+                    }),
+                );
+                return makeModule({ env: 'gui' }).module;
+            };
+            const device = (over = {}) => ({
+                uid: 'd1',
+                platform: 'webpush',
+                label: null,
+                user_agent: null,
+                created_at: 1,
+                last_seen_at: 1,
+                current: true,
+                ...over,
+            });
+
+            it.each([
+                ['no devices', []],
+                ['only other devices', [device({ current: false })]],
+                [
+                    'only a current non-push device',
+                    [device({ platform: 'web' })],
+                ],
+            ])(
+                'is off in the GUI when the user has %s, as when another account made the subscription',
+                async (_label, devices) => {
+                    devicesSay(() => ({ devices }));
+                    await expect(inGui().status()).resolves.toBe('off');
+                    expect(routes()).toEqual([
+                        '/push/web/subscriptions/status',
+                        '/push/devices',
+                    ]);
+                    expect(mockRequest).toHaveBeenLastCalledWith(
+                        expect.anything(),
+                        'GET',
+                        '/push/devices',
+                        undefined,
+                        { interactiveReauth: false },
+                    );
+                    expect(subscription.unsubscribe).not.toHaveBeenCalled();
+                },
+            );
+
+            it('stays on in the GUI when the user`s devices have this browser, as right after enable()', async () => {
+                devicesSay(() => ({
+                    devices: [device({ current: false, uid: 'd0' }), device()],
+                }));
+                await expect(inGui().status()).resolves.toBe('on');
+                expect(routes()).toContain('/push/devices');
+            });
+
+            it.each([
+                [
+                    'a network failure',
+                    () => {
+                        throw new TypeError('Failed to fetch');
+                    },
+                ],
+                [
+                    'a 429',
+                    () => {
+                        throw new PuterJSError(
+                            'slow down',
+                            'too_many_requests',
+                        );
+                    },
+                ],
+                [
+                    'a rejected token',
+                    () => {
+                        throw new PuterJSError('no', 'token_auth_failed');
+                    },
+                ],
+                ['a malformed reply', () => ({})],
+            ])(
+                'stays on in the GUI when the device list fails with %s',
+                async (_label, reply) => {
+                    devicesSay(reply);
+                    await expect(inGui().status()).resolves.toBe('on');
+                    expect(routes()).toContain('/push/devices');
+                },
+            );
+
+            it.each([
+                ['says active', () => ({ state: 'active' })],
+                [
+                    'answers a 429',
+                    () => {
+                        throw new PuterJSError(
+                            'slow down',
+                            'too_many_requests',
+                        );
+                    },
+                ],
+                [
+                    'fails on the network',
+                    () => {
+                        throw new TypeError('Failed to fetch');
+                    },
+                ],
+            ])(
+                'stays on in the GUI without reading the device list when Puter %s',
+                async (_label, reply) => {
+                    mockRequest.mockImplementation(async (_p, _m, route) => {
+                        if (route === '/push/web/subscriptions/status')
+                            return await reply();
+                        return { devices: [] };
+                    });
+                    await expect(inGui().status()).resolves.toBe('on');
+                    expect(routes()).toEqual([
+                        '/push/web/subscriptions/status',
+                    ]);
+                },
+            );
+
+            it('stays on on a website without reading the device list', async () => {
+                devicesSay(() => ({ devices: [] }));
+                await expect(makeModule().module.status()).resolves.toBe('on');
+                expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            });
+        });
     });
 });
 

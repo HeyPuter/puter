@@ -443,17 +443,27 @@ describe('showFramedTopUp', () => {
         let options;
         const result = showFramedTopUp(topUpWindow(async (o) => {
             options = o;
-        }), tell);
+        }), { appUid: 'app-1' }, tell);
         await vi.waitFor(() => expect(tell).toHaveBeenCalledWith('ready'));
+        expect(options.attribution).toEqual({ appUid: 'app-1' });
         expect(tell).toHaveBeenCalledTimes(1);
 
         options.onClose({ toppedUp: true });
         await expect(result).resolves.toBe(true);
     });
 
+    it('passes no attribution when the framing page resolves to no app', async () => {
+        let options;
+        await showFramedTopUp(topUpWindow(async (o) => {
+            options = o;
+            o.onClose();
+        }), {}, vi.fn());
+        expect(options.attribution).toBeNull();
+    });
+
     it('resolves false for a close without a purchase', async () => {
-        await expect(showFramedTopUp(topUpWindow(async (o) => o.onClose({ toppedUp: false })), vi.fn())).resolves.toBe(false);
-        await expect(showFramedTopUp(topUpWindow(async (o) => o.onClose()), vi.fn())).resolves.toBe(false);
+        await expect(showFramedTopUp(topUpWindow(async (o) => o.onClose({ toppedUp: false })), {}, vi.fn())).resolves.toBe(false);
+        await expect(showFramedTopUp(topUpWindow(async (o) => o.onClose()), {}, vi.fn())).resolves.toBe(false);
     });
 
     it('resolves false once the dialog is gone without reporting a close', async () => {
@@ -462,7 +472,7 @@ describe('showFramedTopUp', () => {
         root.setAttribute('aria-modal', 'true');
         const result = showFramedTopUp(topUpWindow(async () => {
             document.body.append(root);
-        }), vi.fn());
+        }), {}, vi.fn());
         await vi.advanceTimersByTimeAsync(0);
         root.remove();
         await vi.advanceTimersByTimeAsync(600);
@@ -472,7 +482,7 @@ describe('showFramedTopUp', () => {
     it('rejects when the dialog fails to open', async () => {
         await expect(showFramedTopUp(topUpWindow(async () => {
             throw new Error('no dialog');
-        }), vi.fn())).rejects.toThrow('no dialog');
+        }), {}, vi.fn())).rejects.toThrow('no dialog');
     });
 });
 

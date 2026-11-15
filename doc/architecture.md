@@ -42,6 +42,19 @@ block-beta
 
 Extensions sit alongside this stack and can register into any layer; see [Extensions](#extensions).
 
+### AI drivers
+
+The AI drivers have their own layout under [src/backend/drivers/ai/](../src/backend/drivers/ai/):
+
+| Folder | Holds |
+| --- | --- |
+| `interfaces/` | The Puter-facing drivers, one folder per AI interface (chat, image, video, text to speech, speech to text, speech to speech, OCR). |
+| `providers/` | Vendor code, as `providers/<vendor>/<interface>/`. |
+| `protocols/` | Wire protocols that several vendors speak, such as the OpenAI-compatible one. |
+| `shared/` | Helpers that more than one interface uses. |
+
+A call goes from an interface's driver to a provider, and from there to a shared protocol when the vendor speaks one. [ai-drivers.md](ai-drivers.md) has the ownership rules, the import rules, and the steps for adding a provider.
+
 ## Entry point: `PuterServer`
 
 `PuterServer` is the bootstrap. It:

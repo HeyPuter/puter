@@ -34,7 +34,7 @@ An object containing the following properties:
 | `stream` | `Boolean` | A boolean indicating whether you want to stream the completion. Defaults to `false`. |
 | `max_tokens` | `Number` | The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used. |
 | `temperature` | `Number` | A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. See [Model-specific features](#model-specific-features). |
-| `reasoning_effort` / `reasoning.effort` | `String` | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. OpenAI models, Moonshot's Kimi K3.1 Pro models, Meta's Muse Spark models, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only. See [Model-specific features](#model-specific-features). |
+| `reasoning_effort` / `reasoning.effort` | `String` | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. See [Model-specific features](#model-specific-features). |
 | `thinking` | `Object \| null` | Extended-thinking control: `{ type: "adaptive" \| "enabled" \| "disabled" \| "between_tools", budgetTokens?, display? }`. Pass `null` to send no thinking configuration at all (the model's own default); leaving it unset falls back to the legacy derivation from `reasoning_effort`. `budgetTokens` only applies to `type: "enabled"`. |
 | `verbosity` / `text.verbosity` | `String` | Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only. |
 | `tools` | `Array` | Function definitions the AI can call. See [Function Calling](#function-calling) for details. |
@@ -437,6 +437,26 @@ The `usageDetails` object on every result carries the same counts under provider
 
 Fast service is available on Claude models with a Fast rate card. Ultrafast falls back to fast. When the account has no Fast quota, the request retries at standard speed. The upstream service tier and inference speed are separate fields.
 
+Pass `speed: "fast"` to request Fast mode, or `speed: "standard"` for standard inference. This option applies to Claude models. An explicit `serviceSpeed` takes precedence.
+
+#### Refusal fallback
+
+A Claude model can decline a request. A declined request ends with `stopReason` set to `"refusal"`, and `stopDetails` says why.
+
+When Claude Fable 5.2, Fable 5.1, Fable 5, Opus 5.5, Opus 5, or Sonnet 5.5 declines, the same request runs again on an earlier Claude model, and the response carries that model's answer. Fable 5.2, Fable 5.1, Fable 5 and Opus 5.5 fall back to Opus 5, and then to Opus 4.8 if Opus 5 declines too. Opus 5 falls back to Opus 4.8. Sonnet 5.5 falls back to Sonnet 5. If the last model declines too, the response ends with `stopReason` set to `"refusal"`.
+
+A streamed request runs again only when the model declines before it produces any output. A streamed request that is declined after its output started ends with `stopReason` set to `"refusal"`.
+
+When another model answers, `usageDetails.fallbackModel` holds its ID and `refusalFallbacks` lists each switch. A streamed response has a `refusal_fallback` chunk for each switch before the answer, with the two models in `from.model` and `to.model`. See the [ChatResponse](/Objects/chatresponse/) and [ChatResponseChunk](/Objects/chatresponsechunk/) objects for these fields.
+
+A request that a model declines before it produces any output is charged only when Anthropic charges for it, which depends on the refusal category in `stopDetails.category`. A request declined after it produced output is charged for its prompt and that output.
+
+Each model that ran is charged at its own rates, and `usage.cost` is the total. The `usage` object holds the tokens of the model that answered under its usual keys, and the tokens of a model that declined under keys that start with `declined_`, such as `declined_input_tokens`. Each run is checked against your balance before it starts. If the balance can't cover the next model, the request doesn't run again and the response is the refusal.
+
+After a model declines a turn of a conversation, later calls for that conversation run on the model that answered, and the declined model isn't tried again. A call belongs to the conversation when it asks for the same `model` and its `messages` start with the messages of the declined call. The response keeps the format of the model you asked for. This lasts until the page is reloaded.
+
+To get the refusal as it is, pass `refusalFallback: false`.
+
 #### Prompt Caching
 
 Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompts.
@@ -465,11 +485,13 @@ Fast service uses Priority inference on supported text and image requests. Other
 
 #### `temperature`
 
-`gemini-4-argon` ignores `temperature`. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` use it.
+Gemini 4 Carbon (`gemini-4-carbon`), Gemini 4 Argon (`gemini-4-argon`) and Gemini 4 Hydrogen (`gemini-4-hydrogen`) ignore `temperature`. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models use it.
 
 #### `reasoning_effort`
 
-`gemini-4-argon` accepts `low`, `medium` and `high`, and uses `medium` when you leave it unset. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these three Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
+Gemini 4 Carbon and Gemini 4 Argon accept `low`, `medium` and `high`, and use `medium` when you leave it unset. Gemini 4 Hydrogen accepts `low`, `medium`, `high` and `xhigh`, and uses `high` when you leave it unset. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these five Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
+
+The other Gemini models ignore `reasoning_effort`.
 
 #### Function calling
 
@@ -568,7 +590,7 @@ Models with an equivalent Highspeed variant select that variant for fast service
 
 #### `reasoning_effort`
 
-Kimi K3.1 Pro accepts `low`, `high` and `max`, uses `max` when you leave it unset, and fails with `400 bad_request` on any other value.
+Kimi K3.1 Pro accepts `low`, `high` and `max`, uses `max` when you leave it unset, and fails with `400 bad_request` on any other value. The other Kimi models ignore `reasoning_effort`.
 
 #### Prompt Caching
 

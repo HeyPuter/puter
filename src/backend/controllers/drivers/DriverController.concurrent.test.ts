@@ -324,7 +324,7 @@ describe('DriverController — concurrent acquire/release', () => {
         const driver = {
             ...makeSyntheticDriver(),
             ping: async () => {
-                Context.get('keepDriverSlot')?.(
+                Context.get('keepConcurrencySlot')?.(
                     new Promise<void>((resolve) => {
                         settleWork = resolve;
                     }),

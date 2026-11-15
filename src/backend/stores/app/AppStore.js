@@ -96,17 +96,20 @@ const CLICKHOUSE_UIDS_PER_QUERY = 1000;
 // Period helpers for detailed/grouped stats. Ported from v1
 // AppInformationService — queries go straight to ClickHouse/MySQL on demand
 // (no cache) since they're UI-driven and rarely repeated with identical args.
+// Weeks are ISO 8601 weeks (Monday first, numbered within the ISO year) in
+// every engine, to match the keys `#isoWeekKey` generates.
 const MYSQL_DATE_FORMATS = {
     hour: '%Y-%m-%d %H:00:00',
     day: '%Y-%m-%d',
-    week: '%Y-%U',
+    week: '%x-%v',
     month: '%Y-%m',
     year: '%Y',
 };
+const SQLITE_DATE_FORMATS = { ...MYSQL_DATE_FORMATS, week: '%G-%V' };
 const CLICKHOUSE_GROUP_BY_FORMATS = {
     hour: 'toStartOfHour(fromUnixTimestamp(ts))',
     day: 'toStartOfDay(fromUnixTimestamp(ts))',
-    week: 'toStartOfWeek(fromUnixTimestamp(ts))',
+    week: 'toStartOfWeek(fromUnixTimestamp(ts), 1)',
     month: 'toStartOfMonth(fromUnixTimestamp(ts))',
     year: 'toStartOfYear(fromUnixTimestamp(ts))',
 };
@@ -1870,7 +1873,7 @@ export class AppStore extends PuterStore {
         // ts is stored as unix seconds — no /1000 in the date conversion.
         const periodExpr = this.clients.db.case({
             mysql: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
-            sqlite: `STRFTIME('${timeFormat}', datetime(ts, 'unixepoch'))`,
+            sqlite: `STRFTIME('${SQLITE_DATE_FORMATS[grouping]}', datetime(ts, 'unixepoch'))`,
             postgres: `TO_CHAR(TO_TIMESTAMP(ts), '${this.#postgresDateFormat(grouping)}')`,
             otherwise: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
         });
@@ -1899,7 +1902,7 @@ export class AppStore extends PuterStore {
             case 'day':
                 return 'YYYY-MM-DD';
             case 'week':
-                return 'YYYY-WW';
+                return 'IYYY-IW';
             case 'month':
                 return 'YYYY-MM';
             case 'year':
@@ -1911,9 +1914,8 @@ export class AppStore extends PuterStore {
 
     #assembleGroupedResult(rows, allPeriods, grouping) {
         // Totals come from raw rows so they survive even if a row's
-        // period key fails to match an `allPeriods` entry (e.g. week
-        // grouping format mismatches, timezone edge cases). Matches v1
-        // AppInformationService.get_stats behaviour.
+        // period key fails to match an `allPeriods` entry (e.g. timezone
+        // edge cases). Matches v1 AppInformationService.get_stats behaviour.
         let totalOpen = 0;
         let totalUser = 0;
         for (const r of rows) {
@@ -1945,10 +1947,8 @@ export class AppStore extends PuterStore {
                 return `${period.toISOString().slice(0, 13)}:00:00`;
             case 'day':
                 return period.toISOString().slice(0, 10);
-            case 'week': {
-                const wn = String(this.#getWeekNumber(period)).padStart(2, '0');
-                return `${period.getFullYear()}-${wn}`;
-            }
+            case 'week':
+                return this.#isoWeekKey(period);
             case 'month':
                 return period.toISOString().slice(0, 7);
             case 'year':
@@ -2040,6 +2040,11 @@ export class AppStore extends PuterStore {
         const out = [];
         const cur = new Date(startDate);
         if (Number.isNaN(cur.getTime())) return out;
+        if (grouping === 'week') {
+            // From the week's Monday, so stepping a week at a time also
+            // reaches the week the range ends in.
+            cur.setUTCDate(cur.getUTCDate() - ((cur.getUTCDay() + 6) % 7));
+        }
         while (cur <= endDate) {
             let period;
             switch (grouping) {
@@ -2051,15 +2056,10 @@ export class AppStore extends PuterStore {
                     period = cur.toISOString().slice(0, 10);
                     cur.setDate(cur.getDate() + 1);
                     break;
-                case 'week': {
-                    const wn = String(this.#getWeekNumber(cur)).padStart(
-                        2,
-                        '0',
-                    );
-                    period = `${cur.getFullYear()}-${wn}`;
-                    cur.setDate(cur.getDate() + 7);
+                case 'week':
+                    period = this.#isoWeekKey(cur);
+                    cur.setUTCDate(cur.getUTCDate() + 7);
                     break;
-                }
                 case 'month':
                     period = cur.toISOString().slice(0, 7);
                     cur.setMonth(cur.getMonth() + 1);
@@ -2076,15 +2076,22 @@ export class AppStore extends PuterStore {
         return out;
     }
 
-    #getWeekNumber(date) {
-        const target = new Date(date.valueOf());
-        const dayNumber = (date.getDay() + 6) % 7;
-        target.setDate(target.getDate() - dayNumber + 3);
-        const firstThursday = target.valueOf();
-        target.setMonth(0, 1);
-        if (target.getDay() !== 4) {
-            target.setMonth(0, 1 + ((4 - target.getDay() + 7) % 7));
-        }
-        return 1 + Math.ceil((firstThursday - target) / 604800000);
+    // `<ISO year>-<ISO week>` in UTC. A week belongs to the year its
+    // Thursday falls in, so 2025-12-29 is `2026-01`.
+    #isoWeekKey(date) {
+        const thursday = new Date(
+            Date.UTC(
+                date.getUTCFullYear(),
+                date.getUTCMonth(),
+                date.getUTCDate(),
+            ),
+        );
+        thursday.setUTCDate(
+            thursday.getUTCDate() + 3 - ((thursday.getUTCDay() + 6) % 7),
+        );
+        const year = thursday.getUTCFullYear();
+        const week =
+            1 + Math.floor((thursday - Date.UTC(year, 0, 1)) / 604800000);
+        return `${year}-${String(week).padStart(2, '0')}`;
     }
 }

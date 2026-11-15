@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
-import { lowerDecoratorsPlugin } from '../../../backend/vitest.config.ts';
+import {
+    backendAliases,
+    lowerDecoratorsPlugin,
+} from '../../../backend/vitest.config.ts';
 
 // Config for the client-agnostic puter.js API suites (tests/api). The
 // runners boot the in-memory backend in-process, so this mirrors the
@@ -9,26 +12,48 @@ import { lowerDecoratorsPlugin } from '../../../backend/vitest.config.ts';
 // repo root as vitest root so backend + extensions sources get transformed.
 const apiTestsDir = __dirname;
 const repoRoot = path.resolve(apiTestsDir, '../../../..');
-const backendDir = path.join(repoRoot, 'src/backend');
+const sdkSourceDir = path.join(repoRoot, 'src/puter-js/src') + path.sep;
+const coverage = Boolean(process.env.PUTER_COVERAGE);
+
+// The unit tests import SDK source rather than the instrumented bundle, so in
+// coverage mode the source gets the same istanbul counters the bundle has and
+// both count into one report.
+const instrumentSdkSource = {
+    name: 'puter:instrument-sdk-source',
+    enforce: 'pre' as const,
+    async transform(code: string, id: string) {
+        const file = id.split('?')[0]!;
+        if (!file.startsWith(sdkSourceDir) || !file.endsWith('.js'))
+            return null;
+        if (file.endsWith('.test.js')) return null;
+        const { transformAsync } = await import('@babel/core');
+        const result = await transformAsync(code, {
+            filename: file,
+            babelrc: false,
+            configFile: false,
+            sourceMaps: true,
+            plugins: [
+                [
+                    'babel-plugin-istanbul',
+                    // Same global lookup as the bundle (webpack.config.js).
+                    {
+                        coverageGlobalScope:
+                            "typeof self !== 'undefined' ? self : globalThis",
+                        coverageGlobalScopeFunc: false,
+                    },
+                ],
+            ],
+        });
+        return result?.code ? { code: result.code, map: result.map } : null;
+    },
+};
 
 export default defineConfig(({ mode }) => ({
-    plugins: [lowerDecoratorsPlugin],
-    resolve: {
-        alias: [
-            {
-                find: /^@heyputer\/backend\/src\/(.*)$/,
-                replacement: path.join(backendDir, '$1'),
-            },
-            {
-                find: /^@heyputer\/backend\/(.*)$/,
-                replacement: path.join(backendDir, '$1'),
-            },
-            {
-                find: /^@heyputer\/backend$/,
-                replacement: path.join(backendDir, 'exports.ts'),
-            },
-        ],
-    },
+    plugins: [
+        lowerDecoratorsPlugin,
+        ...(coverage ? [instrumentSdkSource] : []),
+    ],
+    resolve: { alias: backendAliases },
     test: {
         globals: true,
         // Same PUTER_ env passthrough as the backend config, so
@@ -49,6 +74,9 @@ export default defineConfig(({ mode }) => ({
         // Node's own localStorage global is undefined without a storage file
         // and keeps vitest from installing jsdom's in its place.
         execArgv: ['--no-experimental-webstorage'],
+        setupFiles: coverage
+            ? ['src/puter-js/tests/api/harness/unitCoverageSetup.ts']
+            : [],
         root: repoRoot,
     },
 }));

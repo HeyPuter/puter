@@ -153,6 +153,55 @@ describe('assertActorHasCredits', () => {
         ).resolves.toBeUndefined();
         expect(metering.hasAnyUsageCached).not.toHaveBeenCalled();
     });
+
+    /** An event client whose out-of-credits listener answers `refill`. */
+    const listener = (refill: boolean) => ({
+        emitAndWait: vi.fn(
+            async (_key: string, refusal: { refilled: boolean }) => {
+                refusal.refilled = refill;
+            },
+        ),
+    });
+
+    it('admits an account a listener topped up at the moment of refusal', async () => {
+        const events = listener(true);
+        const actor = userActor();
+        await expect(
+            assertActorHasCredits(
+                brokeMetering,
+                actor,
+                config(),
+                events as never,
+            ),
+        ).resolves.toBeUndefined();
+        expect(events.emitAndWait).toHaveBeenCalledWith(
+            'metering.out-of-credits',
+            { actor, refilled: true },
+            {},
+        );
+    });
+
+    it('rejects an account no listener topped up', async () => {
+        await expect402(
+            assertActorHasCredits(
+                brokeMetering,
+                userActor(),
+                config(),
+                listener(false) as never,
+            ),
+        );
+    });
+
+    it('tells no listener about an account with budget left', async () => {
+        const events = listener(true);
+        await assertActorHasCredits(
+            fundedMetering,
+            userActor(),
+            config(),
+            events as never,
+        );
+        expect(events.emitAndWait).not.toHaveBeenCalled();
+    });
 });
 
 // -- Subscription enforcement ----------------------------------------

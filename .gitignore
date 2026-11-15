@@ -12,6 +12,9 @@ license-header.txt
 # Build Outputs
 dist/
 
+# Benchmark reports and the base checkout `npm run bench:compare` makes
+.bench/
+
 # VS Code IDE
 .vscode/**/*
 !.vscode/extensions.json

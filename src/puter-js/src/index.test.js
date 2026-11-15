@@ -240,6 +240,88 @@ describe('app-mode launch token', () => {
     });
 });
 
+describe('GUI origin of an app', () => {
+    const DESKTOP = 'https://desktop.puter.com';
+    const launchedBy = (origin) =>
+        bootApp(
+            `${LAUNCH}${APP_TOKEN}&puter.origin=${encodeURIComponent(origin)}`,
+        );
+
+    /** Sends `data` to the app as its parent at `origin` would. */
+    const fromParent = async (origin, data) => {
+        window.dispatchEvent(
+            new MessageEvent('message', {
+                origin,
+                source: globalThis.parent,
+                data,
+            }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+
+    const closeAnswers = () =>
+        globalThis.parent.postMessage.mock.calls
+            .map(([message]) => message)
+            .filter((message) => message?.original_msg_id === 'close-1');
+
+    it('is the first-party desktop that launched it', async () => {
+        expect((await launchedBy(DESKTOP)).defaultGUIOrigin).toBe(DESKTOP);
+        expect((await launchedBy('https://puter.com')).defaultGUIOrigin).toBe(
+            'https://puter.com',
+        );
+    });
+
+    it('stays puter.com for any other launcher', async () => {
+        for (const origin of [
+            'https://evil.example',
+            'https://desktop.puter.com.evil.example',
+            'https://x.desktop.puter.com',
+            'http://desktop.puter.com',
+            'not a url',
+        ]) {
+            expect((await launchedBy(origin)).defaultGUIOrigin).toBe(
+                'https://puter.com',
+            );
+        }
+        expect((await bootApp(`${LAUNCH}${APP_TOKEN}`)).defaultGUIOrigin).toBe(
+            'https://puter.com',
+        );
+    });
+
+    it('yields to an explicit PUTER_ORIGIN', async () => {
+        globalThis.PUTER_ORIGIN = 'https://self-hosted.test';
+        try {
+            expect((await launchedBy(DESKTOP)).defaultGUIOrigin).toBe(
+                'https://self-hosted.test',
+            );
+        } finally {
+            delete globalThis.PUTER_ORIGIN;
+        }
+    });
+
+    it('is not taken from the URL of a top-level page', async () => {
+        const puter = await bootWeb(
+            `?puter.app_instance_id=i&puter.origin=${encodeURIComponent(DESKTOP)}`,
+        );
+        expect(puter.env).not.toBe('app');
+        expect(puter.defaultGUIOrigin).toBe('https://puter.com');
+    });
+
+    it('answers windowWillClose from that desktop and no other', async () => {
+        await launchedBy(DESKTOP);
+        const willClose = { msg: 'windowWillClose', msg_id: 'close-1' };
+
+        await fromParent('https://evil.example', willClose);
+        await fromParent('https://puter.com', willClose);
+        expect(closeAnswers()).toEqual([]);
+
+        await fromParent(DESKTOP, willClose);
+        expect(closeAnswers()).toEqual([
+            expect.objectContaining({ msg: true, original_msg_id: 'close-1' }),
+        ]);
+    });
+});
+
 describe('token adoption on a top-level page', () => {
     it('takes a token from a window it opened, and from nothing else', async () => {
         const puter = await bootWeb('');
@@ -283,6 +365,76 @@ describe('web-mode stored token', () => {
         expect(puter.env).toBe('web');
         await afterLoad();
         expect(location.search).toBe('?auth_token=sites-own-param');
+    });
+});
+
+describe('godmode app in a tab the GUI opened', () => {
+    const TAB = '?puter.app_instance_id=i';
+
+    /** Boots a top-level tab whose GUI opener hands it `token`. */
+    const bootTab = async (token) => {
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) =>
+                window.dispatchEvent(
+                    new MessageEvent('message', {
+                        origin: guiOrigin,
+                        source: opener,
+                        data: {
+                            msg: 'puter.launch',
+                            appInstanceID: data.appInstanceID,
+                            token,
+                        },
+                    }),
+                ),
+        };
+        Object.defineProperty(globalThis, 'opener', {
+            value: opener,
+            configurable: true,
+            writable: true,
+        });
+        const puter = await bootWeb(TAB);
+        await puter.openerLaunch_;
+        return puter;
+    };
+
+    afterEach(() => {
+        globalThis.opener = null;
+    });
+
+    it('keeps the handed-over token in sessionStorage, so a reload has it', async () => {
+        const puter = await bootTab(GODMODE_TOKEN);
+        expect(puter.env).toBe('web');
+        expect(puter.authToken).toBe(GODMODE_TOKEN);
+        expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBe(GODMODE_TOKEN);
+
+        // The opener was cut off, so the reload has only what it stored.
+        expect(globalThis.opener).toBeNull();
+        const reloaded = await bootWeb(TAB);
+        expect(reloaded.authToken).toBe(GODMODE_TOKEN);
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBe(GODMODE_TOKEN);
+    });
+
+    it('reloads on the godmode token over an app token stored earlier', async () => {
+        localStorage.setItem(STORAGE_KEY, APP_TOKEN);
+        localStorage.setItem(ORIGIN_KEY, 'https://api.puter.com');
+        await bootTab(GODMODE_TOKEN);
+
+        const reloaded = await bootWeb(TAB);
+        expect(reloaded.authToken).toBe(GODMODE_TOKEN);
+    });
+
+    it('drops the sessionStorage copy on sign-out', async () => {
+        const puter = await bootTab(GODMODE_TOKEN);
+        puter.resetAuthToken();
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+
+    it('still keeps an app token in localStorage only', async () => {
+        await bootTab(APP_TOKEN);
+        expect(localStorage.getItem(STORAGE_KEY)).toBe(APP_TOKEN);
+        expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
     });
 });
 

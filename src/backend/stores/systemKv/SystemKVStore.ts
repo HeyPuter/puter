@@ -2164,13 +2164,27 @@ export class SystemKVStore extends PuterStore {
         }
     }
 
+    /**
+     * `fenceWriter` also answers with `fences`: the last token that writer's
+     * fenced `incr` applied to each key, 0 for none. It reads the table, never
+     * the cache.
+     */
     async get(
         {
             key,
             consistentRead,
-        }: { key: string | string[]; consistentRead?: boolean },
+            fenceWriter,
+        }: {
+            key: string | string[];
+            consistentRead?: boolean;
+            fenceWriter?: string;
+        },
         opts?: KVOpts,
-    ): Promise<KVResult<unknown | null | (unknown | null)[]>> {
+    ): Promise<
+        KVResult<unknown | null | (unknown | null)[]> & {
+            fences?: number | number[];
+        }
+    > {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
         const foreign = isForeignNamespace(opts);
@@ -2183,7 +2197,8 @@ export class SystemKVStore extends PuterStore {
         let usage = emptyUsage();
 
         // A consistent read is asking for the source of truth by definition.
-        const useCache = !consistentRead && this.#cacheable(namespace);
+        const useCache =
+            !consistentRead && !fenceWriter && this.#cacheable(namespace);
         // Deduped so a key repeated in a batch is looked up — and charged for —
         // once, matching what `getBatches` already does.
         const wanted = [...new Set(keys)];
@@ -2250,7 +2265,22 @@ export class SystemKVStore extends PuterStore {
             return entry.value ?? null;
         });
 
-        return { res: multi ? values : values[0], usage };
+        if (!fenceWriter) return { res: multi ? values : values[0], usage };
+        const fences = keys.map((k) => {
+            const entry = entriesByKey.get(k) as
+                | (KvCachedItem & Record<string, unknown>)
+                | undefined;
+            // An expired row is rebuilt from nothing, its fence included.
+            if (!entry || isExpiredTtl(entry.ttl, now)) return 0;
+            if (foreign && entry.noShare) return 0;
+            const held = entry[`${KV_FENCE_ATTR_PREFIX}${fenceWriter}`];
+            return typeof held === 'number' ? held : 0;
+        });
+        return {
+            res: multi ? values : values[0],
+            usage,
+            fences: multi ? fences : fences[0],
+        };
     }
 
     /**
