@@ -17,11 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindowDisable2FA from '../Settings/UIWindowDisable2FA.js';
-import UIWindow2FASetup from '../UIWindow2FASetup.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 import { isOrgSeat } from './orgSeat.js';
-import { openChangePasswordDialog } from './UIAccountDialogs.js';
+import { openChangePasswordDialog, openDisable2FADialog } from './UIAccountDialogs.js';
+import UIDashboard2FASetupDialog from './UIDashboard2FASetupDialog.js';
 import UIDashboardBlockedSendersDialog from './UIDashboardBlockedSendersDialog.js';
 
 const TabSecurity = {
@@ -154,19 +153,7 @@ const TabSecurity = {
             $toggle.prop('disabled', true);
             $label.addClass('dashboard-switch-pending');
 
-            const window_options = {
-                parent_uuid: $el_window.attr('data-element_uuid'),
-                backdrop: true,
-                close_on_backdrop_click: true,
-                parent_center: true,
-                stay_on_top: true,
-                has_head: false,
-            };
-
-            const { promise } = enabling
-                ? await UIWindow2FASetup({ window_options })
-                : await UIWindowDisable2FA({ window_options });
-            const succeeded = await promise;
+            const succeeded = await (enabling ? UIDashboard2FASetupDialog : openDisable2FADialog)({ $container: $el_window });
 
             $toggle.prop('disabled', false);
             $label.removeClass('dashboard-switch-pending');

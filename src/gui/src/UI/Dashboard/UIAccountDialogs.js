@@ -402,6 +402,60 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
 }
 
 /**
+ * Turns two-factor authentication off, given the account password (or a
+ * sign-in with the linked provider) and an authenticator or recovery code.
+ *
+ * @param {AccountDialogOptions} [opts]
+ * @returns {Promise<boolean>} Whether 2FA was turned off before the dialog closed.
+ */
+export function openDisable2FADialog (opts = {}) {
+    return new Promise((resolve) => {
+        let disabled = false;
+        UIDashboardFormDialog({
+            ...opts,
+            title: t('disable_2fa'),
+            intro: `<p>${i18n('disable_2fa_instructions')}</p>${oidcNotice()}`,
+            submitLabel: t('disable_2fa'),
+            fields: [
+                passwordField(i18n('account_password')),
+                {
+                    name: 'code',
+                    label: i18n('disable_2fa_code_instruction'),
+                    attrs: { autocomplete: 'one-time-code', maxlength: 64, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' },
+                },
+            ],
+            onClose: () => resolve(disabled),
+            async onSubmit (dialog) {
+                const { password, code } = dialog.values();
+                if ( ! isOidcOnly() && ! password ) {
+                    dialog.setStatus(t('all_fields_required'), { field: 'password' });
+                    return;
+                }
+                let result;
+                try {
+                    // A pasted recovery code is normalized like the sign-in dialog's.
+                    result = await postUserProtected('disable-2fa', { code: code.trim().toUpperCase() || undefined }, {
+                        password,
+                        onRevalidate: revalidating(dialog),
+                    });
+                } catch {
+                    // The request never got an answer (offline).
+                    dialog.setStatus(t('something_went_wrong'));
+                    return;
+                }
+                if ( ! result.ok ) {
+                    dialog.setStatus(result.message, result.data.factor === 'otp' ? { field: 'code' } : wrongPassword(result, 'password'));
+                    return;
+                }
+                if ( window.user ) window.user.otp = false;
+                disabled = true;
+                dialog.close();
+            },
+        });
+    });
+}
+
+/**
  * Deletes the signed-in user's account once they confirm it: by typing
  * "confirm" for a temporary account, with their password, or by signing in
  * with their linked provider when the account has no password.
