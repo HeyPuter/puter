@@ -209,6 +209,7 @@ export type {
 export type {
     CustomDomain,
     CustomDomainRecord,
+    SiteCustomDomain,
     Subdomain,
 } from './types/modules/hosting/types.js';
 

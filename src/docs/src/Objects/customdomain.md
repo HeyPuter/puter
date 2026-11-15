@@ -3,7 +3,7 @@ title: CustomDomain
 description: The CustomDomain object containing the details of a domain connected to a website.
 ---
 
-The `CustomDomain` object describes a domain the user owns that serves one of their websites hosted on Puter. The [`puter.hosting.attach()`](/Hosting/attach/) method resolves to it.
+The `CustomDomain` object describes a domain the user owns that serves one of their websites hosted on Puter. The [`puter.hosting.attach()`](/Hosting/attach/) method resolves to it, and [`puter.hosting.detach()`](/Hosting/detach/) resolves to a list of them.
 
 ## Attributes
 
@@ -56,6 +56,10 @@ When the domain became active, in milliseconds since the Unix epoch, or `null` i
 #### `dnsProvider` (String, optional)
 
 Who hosts the DNS of a root domain: `route53`, `godaddy` or `other`. Puter looks this up when a root domain is added, and only includes it in that response. Route 53 and GoDaddy can't point a root domain at another host name, so a root domain on either is added as its `www.` hostname (see `redirectFrom`).
+
+#### `previousSite` (String, optional)
+
+The name of the website the domain served before, when the user moved it from that website in the [`puter.hosting.attach()`](/Hosting/attach/) dialog. Only the result of [`puter.hosting.attach()`](/Hosting/attach/) includes it.
 
 #### `redirectFrom` (String, optional)
 

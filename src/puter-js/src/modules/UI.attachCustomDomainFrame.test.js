@@ -185,3 +185,28 @@ describe('attachCustomDomain_ on a page that cannot frame the dialog', () => {
         expect(domainFrame()).toBeNull();
     });
 });
+
+describe('detachCustomDomain_ on a signed-in first-party page', () => {
+    it('shows the remove dialog in a frame and resolves the domains removed', async () => {
+        const result = makeUI().detachCustomDomain_('mysite');
+        await vi.waitFor(() => expect(domainFrame()).not.toBeNull());
+
+        expect(new URL(domainFrame().src).pathname).toBe('/embed/detach-custom-domain');
+        const { msg_id, ...rest } = fragment();
+        expect(rest).toEqual({ user: USER, subdomain: 'mysite' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'customDomainDetached', original_msg_id: msg_id, domains: [DOMAIN] });
+
+        await expect(result).resolves.toEqual([DOMAIN]);
+        expect(opened).toHaveLength(0);
+    });
+
+    it('resolves none when the frame closes without an answer', async () => {
+        const result = makeUI().detachCustomDomain_('mysite');
+        await vi.waitFor(() => expect(domainFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed' });
+
+        await expect(result).resolves.toEqual([]);
+    });
+});

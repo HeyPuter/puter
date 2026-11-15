@@ -33,6 +33,7 @@ export const FRAMED_POPUP_ACTIONS = new Set([
     'top-up',
     'request-email-confirmation',
     'attach-custom-domain',
+    'detach-custom-domain',
 ]);
 
 // Actions a frame shows only for the user the framing page is signed in as.
@@ -44,11 +45,12 @@ const HOST_USER_ACTIONS = new Set([
     'top-up',
     'request-email-confirmation',
     'attach-custom-domain',
+    'detach-custom-domain',
 ]);
 
 // Actions framed over the whole page with no box, which their own dialog's
 // scrim covers.
-const TRANSPARENT_ACTIONS = new Set(['upgrade', 'top-up', 'request-email-confirmation', 'attach-custom-domain']);
+const TRANSPARENT_ACTIONS = new Set(['upgrade', 'top-up', 'request-email-confirmation', 'attach-custom-domain', 'detach-custom-domain']);
 
 const UPGRADE_REASONS = new Set(['funds', 'subscription', 'storage']);
 const UPGRADE_METHOD_MAX = 200;

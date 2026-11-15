@@ -1131,9 +1131,11 @@ const postAuthActions = async (action) => {
     // -------------------------------------------------------------------------------------
     // Action: attach-custom-domain — puter.hosting.attach() on a website. Hosts the custom
     // domain dialog for `subdomain` and posts the chosen domain back to the opener, or to
-    // the first-party page framing it.
+    // the first-party page framing it. detach-custom-domain, behind puter.hosting.detach(),
+    // hosts it in its remove-only mode and posts back the domains removed.
     // -------------------------------------------------------------------------------------
-    if ( action === 'attach-custom-domain' ) {
+    if ( action === 'attach-custom-domain' || action === 'detach-custom-domain' ) {
+        const detaching = action === 'detach-custom-domain';
         const msg_id = window.url_query_params.get('msg_id');
         const subdomain = window.url_query_params.get('subdomain');
         // Browser-attested only: the domain goes to this origin and nowhere
@@ -1143,10 +1145,10 @@ const postAuthActions = async (action) => {
         try {
             target_origin = origin ? new URL(origin).origin : null;
         } catch (e) {
-            console.error('attach-custom-domain: unusable origin', origin);
+            console.error(`${action}: unusable origin`, origin);
         }
 
-        let domain = null;
+        let answer = detaching ? [] : null;
         try {
             if ( ! target_origin ) {
                 throw new Error('no opener origin; not prompting');
@@ -1159,13 +1161,14 @@ const postAuthActions = async (action) => {
                 subdomain,
                 requester: target_origin,
                 fullpage: window.embedded_in_popup === true && !window.embedded_in_frame,
+                mode: detaching ? 'detach' : 'attach',
             });
             if ( window.embedded_in_frame ) window.tell_popup_frame('ready');
-            domain = await dialog;
+            answer = await dialog;
             // The answer removes the frame, so the dialog's exit plays first.
             if ( window.embedded_in_frame ) await overlayGone(document, '.custom-domain-overlay');
         } catch (e) {
-            console.error('attach-custom-domain action failed', e);
+            console.error(`${action} action failed`, e);
         }
 
         // Without an attested origin there is no safe place to send a domain;
@@ -1173,13 +1176,11 @@ const postAuthActions = async (action) => {
         if ( target_origin ) {
             const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
             try {
-                messageTarget?.postMessage({
-                    msg: 'customDomainAttached',
-                    domain,
-                    original_msg_id: msg_id,
-                }, target_origin);
+                messageTarget?.postMessage(detaching
+                    ? { msg: 'customDomainDetached', domains: answer, original_msg_id: msg_id }
+                    : { msg: 'customDomainAttached', domain: answer, original_msg_id: msg_id }, target_origin);
             } catch (e) {
-                console.error('attach-custom-domain: could not answer the requester', e);
+                console.error(`${action}: could not answer the requester`, e);
             }
         }
 
@@ -1916,7 +1917,7 @@ window.initgui = async function (options) {
                 (action === 'upgrade' && !canShowUpgradeFrame(window, session)) ||
                 (action === 'top-up' && !canShowTopUpFrame(window, session)) ||
                 (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session)) ||
-                (action === 'attach-custom-domain' && !canShowCustomDomainFrame(session))
+                ((action === 'attach-custom-domain' || action === 'detach-custom-domain') && !canShowCustomDomainFrame(session))
             ) {
                 window.tell_popup_frame('unavailable');
                 return;

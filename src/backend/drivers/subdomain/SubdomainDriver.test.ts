@@ -351,6 +351,31 @@ describe('SubdomainDriver.read / select', () => {
         expect(fetched?.subdomain).toBe(sub);
     });
 
+    it('lists no custom domains, without asking listeners, while they are off', async () => {
+        const { actor } = await makeUser();
+        const sub = uniqueSubdomain('no-domains');
+        await withActor(actor, () =>
+            driver.create({
+                object: {
+                    subdomain: sub,
+                    root_dir: `/${actor.user!.username}/Public`,
+                },
+            }),
+        );
+        const listener = vi.fn();
+        server.clients.event.on('site.customDomains', listener);
+
+        try {
+            const fetched = (await withActor(actor, () =>
+                driver.read({ id: { subdomain: sub } }),
+            )) as Record<string, unknown> | null;
+            expect(fetched?.custom_domains).toEqual([]);
+        } finally {
+            server.clients.event.off('site.customDomains', listener);
+        }
+        expect(listener).not.toHaveBeenCalled();
+    });
+
     it("rejects reading another user's subdomain with 403", async () => {
         const a = await makeUser();
         const b = await makeUser();

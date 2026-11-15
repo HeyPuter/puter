@@ -465,6 +465,7 @@ const UNBOXED_POPUP_FRAMES = {
     upgrade: { allow: 'payment; otp-credentials', escapeDismisses: false },
     'top-up': { allow: 'payment; otp-credentials', escapeDismisses: false },
     'attach-custom-domain': { allow: 'clipboard-write; otp-credentials', escapeDismisses: false },
+    'detach-custom-domain': { allow: 'otp-credentials', escapeDismisses: false },
 };
 
 /**
@@ -481,7 +482,7 @@ const UNBOXED_POPUP_FRAMES = {
  * @template T
  * @param {Object} opts
  * @param {string} opts.guiOrigin
- * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade' | 'top-up' | 'request-email-confirmation' | 'attach-custom-domain'} opts.action
+ * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade' | 'top-up' | 'request-email-confirmation' | 'attach-custom-domain' | 'detach-custom-domain'} opts.action
  * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for every action but the sign-in
  * @param {string} opts.title - the frame's accessible name
  * @param {string} [opts.closeLabel] - puts a close button on the frame

@@ -612,6 +612,14 @@ let sidebar = [
                 source: '/Hosting/attach.md',
                 path: '/Hosting/attach',
             },
+            {
+                title: '<code>detach()</code>',
+                page_title: '<code>puter.hosting.detach()</code>',
+                title_tag: 'puter.hosting.detach()',
+                icon: '/assets/img/function.svg',
+                source: '/Hosting/detach.md',
+                path: '/Hosting/detach',
+            },
         ],
     },
     {

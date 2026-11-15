@@ -62,6 +62,16 @@ export type TeamBillingEvent = TeamBillingContext & {
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface IExtensionEventMap {}
 
+/** A custom domain as a site object from the hosting API lists it. */
+export type SiteCustomDomain = {
+    uuid: string;
+    hostname: string;
+    status: string;
+};
+
+/** Site name → the custom domains attached to it. */
+export type SiteCustomDomainsBySite = Record<string, SiteCustomDomain[]>;
+
 /**
  * What a KV mutation did to a key. `expire` is a lifetime change rather than a
  * value change, which is why it is not folded into `set`.
@@ -858,6 +868,13 @@ export type EventMap = {
     // listener that recognises the host sets `result.subdomain` to the site
     // it serves; an unclaimed host is answered with a 404.
     'site.resolveHost': { host: string; result: { subdomain: string | null } };
+    // Asked when site objects are returned by the hosting API. A listener
+    // that manages custom domains sets `result[subdomain]` to the hostnames
+    // attached to that site; a site it leaves out has none.
+    'site.customDomains': {
+        sites: Array<{ subdomain: string; userId: number }>;
+        result: SiteCustomDomainsBySite;
+    };
     // Asked before a hosted file is streamed. A listener that owns the site
     // sets `result.allowed = false` to withhold the entry; the visitor then
     // sees the same 404 as for a missing file.
