@@ -502,6 +502,138 @@ describe('UserAccountService', () => {
             ).toBe(false);
         });
 
+        /** Deletes `issuerId` with the issued-grant flat purge failing. */
+        const deleteLeavingFlatEntries = async (issuerId: number) => {
+            const purge = vi
+                .spyOn(server.stores.permission, 'delFlatUserPerms')
+                .mockRejectedValue(new Error('kv down'));
+            try {
+                await server.services.userAccount.cascadeDelete(issuerId);
+            } finally {
+                purge.mockRestore();
+            }
+        };
+
+        /** `holder` holds `permission` in the flat view, issued by `issuer`. */
+        const flatGrant = async (
+            holderId: number,
+            issuerId: number,
+            permission: string,
+        ) => {
+            await server.stores.permission.upsertUserUserPerm(
+                holderId,
+                issuerId,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holderId,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuerId,
+                } as never,
+            );
+        };
+
+        const insertEntry = async (
+            ownerId: number,
+            path: string,
+            isDir: boolean,
+        ) => {
+            const uuid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, ?, ?)',
+                [
+                    uuid,
+                    path.split('/').pop(),
+                    path,
+                    ownerId,
+                    server.clients.db.booleanValue(isDir),
+                    Math.floor(Date.now() / 1000),
+                ],
+            );
+            return uuid;
+        };
+
+        it("does not pass manage down a folder on a deleted re-sharer's leftover entry", async () => {
+            const owner = await seedUser();
+            const resharer = await seedUser();
+            const holder = await seedUser();
+            const dir = `/${owner.username}/d_${uuidv4().slice(0, 8)}`;
+            const dirUid = await insertEntry(owner.id, dir, true);
+            const fileUid = await insertEntry(owner.id, `${dir}/f.txt`, false);
+            await flatGrant(holder.id, resharer.id, `manage:fs:${dirUid}`);
+            const asked = `manage:fs:${fileUid}`;
+            const actor = await actorOf(holder.id);
+            expect(await server.services.permission.check(actor, asked)).toBe(
+                true,
+            );
+
+            await deleteLeavingFlatEntries(resharer.id);
+
+            expect(await server.services.permission.check(actor, asked)).toBe(
+                false,
+            );
+        });
+
+        it("does not list a share backed only by a deleted issuer's leftover entry", async () => {
+            const owner = await seedUser();
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const path = `/${owner.username}/s_${uuidv4().slice(0, 8)}.txt`;
+            const uid = await insertEntry(owner.id, path, false);
+            const entry = (await server.stores.fsEntry.getEntryByUuid(uid))!;
+            // The owner's own grant is gone; only the index row is left of it.
+            await server.clients.db.write(
+                'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, `holder_user_id`, `fsentry_id`, `mode`, `applied_at`, `data`, `created_at`) ' +
+                    'VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)',
+                [
+                    uuidv4(),
+                    owner.id,
+                    holder.email,
+                    holder.id,
+                    entry.id,
+                    'read',
+                    '{}',
+                ],
+            );
+            await flatGrant(holder.id, issuer.id, `fs:${uid}:read`);
+            const actor = await actorOf(holder.id);
+            const listed = async () =>
+                JSON.stringify(
+                    (await server.services.share.listSharedWithMe(actor)).items,
+                ).includes(uid);
+            expect(await listed()).toBe(true);
+
+            await deleteLeavingFlatEntries(issuer.id);
+
+            expect(await listed()).toBe(false);
+        });
+
+        it("deletes a deleted issuer's leftover entry once a check finds it", async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await holdOwn(issuer.id, permission);
+            await flatGrant(holder.id, issuer.id, permission);
+            await deleteLeavingFlatEntries(issuer.id);
+
+            await server.services.permission.check(
+                await actorOf(holder.id),
+                permission,
+            );
+
+            await vi.waitFor(async () => {
+                const [flat] = await server.stores.permission.getFlatUserPerms(
+                    holder.id,
+                    [permission],
+                );
+                expect(flat).toBeUndefined();
+            });
+        });
+
         it('clears the flat entries for grants the account issued', async () => {
             const issuer = await seedUser();
             const holder = await seedUser();

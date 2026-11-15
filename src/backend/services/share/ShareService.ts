@@ -1252,8 +1252,10 @@ export class ShareService extends PuterService {
                 row.issuer_user_id,
             );
         }
-        for (const { ref, value } of flat) {
-            if (value.deleted) continue;
+        const liveFlat = await this.stores.permission.withoutOrphanedFlatPerms(
+            flat.filter(({ value }) => !value.deleted),
+        );
+        for (const { ref, value } of liveFlat) {
             record(ref.holderUserId, ref.permission, value.issuer_user_id);
         }
         // Kept apart: a group grant from this issuer does not make their

@@ -926,18 +926,24 @@ export class PermissionService extends PuterService {
             permissions,
         );
 
-        let anyDeleted = false;
-        for (const v of values) {
-            if (v.deleted) {
-                anyDeleted = true;
-                continue;
-            }
-            const { permission, issuer_user_id, ...extra } = v;
-            if (!permission) continue;
+        const userId = actor.user.id;
+        const live = await this.stores.permission.withoutOrphanedFlatPerms(
+            values
+                .filter((v) => !v.deleted && v.permission)
+                .map((value) => ({
+                    ref: {
+                        holderUserId: userId,
+                        permission: value.permission!,
+                    },
+                    value,
+                })),
+        );
+        const anyDeleted = values.some((v) => v.deleted);
+        for (const { value } of live) {
+            const { permission, issuer_user_id, ...extra } = value;
             const issuer = issuer_user_id
                 ? await this.stores.user.getById(issuer_user_id)
                 : null;
-            // A deleted issuer's entry may outlive it briefly; it grants nothing.
             if (issuer_user_id && !issuer) continue;
             return [
                 {

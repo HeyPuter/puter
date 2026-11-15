@@ -326,6 +326,36 @@ export class PermissionStore extends PuterStore {
     }
 
     /**
+     * Drops entries whose issuer account is gone; a failed purge can leave them
+     * for good, so they are deleted here, off the request path.
+     */
+    async withoutOrphanedFlatPerms<
+        T extends { ref: FlatPermRef; value: FlatPermValue },
+    >(items: T[]): Promise<T[]> {
+        const issuerIds = [
+            ...new Set(items.map(({ value }) => Number(value.issuer_user_id))),
+        ].filter((id) => Number.isFinite(id) && id > 0);
+        if (issuerIds.length === 0) return items;
+        const issuers = await this.stores.user.getByIds(issuerIds);
+        const orphaned: FlatPermRef[] = [];
+        const kept = items.filter((item) => {
+            const issuerId = item.value.issuer_user_id;
+            if (!issuerId || issuers.has(Number(issuerId))) return true;
+            orphaned.push(item.ref);
+            return false;
+        });
+        if (orphaned.length > 0) {
+            this.delFlatUserPerms(orphaned).catch((e) =>
+                console.warn(
+                    '[PermissionStore] orphaned flat entries kept:',
+                    e,
+                ),
+            );
+        }
+        return kept;
+    }
+
+    /**
      * Write a single flat user-to-user permission entry to KV.
      *
      * `opts.expireAt` (epoch seconds) marks the entry as a derived cache warm
