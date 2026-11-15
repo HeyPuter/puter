@@ -646,7 +646,8 @@ export class PermissionStore extends PuterStore {
     async listUserUserPermRefsIssuedBy(
         issuerUserId: number,
     ): Promise<FlatPermRef[]> {
-        const rows = (await this.clients.db.read(
+        // Primary: a grant the replica lacks would keep its flat entry forever.
+        const rows = (await this.clients.db.pread(
             'SELECT `holder_user_id`, `permission` FROM `user_to_user_permissions` ' +
                 'WHERE `issuer_user_id` = ?',
             [issuerUserId],

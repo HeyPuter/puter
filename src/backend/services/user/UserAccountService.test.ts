@@ -495,6 +495,52 @@ describe('UserAccountService', () => {
             expect(flat?.permission).toBeUndefined();
         });
 
+        it('clears the flat entry for a grant the replica has not seen yet', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('FROM `user_to_user_permissions`')
+                        ? []
+                        : primaryRead(sql, params),
+                );
+            try {
+                await server.services.userAccount.cascadeDelete(issuer.id);
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+
+            const [flat] = await server.stores.permission.getFlatUserPerms(
+                holder.id,
+                [permission],
+            );
+            expect(flat?.permission).toBeUndefined();
+        });
+
         it('clears the flat entries for grants the account held', async () => {
             const holder = await seedUser();
             const issuer = await seedUser();
