@@ -26,6 +26,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { isSendingUndo } from '../../clients/redis/commandTimeout.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import {
@@ -409,6 +410,34 @@ describe('MeteringBufferStore', () => {
             await target.flushCycle();
             expect(await storedTotal(key)).toBe(6);
         });
+
+        it('drops the cached base past fail-fast, without waiting on it', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+                del: (...keys: string[]) => Promise<number>;
+            };
+            const timedOut = vi
+                .spyOn(redis, 'meterIncr')
+                .mockRejectedValueOnce(new Error('Command timed out'))
+                .mockResolvedValueOnce([[], [], [], '', '']);
+            const undoScoped: boolean[] = [];
+            const del = vi.spyOn(redis, 'del').mockImplementationOnce(() => {
+                undoScoped.push(isSendingUndo());
+                return new Promise(() => {});
+            });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 2 },
+            });
+            timedOut.mockRestore();
+            del.mockRestore();
+            warn.mockRestore();
+
+            expect(exact).toBe(true);
+            expect(undoScoped).toEqual([true]);
+        }, 5000);
 
         it('answers without waiting on the undo of a timed-out buffering', async () => {
             const redis = server.clients.redis as unknown as {

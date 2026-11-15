@@ -923,7 +923,7 @@ export class MeteringBufferStore extends PuterStore {
             // A buffered copy, or a timed-out one that may land, comes back out.
             if (buffered || isCommandTimeout(e)) void this.#unbuffer(input);
             // The cached base doesn't have this write; the next read reseeds it.
-            await this.forgetBase(input.key);
+            void this.forgetBase(input.key);
             return { res, exact: true };
         }
     }
@@ -1085,9 +1085,8 @@ export class MeteringBufferStore extends PuterStore {
     async forgetBase(key: string): Promise<void> {
         const tag = bucketTag(key);
         try {
-            await this.clients.redis.del(
-                baseKey(tag, key),
-                baseSeqKey(tag, key),
+            await sendAsUndo(() =>
+                this.clients.redis.del(baseKey(tag, key), baseSeqKey(tag, key)),
             );
         } catch (e) {
             console.warn(
