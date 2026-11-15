@@ -403,13 +403,16 @@ export class AnthropicSseWriter {
             'tool_use',
         );
         const stopDetails = ev.stopDetails as
-            Record<string, unknown> | null | undefined;
+            | Record<string, unknown>
+            | null
+            | undefined;
         const usageDetails = (ev.usageDetails as UsageDetails | undefined) ?? {
             inputTokens: 0,
             outputTokens: 0,
         };
         const contextManagement = ev.contextManagement as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         this.#sse.write('message_delta', {
             type: 'message_delta',
             delta: {

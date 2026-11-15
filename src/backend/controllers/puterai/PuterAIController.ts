@@ -550,7 +550,8 @@ export class PuterAIController extends PuterController {
                         }
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -699,7 +700,8 @@ export class PuterAIController extends PuterController {
                         sendChunk(ev.text);
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -753,7 +755,8 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                Record<string, unknown> | undefined
+                                | Record<string, unknown>
+                                | undefined
                         )?.content,
                     ),
                     index: 0,

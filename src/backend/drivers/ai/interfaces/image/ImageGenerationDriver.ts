@@ -426,7 +426,8 @@ export class ImageGenerationDriver extends PuterDriver {
         const cloudflare = (providers['cloudflare-image-generation'] ??
             providers['cloudflare-workers-ai-image'] ??
             providers['cloudflare-workers-ai']) as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const cfToken =
             (cloudflare?.apiToken as string | undefined) ??
             readProviderKey(cloudflare);
@@ -440,7 +441,8 @@ export class ImageGenerationDriver extends PuterDriver {
                         apiToken: cfToken,
                         accountId: cfAccount,
                         apiBaseUrl: cloudflare?.apiBaseUrl as
-                            string | undefined,
+                            | string
+                            | undefined,
                     },
                     m,
                 );
@@ -474,9 +476,11 @@ export class ImageGenerationDriver extends PuterDriver {
         // pair its missing apiBaseUrl with the shared block's key (or vice
         // versa) and point a region-scoped key at the wrong endpoint.
         const byteplusImageCfg = providers['byteplus-image-generation'] as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const byteplusSharedCfg = providers['byteplus'] as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const byteplusKey = readProviderKey(
             byteplusImageCfg,
             byteplusSharedCfg,
@@ -488,7 +492,8 @@ export class ImageGenerationDriver extends PuterDriver {
                         apiKey: byteplusKey,
                         apiBaseUrl: (byteplusImageCfg?.apiBaseUrl ??
                             byteplusSharedCfg?.apiBaseUrl) as
-                            string | undefined,
+                            | string
+                            | undefined,
                     },
                     m,
                 );

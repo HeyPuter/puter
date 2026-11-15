@@ -154,7 +154,8 @@ const PENDING_WRITES_KEY = 'aiPendingUsageWrites';
 const trackWrite = (write: Promise<UsageByType>): Promise<UsageByType> => {
     if (!Context.current()) return write;
     let pending = Context.get(PENDING_WRITES_KEY) as
-        Set<Promise<void>> | undefined;
+        | Set<Promise<void>>
+        | undefined;
     if (!pending) {
         pending = new Set();
         Context.set(PENDING_WRITES_KEY, pending);
@@ -179,7 +180,8 @@ const outlastingWrites = (hold: CreditHold): CreditHold => {
         ...hold,
         release: async () => {
             const pending = Context.get(PENDING_WRITES_KEY) as
-                Set<Promise<void>> | undefined;
+                | Set<Promise<void>>
+                | undefined;
             if (!pending?.size) return hold.release();
             void Promise.all([...pending])
                 .then(() => hold.release())

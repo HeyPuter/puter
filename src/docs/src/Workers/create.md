@@ -23,7 +23,7 @@ puter.workers.create(workerName, filePath, options)
 <div class="info">Workers cannot be larger than <strong>10MB</strong>.</div>
 
 #### `workerName` (String)(Required)
-The name for the worker. It can contain letters, numbers, hyphens, and underscores.
+The name for the worker. It can contain letters, numbers, hyphens, and underscores, and can be up to 50 characters long. A longer name is rejected with `400 bad_request`.
 
 #### `filePath` (String)(Required)
 The path to a JavaScript file in your Puter account that contains your [router](/Workers/router/) code.
@@ -47,6 +47,8 @@ A `Promise` that resolves to a [`WorkerDeployment`](/Objects/workerdeployment) o
 ## Errors
 
 On failure, throws an `Error` with the reason.
+
+With the default sandbox, if another user already owns the `sandbox-<workerName>` app, the call rejects with `{ message, code: 'sandbox_not_owned' }`. To deploy anyway, choose another worker name or pass `{ sandbox: false }`.
 
 ## Worker identity and shared state
 

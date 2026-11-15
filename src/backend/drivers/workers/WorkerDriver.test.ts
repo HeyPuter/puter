@@ -26,6 +26,7 @@ import { resolveCallableMethods } from '../meta.js';
 import {
     INTERNAL_ADMIN_DESTROY,
     INTERNAL_ADMISSION_BYPASS,
+    WORKER_NAME_MAX_LENGTH,
 } from './WorkerDriver.js';
 import type { WorkerDriver } from './WorkerDriver.js';
 
@@ -162,6 +163,33 @@ describe('WorkerDriver', () => {
                     }),
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects names too long for the worker subdomain', async () => {
+            // `workers.puter.` + 51 characters overflows the 64-character column.
+            await expect(
+                inCtx(() =>
+                    target.create({
+                        appId: 'test-app',
+                        workerName: 'a'.repeat(WORKER_NAME_MAX_LENGTH + 1),
+                        filePath: '/test.js',
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('accepts a name at the length limit', async () => {
+            // 503 is the missing Cloudflare config, past the name checks.
+            expect(WORKER_NAME_MAX_LENGTH).toBe(50);
+            await expect(
+                inCtx(() =>
+                    target.create({
+                        appId: 'test-app',
+                        workerName: 'a'.repeat(WORKER_NAME_MAX_LENGTH),
+                        filePath: '/test.js',
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 503 });
         });
 
         it('allows valid worker names with underscores and dashes', async () => {

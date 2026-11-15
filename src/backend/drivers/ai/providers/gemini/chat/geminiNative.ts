@@ -42,7 +42,8 @@ import { UpstreamDeadlineError } from '../../../../util/upstreamErrors.js';
 import type { ChatCompletionsClient } from '../../../protocols/openaiCompatible/OpenAICompatProvider.js';
 
 type ChatContentPart =
-    string | { type?: string; text?: string; image_url?: { url?: string } };
+    | string
+    | { type?: string; text?: string; image_url?: { url?: string } };
 
 type ChatContent = string | ChatContentPart[] | null | undefined;
 

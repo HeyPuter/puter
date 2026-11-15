@@ -196,7 +196,8 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         ) {
             return nativeMeteredUsage(
                 source.usage as unknown as
-                    GenerateContentResponseUsageMetadata | undefined,
+                    | GenerateContentResponseUsageMetadata
+                    | undefined,
             );
         }
         // Non-stream grounding metadata lives in choices[0].message; a stream
@@ -206,7 +207,8 @@ export class GeminiChatProvider extends OpenAICompatProvider {
             | Array<{ message?: { extra_content?: GroundingContent } }>
             | undefined;
         const extraContent = source.extra_content as
-            GroundingContent | undefined;
+            | GroundingContent
+            | undefined;
 
         const cached_tokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
         // Thinking tokens are a subset of completion_tokens billed at a different rate

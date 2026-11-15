@@ -54,7 +54,12 @@ type BytePlusVideoConfig = {
 interface ArkVideoTask {
     id: string;
     status:
-        'queued' | 'running' | 'cancelled' | 'succeeded' | 'failed' | 'expired';
+        | 'queued'
+        | 'running'
+        | 'cancelled'
+        | 'succeeded'
+        | 'failed'
+        | 'expired';
     content?: { video_url?: string };
     usage?: { completion_tokens?: number; total_tokens?: number };
     resolution?: string;

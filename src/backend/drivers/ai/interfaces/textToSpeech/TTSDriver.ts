@@ -258,7 +258,8 @@ export class TTSDriver extends PuterDriver {
 
         const polly = providers['aws-polly'];
         const pollyAws = (polly?.aws ?? polly) as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const pollyCredentials = awsCredentialsFrom(pollyAws);
         if (pollyCredentials) {
             register(
@@ -267,7 +268,8 @@ export class TTSDriver extends PuterDriver {
                     new AWSPollyTTSProvider(m, {
                         credentials: pollyCredentials,
                         region: (pollyAws?.region ?? polly?.region) as
-                            string | undefined,
+                            | string
+                            | undefined,
                     }),
             );
         }
@@ -303,7 +305,8 @@ export class TTSDriver extends PuterDriver {
                     new KlingTTSProvider(m, {
                         apiKey,
                         apiBaseUrl: providers['kling']?.apiBaseUrl as
-                            string | undefined,
+                            | string
+                            | undefined,
                     }),
                 providers['kling'],
             ),

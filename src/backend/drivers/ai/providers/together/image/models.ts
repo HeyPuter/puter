@@ -536,16 +536,18 @@ const togetherImageModels: TogetherImageModel[] = [
         { variant: 'fast', price: 2 },
         { variant: 'preview', price: 4 },
         { variant: 'ultra', price: 6 },
-    ].map(({ variant, price }): TogetherImageModel => ({
-        id: `togetherai:google/imagen-4.0-${variant}`,
-        aliases: [`google/imagen-4.0-${variant}`, `imagen-4.0-${variant}`],
-        name: `Imagen 4.0 ${variant}`,
-        supportsImageCount: false,
-        costs_currency: 'usd-cents',
-        pricing_unit: 'per-image',
-        index_cost_key: 'per-image',
-        costs: { 'per-image': price },
-    })),
+    ].map(
+        ({ variant, price }): TogetherImageModel => ({
+            id: `togetherai:google/imagen-4.0-${variant}`,
+            aliases: [`google/imagen-4.0-${variant}`, `imagen-4.0-${variant}`],
+            name: `Imagen 4.0 ${variant}`,
+            supportsImageCount: false,
+            costs_currency: 'usd-cents',
+            pricing_unit: 'per-image',
+            index_cost_key: 'per-image',
+            costs: { 'per-image': price },
+        }),
+    ),
 ];
 
 // These endpoints reject requests while third-party data sharing is disabled.
