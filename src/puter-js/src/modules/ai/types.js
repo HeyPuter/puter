@@ -77,7 +77,7 @@
  * @property {number} [temperature] Sampling temperature between 0 and 2. Lower values are more focused
  * and deterministic, higher values more random. Defaults to the model's own default.
  * @property {number} [max_tokens]
- * @property {boolean} [vision]
+ * @property {boolean} [vision] Deprecated and ignored. Passing an image sets it automatically.
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
  * @property {'fast' | 'standard'} [speed] Claude inference speed. Faster service may cost more.
