@@ -918,7 +918,7 @@ export class MeteringBufferStore extends PuterStore {
             );
             const { res } = await this.#writeThrough(input);
             // A buffered copy, or a timed-out one that may land, comes back out.
-            if (buffered || isCommandTimeout(e)) await this.#unbuffer(input);
+            if (buffered || isCommandTimeout(e)) void this.#unbuffer(input);
             // The cached base doesn't have this write; the next read reseeds it.
             await this.forgetBase(input.key);
             return { res, exact: true };
@@ -937,7 +937,7 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] buffered aux incr failed, writing through: ${(e as Error).message}`,
             );
             await this.#writeThrough(input);
-            if (isCommandTimeout(e)) await this.#unbuffer(input);
+            if (isCommandTimeout(e)) void this.#unbuffer(input);
         }
     }
 
@@ -1327,8 +1327,11 @@ export class MeteringBufferStore extends PuterStore {
         try {
             await this.#buffer({ key, pathAndAmountMap: negated });
         } catch (e) {
+            const message = (e as Error).message;
             console.warn(
-                `[metering] written-through incr is still buffered and will be counted twice: ${(e as Error).message}`,
+                isCommandTimeout(e)
+                    ? `[metering] taking back a written-through incr timed out; it may be counted once more or not at all: ${message}`
+                    : `[metering] written-through incr is still buffered and will be counted twice: ${message}`,
             );
         }
     }

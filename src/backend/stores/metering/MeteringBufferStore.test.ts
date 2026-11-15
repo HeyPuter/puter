@@ -410,6 +410,26 @@ describe('MeteringBufferStore', () => {
             expect(await storedTotal(key)).toBe(6);
         });
 
+        it('answers without waiting on the undo of a timed-out buffering', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const stuck = vi
+                .spyOn(redis, 'meterIncr')
+                .mockRejectedValueOnce(new Error('Command timed out'))
+                .mockReturnValueOnce(new Promise(() => {}));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 2 },
+            });
+            stuck.mockRestore();
+            warn.mockRestore();
+
+            expect(exact).toBe(true);
+        }, 5000);
+
         it('counts an increment once when the base read fails after buffering', async () => {
             await kv.incr({ key, pathAndAmountMap: { total: 80 } });
             const boom = vi
