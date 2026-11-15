@@ -18,6 +18,8 @@ Core subscribes the browser to a push service only when the server also publishe
 
 When the browser replaces the subscription (`pushsubscriptionchange`), `sw.js` keeps the new one, or subscribes again with Puter's stored key when the browser gave none and the event, the receipt or an earlier mark names the subscription that went. It writes `puter:subscription-changed:<scope>` to the `puter-push` IndexedDB as `{ at, oldEndpoint }`, the old endpoint kept from an earlier mark no page handled yet, else taken from the event or from the receipt, forgets the receipt kept for that scope, and posts `{ type: 'puter-push-subscription-changed' }` to every open window on Puter's origin. The worker has no token or session, so an open page runs `helpers/pushSync.js` on that message, after any run already in flight, and a later load does the same through the marker.
 
+The database, store and key names are written once, in puter.js's `modules/notifications/lib/pushNames.js`. `sw.js` and puter.js's `push-sw.js` are served as they are, so each carries a generated copy: run `node tools/pushWorkerNames.mjs` after changing the names. The puter.js and GUI builds fail while a copy is stale.
+
 ## Receipts
 
 Before a notification is pushed, the server asks the open clients whether they received it live. It sends `notif.receipt` with `{ uid }` on the user's sockets for the app that sent it, or on the desktop's sockets for Puter's own notifications. The SDK remembers the uids its page received through `onNotification()`, `onPush()` or the desktop's feed, and answers once its page has that notification, or with `{ received: false }` when it never gets it. The server waits up to 5 seconds (`notificationAckTimeoutMs`).

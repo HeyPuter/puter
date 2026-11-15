@@ -22,11 +22,8 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-    HANDLERS_STORE,
-    PUSH_DB_NAME,
     RECEIPT_PREFIX,
     SERVER_KEY_ENTRY,
-    SERVER_KEYS_ENTRY,
     SUBSCRIPTION_CHANGED_MESSAGE,
     SUBSCRIPTION_CHANGED_PREFIX,
 } from '../../puter-js/src/modules/notifications/lib/pushStore.js';
@@ -367,20 +364,6 @@ describe('service worker pushsubscriptionchange', () => {
     const RECEIPT = `${RECEIPT_PREFIX}${ORIGIN}/`;
     const keyOf = (value) => ({ options: { applicationServerKey: new Uint8Array(Buffer.from(value, 'base64url')).buffer } });
     const pushOn = { [SERVER_KEY_ENTRY]: KEY, [RECEIPT]: { endpoint: 'https://push.example/1', receipt: 'r.sig' } };
-
-    it('keeps its own copy of the entries puter.js stores', () => {
-        for ( const [name, value] of Object.entries({
-            DB_NAME: PUSH_DB_NAME,
-            HANDLERS: HANDLERS_STORE,
-            SERVER_KEY: SERVER_KEY_ENTRY,
-            SERVER_KEYS: SERVER_KEYS_ENTRY,
-            CHANGED_PREFIX: SUBSCRIPTION_CHANGED_PREFIX,
-            RECEIPT_PREFIX,
-            SUBSCRIPTION_CHANGED_MESSAGE,
-        }) ) {
-            expect(SOURCE).toContain(`const ${name} = '${value}';`);
-        }
-    });
 
     it('keeps the new subscription the browser gave, marks it with the old endpoint and forgets the receipt', async () => {
         const win = windowClient(`${ORIGIN}/desktop`);

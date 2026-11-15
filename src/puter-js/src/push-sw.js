@@ -21,21 +21,28 @@
     if (self.puterPush) return;
 
     // Shared with puter.js on the same origin (modules/notifications/lib/pushStore.js).
-    const DB_NAME = 'puter-push';
-    const HANDLERS = 'handlers';
-    const CLICKS = 'clicks';
+    // Generated from pushNames.js by tools/pushWorkerNames.mjs.
+    const CLICKS_STORE = 'clicks';
+    const HANDLERS_STORE = 'handlers';
+    const OPT_IN_PREFIX = 'puter:opt-in:';
+    const PUSH_DB_NAME = 'puter-push';
+    const RECEIPT_PREFIX = 'puter:receipt:';
+    const SERVER_KEYS_ENTRY = 'puter:server-keys';
+    const SERVER_KEY_ENTRY = 'puter:server-key';
+    const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
+    const SUBSCRIPTION_CHANGED_PREFIX = 'puter:subscription-changed:';
+    const SYNCED_PREFIX = 'puter:synced:';
+    const TAP_BASE_PREFIX = 'puter:tap-base:';
+    // End of generated names.
     const HANDLER_TIMEOUT_MS = 5000;
     const CLICK_KEEP_MS = 5 * 60 * 1000;
     const CLICK_ACK_BUDGET_MS = 600;
     // Firefox allows openWindow for 1 s after the click; this leaves room for it.
     const CLICK_OPEN_BUDGET_MS = 800;
-    // Saved by the page; the worker's scope is used when there is none.
-    const TAP_BASE_PREFIX = 'puter:tap-base:';
     const DEFAULT_TITLE = 'New notification';
     const CHALLENGE_MESSAGE = 'puter-push-challenge';
     const CLICK_MESSAGE = 'puter-notification-click';
     const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-    const CHANGED_MESSAGE = 'puter-push-subscription-changed';
     const CLICK_PARAM = 'puter.notification';
     const SHOWN_FIELDS = ['title', 'body', 'icon', 'badge', 'image', 'tag', 'url'];
 
@@ -45,10 +52,10 @@
     let nextClickId = 0;
 
     const openDB = () => new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, 1);
+        const req = indexedDB.open(PUSH_DB_NAME, 1);
         req.onupgradeneeded = () => {
-            req.result.createObjectStore(HANDLERS);
-            req.result.createObjectStore(CLICKS);
+            req.result.createObjectStore(HANDLERS_STORE);
+            req.result.createObjectStore(CLICKS_STORE);
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -119,7 +126,7 @@
         if ( ! channel ) return null;
         if ( registered.has(channel) ) return registered.get(channel);
         if ( ! useSavedHandlers ) return null;
-        const source = await idb(HANDLERS, 'readonly', (s) => s.get(channel));
+        const source = await idb(HANDLERS_STORE, 'readonly', (s) => s.get(channel));
         if ( typeof source !== 'string' ) return null;
         const fn = new Function(`"use strict"; return (${source});`)();
         return typeof fn === 'function' ? fn : null;
@@ -173,7 +180,7 @@
     async function tapBase () {
         const scope = self.registration.scope ?? `${self.location.origin}/`;
         try {
-            const base = await idb(HANDLERS, 'readonly', (s) => s.get(TAP_BASE_PREFIX + scope));
+            const base = await idb(HANDLERS_STORE, 'readonly', (s) => s.get(TAP_BASE_PREFIX + scope));
             if ( typeof base === 'string' && new URL(base).origin === self.location.origin ) return base;
         } catch {
             // nothing saved, or IndexedDB is unavailable
@@ -239,7 +246,7 @@
 
     async function forgetOldClicks () {
         const cutoff = Date.now() - CLICK_KEEP_MS;
-        await idb(CLICKS, 'readwrite', (s) => {
+        await idb(CLICKS_STORE, 'readwrite', (s) => {
             const req = s.openCursor();
             req.addEventListener('success', () => {
                 const cursor = req.result;
@@ -254,7 +261,7 @@
     // One readwrite get+delete, so only the page or the worker gets the tap.
     async function claimClick (uid, id) {
         const matches = (kept) => !!kept && (id === undefined || kept.id === id);
-        const kept = await idb(CLICKS, 'readwrite', (s) => {
+        const kept = await idb(CLICKS_STORE, 'readwrite', (s) => {
             const req = s.get(uid);
             req.addEventListener('success', () => {
                 if ( matches(req.result) ) s.delete(uid);
@@ -266,7 +273,7 @@
 
     // Like claimClick, but keeps the copy, without its id, for the page opened next.
     async function reclaimClick (uid, id) {
-        const kept = await idb(CLICKS, 'readwrite', (s) => {
+        const kept = await idb(CLICKS_STORE, 'readwrite', (s) => {
             const req = s.get(uid);
             req.addEventListener('success', () => {
                 if ( req.result?.id !== id ) return;
@@ -296,7 +303,7 @@
     async function keepClick (click, id) {
         if ( ! click.uid ) return false;
         try {
-            await idb(CLICKS, 'readwrite', (s) => s.put({ ...click, at: Date.now(), ...(id ? { id } : {}) }, click.uid));
+            await idb(CLICKS_STORE, 'readwrite', (s) => s.put({ ...click, at: Date.now(), ...(id ? { id } : {}) }, click.uid));
             return true;
         } catch ( err ) {
             console.warn('[puter] could not keep a tap', err);
@@ -372,12 +379,6 @@
         event.waitUntil(Promise.all([routeClick(puter, event.action, startedAt), forgetOldClicksQuietly()]));
     });
 
-    // Entries pushStore.js writes.
-    const OPT_IN_PREFIX = 'puter:opt-in:';
-    const SERVER_KEY = 'puter:server-key';
-    const SERVER_KEYS = 'puter:server-keys';
-    const CHANGED_PREFIX = 'puter:subscription-changed:';
-
     const fromBase64Url = (value) => {
         const padded = value.replace(/-/g, '+').replace(/_/g, '/');
         const binary = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
@@ -396,23 +397,23 @@
     }
 
     async function puterKeys () {
-        const last = await idb(HANDLERS, 'readonly', (s) => s.get(SERVER_KEY));
-        const listed = await idb(HANDLERS, 'readonly', (s) => s.get(SERVER_KEYS));
+        const last = await idb(HANDLERS_STORE, 'readonly', (s) => s.get(SERVER_KEY_ENTRY));
+        const listed = await idb(HANDLERS_STORE, 'readonly', (s) => s.get(SERVER_KEYS_ENTRY));
         return [last, ...(Array.isArray(listed) ? listed : [])].filter((key) => str(key));
     }
 
     // No Puter session here: keep Puter's subscription and mark it for the next page load to register.
     async function keepSubscription (event) {
-        const optIns = await idb(HANDLERS, 'readonly', (s) => s.count(IDBKeyRange.bound(OPT_IN_PREFIX, `${OPT_IN_PREFIX}\uffff`)));
+        const optIns = await idb(HANDLERS_STORE, 'readonly', (s) => s.count(IDBKeyRange.bound(OPT_IN_PREFIX, `${OPT_IN_PREFIX}\uffff`)));
         if ( ! optIns ) return;
         const keys = await puterKeys();
         const old = event.oldSubscription?.options?.applicationServerKey;
         if ( old && ! keys.some((key) => sameKey(old, key)) ) return;
-        await idb(HANDLERS, 'readwrite', (s) => s.put(Date.now(), CHANGED_PREFIX + self.registration.scope));
+        await idb(HANDLERS_STORE, 'readwrite', (s) => s.put(Date.now(), SUBSCRIPTION_CHANGED_PREFIX + self.registration.scope));
         if ( event.newSubscription || ! keys.length ) return;
         if ( await self.registration.pushManager.getSubscription() ) return;
         // Without the old subscription, only a worker a Puter page used (it saved a tap base) subscribes.
-        if ( ! old && ! await idb(HANDLERS, 'readonly', (s) => s.get(TAP_BASE_PREFIX + self.registration.scope)) ) return;
+        if ( ! old && ! await idb(HANDLERS_STORE, 'readonly', (s) => s.get(TAP_BASE_PREFIX + self.registration.scope)) ) return;
         await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromBase64Url(keys[0]) });
     }
 
@@ -423,7 +424,7 @@
             } catch ( err ) {
                 console.warn('[puter] could not keep the push subscription', err);
             }
-            for ( const win of await windows() ) win.postMessage({ type: CHANGED_MESSAGE });
+            for ( const win of await windows() ) win.postMessage({ type: SUBSCRIPTION_CHANGED_MESSAGE });
         })());
     });
 
