@@ -414,6 +414,48 @@ describe('UserAccountService', () => {
             expect(await server.stores.user.getById(member.id)).toBeNull();
         });
 
+        it('refuses a holder who was checked while the flat entries were being purged', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await holdOwn(issuer.id, permission);
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+            const actor = await actorOf(holder.id);
+
+            const store = server.stores.permission;
+            const delFlat = store.delFlatUserPerms.bind(store);
+            const purge = vi
+                .spyOn(store, 'delFlatUserPerms')
+                .mockImplementation(async (entries) => {
+                    // The row is gone; the flat entry still answers.
+                    await server.services.permission.check(actor, permission);
+                    return delFlat(entries);
+                });
+            try {
+                await server.services.userAccount.cascadeDelete(issuer.id);
+            } finally {
+                purge.mockRestore();
+            }
+
+            expect(
+                await server.services.permission.check(actor, permission),
+            ).toBe(false);
+        });
+
         it('clears the flat entries for grants the account issued', async () => {
             const issuer = await seedUser();
             const holder = await seedUser();

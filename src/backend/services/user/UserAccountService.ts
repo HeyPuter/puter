@@ -163,12 +163,6 @@ export class UserAccountService extends PuterService {
         await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
             userId,
         ]);
-        // After the delete: a check that ran before it would cache the old answer.
-        await this.stores.permission.bumpCacheGenerations(
-            [userUuid, ...granted.map((m) => m.uuid), ...holderUuids]
-                .filter((uuid): uuid is string => Boolean(uuid))
-                .map((uuid) => `user:${uuid}`),
-        );
         if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
         else await this.stores.user.invalidateById(userId);
         await this.stores.subdomain.forgetCascadeDeleted(appSites);
@@ -194,6 +188,12 @@ export class UserAccountService extends PuterService {
                 e,
             );
         }
+        // Last: a check before the purges would cache the flat entries' answer.
+        await this.stores.permission.bumpCacheGenerations(
+            [userUuid, ...granted.map((m) => m.uuid), ...holderUuids]
+                .filter((uuid): uuid is string => Boolean(uuid))
+                .map((uuid) => `user:${uuid}`),
+        );
 
         // Fire-and-forget: let listeners purge external state tied to the
         // account (Stripe subscriptions are cancelled immediately, without
