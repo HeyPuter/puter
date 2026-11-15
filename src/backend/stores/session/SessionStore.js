@@ -144,16 +144,27 @@ export class SessionStore extends PuterStore {
      * includeRevoked: true }` to include soft-revoked rows. Revoke paths pass
      * `{ primary: true }` so a session created moments ago isn't missed.
      */
-    async getByUserId(
-        userId,
+    async getByUserId(userId, options) {
+        return this.getByUserIds([userId], options);
+    }
+
+    /**
+     * `getByUserId` for several users in one query. The caller bounds the list.
+     *
+     * @param {number[]} userIds
+     * @param {{ includeRevoked?: boolean; primary?: boolean }} [options]
+     */
+    async getByUserIds(
+        userIds,
         { includeRevoked = false, primary = false } = {},
     ) {
-        const sql = includeRevoked
-            ? 'SELECT * FROM `sessions` WHERE `user_id` = ?'
-            : 'SELECT * FROM `sessions` WHERE `user_id` = ? AND `revoked_at` IS NULL';
-        const rows = await this.clients.db[primary ? 'pread' : 'read'](sql, [
-            userId,
-        ]);
+        const ids = [...new Set(userIds.filter(Boolean))];
+        if (ids.length === 0) return [];
+        const rows = await this.clients.db[primary ? 'pread' : 'read'](
+            `SELECT * FROM \`sessions\` WHERE \`user_id\` IN (${ids.map(() => '?').join(', ')})` +
+                (includeRevoked ? '' : ' AND `revoked_at` IS NULL'),
+            ids,
+        );
         return rows.map((r) => this.#normalizeRow(r)).filter(Boolean);
     }
 
