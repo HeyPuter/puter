@@ -91,6 +91,45 @@ export const isLoopbackTarget = (url) => {
 };
 
 /**
+ * Query param a relay puts on its own redirect URL to name the host it passes
+ * the grant on to.
+ */
+export const FORWARDS_TO_PARAM = 'forwards_to';
+
+const isHostOrSubdomainOf = (host, domain) =>
+    !!domain && (host === domain || host.endsWith(`.${domain}`));
+
+/**
+ * The host a relay on this deployment's own domain passes the grant on to, or
+ * null when the redirect is the final destination.
+ *
+ * Read only off a redirect to this deployment's domain: such a relay refuses
+ * to complete a grant whose named host is not the one it delivers to, so the
+ * name can be shown as fact. Anywhere else it would be an unverified claim
+ * sitting beside the real destination, so it is ignored — as it is on the
+ * hosting domain, where the pages are user content.
+ *
+ * @param {string} redirectURL
+ * @param {string} [deploymentDomain] - The domain this deployment is served under.
+ * @param {string} [hostingDomain] - `window.hosting_domain`.
+ * @returns {string | null} A lowercased `host[:port]`.
+ */
+export const forwardedDestination = (redirectURL, deploymentDomain, hostingDomain) => {
+    if ( ! isDeliverableRedirect(redirectURL) ) return null;
+    const url = new URL(redirectURL);
+    const relayHost = url.hostname.toLowerCase();
+    if ( ! isHostOrSubdomainOf(relayHost, deploymentDomain?.toLowerCase()) ) return null;
+    if ( isHostOrSubdomainOf(relayHost, hostingDomain?.toLowerCase()) ) return null;
+
+    // Taken as written, never re-parsed: the relay compares this exact string,
+    // so a value normalized here could differ from the one it accepts. A URL's
+    // host has no whitespace, so a value with any names no real destination.
+    const named = url.searchParams.get(FORWARDS_TO_PARAM)?.toLowerCase();
+    if ( !named || named.length > 255 || /\s/.test(named) ) return null;
+    return named === url.host.toLowerCase() ? null : named;
+};
+
+/**
  * Was a full account session explicitly requested?
  *
  * Absent this param the flow can only ever hand over the restricted API token,

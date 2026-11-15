@@ -72,6 +72,7 @@ import create_gui_token from './helpers/createGuiToken.js';
 import {
     authmeRequestUrl,
     authmeReturnUrl,
+    forwardedDestination,
     fullTokenAllowed,
     isDeliverableRedirect,
     shouldUseRemoteAuthme,
@@ -228,9 +229,17 @@ const postAuthActions = async (action) => {
             );
         }
         if ( redirectURL ) {
+            // The configured domain, not the host this page was reached on:
+            // an alias of the GUI is still the same deployment.
+            const forwards_to = forwardedDestination(
+                redirectURL,
+                window.gui_params?.domain || window.app_domain,
+                window.hosting_domain,
+            );
             const approved = await UIWindowAuthMe({
                 redirect_url: redirectURL,
                 full_token: wants_full_token,
+                forwards_to,
             });
             if ( approved ) {
                 // Default: a named, revocable full-API-access token rather
@@ -244,13 +253,20 @@ const postAuthActions = async (action) => {
                 // get a session — the password is still only ever typed here.
                 let host = '';
                 try { host = new URL(redirectURL).host; } catch ( e ) { /* ignore */ }
+                // Destination first: the label is cut to a fixed length.
+                const named = forwards_to && host
+                    ? i18n('token_label_forwarded', {
+                        destination: forwards_to,
+                        relay: host,
+                    })
+                    : host;
                 let token;
                 try {
                     token = wants_full_token
                         ? await create_gui_token()
                         : await create_access_token({
-                            label: host
-                                ? `${i18n('token_label_external_app')} (${host})`
+                            label: named
+                                ? `${i18n('token_label_external_app')} (${named})`
                                 : i18n('token_label_external_app'),
                         });
                 } catch ( e ) {
