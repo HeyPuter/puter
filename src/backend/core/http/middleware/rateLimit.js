@@ -19,7 +19,7 @@
  */
 
 import crypto from 'node:crypto';
-import { isCommandTimeout } from '../../../clients/redis/RedisClient.js';
+import { isCommandTimeout } from '../../../clients/redis/commandTimeout.js';
 import { withSpan } from '../../../util/span.js';
 import { Context } from '../../context.js';
 import { CallSlot } from '../callSlot.js';

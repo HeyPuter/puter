@@ -19,7 +19,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Cluster } from 'ioredis';
-import { isCommandTimeout } from '../clients/redis/RedisClient.js';
+import { isCommandTimeout } from '../clients/redis/commandTimeout.js';
 
 const DELETE_IF_EQUAL_SCRIPT =
     "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0";

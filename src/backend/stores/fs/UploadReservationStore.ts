@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { isCommandTimeout } from '../../clients/redis/RedisClient.js';
+import { isCommandTimeout } from '../../clients/redis/commandTimeout.js';
 import { PuterStore } from '../types.js';
 
 // -- Constants --------------------------------------------------------

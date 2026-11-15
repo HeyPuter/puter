@@ -67,10 +67,6 @@ const attachClusterEventHandlers = (clusterClient: Cluster): void => {
     });
 };
 
-/** True for the rejection of a command that got no reply within the timeout. */
-export const isCommandTimeout = (error: unknown): boolean =>
-    error instanceof Error && error.message === 'Command timed out';
-
 // A timed-out command is not withdrawn: queued or sent, it may still run.
 class TimedCluster extends Redis.Cluster {
     commandTimeoutMs = 0;

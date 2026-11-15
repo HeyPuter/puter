@@ -25,7 +25,7 @@ import {
     KvFencedWriteError,
     type RecursiveRecord,
 } from '../systemKv/SystemKVStore';
-import { isCommandTimeout } from '../../clients/redis/RedisClient.js';
+import { isCommandTimeout } from '../../clients/redis/commandTimeout.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { PuterStore } from '../types';
 import {
