@@ -392,7 +392,7 @@ export class BroadcastService extends PuterService {
                     this.#publishFailingFast = false;
                 },
                 (err: unknown) => {
-                    // One warning per stretch of failing fast, not one per event.
+                    // One warning per stretch of failing fast.
                     if (isRedisUnavailable(err)) {
                         if (this.#publishFailingFast) return;
                         this.#publishFailingFast = true;
