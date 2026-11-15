@@ -67,6 +67,9 @@ export const FLAT_PERM_SCAN_CONCURRENCY = 4;
 export const U2U_EXACT_DELETE_CHUNK = 500;
 /** Flat entries one page of a deleted holder's purge lists, and the pages. */
 const HELD_FLAT_PURGE_PAGE = 500;
+/** Groups and members read for a deleted issuer; past these the TTLs apply. */
+const ISSUED_GROUPS_CAP = 200;
+const ISSUED_GROUP_MEMBERS_CAP = 2000;
 const HELD_FLAT_PURGE_MAX_PAGES = 200;
 
 /** The user-to-app grant a user's first sign-in to an app records. */
@@ -1415,7 +1418,10 @@ export class PermissionStore extends PuterStore {
             .filter((uuid): uuid is string => Boolean(uuid));
     }
 
-    async #listGroupMembers(groupIds: number[]): Promise<GroupMember[]> {
+    async #listGroupMembers(
+        groupIds: number[],
+        limit?: number,
+    ): Promise<GroupMember[]> {
         const ids = [...new Set(groupIds.map(Number))].filter((id) =>
             Number.isFinite(id),
         );
@@ -1423,10 +1429,24 @@ export class PermissionStore extends PuterStore {
         const rows = (await this.clients.db.pread(
             'SELECT DISTINCT u.`id`, u.`uuid` FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
-                `WHERE ug.\`group_id\` IN (${ids.map(() => '?').join(', ')})`,
-            ids,
+                `WHERE ug.\`group_id\` IN (${ids.map(() => '?').join(', ')})` +
+                (limit === undefined ? '' : ' LIMIT ?'),
+            limit === undefined ? ids : [...ids, limit],
         )) as { id: number; uuid: string | null }[];
         return rows.map((row) => ({ id: Number(row.id), uuid: row.uuid }));
+    }
+
+    /** Members of the groups this user granted to; their grants go with it. */
+    async listIssuedGroupMembers(issuerUserId: number): Promise<GroupMember[]> {
+        const groups = (await this.clients.db.pread(
+            'SELECT DISTINCT `group_id` FROM `user_to_group_permissions` ' +
+                'WHERE `user_id` = ? LIMIT ?',
+            [issuerUserId, ISSUED_GROUPS_CAP],
+        )) as { group_id: number }[];
+        return this.#listGroupMembers(
+            groups.map((g) => g.group_id),
+            ISSUED_GROUP_MEMBERS_CAP,
+        );
     }
 
     /**

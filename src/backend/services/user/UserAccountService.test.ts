@@ -188,7 +188,10 @@ describe('UserAccountService', () => {
         });
 
         /** A group with a grant, and `member` in it; returns the grant's row. */
-        const seedGroupGrant = async (memberId: number) => {
+        const seedGroupGrant = async (
+            memberId: number,
+            permission = `fs:${uuidv4()}:read`,
+        ) => {
             const owner = await seedUser();
             const groupUid = uuidv4();
             await server.clients.db.write(
@@ -203,7 +206,6 @@ describe('UserAccountService', () => {
                 'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
                 [memberId, group.id],
             );
-            const permission = `fs:${uuidv4()}:read`;
             await server.clients.db.write(
                 'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
                 [owner.id, group.id, permission, '{}'],
@@ -213,8 +215,114 @@ describe('UserAccountService', () => {
                 [permission],
             );
             expect(row).toBeDefined();
-            return { permission, row: { ...row, extra: '{}' } };
+            return { owner, permission, row: { ...row, extra: '{}' } };
         };
+
+        /** Replica reads of group grants keep returning `row`. */
+        const lagGroupGrants = (row: Record<string, unknown>) => {
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('user_to_group_permissions')
+                        ? [row]
+                        : primaryRead(sql, params),
+                );
+            return () => {
+                read.mockRestore();
+                pread.mockRestore();
+            };
+        };
+
+        /** The issuer holds `permission` itself, so what it grants resolves. */
+        const holdOwn = (issuerId: number, permission: string) =>
+            server.stores.permission.setFlatUserPerm(issuerId, permission, {
+                permission,
+                deleted: false,
+                issuer_user_id: issuerId,
+            } as never);
+
+        const actorOf = async (userId: number) => {
+            const user = (await server.stores.user.getById(userId))!;
+            return { user: { ...user } } as never;
+        };
+
+        it("reads a group member's grant from the primary once its issuer is deleted", async () => {
+            const member = await seedUser();
+            const { owner, permission, row } = await seedGroupGrant(member.id);
+
+            await server.services.userAccount.cascadeDelete(owner.id);
+
+            const restore = lagGroupGrants(row);
+            try {
+                expect(
+                    await server.stores.permission.readUserGroupPerms(
+                        member.id,
+                        [permission],
+                    ),
+                ).toEqual([]);
+            } finally {
+                restore();
+            }
+        });
+
+        it('refuses a member of a group the deleted account granted to, right after a check they passed', async () => {
+            const member = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            const { owner, row } = await seedGroupGrant(member.id, permission);
+            await holdOwn(owner.id, permission);
+            const actor = await actorOf(member.id);
+            expect(
+                await server.services.permission.check(actor, permission),
+            ).toBe(true);
+
+            await server.services.userAccount.cascadeDelete(owner.id);
+
+            const restore = lagGroupGrants(row);
+            try {
+                expect(
+                    await server.services.permission.check(actor, permission),
+                ).toBe(false);
+            } finally {
+                restore();
+            }
+        });
+
+        it('refuses a holder of a grant the deleted account issued, right after a check they passed', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await holdOwn(issuer.id, permission);
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+            const actor = await actorOf(holder.id);
+            expect(
+                await server.services.permission.check(actor, permission),
+            ).toBe(true);
+
+            await server.services.userAccount.cascadeDelete(issuer.id);
+
+            expect(
+                await server.services.permission.check(actor, permission),
+            ).toBe(false);
+        });
 
         it("reads the account's group grants from the primary once it is deleted", async () => {
             const member = await seedUser();
