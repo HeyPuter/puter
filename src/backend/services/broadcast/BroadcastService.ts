@@ -375,22 +375,28 @@ export class BroadcastService extends PuterService {
     #pubsubFanout(key: string, data: unknown, meta: object): void {
         const safeMeta = this.#normalizeMeta(meta);
         if (safeMeta.from_fanout) return;
-        this.clients.redis.publish(
-            'pubsub',
-            JSON.stringify({
-                key,
-                data,
-                meta: safeMeta,
-                source: this.#redisSourceId,
-            }),
-        );
+        this.clients.redis
+            .publish(
+                'pubsub',
+                JSON.stringify({
+                    key,
+                    data,
+                    meta: safeMeta,
+                    source: this.#redisSourceId,
+                }),
+            )
+            .catch((err: unknown) => {
+                console.warn('[broadcast] pubsub publish failed', err);
+            });
     }
 
     // outer.pubsub.* events will be broadcast to other clusters through webhooks
     // pubsub.* will only fan-out to same-cluster nodes.
     #subscribeRedisOutbound(): void {
         this.#redisSub = this.clients.redis.duplicate();
-        this.#redisSub.subscribe('pubsub');
+        this.#redisSub.subscribe('pubsub').catch((err: unknown) => {
+            console.warn('[broadcast] pubsub subscribe failed', err);
+        });
         this.#redisSub.on('message', (channel: string, message: string) => {
             if (channel !== 'pubsub') return;
             const parsed = JSON.parse(message);

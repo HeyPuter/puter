@@ -30,12 +30,14 @@
 
 import { installSeatStub } from '../../testFixtures/seatStub.js';
 import bcrypt from 'bcrypt';
+import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { inspect } from 'node:util';
 import jwt from 'jsonwebtoken';
 import { TOTP } from 'otpauth';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
+import { RedisClient } from '../../clients/redis/RedisClient.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -60,6 +62,7 @@ import {
     NOTIFICATIONS_PUSH_PERMISSION,
 } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
+import type { IConfig } from '../../types.js';
 import { resetCardVerificationStatusCache } from '../../util/cardFallback.js';
 import { FS_READ_LIMIT } from '../fs/limits.js';
 
@@ -10980,6 +10983,47 @@ describe('AuthController.loginWait audience binding', () => {
 
     const waitAlone = async (session: string, origin: string, now?: number) =>
         (await runWaits([{ session, origin }], { now }))[0];
+
+    it('relays a token from set to a subscribed wait when Redis never answers', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+
+        const sockets = new Set<Socket>();
+        const silent = createServer((socket) => {
+            sockets.add(socket);
+            socket.on('error', () => {});
+        });
+        await new Promise<void>((r) => silent.listen(0, '127.0.0.1', r));
+        const { port } = silent.address() as AddressInfo;
+        const quiet = ['log', 'warn', 'error'].map((level) =>
+            vi.spyOn(console, level as 'log').mockImplementation(() => {}),
+        );
+        const stalled = new RedisClient({
+            redis: {
+                startupNodes: [{ host: '127.0.0.1', port }],
+                tls: false,
+                commandTimeoutMs: 100,
+            },
+        } as unknown as IConfig);
+        const clients = server.clients as { redis: RedisClient };
+        const real = clients.redis;
+        clients.redis = stalled;
+        try {
+            const { res, outcome } = await waitWithRelay(
+                uuidv4(),
+                { origin: OPENER },
+                token,
+            );
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        } finally {
+            clients.redis = real;
+            stalled.disconnect();
+            for (const socket of sockets) socket.destroy();
+            await new Promise((r) => silent.close(r));
+            for (const spy of quiet) spy.mockRestore();
+        }
+    }, 10_000);
 
     it('delivers a token set before the wait subscribes', async () => {
         const { actor } = await makeUserAndActor();
