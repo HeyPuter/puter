@@ -339,7 +339,7 @@ export class UploadReservationStore extends PuterStore {
             console.warn(
                 `[fs] upload reservation not taken for owner ${ownerId}: ${(e as Error).message}`,
             );
-            // Same keys, so this runs behind the timed-out take if that ever does.
+            // Same keys: runs behind the timed-out take if that ever does.
             if (isCommandTimeout(e)) void this.release(ownerId, leases);
             return null;
         }

@@ -19,6 +19,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { metrics } from '@opentelemetry/api';
+import { isCommandTimeout } from '../../clients/redis/commandTimeout.js';
 import { PuterStore } from '../types';
 
 // -- Metrics ----------------------------------------------------------
@@ -243,6 +244,8 @@ export class CreditHoldStore extends PuterStore {
             console.warn(
                 `[metering] credit hold not taken for ${userId}: ${(e as Error).message}`,
             );
+            // Same key: runs behind the timed-out take if that ever does.
+            if (isCommandTimeout(e)) void this.release(userId, member);
             return null;
         }
     }
@@ -330,6 +333,8 @@ export class CreditHoldStore extends PuterStore {
             console.warn(
                 `[metering] credit hold not reserved for ${userId}: ${(e as Error).message}`,
             );
+            // Same key: runs behind the timed-out reserve if that ever does.
+            if (isCommandTimeout(e)) void this.release(userId, member);
             return { outcome: 'unavailable' };
         }
     }
