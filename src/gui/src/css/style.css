@@ -4615,19 +4615,6 @@ html.dark-mode .usage-table-fade-overlay {
     }
 }
 
-/**
- * Share dialog layout, used by the Blocked Senders window
- */
-.share-dialog {
-    padding: 20px;
-}
-
-.share-dialog-row {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 15px;
-}
-
 /* -- Recipient suggestions --
    Used by the Dashboard's share modal, which sets the palette through its own
    tokens in dashboard.css. The list is anchored to the recipient row and floats
@@ -4818,62 +4805,5 @@ html.dark-mode .usage-table-fade-overlay {
         height: 44px;
         transform: translate(-50%, -50%);
     }
-}
-
-.share-dialog-heading {
-    font-size: 13px;
-    font-weight: 500;
-    color: #5f6b7a;
-    margin: 24px 0 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.share-dialog-empty {
-    font-size: 13px;
-    color: #7f8b99;
-    margin: 0;
-    padding: 6px 0;
-}
-
-/* The blanket "refuse everyone" switch, above the per-sender list. */
-.blocked-all-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    margin-bottom: 20px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid #eef1f4;
-    cursor: pointer;
-}
-
-.blocked-all-row input {
-    margin-top: 2px;
-    flex: none;
-}
-
-.blocked-all-row .share-dialog-empty {
-    display: block;
-    padding: 2px 0 0;
-}
-
-.share-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 8px 0;
-    border-top: 1px solid #eef1f4;
-    font-size: 14px;
-}
-
-.share-row:first-child {
-    border-top: none;
-}
-
-.share-row-who {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 

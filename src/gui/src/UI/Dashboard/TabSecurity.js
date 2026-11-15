@@ -19,10 +19,10 @@
 
 import UIWindowDisable2FA from '../Settings/UIWindowDisable2FA.js';
 import UIWindow2FASetup from '../UIWindow2FASetup.js';
-import UIWindowBlockedSenders from '../UIWindowBlockedSenders.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 import { isOrgSeat } from './orgSeat.js';
 import { openChangePasswordDialog } from './UIAccountDialogs.js';
+import UIDashboardBlockedSendersDialog from './UIDashboardBlockedSendersDialog.js';
 
 const TabSecurity = {
     id: 'security',
@@ -143,18 +143,8 @@ const TabSecurity = {
             });
         });
 
-        $el_window.find('.dashboard-section-security .manage-blocked-senders').on('click', function (e) {
-            const opener = this;
-            UIWindowBlockedSenders({
-                window_options: {
-                    on_close: () => setTimeout(() => returnFocus(opener)),
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                },
-            });
+        $el_window.find('.dashboard-section-security .manage-blocked-senders').on('click', function () {
+            UIDashboardBlockedSendersDialog({ $container: $el_window, returnFocusTo: this });
         });
 
         $el_window.find('.dashboard-section-security .toggle-2fa').on('change', async function (e) {

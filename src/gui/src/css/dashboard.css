@@ -10852,6 +10852,66 @@ body.dashboard-mode .notifications-close-all {
     line-height: 1.45;
 }
 
+/* Blocked people: a switch, a field to block someone, and who is blocked. */
+.dashboard-blocked-dialog .dashboard-form-switch-field {
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+
+.dashboard-blocked-add-row {
+    display: flex;
+    gap: 8px;
+}
+
+.dashboard-blocked-add-row .dashboard-dialog-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.dashboard-blocked-add-row .dashboard-dialog-btn {
+    flex-shrink: 0;
+    width: auto;
+}
+
+.dashboard-blocked-add-btn:disabled,
+.dashboard-blocked-unblock:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.dashboard-blocked-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid var(--dashboard-border);
+    font-size: 14px;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-blocked-row:first-child {
+    border-top: none;
+}
+
+.dashboard-blocked-who {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-blocked-row .dashboard-dialog-btn {
+    flex-shrink: 0;
+    width: auto;
+}
+
+.dashboard-blocked-empty {
+    margin: 0;
+    font-size: 13px;
+    color: var(--dashboard-text-muted);
+}
+
 /* A value to copy: the API token, a published address. */
 .dashboard-copy-row {
     display: flex;
