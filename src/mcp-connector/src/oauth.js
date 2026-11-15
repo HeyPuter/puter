@@ -4,7 +4,7 @@
 // The worker IS the authorization server. It never opens a browser — the MCP
 // client does, by navigating to /authorize. From there:
 //
-//   client → GET  /authorize            -> 302 to puter.com/?action=authme&redirectURL=<worker>/oauth/callback?flow=…
+//   client → GET  /authorize            -> 302 to puter.com/?action=authme&redirectURL=<worker>/oauth/callback?flow=…&forwards_to=<client host>
 //   (user logs in + approves on puter.com; Puter 302s back with ?token=…)
 //   puter  → GET  /oauth/callback       -> 302 to <client redirect_uri>?code=…&state=…
 //   client → POST /token                -> { access_token: <puter token> }
@@ -20,6 +20,10 @@
 
 const DEFAULT_GUI_ORIGIN = 'https://puter.com';
 const FLOW_TTL_MS = 10 * 60 * 1000; // authorize -> callback
+// Names, on our own callback URL, the host the grant is passed on to. The
+// consent dialog shows it, and the callback only completes a flow that still
+// carries the true one.
+const FORWARDS_TO_PARAM = 'forwards_to';
 const CODE_TTL_MS = 5 * 60 * 1000; // callback  -> token
 
 const guiOrigin = () => globalThis.puter_gui_origin || DEFAULT_GUI_ORIGIN;
@@ -216,7 +220,8 @@ async function authorize(event) {
         ts: Date.now(),
     });
 
-    const callbackUrl = `${originOf(event.request)}/oauth/callback?flow=${encodeURIComponent(flow)}`;
+    const callbackUrl = `${originOf(event.request)}/oauth/callback?flow=${encodeURIComponent(flow)}`
+        + `&${FORWARDS_TO_PARAM}=${encodeURIComponent(new URL(redirectUri).host)}`;
     const dest = `${guiOrigin()}/?action=authme&redirectURL=${encodeURIComponent(callbackUrl)}`;
     return redirect(dest);
 }
@@ -235,6 +240,14 @@ async function callback(event) {
     }
     if (!flow || Date.now() - flow.ts > FLOW_TTL_MS) {
         return json(400, { error: 'invalid_request', error_description: 'authorization flow expired' });
+    }
+    // Answered directly: a flow that names another destination, or none, was
+    // not approved for this one and must not be redirected to it.
+    if (params.get(FORWARDS_TO_PARAM) !== new URL(flow.redirectUri).host) {
+        return json(400, {
+            error: 'invalid_request',
+            error_description: 'authorization flow does not name its destination',
+        });
     }
 
     // No token => user declined the authme consent (or Puter returned nothing).
