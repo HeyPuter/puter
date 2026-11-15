@@ -1,5 +1,4 @@
-// Rewrites the names block in both push workers from pushNames.js.
-// `--check` only reports a stale block, and exits 1.
+// Rewrites both push workers' names block from pushNames.js; --check only reports.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

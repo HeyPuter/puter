@@ -1,13 +1,10 @@
-// The `puter-push` database as the page, `push-sw.js` and the GUI's `sw.js`
-// use it. Both workers carry a generated copy: after a change here, run
-// `node tools/pushWorkerNames.mjs`.
+// Both workers carry generated copies: run tools/pushWorkerNames.mjs after edits.
 
 export const PUSH_DB_NAME = 'puter-push';
 export const HANDLERS_STORE = 'handlers';
 export const CLICKS_STORE = 'clicks';
 
-// Kept in the handlers store under keys no channel can take, so the database
-// stays at the version workers already installed open.
+// Handlers-store keys no channel can take, so the database stays at version 1.
 export const OPT_IN_PREFIX = 'puter:opt-in:';
 export const SERVER_KEY_ENTRY = 'puter:server-key';
 /** Every key the server named as Puter's, the current one first. */

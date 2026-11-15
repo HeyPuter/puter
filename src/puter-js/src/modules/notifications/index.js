@@ -914,17 +914,7 @@ export class NotificationsModule extends EventListener {
         }
     }
 
-    /**
-     * What this browser keeps about its push: the endpoint the server last
-     * confirmed for the signed-in user, and the worker's mark for a
-     * subscription the browser replaced. Each is null when unknown.
-     *
-     * @returns {Promise<{
-     *     endpoint: string | null;
-     *     changed: { at?: number; oldEndpoint?: string } | null;
-     * }>}
-     * @internal
-     */
+    /** @internal The user's confirmed endpoint and the worker's mark, else nulls. */
     async _webPushRecord() {
         const worker = workerFor(this.puter.env);
         const [synced, changed] = await Promise.all([
@@ -947,23 +937,12 @@ export class NotificationsModule extends EventListener {
         };
     }
 
-    /**
-     * Records `endpoint` as the one the server confirmed for the signed-in
-     * user, as a sync does.
-     *
-     * @param {string} endpoint
-     * @internal
-     */
+    /** @internal Records an endpoint a status check confirmed, as a sync does. */
     async _noteWebPushSynced(endpoint) {
         await this.#recordSynced(endpoint);
     }
 
-    /**
-     * Ends this browser's subscription after the user removed it in Puter, and
-     * forgets its receipt and the worker's mark. Never throws.
-     *
-     * @internal
-     */
+    /** @internal Ends a subscription removed in Puter, with its receipt and mark. */
     async _dropRemovedWebPush() {
         const worker = workerFor(this.puter.env);
         await this.#dropRemoved(worker);
