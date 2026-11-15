@@ -1297,6 +1297,37 @@ describe('BroadcastService — same-cluster pub/sub fan-out', () => {
         }
     });
 
+    it('warns once per stretch of failing fast, not once per publish', async () => {
+        const unavailable = () => Promise.reject(new Error('Redis unavailable'));
+        const publish = vi
+            .spyOn(server.clients.redis, 'publish')
+            .mockImplementationOnce(unavailable)
+            .mockImplementationOnce(unavailable)
+            .mockImplementationOnce(unavailable)
+            .mockResolvedValueOnce(1)
+            .mockImplementationOnce(unavailable);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failedPublishes = () =>
+            warn.mock.calls.filter(
+                ([message]) => message === '[broadcast] pubsub publish failed',
+            ).length;
+        try {
+            for (let i = 0; i < 5; i++) {
+                server.clients.event.emit(
+                    'pubsub.quiet' as never,
+                    { i } as never,
+                    {},
+                );
+                await new Promise((r) => setImmediate(r));
+                if (i === 2) expect(failedPublishes()).toBe(1);
+            }
+            expect(failedPublishes()).toBe(2);
+        } finally {
+            publish.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
     it('re-emits another node\'s message locally, and skips its own', async () => {
         const seen: { key: string; data: unknown; meta: object }[] = [];
         server.clients.event.on(

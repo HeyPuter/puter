@@ -18,6 +18,7 @@
  */
 
 import axios from 'axios';
+import { isRedisUnavailable } from '../../clients/redis/commandTimeout.js';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
 import { IBroadcastPeerConfig } from '../../types.js';
@@ -158,6 +159,7 @@ export class BroadcastService extends PuterService {
         timeout: PEER_SOCKET_IDLE_MS,
     });
     #redisSub: ReturnType<typeof this.clients.redis.duplicate> | null = null;
+    #publishFailingFast = false;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -385,9 +387,19 @@ export class BroadcastService extends PuterService {
                     source: this.#redisSourceId,
                 }),
             )
-            .catch((err: unknown) => {
-                console.warn('[broadcast] pubsub publish failed', err);
-            });
+            .then(
+                () => {
+                    this.#publishFailingFast = false;
+                },
+                (err: unknown) => {
+                    // One warning per stretch of failing fast, not one per event.
+                    if (isRedisUnavailable(err)) {
+                        if (this.#publishFailingFast) return;
+                        this.#publishFailingFast = true;
+                    }
+                    console.warn('[broadcast] pubsub publish failed', err);
+                },
+            );
     }
 
     #subscribePubsub(attempt: number): void {
