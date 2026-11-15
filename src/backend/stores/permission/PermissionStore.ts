@@ -341,12 +341,11 @@ export class PermissionStore extends PuterStore {
         if (ids.length === 0) return { kept: items, issuers: new Map() };
         const issuers = await this.stores.user.getByIds(ids);
         // A lagging replica can miss part of a batch; the primary decides.
-        const reread = await Promise.all(
-            ids
-                .filter((id) => !issuers.has(id))
-                .map((id) => this.stores.user.getById(id, { force: true })),
-        );
-        for (const user of reread) if (user) issuers.set(Number(user.id), user);
+        const missing = ids.filter((id) => !issuers.has(id));
+        if (missing.length > 0) {
+            const reread = await this.stores.user.getByIdsFromPrimary(missing);
+            for (const [id, user] of reread) issuers.set(id, user);
+        }
 
         const orphaned: T[] = [];
         const kept = items.filter((item) => {

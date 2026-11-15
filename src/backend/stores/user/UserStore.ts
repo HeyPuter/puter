@@ -299,34 +299,37 @@ export class UserStore extends PuterStore {
         const numericIds = (Array.isArray(ids) ? ids : []).filter(
             (id): id is number => typeof id === 'number',
         );
-        return this.#cache.getMany(
-            'id',
-            numericIds,
-            async (missing, primary) => {
-                const users: UserRow[] = [];
-                for (
-                    let offset = 0;
-                    offset < missing.length;
-                    offset += BULK_QUERY_CHUNK_SIZE
-                ) {
-                    const chunk = missing.slice(
-                        offset,
-                        offset + BULK_QUERY_CHUNK_SIZE,
-                    );
-                    const placeholders = chunk.map(() => '?').join(', ');
-                    const sql = `SELECT * FROM \`user\` WHERE \`id\` IN (${placeholders})`;
-                    const rows = (
-                        primary
-                            ? await this.clients.db.pread(sql, chunk)
-                            : await this.clients.db.tryHardRead(sql, chunk, {
-                                  race: false,
-                              })
-                    ) as Array<Record<string, unknown>>;
-                    for (const row of rows) users.push(this.#normalizeRow(row));
-                }
-                return users;
-            },
+        return this.#cache.getMany('id', numericIds, (missing, primary) =>
+            this.#readByIds(missing, primary),
         );
+    }
+
+    /** `getByIds` from the primary, uncached: for a row a replica may lack. */
+    async getByIdsFromPrimary(ids: number[]): Promise<Map<number, UserRow>> {
+        const users = await this.#readByIds([...new Set(ids)], true);
+        return new Map(users.map((user) => [Number(user.id), user]));
+    }
+
+    async #readByIds(ids: number[], primary: boolean): Promise<UserRow[]> {
+        const users: UserRow[] = [];
+        for (
+            let offset = 0;
+            offset < ids.length;
+            offset += BULK_QUERY_CHUNK_SIZE
+        ) {
+            const chunk = ids.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const sql = `SELECT * FROM \`user\` WHERE \`id\` IN (${placeholders})`;
+            const rows = (
+                primary
+                    ? await this.clients.db.pread(sql, chunk)
+                    : await this.clients.db.tryHardRead(sql, chunk, {
+                          race: false,
+                      })
+            ) as Array<Record<string, unknown>>;
+            for (const row of rows) users.push(this.#normalizeRow(row));
+        }
+        return users;
     }
 
     /**

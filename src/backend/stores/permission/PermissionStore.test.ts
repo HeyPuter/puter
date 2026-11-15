@@ -343,7 +343,23 @@ describe('PermissionStore', () => {
             return { holderUserId: holderId, permission };
         };
 
-        const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+        /** What the background delete removed, once its re-read settles. */
+        const watchBackground = () => {
+            const reads = vi.spyOn(store, 'getFlatUserPermsForRefs');
+            const deletes = vi.spyOn(store, 'delFlatUserPerms');
+            return {
+                // Its continuation runs before ours, so any delete is issued by then.
+                settled: async () => {
+                    await vi.waitFor(() => expect(reads).toHaveBeenCalled());
+                    await reads.mock.results[0]!.value;
+                },
+                deleted: () => deletes.mock.calls.flatMap(([refs]) => refs),
+                restore: () => {
+                    reads.mockRestore();
+                    deletes.mockRestore();
+                },
+            };
+        };
 
         it('keeps an issuer a lagging replica has not seen yet', async () => {
             const older = await makeUser();
@@ -360,6 +376,9 @@ describe('PermissionStore', () => {
 
             const db = server.clients.db;
             const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
             const read = vi
                 .spyOn(db, 'read')
                 .mockImplementation(async (sql, params) => {
@@ -375,9 +394,10 @@ describe('PermissionStore', () => {
                 ({ kept } = await store.withoutOrphanedFlatPerms(items));
             } finally {
                 read.mockRestore();
+                pread.mockRestore();
             }
-            await settle();
 
+            // Nothing was dropped, so nothing runs in the background.
             expect(kept).toHaveLength(2);
             expect(await store.getFlatUserPermsForRefs(refs)).toHaveLength(2);
         });
@@ -390,8 +410,15 @@ describe('PermissionStore', () => {
             const [read] = await store.getFlatUserPermsForRefs([ref]);
             await flatEntry(holder.id, permission, live.id);
 
-            const { kept } = await store.withoutOrphanedFlatPerms([read!]);
-            await settle();
+            const background = watchBackground();
+            let kept;
+            try {
+                ({ kept } = await store.withoutOrphanedFlatPerms([read!]));
+                await background.settled();
+                expect(background.deleted()).toEqual([]);
+            } finally {
+                background.restore();
+            }
 
             expect(kept).toEqual([]);
             const [now] = await store.getFlatUserPermsForRefs([ref]);
@@ -410,11 +437,21 @@ describe('PermissionStore', () => {
             ];
             const items = await store.getFlatUserPermsForRefs(refs);
 
-            const { kept } = await store.withoutOrphanedFlatPerms(items);
-            await settle();
+            const background = watchBackground();
+            let kept;
+            try {
+                ({ kept } = await store.withoutOrphanedFlatPerms(items));
+                await vi.waitFor(() =>
+                    expect(background.deleted()).toEqual([refs[1]]),
+                );
+            } finally {
+                background.restore();
+            }
 
-            expect(kept.map(({ ref }) => ref)).toEqual([refs[0]]);
-            expect(await store.getFlatUserPermsForRefs(refs)).toHaveLength(1);
+            expect(kept!.map(({ ref }) => ref)).toEqual([refs[0]]);
+            expect(await store.getFlatUserPermsForRefs(refs)).toEqual([
+                expect.objectContaining({ ref: refs[0] }),
+            ]);
         });
     });
 
