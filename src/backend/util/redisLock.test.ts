@@ -144,7 +144,7 @@ describe('withRedisLock', () => {
             onBusy: unexpectedBusy,
         });
 
-        expect(state.lapsed).toBe(true);
+        await vi.waitFor(() => expect(state.lapsed).toBe(true));
         expect(await redis.get(key)).toBe('next-holder');
     });
 
@@ -274,6 +274,53 @@ describe('withRedisLock', () => {
             expect(silent.seen).toEqual(['set', 'eval']);
             expect(onBusy).toHaveBeenLastCalledWith(
                 expect.objectContaining({ message: 'Redis unavailable' }),
+            );
+        } finally {
+            stalled.disconnect();
+            await silent.close();
+            for (const spy of quiet) spy.mockRestore();
+        }
+    }, 5000);
+
+    it('sends its release while failing fast, without waiting on it', async () => {
+        const silent = await startSilentRedis(true);
+        const quiet = ['log', 'warn', 'error'].map((level) =>
+            vi.spyOn(console, level as 'log').mockImplementation(() => {}),
+        );
+        const stalled = new RedisClient({
+            redis: {
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 200,
+                failFastMs: 60_000,
+            },
+        } as unknown as IConfig);
+        try {
+            await new Promise<void>((r) => stalled.once('ready', () => r()));
+            silent.answer();
+            let fnDone = 0;
+            await withRedisLock(
+                stalled,
+                lockKey(),
+                async () => {
+                    silent.stall();
+                    await expect(stalled.get('other')).rejects.toThrow(
+                        'Command timed out',
+                    );
+                    await expect(stalled.get('other')).rejects.toThrow(
+                        'Redis unavailable',
+                    );
+                    fnDone = Date.now();
+                },
+                {
+                    ttlMs: 60_000,
+                    onUnavailable: 'busy',
+                    onBusy: unexpectedBusy,
+                },
+            );
+            expect(Date.now() - fnDone).toBeLessThan(50);
+            await vi.waitFor(() =>
+                expect(silent.seen).toEqual(['set', 'get', 'eval']),
             );
         } finally {
             stalled.disconnect();

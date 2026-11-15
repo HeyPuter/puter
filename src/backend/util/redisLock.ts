@@ -86,11 +86,7 @@ export const withRedisLock = async <T>(
     try {
         return await fn();
     } finally {
-        try {
-            // A GET then DEL could drop a lock another holder took after ours lapsed.
-            await deleteIfEqual(redis, key, token);
-        } catch {
-            // The TTL clears it.
-        }
+        // A GET then DEL could drop a lock another holder took after ours lapsed.
+        sendAsUndo(() => deleteIfEqual(redis, key, token)).catch(() => false);
     }
 };

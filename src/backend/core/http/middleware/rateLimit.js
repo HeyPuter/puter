@@ -491,15 +491,16 @@ async function acquireRedisConcurrent(redis, key, limit, retried = false) {
         }
         throw err;
     }
+    const release = () => sendAsUndo(() => redis.zrem(redisKey, member));
     if (count > limit) {
-        await redis.zrem(redisKey, member);
+        release().catch(noop);
         return { ok: false };
     }
     return {
         ok: true,
-        release: async () => {
-            await redis.zrem(redisKey, member);
-        },
+        release,
+        // Later commands on this key queue behind it, so callers need not wait.
+        releaseInOrder: true,
         renew: async () => {
             // Re-score in place so a slot held longer than the orphan window
             // isn't mistaken for one whose owner died. `ZADD XX` only touches
@@ -848,11 +849,10 @@ function guardSlot(slot, label) {
         release: async () => {
             if (released) return;
             released = true;
-            try {
-                await slot.release();
-            } catch (err) {
+            const pending = Promise.resolve(slot.release()).catch((err) => {
                 console.error(`${label} release failed:`, err);
-            }
+            });
+            if (!slot.releaseInOrder) await pending;
         },
         renew: async () => {
             if (released) return;

@@ -97,5 +97,8 @@ export const startSilentRedis = async (clusterReady = false) => {
             socket.write(replyTo(name));
         }
     };
-    return { port, close, seen, answer };
+    const stall = () => {
+        answering = false;
+    };
+    return { port, close, seen, answer, stall };
 };
