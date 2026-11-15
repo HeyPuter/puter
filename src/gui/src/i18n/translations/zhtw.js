@@ -22,7 +22,6 @@ const zhtw = {
     english_name: 'Traditional Chinese',
     code: 'zhtw',
     dictionary: {
-        about: '關於',
         account: '帳戶',
         account_password: '驗證帳戶密碼',
         access_granted_to: '已授予存取權給',
@@ -58,7 +57,6 @@ const zhtw = {
         close_all_windows_and_log_out: '關閉視窗並登出',
         change_always_open_with: '您是否要始終使用以下程式開啟此類型的檔案',
         confirm: '確認',
-        confirm_account_for_free_referral_storage_c2a: '建立帳戶並確認您的電子郵件地址，即可獲得 1 GB 的免費儲存空間。您的朋友也會獲得 1 GB 的免費儲存空間。',
         confirm_code_generic_incorrect: '驗證碼不正確。',
         confirm_code_generic_too_many_requests: '請求次數過多。請稍等幾分鐘。',
         confirm_code_2fa_instruction: '輸入您的驗證器應用程式中的 6 位數驗證碼。',
@@ -74,12 +72,10 @@ const zhtw = {
         continue: '繼續',
         copy: '複製',
         copy_link: '複製連結',
-        copying: '正在複製',
         copying_file: '正在複製 %%',
         create_account: '建立帳戶',
         create_free_account: '建立免費帳戶',
         create_shortcut: '建立捷徑',
-        credits: '製作群',
         current_password: '目前密碼',
         cut: '剪下',
         close_all: '全部關閉',
@@ -107,7 +103,6 @@ const zhtw = {
         empty_trash: '清空垃圾桶',
         empty_trash_confirmation: '您確定要永久刪除垃圾桶中的項目嗎？',
         emptying_trash: '正在清空垃圾桶…',
-        enable_2fa: '啟用雙重驗證',
         end_hard: '強制結束',
         end_soft: '正常結束',
         enlarged_qr_code: '放大的 QR 碼',
@@ -121,19 +116,14 @@ const zhtw = {
         feedback_sent_confirmation: '感謝您聯絡我們。如果您的帳戶有關聯的電子郵件，我們將盡快回覆您。',
         folder: '資料夾',
         forgot_pass_c2a: '忘記密碼？',
-        from: '來自',
         general: '一般',
         home: '首頁',
         html_document: 'HTML 文件',
-        hue: '色相',
         incorrect_password: '密碼不正確',
         item: '項目',
         items_in_trash_cannot_be_renamed: '此項目無法重新命名，因為它在垃圾桶中。要重新命名此項目，請先將其從垃圾桶中拖出。',
         jpeg_image: 'JPEG 圖片',
         language: '語言',
-        license: '授權',
-        lightness: '亮度',
-        link_copied: '連結已複製',
         loading: '載入中',
         log_in: '登入',
         log_out: '登出',
@@ -176,15 +166,12 @@ const zhtw = {
         plural_suffix: '個',
         preparing: '準備中...',
         print: '列印',
-        privacy: '隱私權',
         proceed_to_login: '繼續登入',
         properties: '屬性',
         public: '公開',
         publish: '發布',
         publish_as_website: '發布為網站',
-        reading_file: '正在讀取 %strong%',
         recover_password: '恢復密碼',
-        refer_friends_c2a: '每邀請一位朋友在 Puter 上建立並確認帳戶，您就可獲得 1 GB 空間。您的朋友也會獲得 1 GB！',
         refresh: '重新整理',
         rename: '重新命名',
         replace: '取代',
@@ -192,12 +179,10 @@ const zhtw = {
         resend_confirmation_code: '重新發送確認碼',
         restore: '還原',
         save: '儲存',
-        saturation: '飽和度',
         save_account: '儲存帳戶',
         save_account_to_publish: '請建立帳戶以繼續。',
         save_session: '儲存工作階段',
         save_session_c2a: '建立帳戶以儲存您目前的工作階段並避免失去您的工作。',
-        search: '搜尋',
         seconds: '秒',
         security: '安全性',
         select: '選擇',
@@ -206,14 +191,12 @@ const zhtw = {
         send: '發送',
         send_password_recovery_email: '發送密碼恢復電子郵件',
         session_saved: '感謝您建立帳戶。此工作階段已儲存。',
-        settings: '設定',
         set_new_password: '設定新密碼',
         share: '分享',
         share_to: '分享到',
         shortcut_to: '捷徑到',
         show_hidden: '顯示隱藏項目',
         sign_in_with_puter: '使用 Puter 登入',
-        sign_up: '註冊',
         size: '大小',
         skip: '跳過',
         something_went_wrong: '發生了一些錯誤。',
@@ -221,10 +204,8 @@ const zhtw = {
         status: '狀態',
         storage_puter_used: '由 Puter 使用',
         taking_longer_than_usual: '正在花費比平常更長的時間。請稍候...',
-        terms: '條款',
         text_document: '文字文件',
         tos_fineprint: '點擊「建立免費帳戶」即表示您同意 Puter 的{{link=terms}}服務條款{{/link}}和{{link=privacy}}隱私政策{{/link}}',
-        transparency: '透明度',
         trash: '垃圾桶',
         two_factor: '雙重驗證',
         two_factor_disabled: '雙重驗證已停用',
@@ -234,7 +215,6 @@ const zhtw = {
         ui_manage_sessions: '工作階段管理器',
         ui_revoke: '撤銷',
         undo: '復原',
-        unlimited: '無限制',
         unzip: '解壓縮',
         upload: '上傳',
         upload_here: '上傳到這裡',
@@ -244,10 +224,8 @@ const zhtw = {
         username_required: '使用者名稱是必填的。',
         versions: '版本',
         videos: '影片',
-        visibility: '可見性',
         yes: '是',
         zip: '壓縮',
-        zipping_file: '正在壓縮 %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -272,73 +250,19 @@ const zhtw = {
         login2fa_use_recovery_code: '使用恢復碼',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        'change': '更改', // In English: "Change"
         'reading': '正在讀取 %strong%', // In English: "Reading %strong%"
         'writing': '正在寫入 %strong%', // In English: "Writing %strong%"
         'unzipping': '正在解壓 %strong%', // In English: "Unzipping %strong%"
         'sequencing': '正在排序 %strong%', // In English: "Sequencing %strong%"
         'zipping': '正在壓縮 %strong%', // In English: "Zipping %strong%"
-        'Editor': '編輯器', // In English: "Editor"
-        'Viewer': '檢視者', // In English: "Viewer"
-        'People with access': '有權限的人', // In English: "People with access"
-        'Share With…': '分享給……', // In English: "Share With…"
-        'Owner': '所有者', // In English: "Owner"
-        "You can't share with yourself.": '您不能與自己分享。', // In English: "You can't share with yourself."
-        'This user already has access to this item': '該用戶已有訪問此項的權限', // In English: "This user already has access to this item"
-        'billing.change_payment_method': '更改', // Change
-        'billing.cancel': '取消', // Cancel
-        'billing.download_invoice': '下載發票', // Download
-        'billing.payment_method': '付款方式', // Payment Method
-        'billing.payment_method_updated': '付款方式已更新！', // Payment method updated!
-        'billing.confirm_payment_method': '確認付款方式', // Confirm Payment Method
-        'billing.payment_history': '付款記錄', // Payment History
-        'billing.refunded': '已退款', // Refunded
-        'billing.paid': '已付款', // Paid
-        'billing.ok': '確定', // OK
-        'billing.resume_subscription': '恢復訂閱', // Resume Subscription
-        'billing.subscription_cancelled': '您的訂閱已被取消。', // Your subscription has been canceled.
-        'billing.subscription_cancelled_description': '在本計費週期結束之前，您仍然可以使用您的訂閱。', // You will still have access to your subscription until the end of this billing period.
-        'billing.offering.free': '免費', // Free
-        'billing.offering.pro': '專業版', // Professional
-        'billing.offering.professional': '專業版', // Professional
-        'billing.offering.business': '商業版', // Business
-        'billing.cloud_storage': '雲端儲存空間', // Cloud Storage
-        'billing.ai_access': 'AI 使用權限', // AI Access
-        'billing.bandwidth': '頻寬', // Bandwidth
-        'billing.apps_and_games': '應用程式與遊戲', // Apps & Games
-        'billing.upgrade_to_pro': '升級到 %strong%', // Upgrade to %strong%
-        'billing.switch_to': '切換到 %strong%', // Switch to %strong%
-        'billing.payment_setup': '付款設定', // Payment Setup
-        'billing.back': '返回', // Back
-        'billing.you_are_now_subscribed_to': '您現在的訂閱等級是 %strong%。', // You are now subscribed to %strong% tier.
-        'billing.you_are_now_subscribed_to_without_tier': '您現在是訂閱狀態', // You are now subscribed
-        'billing.subscription_cancellation_confirmation': '您確定要取消訂閱嗎？', // Are you sure you want to cancel your subscription?
         'billing.subscription_setup': '訂閱設定', // Subscription Setup
-        'billing.cancel_it': '取消', // Cancel It
-        'billing.keep_it': '保留', // Keep It
-        'billing.subscription_resumed': '您的 %strong% 訂閱已恢復！', // Your %strong% subscription has been resumed!
-        'billing.upgrade_now': '立即升級', // Upgrade Now
         'billing.upgrade': '升級', // Upgrade
-        'billing.currently_on_free_plan': '您目前使用的是免費方案。', // You are currently on the free plan.
-        'billing.download_receipt': '下載收據', // Download Receipt
-        'billing.subscription_check_error': '無法檢查您的訂閱狀態，請稍後再試。', // A problem occurred while checking your subscription status.
-        'billing.email_confirmation_needed': '您的電子郵件尚未確認。我們會向您發送驗證碼以進行確認。', // Your email has not been confirmed. We'll send you a code to confirm it now.
-        'billing.sub_cancelled_but_valid_until': '您已取消訂閱，訂閱將在計費週期結束後自動轉為免費方案。除非重新訂閱，否則不會再次收費。', // You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe.
-        'billing.current_plan_until_end_of_period': '您的目前方案將持續到本計費週期結束。', // Your current plan until the end of this billing period.
-        'billing.current_plan': '目前方案', // Current plan
-        'billing.cancelled_subscription_tier': '已取消的訂閱（%%）', // Cancelled Subscription (%%)
-        'billing.manage': '管理', // Manage
-        'billing.limited': '有限', // Limited
-        'billing.expanded': '擴展', // Expanded
-        'billing.accelerated': '加速', // Accelerated
-        'billing.enjoy_msg': '享受 %% 的雲端儲存空間及其他福利。', // Enjoy %% of Cloud Storage plus other benefits.
         'create_shortcut_s': "建立多個捷徑", // In English: "Create Shortcuts"
         'minimize': "最小化", // In English: "Minimize"
         'reload_app': "重新載入應用程式", // In English: "Reload App"
         'publish_as_serverless_worker': "發布為 Worker", // In English: "Publish as Worker"
         'used_of': "{{used}} / {{available}} 已使用", // In English: "{{used}} used of {{available}}"
         'worker': "Worker", // In English: "Worker"
-        'billing.offering.basic': "基本", // In English: "Basic"
         'server_timeout': "伺服器回應時間過長。請再試一次。", // In English: "The server took too long to respond. Please try again."
         'signup_error': "註冊時發生錯誤。請再試一次。", // In English: "An error occurred during signup. Please try again."
         'alert_error_title': "錯誤！", // In English: "Error!"
@@ -370,7 +294,6 @@ const zhtw = {
         'window_click_to_go_up': "點擊返回上一層目錄。", // In English: "Click to go one directory up."
         'window_title_puter': "Puter", // In English: "Puter"
         'window_folder_empty': "此資料夾是空的", // In English: "This folder is empty"
-        'Resources': "資源", // In English: "Resources"
         'Storage': "儲存空間", // In English: "Storage"
         'untar': "解壓縮 Tar", // In English: "Untar"
         'untarring': "正在解壓縮 %strong%", // In English: "Untarring %strong%"

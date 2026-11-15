@@ -22,7 +22,6 @@ const vi = {
     english_name: 'Vietnamese',
     code: 'vi',
     dictionary: {
-        about: 'Giới thiệu',
         account: 'Tài khoản',
         account_password: 'Xác minh mật khẩu tài khoản',
         access_granted_to: 'Đã cấp quyền truy cập cho',
@@ -40,7 +39,6 @@ const vi = {
         close_all_windows_and_log_out: 'Đóng cửa sổ và đăng xuất',
         change_always_open_with: 'Bạn có muốn luôn mở loại tệp này bằng',
         confirm: 'Xác nhận',
-        confirm_account_for_free_referral_storage_c2a: 'Tạo tài khoản và xác nhận địa chỉ email của bạn để nhận 1 GB dung lượng lưu trữ miễn phí. Bạn của bạn cũng sẽ nhận được 1 GB dung lượng lưu trữ miễn phí.',
         confirm_code_generic_incorrect: 'Mã không chính xác.',
         confirm_code_generic_too_many_requests: 'Quá nhiều yêu cầu. Vui lòng đợi vài phút.',
         confirm_code_2fa_instruction: 'Nhập mã 6 chữ số từ ứng dụng xác thực của bạn.',
@@ -56,12 +54,10 @@ const vi = {
         continue: 'Tiếp tục',
         copy: 'Sao chép',
         copy_link: 'Sao chép liên kết',
-        copying: 'Đang sao chép',
         copying_file: 'Đang sao chép %%',
         create_account: 'Tạo tài khoản',
         create_free_account: 'Tạo tài khoản miễn phí',
         create_shortcut: 'Tạo lối tắt',
-        credits: 'Tín dụng',
         current_password: 'Mật khẩu hiện tại',
         cut: 'Cắt',
         close_all: 'Đóng tất cả',
@@ -89,7 +85,6 @@ const vi = {
         empty_trash: 'Dọn sạch thùng rác',
         empty_trash_confirmation: 'Bạn có chắc chắn muốn xóa vĩnh viễn các mục trong Thùng rác không?',
         emptying_trash: 'Đang dọn sạch Thùng rác…',
-        enable_2fa: 'Bật 2FA',
         end_hard: 'Kết thúc cứng',
         end_soft: 'Kết thúc mềm',
         enlarged_qr_code: 'Mã QR phóng to',
@@ -103,19 +98,14 @@ const vi = {
         feedback_sent_confirmation: 'Cảm ơn bạn đã liên hệ với chúng tôi. Nếu bạn có email liên kết với tài khoản của mình, chúng tôi sẽ phản hồi bạn trong thời gian sớm nhất.',
         folder: 'Thư mục',
         forgot_pass_c2a: 'Quên mật khẩu?',
-        from: 'Từ',
         general: 'Chung',
         home: 'Trang chủ',
         html_document: 'Tài liệu HTML',
-        hue: 'Màu sắc',
         incorrect_password: 'Mật khẩu không chính xác',
         item: 'mục',
         items_in_trash_cannot_be_renamed: 'Mục này không thể đổi tên vì nó đang ở trong thùng rác. Để đổi tên mục này, trước tiên hãy kéo nó ra khỏi Thùng rác.',
         jpeg_image: 'Hình ảnh JPEG',
         language: 'Ngôn ngữ',
-        license: 'Giấy phép',
-        lightness: 'Độ sáng',
-        link_copied: 'Đã sao chép liên kết',
         loading: 'Đang tải',
         log_in: 'Đăng nhập',
         log_out: 'Đăng xuất',
@@ -158,15 +148,12 @@ const vi = {
         plural_suffix: '',
         preparing: 'Đang chuẩn bị...',
         print: 'In',
-        privacy: 'Quyền riêng tư',
         proceed_to_login: 'Tiếp tục đăng nhập',
         properties: 'Thuộc tính',
         public: 'Công khai',
         publish: 'Xuất bản',
         publish_as_website: 'Xuất bản như trang web',
-        reading_file: 'Đang đọc %strong%',
         recover_password: 'Khôi phục mật khẩu',
-        refer_friends_c2a: 'Nhận 1 GB cho mỗi người bạn tạo và xác nhận tài khoản trên Puter. Bạn của bạn cũng sẽ nhận được 1 GB!',
         refresh: 'Làm mới',
         rename: 'Đổi tên',
         replace: 'Thay thế',
@@ -174,12 +161,10 @@ const vi = {
         resend_confirmation_code: 'Gửi lại mã xác nhận',
         restore: 'Khôi phục',
         save: 'Lưu',
-        saturation: 'Độ bão hòa',
         save_account: 'Lưu tài khoản',
         save_account_to_publish: 'Vui lòng tạo một tài khoản để tiếp tục.',
         save_session: 'Lưu phiên',
         save_session_c2a: 'Tạo một tài khoản để lưu phiên hiện tại của bạn và tránh mất công việc của bạn.',
-        search: 'Tìm kiếm',
         seconds: 'giây',
         security: 'Bảo mật',
         select: 'Chọn',
@@ -188,14 +173,12 @@ const vi = {
         send: 'Gửi',
         send_password_recovery_email: 'Gửi email khôi phục mật khẩu',
         session_saved: 'Cảm ơn bạn đã tạo tài khoản. Phiên này đã được lưu.',
-        settings: 'Cài đặt',
         set_new_password: 'Đặt mật khẩu mới',
         share: 'Chia sẻ',
         share_to: 'Chia sẻ đến',
         shortcut_to: 'Lối tắt đến',
         show_hidden: 'Hiển thị mục ẩn',
         sign_in_with_puter: 'Đăng nhập bằng Puter',
-        sign_up: 'Đăng ký',
         size: 'Kích thước',
         skip: 'Bỏ qua',
         something_went_wrong: 'Đã xảy ra lỗi.',
@@ -203,10 +186,8 @@ const vi = {
         status: 'Trạng thái',
         storage_puter_used: 'đã sử dụng bởi Puter',
         taking_longer_than_usual: 'Đang mất nhiều thời gian hơn bình thường. Vui lòng đợi...',
-        terms: 'Điều khoản',
         text_document: 'Tài liệu văn bản',
         tos_fineprint: 'Bằng cách nhấp vào \'Tạo tài khoản miễn phí\', bạn đồng ý với {{link=terms}}Điều khoản dịch vụ{{/link}} và {{link=privacy}}Chính sách quyền riêng tư{{/link}} của Puter.',
-        transparency: 'Độ trong suốt',
         trash: 'Thùng rác',
         two_factor: 'Xác thực hai yếu tố',
         two_factor_disabled: '2FA đã tắt',
@@ -216,7 +197,6 @@ const vi = {
         ui_manage_sessions: 'Quản lý phiên',
         ui_revoke: 'Thu hồi',
         undo: 'Hoàn tác',
-        unlimited: 'Không giới hạn',
         unzip: 'Giải nén',
         upload: 'Tải lên',
         upload_here: 'Tải lên tại đây',
@@ -226,10 +206,8 @@ const vi = {
         username_required: 'Tên người dùng là bắt buộc.',
         versions: 'Phiên bản',
         videos: 'Video',
-        visibility: 'Hiển thị',
         yes: 'Có',
         zip: 'Nén',
-        zipping_file: 'Đang nén %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -254,75 +232,21 @@ const vi = {
         login2fa_use_recovery_code: 'Sử dụng mã khôi phục',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        'change': 'Thay đổi', // In English: "Change"
         'plural_suffix': 'các', // In English: "s"
         'reading': 'Đang đọc %strong%', // In English: "Reading %strong%"
         'writing': 'Đang ghi dữ liệu %strong%', // In English: "Writing %strong%"
         'unzipping': 'Đang giải nén %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'Đang đánh thứ tự %strong%', // In English: "Sequencing %strong%"
         'zipping': 'Đang nén %strong%', // In English: "Zipping %strong%"
-        'Editor': 'Người chỉnh sửa', // In English: "Editor"
-        'Viewer': 'Người xem', // In English: "Viewer"
-        'People with access': 'Người dùng có quyền truy cập', // In English: "People with access"
-        'Share With…': 'Chia sẻ với...', // In English: "Share With…"
-        'Owner': 'Người sở hữu', // In English: "Owner"
-        "You can't share with yourself.": 'Bạn không thể tự chia sẻ với chính mình', // In English: "You can't share with yourself."
-        'This user already has access to this item': 'Người dùng này đã có sẵn quyền truy cập cho mục này', // In English: "This user already has access to this item"
 
-        'billing.change_payment_method': 'Thay đổi', // In English: "Change"
-        'billing.cancel': 'Hủy', // In English: "Cancel"
-        'billing.download_invoice': 'Tải xuống', // In English: "Download"
-        'billing.payment_method': 'Phương thức thanh toán', // In English: "Payment Method"
-        'billing.payment_method_updated': 'Phương thức thanh toán đã được cập nhật thành công!', // In English: "Payment method updated!"
-        'billing.confirm_payment_method': 'Xác nhận phương thức thanh toán', // In English: "Confirm Payment Method"
-        'billing.payment_history': 'Lịch sử thanh toán', // In English: "Payment History"
-        'billing.refunded': 'Đã hoàn tiền', // In English: "Refunded"
-        'billing.paid': 'Đã thanh toán', // In English: "Paid"
-        'billing.ok': 'OK', // In English: "OK"
-        'billing.resume_subscription': 'Tiếp tục đăng ký', // In English: "Resume Subscription"
-        'billing.subscription_cancelled': 'Đăng ký của bạn đã bị hủy.', // In English: "Your subscription has been canceled."
-        'billing.subscription_cancelled_description': 'Bạn vẫn có thể tiếp tục sử dụng dịch vụ của mình cho đến cuối kỳ thanh toán này.', // In English: "You will still have access to your subscription until the end of this billing period."
-        'billing.offering.free': 'Miễn phí', // In English: "Free"
-        'billing.offering.pro': 'Chuyên nghiệp', // In English: "Professional"
-        'billing.offering.professional': 'Chuyên nghiệp', // In English: "Professional"
-        'billing.offering.business': 'Doanh nghiệp', // In English: "Business"
-        'billing.cloud_storage': 'Lưu trữ đám mây', // In English: "Cloud Storage"
-        'billing.ai_access': 'Truy cập AI', // In English: "AI Access"
-        'billing.bandwidth': 'Băng thông', // In English: "Bandwidth"
-        'billing.apps_and_games': 'Ứng dụng & Trò chơi', // In English: "Apps & Games"
-        'billing.upgrade_to_pro': 'Nâng cấp lên %strong%', // In English: "Upgrade to %strong%"
-        'billing.switch_to': 'Chuyển sang gói %strong%', // In English: "Switch to %strong%"
-        'billing.payment_setup': 'Thiết lập thanh toán', // In English: "Payment Setup"
-        'billing.back': 'Quay lại', // In English: "Back"
-        'billing.you_are_now_subscribed_to': 'Bạn hiện đang đăng ký gói %strong%.', // In English: "You are now subscribed to %strong% tier."
-        'billing.you_are_now_subscribed_to_without_tier': 'Bạn đã đăng ký', // In English: "You are now subscribed"
-        'billing.subscription_cancellation_confirmation': 'Bạn có chắc chắn muốn hủy đăng ký không?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'Thiết lập đăng ký', // In English: "Subscription Setup"
-        'billing.cancel_it': 'Hủy bỏ', // In English: "Cancel It"
-        'billing.keep_it': 'Giữ lại', // In English: "Keep It"
-        'billing.subscription_resumed': 'Đăng ký %strong% của bạn đã được tiếp tục!', // In English: "Your %strong% subscription has been resumed!"
-        'billing.upgrade_now': 'Nâng cấp ngay', // In English: "Upgrade Now"
         'billing.upgrade': 'Nâng cấp', // In English: "Upgrade"
-        'billing.currently_on_free_plan': 'Bạn hiện đang sử dụng gói miễn phí.', // In English: "You are currently on the free plan."
-        'billing.download_receipt': 'Tải biên lai', // In English: "Download Receipt"
-        'billing.subscription_check_error': 'Đã xảy ra sự cố khi kiểm tra trạng thái đăng ký của bạn.', // In English: "A problem occurred while checking your subscription status."
-        'billing.email_confirmation_needed': 'Email của bạn chưa được xác nhận. Chúng tôi sẽ gửi mã xác nhận ngay bây giờ.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        'billing.sub_cancelled_but_valid_until': 'Bạn đã hủy đăng ký và được tự động chuyển sang gói miễn phí vào cuối kỳ thanh toán. Bạn sẽ không bị tính phí nữa đến khi đăng ký lại.', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        'billing.current_plan_until_end_of_period': 'Gói cước hiện tại của bạn đến cuối kỳ thanh toán này.', // In English: "Your current plan until the end of this billing period."
-        'billing.current_plan': 'Gói hiện tại', // In English: "Current plan"
-        'billing.cancelled_subscription_tier': 'Đăng ký đã hủy (%%)', // In English: "Cancelled Subscription (%%)"
-        'billing.manage': 'Quản lý', // In English: "Manage"
-        'billing.limited': 'Giới hạn', // In English: "Limited"
-        'billing.expanded': 'Mở rộng', // In English: "Expanded"
-        'billing.accelerated': 'Tăng tốc', // In English: "Accelerated"
-        'billing.enjoy_msg': 'Tận hưởng %% Lưu trữ đám mây và các tiện ích khác.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
         'create_shortcut_s': 'Tạo các lối tắt', // In English: "Create Shortcuts"
         'minimize': 'Thu nhỏ', // In English: "Minimize"
         'reload_app': 'Tải lại ứng dụng', // In English: "Reload App"
         'publish_as_serverless_worker': 'Xuất bản dưới dạng Worker', // In English: "Publish as Worker"
         'used_of': '{{used}} đã dùng trong tổng {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
-        'billing.offering.basic': 'Gói cơ bản', // In English: "Basic"
         'server_timeout': 'Máy chủ phản hồi quá lâu. Vui lòng thử lại.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Có lỗi xảy ra khi đăng ký. Vui lòng thử lại.', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Lỗi!', // In English: "Error!"

@@ -22,7 +22,6 @@ const sv = {
     english_name: 'Swedish',
     code: 'sv',
     dictionary: {
-        about: 'Om',
         account: 'Konto',
         account_password: 'Bekräfta kontolösenord',
         access_granted_to: 'Tillgång beviljad till',
@@ -40,7 +39,6 @@ const sv = {
         close_all_windows_and_log_out: 'Stäng alla fönster och logga ut',
         change_always_open_with: 'Vill du alltid öppna den här filtypen med',
         confirm: 'Bekräfta',
-        confirm_account_for_free_referral_storage_c2a: 'Skapa ett konto och bekräfta din e-postadress för att få 1 GB gratis lagringsutrymme. Din vän får också 1 GB gratis lagringsutrymme.',
         confirm_code_generic_incorrect: 'Felaktig kod.',
         confirm_code_generic_too_many_requests: 'För många förfrågningar. Var god vänta ett par minuter.',
         confirm_code_2fa_instruction: 'Fyll i de 6 siffrorna från din autentiseringsapp.',
@@ -56,12 +54,10 @@ const sv = {
         continue: 'Continue',
         copy: 'Kopiera',
         copy_link: 'Kopiera länk',
-        copying: 'Kopierar',
         copying_file: 'Kopierar %%',
         create_account: 'Skapa konto',
         create_free_account: 'Skapa gratis konto',
         create_shortcut: 'Skapa genväg',
-        credits: 'Tack',
         current_password: 'Nuvarande lösenord',
         cut: 'Klipp ut',
         close_all: 'Stäng alla',
@@ -89,7 +85,6 @@ const sv = {
         empty_trash: 'Töm papperskorgen',
         empty_trash_confirmation: 'Är du säker på att du vill permanent radera allt i papperskorgen?',
         emptying_trash: 'Tömmer papperskorgen…',
-        enable_2fa: 'Aktivera 2FA',
         end_hard: 'Hårt slut',
         end_soft: 'Mjukt slut',
         enlarged_qr_code: 'Förstorad QR-kod',
@@ -103,19 +98,14 @@ const sv = {
         feedback_sent_confirmation: 'Tack för att du kontaktade oss. Om du har en e-post kopplad till ditt konto kommer du att höra från oss så snart som möjligt.',
         folder: 'Mapp',
         forgot_pass_c2a: 'Glömt lösenord?',
-        from: 'Från',
         general: 'Allmänt',
         home: 'Hem',
         html_document: 'HTML-dokument',
-        hue: 'Färgton',
         incorrect_password: 'Felaktigt lösenord',
         item: 'Objekt',
         items_in_trash_cannot_be_renamed: 'Det här objektet kan inte byta namn eftersom det är i papperskorgen. För att byta namn på detta objekt, dra det först ur papperskorgen.',
         jpeg_image: 'JPEG-bild',
         language: 'Språk',
-        license: 'Licens',
-        lightness: 'Ljus',
-        link_copied: 'Länk kopierad',
         loading: 'Laddar',
         log_in: 'Logga in',
         log_out: 'Logga ut',
@@ -158,15 +148,12 @@ const sv = {
         plural_suffix: '', // neutrum has "", utrum has "or", "ar", "er"
         preparing: 'Förbereder...',
         print: 'Skriv ut',
-        privacy: 'Integritet',
         proceed_to_login: 'Förtsätt till inloggning',
         properties: 'Egenskaper',
         public: 'Offentligt',
         publish: 'Publicera',
         publish_as_website: 'Publicera som webbplats',
-        reading_file: 'Läser in %strong%',
         recover_password: 'Återställ lösenord',
-        refer_friends_c2a: 'Få 1 GB för varje vän som skapar och bekräftar ett konto på Puter. Din vän får också 1 GB.',
         refresh: 'Uppdatera',
         rename: 'Byt namn',
         replace: 'Ersätt',
@@ -174,12 +161,10 @@ const sv = {
         resend_confirmation_code: 'Skicka bekräftelsekoden igen',
         restore: 'Återställ',
         save: 'Spara',
-        saturation: 'Mättnad',
         save_account: 'Spara konto',
         save_account_to_publish: 'Vänligen skapa ett konto för att fortsätta.',
         save_session: 'Spara sessionen',
         save_session_c2a: 'Skapa ett konto för att spara den nuvarande sessionen och undvika att ditt arbete går förlorat.',
-        search: 'Sök',
         seconds: 'sekunder',
         security: 'Säkerhet',
         select: 'Välj',
@@ -188,14 +173,12 @@ const sv = {
         send: 'Skicka',
         send_password_recovery_email: 'Skicka e-post för återställning av lösenord',
         session_saved: 'Tack för att du skapade ett konto. Denna session är sparad.',
-        settings: 'Inställningar',
         set_new_password: 'Ange nytt lösenord',
         share: 'Dela',
         share_to: 'Dela till',
         shortcut_to: 'Genväg till',
         show_hidden: 'Visa dolda',
         sign_in_with_puter: 'Logga in med Puter',
-        sign_up: 'Skapa konto',
         size: 'Storlek',
         skip: 'Hoppa över',
         something_went_wrong: 'Någonting gick fel.',
@@ -203,10 +186,8 @@ const sv = {
         status: 'Tillstånd',
         storage_puter_used: 'använt av Puter',
         taking_longer_than_usual: 'Detta tar längre tid än vanligt. Vänligen vänta...',
-        terms: 'Villkor',
         text_document: 'Textdokument',
         tos_fineprint: "Genom att klicka på 'Skapa gratis konto' godkänner du Puters {{link=terms}}användarvillkor{{/link}} och {{link=privacy}}integritetspolicy{{/link}}.",
-        transparency: 'Transparens',
         trash: 'Papperskorg',
         two_factor: 'Tvåfaktors-autentisering',
         two_factor_disabled: '2FA inaktiverad',
@@ -216,7 +197,6 @@ const sv = {
         ui_manage_sessions: 'Sessionshanterare',
         ui_revoke: 'Upphäv',
         undo: 'Ångra',
-        unlimited: 'Obegränsat',
         unzip: 'Packa upp',
         upload: 'Ladda upp',
         upload_here: 'Ladda upp hit',
@@ -226,10 +206,8 @@ const sv = {
         username_required: 'Användarnamn krävs.',
         versions: 'Versioner',
         videos: 'Videor',
-        visibility: 'Synlighet',
         yes: 'Ja',
         zip: 'Zippa',
-        zipping_file: 'Komprimerar %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -254,70 +232,16 @@ const sv = {
         login2fa_use_recovery_code: 'Använd en återhämtningskod',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        'change': 'Ändra', // In English: "Change"
         'plural_suffix': '', // In English: "s" (Plural suffix is context dependent in Swedish, it can be "or", "ar", "er", "en" or just no suffix)
         'reading': 'Läser %strong%', // In English: "Reading %strong%"
         'writing': 'Skriver %strong%', // In English: "Writing %strong%"
         'unzipping': 'Packar upp %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'Sekvenserar %strong%', // In English: "Sequencing %strong%"
         'zipping': 'Komprimerar %strong%', // In English: "Zipping %strong%"
-        'Editor': 'Redigerare', // In English: "Editor"
-        'Viewer': 'Granskare', // In English: "Viewer"
-        'People with access': 'Personer med åtkomst', // In English: "People with access"
-        'Share With…': 'Dela med…', // In English: "Share With…"
-        'Owner': 'Ägare', // In English: "Owner"
-        "You can't share with yourself.": 'Du kan inte dela med dig själv.', // In English: "You can't share with yourself."
-        'This user already has access to this item':
-        'Den här användaren har redan åtkomst till det här objektet', // In English: "This user already has access to this item"
 
         'plural_suffix': '', // In English: "s" (Plural suffix is context dependent in Swedish, it can be "or", "ar", "er", "en" or just no suffix)
-        'billing.change_payment_method': 'Ändra', // In English: "Change"
-        'billing.cancel': 'Avbryt', // In English: "Cancel"
-        'billing.download_invoice': 'Ladda ner', // In English: "Download"
-        'billing.payment_method': 'Betalningsmetod', // In English: "Payment Method"
-        'billing.payment_method_updated': 'Betalningsmetod uppdaterad!', // In English: "Payment method updated!"
-        'billing.confirm_payment_method': 'Bekräfta Betalningsmetod', // In English: "Confirm Payment Method"
-        'billing.payment_history': 'Betalningshistorik', // In English: "Payment History"
-        'billing.refunded': 'Återbetalas', // In English: "Refunded"
-        'billing.paid': 'Betalt', // In English: "Paid"
-        'billing.ok': 'OK', // In English: "OK"
-        'billing.resume_subscription': 'Återuppta Prenumeration', // In English: "Resume Subscription"
-        'billing.subscription_cancelled': 'Din prenumeration har avbrutits.', // In English: "Your subscription has been canceled."
-        'billing.subscription_cancelled_description': 'Du har fortfarande tillgång till din prenumeration fram till slutet av denna faktureringsperiod.', // In English: "You will still have access to your subscription until the end of this billing period."
-        'billing.offering.free': 'Gratis', // In English: "Free"
-        'billing.offering.pro': 'Professionell', // In English: "Professional"
-        'billing.offering.professional': 'Professionell', // In English: "Professional"
-        'billing.offering.business': 'Företag', // In English: "Business"
-        'billing.cloud_storage': 'Molnlagring', // In English: "Cloud Storage"
-        'billing.ai_access': 'AI Tillgång', // In English: "AI Access"
-        'billing.bandwidth': 'Bandbredd', // In English: "Bandwidth"
-        'billing.apps_and_games': 'Appar & Spel', // In English: "Apps & Games"
-        'billing.upgrade_to_pro': 'Uppgradera till %strong%', // In English: "Upgrade to %strong%"
-        'billing.switch_to': 'Byt till %strong%', // In English: "Switch to %strong%"
-        'billing.payment_setup': 'Betalningsinställningar', // In English: "Payment Setup"
-        'billing.back': 'Tillbaka', // In English: "Back"
-        'billing.you_are_now_subscribed_to': 'Du prenumererar nu på %strong% tier.', // In English: "You are now subscribed to %strong% tier."
-        'billing.you_are_now_subscribed_to_without_tier': 'Du är nu prenumererad', // In English: "You are now subscribed"
-        'billing.subscription_cancellation_confirmation': 'Är du säker på att du vill avsluta din prenumeration?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'Prenumerationsinställningar', // In English: "Subscription Setup"
-        'billing.cancel_it': 'Avbryt det', // In English: "Cancel It"
-        'billing.keep_it': 'Behåll det', // In English: "Keep It"
-        'billing.subscription_resumed': 'Din %strong% prenumeration har återupptagits!', // In English: "Your %strong% subscription has been resumed!"
-        'billing.upgrade_now': 'Uppgradera nu', // In English: "Upgrade Now"
         'billing.upgrade': 'Uppgradera', // In English: "Upgrade"
-        'billing.currently_on_free_plan': 'Du har för närvarande den kostnadsfria planen.', // In English: "You are currently on the free plan."
-        'billing.download_receipt': 'Ladda ner Kvitto', // In English: "Download Receipt"
-        'billing.subscription_check_error': 'Ett problem uppstod när du kontrollerade din prenumerationsstatus.', // In English: "A problem occurred while checking your subscription status."
-        'billing.email_confirmation_needed': 'Din e-post har inte bekräftats. Vi skickar dig en kod för att bekräfta den nu.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        'billing.sub_cancelled_but_valid_until': 'Du har sagt upp din prenumeration och den byter automatiskt till gratisnivån i slutet av faktureringsperioden. Du kommer inte att debiteras igen om du inte prenumererar på nytt.', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        'billing.current_plan_until_end_of_period': 'Din nuvarande plan fram till slutet av denna faktureringsperiod.', // In English: "Your current plan until the end of this billing period."
-        'billing.current_plan': 'Nuvarande plan', // In English: "Current plan"
-        'billing.cancelled_subscription_tier': 'Avbruten Prenumeration (%%)', // In English: "Cancelled Subscription (%%)"
-        'billing.manage': 'Hantera', // In English: "Manage"
-        'billing.limited': 'Begränsad', // In English: "Limited"
-        'billing.expanded': 'Utökad', // In English: "Expanded"
-        'billing.accelerated': 'Accelererad', // In English: "Accelerated"
-        'billing.enjoy_msg': 'Njut av %% av Cloud Storage plus andra förmåner.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
         'create_shortcut_s': 'Skapa genvägar', // In English: "Create Shortcuts"
         'minimize': 'Minimera', // In English: "Minimize"
         'reload_app': 'Ladda om app', // In English: "Reload App"
@@ -325,7 +249,6 @@ const sv = {
         'publish_as_serverless_worker': 'Publicera som Worker', // In English: "Publish as Worker"
         'used_of': '{{used}} använt av {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
-        'billing.offering.basic': 'Bas', // In English: "Basic"
         'server_timeout': 'Servern tog för lång tid att svara. Försök igen.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Ett fel uppstod vid registreringen. Försök igen.', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Fel!', // In English: "Error!"

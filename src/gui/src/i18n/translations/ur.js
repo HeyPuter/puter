@@ -22,7 +22,6 @@ const ur = {
     english_name: 'Urdu',
     code: 'ur',
     dictionary: {
-        about: 'بارے میں',
         account: 'اکاؤنٹ',
         account_password: 'اکاؤنٹ پاس ورڈ کی تصدیق کریں',
         access_granted_to: 'رسائی مسموح ہے',
@@ -37,8 +36,6 @@ const ur = {
         close: 'بند کریں',
         close_all_windows_and_log_out: 'ونڈوز بند کریں اور لاگ آؤٹ کریں۔',
         change_always_open_with: 'کیا آپ ہمیشہ اس قسم کی فائل کو کھولنا چاہتے ہیں۔',
-        confirm_account_for_free_referral_storage_c2a:
-      '1 GB مفت اسٹوریج حاصل کرنے کے لیے ایک اکاؤنٹ بنائیں اور اپنے ای میل ایڈریس کی تصدیق کریں۔ آپ کے دوست کو 1 GB مفت اسٹوریج بھی ملے گا۔',
         confirm_code_generic_incorrect: 'غلط کوڈ۔',
         confirm_code_generic_too_many_requests:
       'بہت زیادہ درخواستیں براہ کرم چند منٹ انتظار کریں۔',
@@ -59,12 +56,10 @@ const ur = {
         continue: 'جاری رہے',
         copy: 'کاپی کریں',
         copy_link: 'لنک کاپی کریں',
-        copying: 'کاپی کر رہا ہے',
         copying_file: '%% کاپی کر رہا ہے',
         create_account: 'اکاؤنٹ بنائیں',
         create_free_account: 'مفت اکاؤنٹ بنائیں',
         create_shortcut: 'شارٹ کٹ تخلیق کریں',
-        credits: 'کریڈٹس',
         current_password: 'موجودہ پاس ورڈ',
         cut: 'کاٹیں',
         date_modified: 'تاریخ تبدیل',
@@ -91,7 +86,6 @@ const ur = {
         empty_trash: 'کچرا خالی کریں',
         empty_trash_confirmation: 'کچرا خالی کرنے کی تصدیق ',
         emptying_trash: 'کچرا خالی ہو رہا ہے',
-        enable_2fa: '2FA کو فعال کریں۔',
         end_hard: 'ہارڈ کو ختم کریں۔',
         end_soft: 'اینڈ نرم',
         enlarged_qr_code: 'بڑھا ہوا QR کوڈ',
@@ -104,20 +98,15 @@ const ur = {
         feedback_c2a: ' رائے ',
         feedback_sent_confirmation: 'تبادلہ رائے بھیجے جانے کی تصدیق ',
         forgot_pass_c2a: 'پاس ورڈ بھول گئے ہیں؟',
-        from: 'سے',
         general: 'عام ',
         home: 'گھر',
         html_document: 'ایچ ٹی ایم ایل دستاویز',
-        hue: 'رنگت',
         incorrect_password: 'غلط پاس ورڈ',
         item: 'آئٹم',
         items_in_trash_cannot_be_renamed:
       'کچرے میں موجود اشیاء کا نام تبدیل نہیں کیا جا سکتا',
         jpeg_image: 'جے پی ای جی_تصویر',
         language: 'زبان',
-        license: 'License',
-        lightness: 'لائسنس',
-        link_copied: 'لنک کاپی ہو گیا۔',
         loading: 'لوڈ ہو رہا ہے۔',
         log_in: 'لاگ ان کریں',
         log_out: 'لاگ آؤٹ',
@@ -159,28 +148,22 @@ const ur = {
         plural_suffix: 'س',
         preparing: 'تیاری ',
         print: 'پرنٹ کریں',
-        privacy: 'رازداری',
         proceed_to_login: 'لاگ ان کرنے کے لیے آگے بڑھیں۔',
         properties: 'خصوصیات ',
         public: 'عوام',
         publish: 'شائع کریں',
         publish_as_website: 'ویب سائٹ کے طور پر شائع کریں',
-        reading_file: 'پڑھنا %strong%',
         recover_password: 'پاس ورڈ بازیاب کریں ',
-        refer_friends_c2a:
-      '! ہر دوست کے اکاؤنٹ بنانے اور اکاؤنٹ کی تصدیق کرنے پر 1 گیگابائٹ حاصل کریں۔ آپ کا دوست بھی 1 گیگابائٹ حاصل کرے گا ',
         refresh: 'تازہ کریں ',
         rename: 'دوبارہ نام دیں',
         replace: 'بدل دیں۔',
         replace_all: 'سبھی کو تبدیل کریں۔',
         resend_confirmation_code: 'تصدیقی کوڈ دوبارہ بھیجیں',
         restore: 'بحال کریں',
-        saturation: 'سنترپتی',
         save_account: 'اکاؤنٹ محفوظ کریں۔',
         save_account_to_publish: 'شائع کرنے کے لئے اکاؤنٹ محفوظ کریں',
         save_session: 'سیشن محفوظ کریں۔',
         save_session_c2a: 'سیشن کو محفوظ کریں ',
-        search: 'تلاش کریں۔',
         seconds: 'سیکنڈ',
         security: 'سیکورٹی',
         select: 'منتخب کریں',
@@ -188,12 +171,10 @@ const ur = {
         send: 'بھیجیں',
         send_password_recovery_email: 'پاس ورڈ بحالی ای میل بھیجیں',
         session_saved: 'سیشن محفوظ ہوگیا ہے ',
-        settings: 'ترتیبات',
         set_new_password: 'نیا پاس ورڈ مقرر کریں ',
         share_to: ' کے ساتھ شیئر کریں',
         show_hidden: 'پوشیدہ دکھائیں ',
         sign_in_with_puter: 'پیوٹر کے ساتھ سائن ان کریں',
-        sign_up: 'سائن اپ کریں',
         size: 'سائز',
         skip: 'چھوڑ دو',
         something_went_wrong: 'کچھ غلط ہو گیا۔',
@@ -201,10 +182,8 @@ const ur = {
         status: 'حالت',
         storage_puter_used: 'Puter کی طرف سے استعمال کیا جاتا ہے',
         taking_longer_than_usual: 'عام طور پر سے زیادہ وقت لگ رہا ہے ',
-        terms: 'شرائط',
         text_document: 'متن دستاویز',
         tos_fineprint: 'براہ کرم "مفت اکاؤنٹ بنائیں" پر کلک کرکے ',
-        transparency: 'شفافیت',
         trash: 'کچرا',
         two_factor: 'دو عنصر کی تصدیق',
         two_factor_disabled: '2FA غیر فعال',
@@ -215,7 +194,6 @@ const ur = {
         ui_manage_sessions: 'سیشن مینیجر',
         ui_revoke: 'منسوخ کرنا',
         undo: 'واپسی کریں',
-        unlimited: 'لا محدود',
         unzip: 'زپ کھولیں',
         upload: 'اپ لوڈ کریں ',
         upload_here: 'یہاں اپ لوڈ کریں',
@@ -225,10 +203,8 @@ const ur = {
         username_required: 'صارف نام درکار ہے۔',
         versions: 'ورژنز ',
         videos: 'ویڈیوز',
-        visibility: 'مرئیت',
         yes: 'جی ہاں',
         zip: 'زپ فائل',
-        zipping_file: 'زپ %strong%',
 
         // === 2FA Setup ===
         // === 2FA سیٹ اپ ===
@@ -260,7 +236,6 @@ const ur = {
 
         'allow': 'اجازت دینا', // In English: "Allow"
         'associated_websites': 'متعلقہ ویب سائٹس', // In English: "Associated Websites"
-        'change': 'تبدیل کرنا', // In English: "Change"
         'confirm': 'تصدیق', // In English: "Confirm"
         'confirm_your_email_address': 'اپنے ای میل ایڈریس کی تصدیق کریں', // In English: "Confirm Your Email Address"
         'close_all': 'سب کو بند کریں', // In English: "Close All"
@@ -277,73 +252,19 @@ const ur = {
         'save': 'محفوظ کریں', // In English: "Save"
         'sessions': 'سیشنز', // In English: "Sessions"
         'share': 'شیئر کریں', // In English: "Share"
-        'share_with': 'شیئر کریں:', // In English: "Share with:"
         'shortcut_to': 'شارٹ کٹ برائے', // In English: "Shortcut to"
         'unzipping': 'اَن زپ کر رہا ہے %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'ترتیب دے رہا ہے %strong%', // In English: "Sequencing %strong%"
         'zipping': 'زپ کر رہا ہے %strong%', // In English: "Zipping %strong%"
-        'Editor': 'ایڈیٹر', // In English: "Editor" - Some words in Urdu are written the same as in English, like "editor," and they don't have a specific Urdu equivalent that conveys the original meaning. These are common words that every native Urdu speaker understands.
-        'Viewer': 'دیکھنے والا', // In English: "Viewer"
-        'People with access': 'لوگ جنہیں رسائی حاصل ہے', // In English: "People with access"
-        'Share With…': '...کے ساتھ شیئر کریں', // In English: "Share With…"
-        'Owner': 'مالک', // In English: "Owner"
-        "You can't share with yourself.": 'آپ خود کے ساتھ شیئر نہیں کر سکتے۔', // In English: "You can't share with yourself."
-        'This user already has access to this item': 'اس صارف کو پہلے ہی اس آئٹم تک رسائی حاصل ہے۔', // In English: "This user already has access to this item"
 
-        'billing.change_payment_method': 'ادائیگی کے طریقہ کو تبدیل کریں', // In English: "Change"
-        'billing.cancel': 'منسوخ کریں', // In English: "Cancel"
-        'billing.download_invoice': 'انوائس ڈاؤن لوڈ کریں', // In English: "Download"
-        'billing.payment_method': 'ادائیگی کا طریقہ', // In English: "Payment Method"
-        'billing.payment_method_updated': 'ادائیگی کا طریقہ اپ ڈیٹ کر دیا گیا ہے!', // In English: "Payment method updated!"
-        'billing.confirm_payment_method': 'ادائیگی کے طریقہ کی تصدیق کریں', // In English: "Confirm Payment Method"
-        'billing.payment_history': 'ادائیگی کی تاریخ', // In English: "Payment History"
-        'billing.refunded': 'رقم واپس کر دی گئی', // In English: "Refunded"
-        'billing.paid': 'ادائیگی ہو چکی ہے', // In English: "Paid"
-        'billing.ok': 'ٹھیک ہے', // In English: "OK"
-        'billing.resume_subscription': 'سبسکرپشن بحال کریں', // In English: "Resume Subscription"
-        'billing.subscription_cancelled': 'آپ کی سبسکرپشن منسوخ کر دی گئی ہے۔', // In English: "Your subscription has been canceled."
-        'billing.subscription_cancelled_description': 'آپ کو اس بلنگ مدت کے اختتام تک اپنی سبسکرپشن تک رسائی حاصل رہے گی۔', // In English: "You will still have access to your subscription until the end of this billing period."
-        'billing.offering.free': 'مفت', // In English: "Free"
-        'billing.offering.pro': 'پروفیشنل', // In English: "Professional"
-        'billing.offering.professional': 'پروفیشنل', // In English: "Professional"
-        'billing.offering.business': 'کاروبار', // In English: "Business"
-        'billing.cloud_storage': 'کلاؤڈ اسٹوریج', // In English: "Cloud Storage"
-        'billing.ai_access': 'اے آئی تک رسائی', // In English: "AI Access"
-        'billing.bandwidth': 'بینڈوتھ', // In English: "Bandwidth"
-        'billing.apps_and_games': 'ایپس اور گیمز', // In English: "Apps & Games"
-        'billing.upgrade_to_pro': 'پروفیشنل میں اپ گریڈ کریں', // In English: "Upgrade to %strong%"
-        'billing.switch_to': '%strong% پر منتقل ہوں', // In English: "Switch to %strong%"
-        'billing.payment_setup': 'ادائیگی کی ترتیب', // In English: "Payment Setup"
-        'billing.back': 'پیچھے', // In English: "Back"
-        'billing.you_are_now_subscribed_to': 'آپ اب %strong% سطح کی سبسکرپشن کے حامل ہیں۔', // In English: "You are now subscribed to %strong% tier."
-        'billing.you_are_now_subscribed_to_without_tier': 'آپ اب سبسکرائب ہیں۔', // In English: "You are now subscribed"
-        'billing.subscription_cancellation_confirmation': 'کیا آپ واقعی اپنی سبسکرپشن منسوخ کرنا چاہتے ہیں؟', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'سبسکرپشن سیٹ اپ', // In English: "Subscription Setup"
-        'billing.cancel_it': 'اسے منسوخ کریں', // In English: "Cancel It"
-        'billing.keep_it': 'اسے رکھیں', // In English: "Keep It"
-        'billing.subscription_resumed': 'آپ کی %strong% سبسکرپشن دوبارہ شروع کر دی گئی ہے!', // In English: "Your %strong% subscription has been resumed!"
-        'billing.upgrade_now': 'اب اپ گریڈ کریں', // In English: "Upgrade Now"
         'billing.upgrade': 'اپ گریڈ کریں', // In English: "Upgrade"
-        'billing.currently_on_free_plan': 'آپ اس وقت مفت پلان پر ہیں۔', // In English: "You are currently on the free plan."
-        'billing.download_receipt': 'رسیٹ ڈاؤن لوڈ کریں', // In English: "Download Receipt"
-        'billing.subscription_check_error': 'آپ کی سبسکرپشن کی حیثیت چیک کرتے وقت مسئلہ پیش آیا۔', // In English: "A problem occurred while checking your subscription status."
-        'billing.email_confirmation_needed': 'آپ کا ای میل تصدیق شدہ نہیں ہے۔ ہم اسے تصدیق کرنے کے لیے آپ کو ایک کوڈ بھیجیں گے۔', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        'billing.sub_cancelled_but_valid_until': 'آپ نے اپنی سبسکرپشن منسوخ کر دی ہے اور یہ بلنگ پیریڈ کے آخر تک مفت پلان پر منتقل ہو جائے گی۔ آپ کو دوبارہ سبسکرائب کرنے تک دوبارہ چارج نہیں کیا جائے گا۔', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        'billing.current_plan_until_end_of_period': 'آپ کا موجودہ پلان اس بلنگ پیریڈ کے آخر تک برقرار رہے گا۔', // In English: "Your current plan until the end of this billing period."
-        'billing.current_plan': 'موجودہ پلان', // In English: "Current plan"
-        'billing.cancelled_subscription_tier': 'منسوخ شدہ سبسکرپشن (%%)', // In English: "Cancelled Subscription (%%)"
-        'billing.manage': 'انتظام کریں', // In English: "Manage"
-        'billing.limited': 'محدود', // In English: "Limited"
-        'billing.expanded': 'وسیع', // In English: "Expanded"
-        'billing.accelerated': 'تیز رفتار', // In English: "Accelerated"
-        'billing.enjoy_msg': 'کلاؤڈ اسٹوریج کے %% حصے کے ساتھ دیگر فوائد کا لطف اٹھائیں۔', // In English: "Enjoy %% of Cloud Storage plus other benefits."
         'create_shortcut_s': 'شارٹ کٹس بنائیں', // In English: "Create Shortcuts"
         'minimize': 'چھوٹا کریں', // In English: "Minimize"
         'reload_app': 'ایپ دوبارہ لوڈ کریں', // In English: "Reload App"
         'publish_as_serverless_worker': 'ورکر کے طور پر شائع کریں', // In English: "Publish as Worker"
         'used_of': '{{used}} استعمال شدہ از {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'ورکر', // In English: "Worker"
-        'billing.offering.basic': 'بنیادی', // In English: "Basic"
         'server_timeout': 'سرور کے جواب میں بہت زیادہ وقت لگ گیا۔ براہ کرم دوبارہ کوشش کریں۔', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'سائن اپ کے دوران ایک خرابی پیش آئی۔ براہ کرم دوبارہ کوشش کریں۔', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'خرابی!', // In English: "Error!"

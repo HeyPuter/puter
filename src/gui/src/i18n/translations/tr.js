@@ -22,7 +22,6 @@ const tr = {
     english_name: 'Turkish',
     code: 'tr',
     dictionary: {
-        about: 'Hakkında',
         account: 'Hesap',
         account_password: 'Hesap parolasını doğrula',
         access_granted_to: 'Erişim İzni Verildi',
@@ -39,7 +38,6 @@ const tr = {
         close: 'Kapat',
         close_all_windows_and_log_out: 'Pencereleri Kapat ve Çıkış Yap',
         change_always_open_with: 'Bu tür dosyaları her zaman şununla açmak istiyor musunuz',
-        confirm_account_for_free_referral_storage_c2a: '1 GB ücretsiz depolama alanı kazanmak için bir hesap oluşturun ve e-posta adresinizi onaylayın. Arkadaşınız da 1 GB ücretsiz depolama alanı kazanacak.',
         confirm_code_generic_incorrect: 'Hatalı Kod.',
         confirm_code_generic_too_many_requests: 'Çok fazla istek. Lütfen birkaç dakika bekleyin.',
         confirm_code_2fa_instruction: 'Kimlik doğrulama uygulamanızdaki 6 haneli kodu girin',
@@ -55,12 +53,10 @@ const tr = {
         continue: 'Devam',
         copy: 'Kopyala',
         copy_link: 'Bağlantıyı Kopyala',
-        copying: 'Kopyalanıyor',
         copying_file: '%% Kopyalanıyor',
         create_account: 'Hesap Oluştur',
         create_free_account: 'Ücretsiz Hesap Oluştur',
         create_shortcut: 'Kısayol Oluştur',
-        credits: 'Katkıda Bulunanlar',
         current_password: 'Mevcut Parola',
         cut: 'Kes',
         close_all: 'Tümünü Kapat',
@@ -88,7 +84,6 @@ const tr = {
         empty_trash: 'Çöp Kutusunu Boşalt',
         empty_trash_confirmation: 'Çöp Kutusundaki öğeleri kalıcı olarak silmek istediğinize emin misiniz?',
         emptying_trash: 'Çöp Kutusu Boşaltılıyor…',
-        enable_2fa: 'İki Faktörlü Doğrulamayı Etkinleştir',
         end_hard: 'Zorla Bitir',
         end_soft: 'Normal Bitir',
         enlarged_qr_code: 'Büyütülmüş Karekod',
@@ -102,19 +97,14 @@ const tr = {
         feedback_sent_confirmation: 'Bizimle iletişime geçtiğiniz için teşekkür ederiz. Hesabınızla ilişkili bir e-postanız varsa, en kısa sürede size geri döneceğiz.',
         folder: 'Klasör',
         forgot_pass_c2a: 'Parolanızı mı unuttunuz?',
-        from: 'Kimden',
         general: 'Genel',
         home: 'Anasayfa',
         html_document: 'HTML belgesi',
-        hue: 'Renk Tonu',
         incorrect_password: 'Hatalı Parola',
         item: 'öğe',
         items_in_trash_cannot_be_renamed: 'Bu öğe, çöp kutusunda olduğu için yeniden adlandırılamaz. Bu öğeyi yeniden adlandırmak için önce çöp kutusundan çıkarın.',
         jpeg_image: 'JPEG görüntüsü',
         language: 'Dil',
-        license: 'Lisans',
-        lightness: 'Aydınlık',
-        link_copied: 'Bağlantı kopyalandı',
         loading: 'Yükleniyor',
         log_in: 'Giriş Yap',
         log_out: 'Çıkış Yap',
@@ -157,15 +147,12 @@ const tr = {
         plural_suffix: '',
         preparing: 'Hazırlanıyor...',
         print: 'Yazdır',
-        privacy: 'Gizlilik',
         proceed_to_login: 'Giriş yapmak için devam et',
         properties: 'Özellikler',
         public: 'Genel',
         publish: 'Yayınla',
         publish_as_website: 'Web sitesi olarak yayınla',
-        reading_file: '%strong% okunuyor',
         recover_password: 'Parolayı Kurtar',
-        refer_friends_c2a: 'Hesap oluşturup onaylayan her arkadaşınız için 1 GB kazanın. Arkadaşınız da 1 GB kazanacak!',
         refresh: 'Yenile',
         rename: 'Yeniden Adlandır',
         replace: 'Değiştir',
@@ -173,12 +160,10 @@ const tr = {
         resend_confirmation_code: 'Onay Kodunu Yeniden Gönder',
         restore: 'Geri Yükle',
         save: 'Kaydet',
-        saturation: 'Doygunluk',
         save_account: 'Hesabı kaydet',
         save_account_to_publish: 'Devam etmek için lütfen bir hesap oluşturun.',
         save_session: 'Oturumu kaydet',
         save_session_c2a: 'Geçerli oturumunuzu kaydetmek ve çalışmalarınızı kaybetmemek için bir hesap oluşturun.',
-        search: 'Ara',
         seconds: 'saniye',
         security: 'Güvenlik',
         select: 'Seç',
@@ -187,14 +172,12 @@ const tr = {
         send: 'Gönder',
         send_password_recovery_email: 'Parola Kurtarma E-postası Gönder',
         session_saved: 'Hesap oluşturduğunuz için teşekkür ederiz. Oturumunuz kaydedildi.',
-        settings: 'Ayarlar',
         set_new_password: 'Yeni Parola Belirle',
         share: 'Paylaş',
         share_to: 'Şuna paylaş',
         shortcut_to: 'Şuna kısayol oluştur',
         show_hidden: 'Gizli dosyaları göster',
         sign_in_with_puter: 'Puter ile giriş yap',
-        sign_up: 'Kaydol',
         size: 'Boyut',
         skip: 'Atla',
         something_went_wrong: 'Bir şeyler ters gitti.',
@@ -202,10 +185,8 @@ const tr = {
         status: 'Durum',
         storage_puter_used: 'Puter tarafından kullanılıyor',
         taking_longer_than_usual: 'Normalden biraz daha uzun sürüyor. Lütfen bekleyin...',
-        terms: 'Şartlar',
         text_document: 'Metin belgesi',
         tos_fineprint: "'Ücretsiz Hesap Oluştur'u tıklayarak Puter'ın {{link=terms}}Hizmet Şartları{{/link}} ve {{link=privacy}}Gizlilik Politikası{{/link}}'nı kabul etmiş olursunuz.",
-        transparency: 'Saydamlık',
         trash: 'Çöp Kutusu',
         two_factor: 'İki Faktörlü Doğrulama',
         two_factor_disabled: 'İki Faktörlü Doğrulama Devre Dışı',
@@ -215,7 +196,6 @@ const tr = {
         ui_manage_sessions: 'Oturum Yöneticisi',
         ui_revoke: 'Sonlandır',
         undo: 'Geri Al',
-        unlimited: 'Sınırsız',
         unzip: 'Çıkart',
         upload: 'Yükle',
         upload_here: 'Buraya yükle',
@@ -225,10 +205,8 @@ const tr = {
         username_required: 'Kullanıcı Adı gerekli.',
         versions: 'Sürümler',
         videos: 'Videolar',
-        visibility: 'Görünürlük',
         yes: 'Evet',
         zip: 'Sıkıştır',
-        zipping_file: '%strong% sıkıştırılıyor',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -256,7 +234,6 @@ const tr = {
         login2fa_use_recovery_code: 'Bir kurtarma kodu kullan',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        'change': 'Değiştir', // In English: "Change"
         'confirm': 'Onayla', // In English: "Confirm"
         'plural_suffix': 'lar', // I used "lar", but if the preceding syllable contains a vowel like e, i, ü, ö, it should actually be "ler". In English: "s"
         'reading': '%strong% okunuyor', // In English: "Reading %strong%"
@@ -264,68 +241,15 @@ const tr = {
         'unzipping': '%strong% sıkıştırma açılıyor', // In English: "Unzipping %strong%"
         'sequencing': '%strong% sıralanıyor', // In English: "Sequencing %strong%"
         'zipping': '%strong% sıkıştırılıyor', // In English: "Zipping %strong%"
-        'Editor': 'Editör', // In English: "Editor"
-        'Viewer': 'Görüntüleyici', // In English: "Viewer"
-        'People with access': 'Erişimi olan kişiler', // In English: "People with access"
-        'Share With…': 'Paylaş...', // In English: "Share With…"
-        'Owner': 'Sahip', // In English: "Owner"
-        "You can't share with yourself.": 'Kendinizle paylaşamazsınız.', // In English: "You can't share with yourself."
-        'This user already has access to this item': 'Bu kullanıcının zaten bu öğeye erişimi var. ', // In English: "This user already has access to this item"
 
-        'billing.change_payment_method': 'Değiştir', // In English: "Change"
-        'billing.cancel': 'İptal et', // In English: "Cancel"
-        'billing.download_invoice': 'İndir', // In English: "Download"
-        'billing.payment_method': 'Ödeme Yöntemi', // In English: "Payment Method"
-        'billing.payment_method_updated': 'Ödeme yöntemi güncellendi!', // In English: "Payment method updated!"
-        'billing.confirm_payment_method': 'Ödeme Yöntemini Onayla', // In English: "Confirm Payment Method"
-        'billing.payment_history': 'Ödeme Geçmişi', // In English: "Payment History"
-        'billing.refunded': 'İade edildi', // In English: "Refunded"
-        'billing.paid': 'Ödendi', // In English: "Paid"
-        'billing.ok': 'Tamam', // In English: "OK"
-        'billing.resume_subscription': 'Aboneliğe Devam Et', // In English: "Resume Subscription"
-        'billing.subscription_cancelled': 'Aboneliğin iptal edildi.', // In English: "Your subscription has been canceled."
-        'billing.subscription_cancelled_description': 'Bu fatura döneminin sonuna kadar aboneliğinizi kullanmaya devam edebilirsiniz.', // In English: "You will still have access to your subscription until the end of this billing period."
-        'billing.offering.free': 'Ücretsiz', // In English: "Free"
-        'billing.offering.pro': 'Profesyonel', // In English: "Professional"
-        'billing.offering.professional': 'Profesyonel', // In English: "Professional"
-        'billing.offering.business': 'İşletme', // In English: "Business"
-        'billing.cloud_storage': 'Bulut Depolama', // In English: "Cloud Storage"
-        'billing.ai_access': 'Yapay Zeka Erişimi', // In English: "AI Access"
-        'billing.bandwidth': 'Bant Genişliği', // In English: "Bandwidth"
-        'billing.apps_and_games': 'Uygulamalar & Oyunlar', // In English: "Apps & Games"
-        'billing.upgrade_to_pro': 'Yükselt: %strong%', // In English: "Upgrade to %strong%"
-        'billing.switch_to': 'Değiştir: %strong%', // In English: "Switch to %strong%"
-        'billing.payment_setup': 'Ödeme Ayarları', // In English: "Payment Setup"
-        'billing.back': 'Geri', // In English: "Back"
-        'billing.you_are_now_subscribed_to': '%strong% seviyesine abone oldunuz.', // In English: "You are now subscribed to %strong% tier."
-        'billing.you_are_now_subscribed_to_without_tier': 'Abone oldunuz', // In English: "You are now subscribed"
-        'billing.subscription_cancellation_confirmation': 'Aboneliğinizi iptal etmek istediğinize emin misiniz?', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'Abonelik Ayarları', // In English: "Subscription Setup"
-        'billing.cancel_it': 'İptal Et', // In English: "Cancel It"
-        'billing.keep_it': 'Sürdür', // In English: "Keep It"
-        'billing.subscription_resumed': '%strong% aboneliğiniz yeniden başlatıldı!', // In English: "Your %strong% subscription has been resumed!"
-        'billing.upgrade_now': 'Şimdi Yükselt', // In English: "Upgrade Now"
         'billing.upgrade': 'Yükselt', // In English: "Upgrade"
-        'billing.currently_on_free_plan': 'Şu anda ücretsiz plandasınız.', // In English: "You are currently on the free plan."
-        'billing.download_receipt': 'Makbuzu İndir', // In English: "Download Receipt"
-        'billing.subscription_check_error': 'Abonelik durumunuzu kontrol ederken bir sorun oluştu.', // In English: "A problem occurred while checking your subscription status."
-        'billing.email_confirmation_needed': 'E-Postanız henüz onaylanmadı. Onaylamanız için bir kod göndereceğiz.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        'billing.sub_cancelled_but_valid_until': 'Aboneliğinizi iptal ettiniz ve bu fatura döneminin sonunda otomatik olarak ücretsiz plana geçeceksiniz. Tekrar abone olmadığınız sürece size yeniden ücret yansıtılmayacak.', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        'billing.current_plan_until_end_of_period': 'Bu fatura döneminin sonuna kadar geçerli olan mevcut planınız.', // In English: "Your current plan until the end of this billing period."
-        'billing.current_plan': 'Mevcut planınız', // In English: "Current plan"
-        'billing.cancelled_subscription_tier': 'İptal Edilen Abonelik (%%)', // In English: "Cancelled Subscription (%%)"
-        'billing.manage': 'Yönet', // In English: "Manage"
-        'billing.limited': 'Kısıtlı', // In English: "Limited"
-        'billing.expanded': 'Genişletilmiş', // In English: "Expanded"
-        'billing.accelerated': 'Hızlandırılmış', // In English: "Accelerated"
-        'billing.enjoy_msg': 'Diğer avantajların yanı sıra %% Bulut Depolamanın keyfini çıkarın.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
         'create_shortcut_s': 'Kısayollar Oluştur',
         'minimize': 'Küçült',
         'reload_app': 'Uygulamayı Yeniden Yükle',
         'publish_as_serverless_worker': 'Worker olarak Yayınla',
         'used_of': '{{available}} alanın {{used}} kullanılıyor',
         'worker': 'Worker',
-        'billing.offering.basic': 'Temel',
         'server_timeout': 'Sunucu yanıt vermekte çok uzun sürdü. Lütfen tekrar deneyin.',
         'signup_error': 'Kayıt sırasında bir hata oluştu. Lütfen tekrar deneyin.',
         'alert_error_title': 'Hata!',

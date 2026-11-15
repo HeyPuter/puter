@@ -22,7 +22,6 @@ const zh = {
     english_name: 'Chinese',
     code: 'zh',
     dictionary: {
-        about: '关于我们',
         account: '账号',
         account_password: '账号密码验证',
         access_granted_to: '访问授权给',
@@ -40,7 +39,6 @@ const zh = {
         close_all_windows_and_log_out: '关闭窗口并退出',
         change_always_open_with: '以后都这样打开此类型的文件？',
         confirm: '确认',
-        confirm_account_for_free_referral_storage_c2a: '创建帐号并确认您的电子邮件地址，以获得1 GB的免费存储空间。您的朋友也将获得1 GB的免费存储空间。',
         confirm_code_generic_incorrect: '代码不正确!',
         confirm_code_generic_too_many_requests: '请求太频繁，请过几分钟后再试。',
         confirm_code_2fa_instruction: '请输入从身份验证应用中获取的6位数字代码',
@@ -56,12 +54,10 @@ const zh = {
         continue: '继续',
         copy: '复制',
         copy_link: '复制链接',
-        copying: '复制',
         copying_file: '正在复制 %%',
         create_account: '创建帐户',
         create_free_account: '创建免费帐户',
         create_shortcut: '创建快捷方式',
-        credits: '特别鸣谢',
         current_password: '当前密码',
         cut: '剪切',
         close_all: '关闭全部',
@@ -89,7 +85,6 @@ const zh = {
         empty_trash: '清空回收站',
         empty_trash_confirmation: '您确定要永久删除回收站中的项目吗？',
         emptying_trash: '正在清空回收站…',
-        enable_2fa: '启用二次身份验证',
         end_hard: '强制关闭',
         end_soft: '等待响应',
         enlarged_qr_code: '放大二维码',
@@ -103,19 +98,14 @@ const zh = {
         feedback_sent_confirmation: '感谢您与我们联系。如果您的帐户关联有电子邮件，我们会尽快回复您。',
         folder: '文件夹',
         forgot_pass_c2a: '忘记密码？',
-        from: '从',
         general: '常用',
         home: '主页',
         html_document: 'HTML 文档',
-        hue: '色调',
         incorrect_password: '密码不正确',
         item: '项目',
         items_in_trash_cannot_be_renamed: '此项目无法重命名，因为它在回收站中。要重命名此项目，请先将其拖出回收站。',
         jpeg_image: 'JPEG 图像',
         language: '语言',
-        license: '许可协议',
-        lightness: '明亮',
-        link_copied: '链接已复制',
         loading: '正在加载',
         log_in: '登录',
         log_out: '退出',
@@ -158,15 +148,12 @@ const zh = {
         plural_suffix: '',
         preparing: '准备中...',
         print: '打印',
-        privacy: '隐私',
         proceed_to_login: '完成登录',
         properties: '属性',
         public: '公开',
         publish: '发布',
         publish_as_website: '发布为网站',
-        reading_file: '正在读取 %strong%',
         recover_password: '找回密码',
-        refer_friends_c2a: '每个创建并确认 Puter 帐户的朋友都会为您获得 1 GB。您的朋友也将获得 1 GB！',
         refresh: '刷新',
         rename: '重命名',
         replace: '替换',
@@ -174,12 +161,10 @@ const zh = {
         resend_confirmation_code: '重新发送确认码',
         restore: '还原',
         save: '保存',
-        saturation: '饱和度',
         save_account: '保存账号',
         save_account_to_publish: '请创建帐户以继续。',
         save_session: '保存会话',
         save_session_c2a: '创建帐户以保存当前会话，避免丢失工作。',
-        search: '查找',
         seconds: '秒',
         security: '安全',
         select: '选择',
@@ -188,14 +173,12 @@ const zh = {
         send: '发送',
         send_password_recovery_email: '发送密码恢复电子邮件',
         session_saved: '感谢您创建帐号。此会话已保存。',
-        settings: '设置',
         set_new_password: '设置新密码',
         share: '分享',
         share_to: '分享到',
         shortcut_to: '快捷方式',
         show_hidden: '显示隐藏',
         sign_in_with_puter: '使用 Puter 登录',
-        sign_up: '注册',
         size: '大小',
         skip: '跳过',
         something_went_wrong: '操作出差了！',
@@ -203,10 +186,8 @@ const zh = {
         status: '状态',
         storage_puter_used: '被Puter使用',
         taking_longer_than_usual: '需要的时间比平时长一点。请稍等...',
-        terms: '条款',
         text_document: '文本文档',
         tos_fineprint: '点击“创建免费帐户”即表示您同意 Puter 的 {{link=terms}}服务条款{{/link}} 和 {{link=privacy}}隐私政策{{/link}}。',
-        transparency: '透明度',
         trash: '回收站',
         two_factor: '二次身份验证',
         two_factor_disabled: '关闭二次身份验证',
@@ -216,7 +197,6 @@ const zh = {
         ui_manage_sessions: '会话管理',
         ui_revoke: '取消',
         undo: '撤销',
-        unlimited: '无限制',
         unzip: '解压缩',
         upload: '上传',
         upload_here: '在此上传',
@@ -226,10 +206,8 @@ const zh = {
         username_required: '请输入用户名',
         versions: '版本',
         videos: '视频',
-        visibility: '可见性',
         yes: '确定',
         zip: '压缩',
-        zipping_file: '正在压缩 %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -254,68 +232,15 @@ const zh = {
         login2fa_use_recovery_code: '使用恢复码',
         login2fa_recovery_placeholder: '********',
 
-        'change': '更改', // In English: "Change"
         'plural_suffix': '单位后缀', // In English: "plural_suffix"
         'reading': '正在读取 %strong%', // In English: "Reading %strong%"
         'writing': '正在写入 %strong%', // In English: "Writing %strong%"
         'unzipping': '正在解压缩 %strong%', // In English: "Unzipping %strong%"
         'sequencing': '正在排序 %strong%', // In English: "Sequencing %strong%"
         'zipping': '正在压缩 %strong%', // In English: "Zipping %strong%"
-        'Editor': '编辑器', // In English: "Editor"
-        'Viewer': '查看器', // In English: "Viewer"
-        'People with access': '有访问权限的人', // In English: "People with access"
-        'Share With…': '与他人分享…', // In English: "Share With…"
-        'Owner': '所有者', // In English: "Owner"
-        "You can't share with yourself.": '不能分享给你自己', // In English: "You can't share with yourself."
-        'This user already has access to this item': '该用户已经拥有访问此项目的权限了', // In English: "This user already has access to this item"
 
-        'billing.change_payment_method': '更改', // In English: "Change"
-        'billing.cancel': '取消', // In English: "Cancel"
-        'billing.download_invoice': '下载', // In English: "Download"
-        'billing.payment_method': '付款方式', // In English: "Payment Method"
-        'billing.payment_method_updated': '已更新付款方式！', // In English: "Payment method updated!"
-        'billing.confirm_payment_method': '确认付款方式', // In English: "Confirm Payment Method"
-        'billing.payment_history': '付款历史', // In English: "Payment History"
-        'billing.refunded': '已退款', // In English: "Refunded"
-        'billing.paid': '已付款', // In English: "Paid"
-        'billing.ok': '确认', // In English: "OK"
-        'billing.resume_subscription': '恢复订阅', // In English: "Resume Subscription"
-        'billing.subscription_cancelled': '您的订阅已被取消', // In English: "Your subscription has been canceled."
-        'billing.subscription_cancelled_description': '在此账单期结束前，您仍可使用您的订阅服务。', // In English: "You will still have access to your subscription until the end of this billing period."
-        'billing.offering.free': '免费', // In English: "Free"
-        'billing.offering.pro': '专业', // In English: "Professional"
-        'billing.offering.professional': '专业', // In English: "Professional"
-        'billing.offering.business': '商业', // In English: "Business"
-        'billing.cloud_storage': '云存储', // In English: "Cloud Storage"
-        'billing.ai_access': '人工智能访问', // In English: "AI Access"
-        'billing.bandwidth': '频宽', // In English: "Bandwidth"
-        'billing.apps_and_games': '应用和游戏', // In English: "Apps & Games"
-        'billing.upgrade_to_pro': '升级至%strong%', // In English: "Upgrade to %strong%"
-        'billing.switch_to': '转至%strong%', // In English: "Switch to %strong%"
-        'billing.payment_setup': '付款设置', // In English: "Payment Setup"
-        'billing.back': '返回', // In English: "Back"
-        'billing.you_are_now_subscribed_to': '您现在已订阅了%strong%级别。', // In English: "You are now subscribed to %strong% tier."
-        'billing.you_are_now_subscribed_to_without_tier': '您现在已订阅', // In English: "You are now subscribed"
-        'billing.subscription_cancellation_confirmation': '您确定要取消订阅吗？', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': '订阅设置', // In English: "Subscription Setup"
-        'billing.cancel_it': '取消', // In English: "Cancel It"
-        'billing.keep_it': '保留', // In English: "Keep It"
-        'billing.subscription_resumed': '您的%strong%级别的订阅已被恢复！', // In English: "Your %strong% subscription has been resumed!"
-        'billing.upgrade_now': '现在升级', // In English: "Upgrade Now"
         'billing.upgrade': '升级', // In English: "Upgrade"
-        'billing.currently_on_free_plan': '您目前使用的是免费计划。', // In English: "You are currently on the free plan."
-        'billing.download_receipt': '下载收据', // In English: "Download Receipt"
-        'billing.subscription_check_error': '检查您的订阅状态时遇到错误。', // In English: "A problem occurred while checking your subscription status."
-        'billing.email_confirmation_needed': '您的电邮还没被确认。我们将向您发送一个确认代码。', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        'billing.sub_cancelled_but_valid_until': '您已取消订阅，在结算期后将会自动转为免费级别。除非您重新订阅，否则不会再向您收取费用。', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        'billing.current_plan_until_end_of_period': '您当前的计划直至本账单期结束。', // In English: "Your current plan until the end of this billing period."
-        'billing.current_plan': '当前计划', // In English: "Current plan"
-        'billing.cancelled_subscription_tier': '已取消的订阅(%%)', // In English: "Cancelled Subscription (%%)"
-        'billing.manage': '管理', // In English: "Manage"
-        'billing.limited': '限制', // In English: "Limited"
-        'billing.expanded': '扩展', // In English: "Expanded"
-        'billing.accelerated': '加快', // In English: "Accelerated"
-        'billing.enjoy_msg': '请享受%%云存储服务及其他优惠。', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
         'create_shortcut_s': '创建快捷方式', // In English: "Create Shortcuts"
         'minimize': '最小化', // In English: "Minimize"
@@ -323,7 +248,6 @@ const zh = {
         'publish_as_serverless_worker': '发布为 Worker', // In English: "Publish as Worker"
         'used_of': '已用 {{used}} / 共 {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
-        'billing.offering.basic': '基础', // In English: "Basic"
         'server_timeout': '服务器响应超时。请重试。', // In English: "The server took too long to respond. Please try again."
         'signup_error': '注册过程中发生错误。请重试。', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': '错误！', // In English: "Error!"

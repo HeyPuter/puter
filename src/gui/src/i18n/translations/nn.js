@@ -30,14 +30,11 @@ const nn = {
         change_language: 'Endre språk',
         change_password: 'Endre passord',
         change_username: 'Endre brukarnamn',
-        confirm_account_for_free_referral_storage_c2a:
-      'Opprett ein konto og stadfest e-postadressa di for å få 1 GB gratis lagringsplass. Vennen din vil òg få 1 GB gratis lagringsplass.',
         confirm_new_password: 'Stadfest nytt passord',
         contact_us: 'Kontakt oss',
         continue: 'Hald fram',
         copy: 'Kopier',
         copy_link: 'Kopier lenkje',
-        copying: 'Kopierer',
         create_account: 'Opprett konto',
         create_free_account: 'Opprett gratis konto',
         create_shortcut: 'Opprett snarveg',
@@ -60,7 +57,6 @@ const nn = {
         feedback_sent_confirmation:
       'Takk for at du kontakta oss. Om du har ein e-post knytt til kontoen din, vil du høyre frå oss så snart som mogleg.',
         forgot_pass_c2a: 'Gløymt passord?',
-        from: 'Frå',
         general: 'Generelt',
         html_document: 'HTML-dokument',
         items_in_trash_cannot_be_renamed:
@@ -96,8 +92,6 @@ const nn = {
         publish: 'Publiser',
         publish_as_website: 'Publiser som nettstad',
         recover_password: 'Gjenopprett passord',
-        refer_friends_c2a:
-      'Få 1 GB for kvar ven som opprettar og stadfestar ein konto på Puter. Vennen din får òg 1 GB.',
         refresh: 'Oppdater',
         rename: 'Gje nytt namn',
         resend_confirmation_code: 'Send stadfestingskoden på nytt',
@@ -112,7 +106,6 @@ const nn = {
         share_to: 'Del',
         show_hidden: 'Vis skjulte',
         sign_in_with_puter: 'Logg inn med Puter',
-        sign_up: 'Registrer deg',
         size: 'Storleik',
         sort_by: 'Sorter etter',
         taking_longer_than_usual: 'Dette tar litt lengre tid enn vanleg. Vennligst vent...',
@@ -131,12 +124,10 @@ const nn = {
         zip: 'Zip',
 
         // Updated translations for previously missing keys
-        about: 'Om', // In English: "About"
         account: 'Konto', // In English: "Account"
         account_password: 'Stadfest kontopassord', // In English: "Verify Account Password"
         allow: 'Tillat', // In English: "Allow"
         associated_websites: 'Tilknytte nettstader', // In English: "Associated Websites"
-        change: 'Endre', // In English: "Change"
         change_always_open_with: 'Vil du alltid opne denne filtypen med', // In English: "Do you want to always open this type of file with"
         change_email: 'Endre e-post', // In English: "Change Email"
         close: 'Lukk', // In English: "Close"
@@ -154,7 +145,6 @@ const nn = {
         confirm_session_revoke: 'Er du sikker på at du vil trekkje tilbake denne økta?', // In English: "Are you sure you want to revoke this session?"
         confirm_your_email_address: 'Stadfest e-postadressa di', // In English: "Confirm Your Email Address"
         copying_file: 'Kopierer %%', // In English: "Copying %%"
-        credits: 'Bidragsytarar', // In English: "Credits"
         close_all: 'Lukk alle', // In English: "Close All"
         created: 'Oppretta', // In English: "Created"
         delete_account: 'Slett konto', // In English: "Delete Account"
@@ -170,7 +160,6 @@ const nn = {
       'Ein stadfestings-e-post er sendt til den nye e-postadressa di. Vennligst sjekk innboksen og følg instruksjonane for å fullføre prosessen.', // In English: "A confirmation email has been sent to your new email address. Please check your inbox and follow the instructions to complete the process."
         email_invalid: 'E-postadressa er ugyldig.', // In English: "Email is invalid."
         email_required: 'E-post er krevd.', // In English: "Email is required."
-        enable_2fa: 'Aktiver 2FA', // In English: "Enable 2FA"
         end_hard: 'Tvangslutt', // In English: "End Hard"
         end_soft: 'Avslutt normalt', // In English: "End Soft"
         enlarged_qr_code: 'Forstørra QR-kode', // In English: "Enlarged QR Code"
@@ -183,13 +172,9 @@ const nn = {
         // In English: "Force Quit"
         home: 'Heim',
         // In English: "Home"
-        hue: 'Fargetone',
         incorrect_password: 'Feil passord',
         item: 'Element',
         language: 'Språk',
-        license: 'Lisens',
-        lightness: 'Lys',
-        link_copied: 'Lenkja kopiert',
         loading: 'Lastar',
         manage_sessions: 'Handter økter',
         modified: 'Endra',
@@ -209,7 +194,6 @@ const nn = {
         pictures: 'Bilete',
         plural_suffix: 'ar',
         print: 'Skriv ut',
-        privacy: 'Personvern',
         proceed_to_login: 'Fortsett til innlogging',
         public: 'Offentleg',
         reading: 'Leser %strong%',
@@ -217,35 +201,28 @@ const nn = {
         replace: 'Erstatt',
         replace_all: 'Erstatt alle',
         save: 'Lagre',
-        saturation: 'Metting',
         save_account: 'Lagre konto',
         save_session: 'Lagre økt',
-        search: 'Søk',
         seconds: 'sekund',
         security: 'Tryggleik',
         selected: 'valt',
         sessions: 'Økter',
-        settings: 'Innstillingar',
         share: 'Del',
         shortcut_to: 'Snarveg til',
         skip: 'Hopp over',
         something_went_wrong: 'Noko gjekk galt.',
         status: 'Status',
         storage_puter_used: 'brukt av Puter',
-        terms: 'Vilkår',
-        transparency: 'Gjennomsikt',
         two_factor: 'Tofaktorautentisering',
         two_factor_disabled: '2FA deaktivert',
         two_factor_enabled: '2FA aktivert',
         type_confirm_to_delete_account: "Skriv inn 'konfirmer' for å slette kontoen din.",
         ui_manage_sessions: 'Øktbehandler',
         ui_revoke: 'Trekk tilbake',
-        unlimited: 'Ubegrensa',
         unzipping: 'Pakkar ut %strong%',
         usage: 'Bruk',
         username_required: 'Brukarnamn er krevd.',
         videos: 'Videoar',
-        visibility: 'Synlegheit',
         yes: 'Ja',
         sequencing: 'Sekvenserar %strong%',
         zipping: 'Zippar %strong%',
@@ -269,67 +246,8 @@ const nn = {
       'Skriv inn ein av gjenopprettingskodane dine for å få tilgang til kontoen din.',
         login2fa_use_recovery_code: 'Bruk ein gjenopprettingskode',
         login2fa_recovery_placeholder: 'XXXXXXXX',
-        Editor: 'Redigerar',
-        Viewer: 'Visar',
-        'People with access': 'Personar med tilgang',
-        'Share With…': 'Del med…',
-        Owner: 'Eigar',
-        "You can't share with yourself.": 'Du kan ikkje dele med deg sjølv.',
-        'This user already has access to this item':
-      'Denne brukaren har allereie tilgang til dette elementet',
-        'billing.change_payment_method': 'Endre',
-        'billing.cancel': 'Avbryt',
-        'billing.download_invoice': 'Last ned faktura',
-        'billing.payment_method': 'Betalingsmåte',
-        'billing.payment_method_updated': 'Betalingsmåte oppdatert!',
-        'billing.confirm_payment_method': 'Stadfest billingsmøte',
-        'billing.payment_history': 'Betalinghistorikk',
-        'billing.refunded': 'Refundert',
-        'billing.paid': 'Betalt',
-        'billing.ok': 'OK',
-        'billing.resume_subscription': 'Gjenoppta abonnement',
-        'billing.subscription_cancelled': 'Abonnementet ditt er kansellert.',
-        'billing.subscription_cancelled_description':
-      'Du vil framleis ha tilgang til abonnementet ditt fram til slutten av denne faktureringsperioden.',
-        'billing.offering.free': 'Gratis',
-        'billing.offering.pro': 'Profesjonell',
-        'billing.offering.professional': 'Profesjonell',
-        'billing.offering.business': 'Bedrift',
-        'billing.cloud_storage': 'Skylagring',
-        'billing.ai_access': 'AI-tilgang',
-        'billing.bandwidth': 'Båndbredde',
-        'billing.apps_and_games': 'Appar og spel',
-        'billing.upgrade_to_pro': 'Oppgrader til %strong%',
-        'billing.switch_to': 'Bytt til %strong%',
-        'billing.payment_setup': 'Oppsett av betaling',
-        'billing.back': 'Tilbake',
-        'billing.you_are_now_subscribed_to': 'Du er no abonnent på %strong%-nivået.',
-        'billing.you_are_now_subscribed_to_without_tier': 'Du er no abonnent',
-        'billing.subscription_cancellation_confirmation':
-      'Er du sikker på at du vil kansellere abonnementet ditt?',
         'billing.subscription_setup': 'Abonnementsoppsett',
-        'billing.cancel_it': 'Kanseller det',
-        'billing.keep_it': 'Behald det',
-        'billing.subscription_resumed': 'Ditt %strong%-abonnement er gjenopptatt!',
-        'billing.upgrade_now': 'Oppgrader no', // In English: "Upgrade Now"
         'billing.upgrade': 'Oppgrader', // In English: "Upgrade"
-        'billing.currently_on_free_plan': 'Du er no på gratisplanen.', // In English: "You are currently on the free plan."
-        'billing.download_receipt': 'Last ned kvittering', // In English: "Download Receipt"
-        'billing.subscription_check_error':
-      'Ein feil oppstod under kontroll av abonnementsstatusen din.', // In English: "A problem occurred while checking your subscription status."
-        'billing.email_confirmation_needed':
-      'E-postadressa di er ikkje stadfesta. Vi sender deg ein kode for å stadfeste no.', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        'billing.sub_cancelled_but_valid_until':
-      'Du har kansellert abonnementet ditt, og det vil automatisk bytte til gratisnivået ved slutten av faktureringsperioden. Du vil ikkje bli belast igjen med mindre du abonnerer på nytt.', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        'billing.current_plan_until_end_of_period':
-      'Din gjeldande plan fram til slutten av denne faktureringsperioden.', // In English: "Your current plan until the end of this billing period."
-        'billing.current_plan': 'Gjeldande plan', // In English: "Current plan"
-        'billing.cancelled_subscription_tier': 'Kansellert abonnement (%%)', // In English: "Cancelled Subscription (%%)"
-        'billing.manage': 'Handter', // In English: "Manage"
-        'billing.limited': 'Begrensa', // In English: "Limited"
-        'billing.expanded': 'Utvida', // In English: "Expanded"
-        'billing.accelerated': 'Akselerert', // In English: "Accelerated"
-        'billing.enjoy_msg': 'Nyt %% skylagring pluss andre fordelar.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
         create_shortcut_s: 'Lag snarvegar', // "Original English: Create Shortcuts"
         minimize: 'Minimer', // "Original English: Minimize"
@@ -337,7 +255,6 @@ const nn = {
         publish_as_serverless_worker: 'Publiser som Worker', // "Original English: Publish as Worker - 'Worker' kept as technical term"
         used_of: '{{used}} brukt av {{available}}', // "Original English: {{used}} used of {{available}} - Variables preserved in original format"
         worker: 'Worker', // "Original English: Worker - Technical term kept"
-        'billing.offering.basic': 'Grunnleggjande', // "Original English: Basic"
         server_timeout: 'Tenaren brukte for lang tid på å svare. Prøv igjen.', // "Original English: The server took too long to respond. Please try again."
         signup_error: 'Det oppstod ein feil under registrering. Prøv igjen.', // "Original English: An error occurred during signup. Please try again."
         alert_error_title: 'Feil!', // "Original English: Error!"

@@ -22,7 +22,6 @@ const ja = {
     english_name: 'Japanese',
     code: 'ja',
     dictionary: {
-        about: '概要',
         account: 'アカウント',
         account_password: 'アカウントのパスワードを確認',
         access_granted_to: 'アクセスを承認するアカウント',
@@ -40,7 +39,6 @@ const ja = {
         close_all_windows_and_log_out: 'ウィンドウを閉じてログアウト',
         change_always_open_with: 'この種類のファイルを常にこのアプリで開きますか？',
         confirm: '確認',
-        confirm_account_for_free_referral_storage_c2a: 'アカウントを作成してメールアドレスを確認すると、1GBの無料ストレージを獲得できます。友人も1GBの無料ストレージを獲得します。',
         confirm_code_generic_incorrect: 'コードが間違っています。',
         confirm_code_generic_too_many_requests: 'リクエストが多すぎます。数分待ってください。',
         confirm_code_2fa_instruction: '認証アプリから6桁のコードを入力してください。',
@@ -56,12 +54,10 @@ const ja = {
         continue: '続行',
         copy: 'コピー',
         copy_link: 'リンクをコピー',
-        copying: 'コピー中',
         copying_file: '%% コピー中',
         create_account: 'アカウントを作成',
         create_free_account: '無料アカウントを作成',
         create_shortcut: 'ショートカットを作成',
-        credits: 'クレジット',
         current_password: '現在のパスワード',
         cut: 'カット',
         close_all: 'すべて閉じる',
@@ -89,7 +85,6 @@ const ja = {
         empty_trash: 'ゴミ箱を空にする',
         empty_trash_confirmation: 'ゴミ箱の中のアイテムを完全に削除してもよろしいですか？',
         emptying_trash: 'ゴミ箱を空にしています…',
-        enable_2fa: '2FAを有効にする',
         end_hard: 'ハード終了',
         end_soft: 'ソフト終了',
         enlarged_qr_code: '拡大QRコード',
@@ -103,19 +98,14 @@ const ja = {
         feedback_sent_confirmation: 'お問い合わせいただきありがとうございます。アカウントに関連付けられたメールがある場合は、できるだけ早く返信いたします。',
         folder: 'フォルダー',
         forgot_pass_c2a: 'パスワードを忘れましたか？',
-        from: '送信者',
         general: '一般',
         home: 'ホーム',
         html_document: 'HTML文書',
-        hue: '色合い',
         incorrect_password: 'パスワードが間違っています',
         item: 'アイテム',
         items_in_trash_cannot_be_renamed: 'このアイテムはゴミ箱にあるため、名前を変更できません。このアイテムの名前を変更するには、まずゴミ箱からドラッグしてください。',
         jpeg_image: 'JPEG画像',
         language: '言語',
-        license: 'ライセンス',
-        lightness: '明るさ',
-        link_copied: 'リンクがコピーされました',
         loading: '読み込み中',
         log_in: 'ログイン',
         log_out: 'ログアウト',
@@ -158,15 +148,12 @@ const ja = {
         plural_suffix: '',
         preparing: '準備中...',
         print: '印刷',
-        privacy: 'プライバシー',
         proceed_to_login: 'ログインに進む',
         properties: 'プロパティ',
         public: '公開',
         publish: '公開',
         publish_as_website: 'ウェブサイトとして公開',
-        reading_file: '読み込み中 %strong%',
         recover_password: 'パスワードを回復',
-        refer_friends_c2a: '友達がPuterでアカウントを作成して確認すると、1GBを獲得できます。友達も1GBを獲得できます！',
         refresh: '更新',
         rename: '名前を変更',
         replace: '置換',
@@ -174,12 +161,10 @@ const ja = {
         resend_confirmation_code: '確認コードを再送信',
         restore: '復元',
         save: '保存',
-        saturation: '彩度',
         save_account: 'アカウントを保存',
         save_account_to_publish: '続行するにはアカウントを作成してください。',
         save_session: 'セッションを保存',
         save_session_c2a: '現在のセッションを保存して、作業を失わないようにするにはアカウントを作成してください。',
-        search: '検索',
         seconds: '秒',
         security: 'セキュリティ',
         select: '選択',
@@ -188,14 +173,12 @@ const ja = {
         send: '送信',
         send_password_recovery_email: 'パスワード回復メールを送信',
         session_saved: 'アカウントを作成していただきありがとうございます。このセッションは保存されました。',
-        settings: '設定',
         set_new_password: '新しいパスワードを設定',
         share: '共有',
         share_to: '共有先',
         shortcut_to: 'ショートカット先',
         show_hidden: '隠しファイルを表示',
         sign_in_with_puter: 'Puterでサインイン',
-        sign_up: 'サインアップ',
         size: 'サイズ',
         skip: 'スキップ',
         something_went_wrong: '問題が発生しました。',
@@ -203,10 +186,8 @@ const ja = {
         status: 'ステータス',
         storage_puter_used: 'Puterで使用中',
         taking_longer_than_usual: 'いつもより少し時間がかかっています。お待ちください...',
-        terms: '利用規約',
         text_document: 'テキスト文書',
         tos_fineprint: '「無料アカウントを作成」をクリックすることで、Puterの{{link=terms}}利用規約{{/link}}および{{link=privacy}}プライバシーポリシー{{/link}}に同意するものとします。',
-        transparency: '透明度',
         trash: 'ゴミ箱',
         two_factor: '二要素認証',
         two_factor_disabled: '2FA無効',
@@ -216,7 +197,6 @@ const ja = {
         ui_manage_sessions: 'セッションマネージャー',
         ui_revoke: '取り消し',
         undo: '元に戻す',
-        unlimited: '無制限',
         unzip: '解凍',
         upload: 'アップロード',
         upload_here: 'ここにアップロード',
@@ -226,10 +206,8 @@ const ja = {
         username_required: 'ユーザー名は必須です。',
         versions: 'バージョン',
         videos: '動画',
-        visibility: '見え方',
         yes: 'はい',
         zip: '圧縮',
-        zipping_file: '圧縮中 %strong%',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: `
@@ -255,69 +233,16 @@ const ja = {
 
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        'change': '変更', // In English: "Change"
         'plural_suffix': '', // In English: "s"
         'reading': '読み取り中 %strong%', // In English: "Reading %strong%"
         'writing': '書き込み中 %strong%', // In English: "Writing %strong%"
         'unzipping': '解凍中 %strong%', // In English: "Unzipping %strong%"
         'sequencing': 'シーケンス中 %strong%', // In English: "Sequencing %strong%"
         'zipping': '圧縮中 %strong%', // In English: "Zipping %strong%"
-        'Editor': 'エディター', // In English: "Editor"
-        'Viewer': 'ビューアー', // In English: "Viewer"
-        'People with access': 'アクセス権を持つ人々', // In English: "People with access"
-        'Share With…': '共有する…', // In English: "Share With…"
-        'Owner': '所有者', // In English: "Owner"
-        "You can't share with yourself.": '自分自身と共有することはできません。', // In English: "You can't share with yourself."
-        'This user already has access to this item': 'このユーザーは既にこのアイテムにアクセスできます。', // In English: "This user already has access to this item"
 
         'plural_suffix': '複数形接尾辞', // In English: "s"
-        'billing.change_payment_method': '支払い方法を変更', // In English: "Change"
-        'billing.cancel': '支払いをキャンセル', // In English: "Cancel"
-        'billing.download_invoice': '請求書をダウンロード', // In English: "Download"
-        'billing.payment_method': '支払い方法', // In English: "Payment Method"
-        'billing.payment_method_updated': '支払い方法が更新されました！', // In English: "Payment method updated!"
-        'billing.confirm_payment_method': '支払い方法を確認', // In English: "Confirm Payment Method"
-        'billing.payment_history': '支払い履歴', // In English: "Payment History"
-        'billing.refunded': '返金されました', // In English: "Refunded"
-        'billing.paid': '支払い済み', // In English: "Paid"
-        'billing.ok': 'OK', // In English: "OK"
-        'billing.resume_subscription': 'サブスクリプションを再開', // In English: "Resume Subscription"
-        'billing.subscription_cancelled': 'サブスクリプションがキャンセルされました。', // In English: "Your subscription has been canceled."
-        'billing.subscription_cancelled_description': 'この請求期間の終了までサブスクリプションを利用できます。', // In English: "You will still have access to your subscription until the end of this billing period."
-        'billing.offering.free': '無料', // In English: "Free"
-        'billing.offering.pro': 'プロフェッショナル', // In English: "Professional"
-        'billing.offering.professional': 'プロフェッショナル', // In English: "Professional"
-        'billing.offering.business': 'ビジネス', // In English: "Business"
-        'billing.cloud_storage': 'クラウドストレージ', // In English: "Cloud Storage"
-        'billing.ai_access': 'AIアクセス', // In English: "AI Access"
-        'billing.bandwidth': 'データの転送量や速度', // In English: "Bandwidth"
-        'billing.apps_and_games': 'アプリ＆ゲーム', // In English: "Apps & Games"
-        'billing.upgrade_to_pro': '%strong%にアップグレード', // In English: "Upgrade to %strong%"
-        'billing.switch_to': '%strong%に切り替え', // In English: "Switch to %strong%"
-        'billing.payment_setup': '支払い設定', // In English: "Payment Setup"
-        'billing.back': '戻る', // In English: "Back"
-        'billing.you_are_now_subscribed_to': '現在%strong%プランに加入しています。', // In English: "You are now subscribed to %strong% tier."
-        'billing.you_are_now_subscribed_to_without_tier': '現在サブスクリプションに加入しています。', // In English: "You are now subscribed"
-        'billing.subscription_cancellation_confirmation': 'サブスクリプションをキャンセルしてもよろしいですか？', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'サブスクリプションの設定', // In English: "Subscription Setup"
-        'billing.cancel_it': 'キャンセルする', // In English: "Cancel It"
-        'billing.keep_it': '維持する', // In English: "Keep It"
-        'billing.subscription_resumed': '%strong%のサブスクリプションが再開されました！', // In English: "Your %strong% subscription has been resumed!"
-        'billing.upgrade_now': '今すぐアップグレード', // In English: "Upgrade Now"
         'billing.upgrade': 'アップグレード', // In English: "Upgrade"
-        'billing.currently_on_free_plan': '現在、無料プランに加入しています。', // In English: "You are currently on the free plan."
-        'billing.download_receipt': '領収書をダウンロード', // In English: "Download Receipt"
-        'billing.subscription_check_error': 'サブスクリプションの状況を確認中に問題が発生しました。', // In English: "A problem occurred while checking your subscription status."
-        'billing.email_confirmation_needed': 'メールが確認されていません。確認コードをお送りします。', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        'billing.sub_cancelled_but_valid_until': 'サブスクリプションをキャンセルしました。この請求期間の終了時に自動的に無料プランに切り替わります。再加入しない限り、追加料金は発生しません。', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        'billing.current_plan_until_end_of_period': 'この請求期間の終了時までの現在のプランを続ける。', // In English: "Your current plan until the end of this billing period."
-        'billing.current_plan': '現在のプラン', // In English: "Current plan"
-        'billing.cancelled_subscription_tier': 'キャンセルされたサブスクリプション（%%）', // In English: "Cancelled Subscription (%%)"
-        'billing.manage': '管理', // In English: "Manage"
-        'billing.limited': '制限付き', // In English: "Limited"
-        'billing.expanded': '拡張', // In English: "Expanded"
-        'billing.accelerated': '高速化', // In English: "Accelerated"
-        'billing.enjoy_msg': 'クラウドストレージの%%とその他の特典をお楽しみください。', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
         // =============================================================
         // Missing translations
@@ -328,7 +253,6 @@ const ja = {
         'publish_as_serverless_worker': 'ワーカーとして公開', // In English: "Publish as Worker"
         'used_of': '{{available}} のうち {{used}} を使用', // In English: "{{used}} used of {{available}}"
         'worker': 'ワーカー', // In English: "Worker"
-        'billing.offering.basic': 'ベーシック', // In English: "Basic"
         'server_timeout': 'サーバーからの応答がありません。もう一度お試しください。', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'サインアップ中にエラーが発生しました。もう一度お試しください。', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'エラー!', // In English: "Error!"

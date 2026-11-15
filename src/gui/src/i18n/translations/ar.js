@@ -22,7 +22,6 @@ const ar = {
     english_name: 'Arabic',
     code: 'ar',
     dictionary: {
-        about: 'حول',
         account: 'حساب',
         account_password: 'تحقق من كلمة مرور الحساب',
         access_granted_to: 'تم منح الوصول إلى',
@@ -40,8 +39,6 @@ const ar = {
         close_all_windows_and_log_out: 'إغلاق النوافذ وتسجيل الخروج',
         change_always_open_with: 'هل تريد دائمًا فتح هذا النوع من الملفات باستخدام',
         confirm: 'تأكيد',
-        confirm_account_for_free_referral_storage_c2a:
-      '.أنشئ حسابًا وقم بتأكيد عنوان بريدك الإلكتروني للحصول على 1 جيجابايت من مساحة التخزين المجانية. سيحصل صديقك أيضًا على 1 جيجابايت من مساحة التخزين المجانية',
         confirm_code_generic_incorrect: 'رمز غير صحيح.',
         confirm_code_generic_too_many_requests:
       '.طلبات كثيرة جدًا. يرجى الانتظار بضع دقائق',
@@ -62,12 +59,10 @@ const ar = {
         continue: 'استمر',
         copy: 'نسخ',
         copy_link: 'نسخ الرابط',
-        copying: 'جارٍ النسخ',
         copying_file: '%%جارٍ نسخ',
         create_account: 'إنشاء حساب',
         create_free_account: 'إنشاء حساب مجاني',
         create_shortcut: 'إنشاء اختصار',
-        credits: 'الاعتمادات',
         current_password: 'كلمة المرور الحالية',
         cut: 'قص',
         close_all: 'إغلاق الكل',
@@ -97,7 +92,6 @@ const ar = {
         empty_trash_confirmation:
       'هل أنت متأكد أنك تريد حذف العناصر في سلة المهملات نهائيًا؟',
         emptying_trash: '...جارٍ إفراغ سلة المهملات',
-        enable_2fa: 'تمكين المصادقة الثنائية',
         end_hard: 'إنهاء صعب',
         end_soft: 'إنهاء سلس',
         enlarged_qr_code: 'كود QR مكبر',
@@ -113,20 +107,15 @@ const ar = {
       '.شكرًا لتواصلك معنا. إذا كان لديك بريد إلكتروني مرتبط بحسابك، ستتلقى ردًا منا في أقرب وقت ممكن',
         folder: 'مجلد',
         forgot_pass_c2a: 'هل نسيت كلمة المرور؟',
-        from: 'من',
         general: 'عام',
         home: 'الصفحة الرئيسية',
         html_document: 'HTML مستند',
-        hue: 'درجة اللون',
         incorrect_password: 'كلمة مرور غير صحيحة',
         item: 'عنصر',
         items_in_trash_cannot_be_renamed:
       '.لا يمكن إعادة تسمية هذا العنصر لأنه في سلة المهملات. لإعادة تسمية هذا العنصر، اسحبه أولاً خارج سلة المهملات',
         jpeg_image: 'JPEG صورة',
         language: 'اللغة',
-        license: 'رخصة',
-        lightness: 'إضاءة',
-        link_copied: 'تم نسخ الرابط',
         loading: 'جارٍ التحميل',
         log_in: 'تسجيل الدخول',
         log_out: 'تسجيل الخروج',
@@ -173,16 +162,12 @@ const ar = {
         plural_suffix: 's', //this is not necessary for Arabic
         preparing: '...جارٍ التحضير',
         print: 'طباعة',
-        privacy: 'الخصوصية',
         proceed_to_login: 'المتابعة لتسجيل الدخول',
         properties: 'الخصائص',
         public: 'عام',
         publish: 'نشر',
         publish_as_website: 'نشر كموقع إلكتروني',
-        reading_file: '%strong% جارٍ قراءة',
         recover_password: 'استعادة كلمة المرور',
-        refer_friends_c2a:
-      '!سيحصل صديقك على 1 جيجابايت أيضًا .Puter احصل على 1 جيجابايت عن كل صديق ينشئ حسابًا ويؤكده على',
         refresh: 'تحديث',
         rename: 'إعادة تسمية',
         replace: 'استبدال',
@@ -190,12 +175,10 @@ const ar = {
         resend_confirmation_code: 'إعادة إرسال رمز التأكيد',
         restore: 'استعادة',
         save: 'حفظ',
-        saturation: 'تشبع',
         save_account: 'حفظ الحساب',
         save_account_to_publish: '.يرجى إنشاء حساب للمتابعة',
         save_session: 'حفظ الجلسة',
         save_session_c2a: '.أنشئ حسابًا لحفظ جلستك الحالية وتجنب فقدان عملك',
-        search: 'بحث',
         seconds: 'ثوانٍ',
         security: 'الأمان',
         select: 'تحديد',
@@ -204,14 +187,12 @@ const ar = {
         send: 'إرسال',
         send_password_recovery_email: 'إرسال بريد استعادة كلمة المرور',
         session_saved: '.شكرًا لإنشاء حساب. تم حفظ هذه الجلسة',
-        settings: 'الإعدادات',
         set_new_password: 'تعيين كلمة مرور جديدة',
         share: 'مشاركة',
         share_to: 'مشاركة إلى',
         shortcut_to: 'اختصار إلى',
         show_hidden: 'إظهار المخفي',
         sign_in_with_puter: 'Puter تسجيل الدخول باستخدام',
-        sign_up: 'تسجيل',
         size: 'الحجم',
         skip: 'تخطي',
         something_went_wrong: 'حدث خطأ ما.',
@@ -219,11 +200,9 @@ const ar = {
         status: 'الحالة',
         storage_puter_used: 'Puter مستخدم بواسطة',
         taking_longer_than_usual: '…يستغرق وقتًا أطول من المعتاد. يرجى الانتظار',
-        terms: 'الشروط',
         text_document: 'مستند نصي',
         tos_fineprint:
       "Puter لـ {{link=terms}}شروط الخدمة{{/link}} و{{link=privacy}}سياسة الخصوصية{{/link}} بالنقر على 'إنشاء حساب مجاني' فإنك توافق على",
-        transparency: 'الشفافية',
         trash: 'المهملات',
         two_factor: 'المصادقة الثنائية',
         two_factor_disabled: 'تم تعطيل المصادقة الثنائية',
@@ -233,7 +212,6 @@ const ar = {
         ui_manage_sessions: 'مدير الجلسات',
         ui_revoke: 'إلغاء',
         undo: 'تراجع',
-        unlimited: 'غير محدود',
         unzip: 'فك الضغط',
         upload: 'رفع',
         upload_here: 'ارفع هنا',
@@ -243,10 +221,8 @@ const ar = {
         username_required: '.اسم المستخدم مطلوب',
         versions: 'الإصدارات',
         videos: 'مقاطع الفيديو',
-        visibility: 'الرؤية',
         yes: 'نعم',
         zip: 'ضغط',
-        zipping_file: '%strong% جارٍ ضغط',
 
         // === 2FA Setup ===
         setup2fa_1_instructions: '.هو خيار موثوق به لنظام Android و iOS ولكن إذا كنت غير متأكد،<a target="_blank" href="https://authy.com/download">Authy</a> :هناك العديد للاختيار من بينها .(TOTP) يمكنك استخدام أي تطبيق مصادقة يدعم بروتوكول كلمة المرور لمرة واحدة المعتمدة على الوقت ',
@@ -268,75 +244,14 @@ const ar = {
         login2fa_use_recovery_code: 'استخدام رمز الاسترداد',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
-        change: 'تغيير', // In English: "Change"
         reading: '%strong% قراءة', // In English: "Reading %strong%"
         writing: '%strong% كتابة', // In English: "Writing %strong%"
         unzipping: '%strong% فك الضغط', // In English: "Unzipping %strong%"
         sequencing: '%strong% ترتيب', // In English: "Sequencing %strong%"
         zipping: '%strong% ضغط', // In English: "Zipping %strong%"
-        Editor: 'المحرر', // In English: "Editor"
-        Viewer: 'المشاهد', // In English: "Viewer"
-        'People with access': 'الأشخاص الذين لديهم تحكم', // In English: "People with access"
-        'Share With…': '…مشاركة مع', // In English: "Share With…"
-        Owner: 'المالك', // In English: "Owner"
-        "You can't share with yourself.": '.لا يمكنك المشاركة مع نفسك', // In English: "You can't share with yourself."
-        'This user already has access to this item':
-      'هذا المستخدم لديه بالفعل تحكم إلى هذا العنصر', // In English: "This user already has access to this item"
 
-        'billing.change_payment_method': 'تغيير طريقة الدفع', // In English: "Change"
-        'billing.cancel': 'إلغاء', // In English: "Cancel"
-        'billing.download_invoice': 'تحميل', // In English: "Download"
-        'billing.payment_method': 'طريقة الدفع', // In English: "Payment Method"
-        'billing.payment_method_updated': 'تم تحديث طريقة الدفع', // In English: "Payment method updated!"
-        'billing.confirm_payment_method': 'تأكيد طريقة الدفع', // In English: "Confirm Payment Method"
-        'billing.payment_history': 'سجل الدفع', // In English: "Payment History"
-        'billing.refunded': 'تم الاسترداد', // In English: "Refunded"
-        'billing.paid': 'مدفوع', // In English: "Paid"
-        'billing.ok': 'موافق', // In English: "OK"
-        'billing.resume_subscription': 'استئناف الاشتراك', // In English: "Resume Subscription"
-        'billing.subscription_cancelled': 'تم إلغاء اشتراكك', // In English: "Your subscription has been canceled."
-        'billing.subscription_cancelled_description':
-      '.ستظل لديك إمكانية الوصول إلى اشتراكك حتى نهاية فترة الفوترة الحالية', // In English: "You will still have access to your subscription until the end of this billing period."
-        'billing.offering.free': 'مجاني', // In English: "Free"
-        'billing.offering.pro': 'احترافي', // In English: "Professional"
-        'billing.offering.professional': 'احترافي', // In English: "Professional"
-        'billing.offering.business': 'تجاري', // In English: "Business"
-        'billing.cloud_storage': 'Cloud Storage', // In English: "Cloud Storage"
-        'billing.ai_access': 'التحصل على الذكاء الاصطناعي', // In English: "AI Access"
-        'billing.bandwidth': 'Bandwidth', // In English: "Bandwidth"
-        'billing.apps_and_games': 'التطبيقات والألعاب', // In English: "Apps & Games"
-        'billing.upgrade_to_pro': '%strong% الترقية إلى', // In English: "Upgrade to %strong%"
-        'billing.switch_to': '%strong% التحويل إلى', // In English: "Switch to %strong%"
-        'billing.payment_setup': 'إعداد طريقة الدفع', // In English: "Payment Setup"
-        'billing.back': 'رجوع', // In English: "Back"
-        'billing.you_are_now_subscribed_to': '%strong% أنت الآن مشترك في الفئة', // In English: "You are now subscribed to %strong% tier."
-        'billing.you_are_now_subscribed_to_without_tier': 'أنت الآن مشترك', // In English: "You are now subscribed"
-        'billing.subscription_cancellation_confirmation':
-      'هل أنت متأكد من رغبتك في إلغاء اشتراكك؟', // In English: "Are you sure you want to cancel your subscription?"
         'billing.subscription_setup': 'إعداد طريقة الاشتراك', // In English: "Subscription Setup"
-        'billing.cancel_it': 'إلغاؤها', // In English: "Cancel It"
-        'billing.keep_it': 'الاحتفاظ بها', // In English: "Keep It"
-        'billing.subscription_resumed': '!%strong% تم استئناف اشتراكك', // In English: "Your %strong% subscription has been resumed!"
-        'billing.upgrade_now': 'قم بالترقية الآن', // In English: "Upgrade Now"
         'billing.upgrade': 'ترقية', // In English: "Upgrade"
-        'billing.currently_on_free_plan': 'أنت حالياً على الفئة المجاني', // In English: "You are currently on the free plan."
-        'billing.download_receipt': 'تحميل التوصيل', // In English: "Download Receipt"
-        'billing.subscription_check_error':
-      'حدثت مشكلة أثناء التحقق من حالة اشتراكك', // In English: "A problem occurred while checking your subscription status."
-        'billing.email_confirmation_needed':
-      'لم يتم تأكيد بريدك الإلكتروني. سنرسل لك رمز التأكيد الآن', // In English: "Your email has not been confirmed. We'll send you a code to confirm it now."
-        'billing.sub_cancelled_but_valid_until':
-      'لقد ألغيت اشتراكك وستتحول تلقائياً إلى الفئة المجانية في نهاية فترة الفوترة. لن يتم فرض رسوم عليك مرة أخرى ما لم تعد الاشتراك', // In English: "You have cancelled your subscription and it will automatically switch to the free tier at the end of the billing period. You will not be charged again unless you re-subscribe."
-        'billing.current_plan_until_end_of_period':
-      'خطتك الحالية حتى نهاية هذه الفترة الفوترة', // In English: "Your current plan until the end of this billing period."
-        'billing.current_plan': 'الفئة الحالية', // In English: "Current plan"
-        'billing.cancelled_subscription_tier': 'إلغاء الاشتراك', // In English: "Cancelled Subscription (%%)"
-        'billing.manage': 'إدارة', // In English: "Manage"
-        'billing.limited': 'محدود', // In English: "Limited"
-        'billing.expanded': 'موسع', // In English: "Expanded"
-        'billing.accelerated': 'مسرع', // In English: "Accelerated"
-        'billing.enjoy_msg':
-      '.بالإضافة إلى مزايا أخرى Cloud Storage  استمتع بـ %% من', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
         create_shortcut_s: 'إنشاء اختصارات', // In English: "Create Shortcuts"
         minimize: 'تصغير', // In English: "Minimize"
@@ -344,7 +259,6 @@ const ar = {
         publish_as_serverless_worker: 'النشر كعامل', // In English: "Publish as Worker"
         used_of: '{{available}}محاولات مستخدمة من {{used}}', // In English: "{{used}} used of {{available}}"
         worker: 'العامل', // In English: "Worker"
-        'billing.offering.basic': 'أساسي', // In English: "Basic"
         server_timeout:
       '.استغرق الخادم وقتًا طويلاً للاستجابة. يُرجى المحاولة مرة أخرى', // In English: "The server took too long to respond. Please try again."
         signup_error: '.حدث خطأ أثناء التسجيل. يُرجى المحاولة مرة أخرى', // In English: "An error occurred during signup. Please try again."
