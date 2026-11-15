@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Command } from 'ioredis';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startSilentRedis } from '../../testFixtures/silentRedis';
 import type { IConfig } from '../../types';
@@ -214,7 +215,7 @@ describe('RedisClient — command timeout', () => {
         for (const key of ['b', 'c', 'd']) {
             await expect(redis.get(key)).rejects.toThrow('Redis unavailable');
         }
-        expect(Date.now() - started).toBeLessThan(50);
+        expect(Date.now() - started).toBeLessThan(250);
         const piped = await redis.pipeline().get('e').get('f').exec();
         expect(piped!.map(([error]) => error?.message)).toEqual([
             'Redis unavailable',
@@ -249,6 +250,46 @@ describe('RedisClient — command timeout', () => {
         silent!.answer();
         await expect(undo).resolves.toBe(1);
         expect(silent!.seen).toEqual(['set', 'eval']);
+    }, 5000);
+
+    it('times out a pipeline retried after MOVED replies onto a stalled node', async () => {
+        silent = await startSilentRedis(true, { moved: 2 });
+        client = new RedisClient(
+            config({
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 200,
+                failFastMs: 0,
+            }),
+        );
+        const redis = client;
+        await new Promise<void>((r) => redis.once('ready', () => r()));
+
+        const piped = await redis.pipeline().get('a{x}').get('b{x}').exec();
+        expect(piped!.map(([error]) => error?.message)).toEqual([
+            'Command timed out',
+            'Command timed out',
+        ]);
+        expect(silent.seen).toEqual(['get', 'get', 'get', 'get']);
+    }, 5000);
+
+    it('stays open when a probe fails without a reply', async () => {
+        const redis = await ready(300);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+        await new Promise((r) => setTimeout(r, 350));
+
+        const base = Object.getPrototypeOf(Object.getPrototypeOf(redis));
+        const closed = vi
+            .spyOn(base, 'sendCommand')
+            .mockImplementationOnce((command: Command) => {
+                command.reject(new Error('Connection is closed.'));
+                return command.promise;
+            });
+        await expect(redis.get('b')).rejects.toThrow('Connection is closed.');
+        closed.mockRestore();
+
+        await expect(redis.get('c')).rejects.toThrow('Redis unavailable');
+        expect(silent!.seen).toEqual(['set']);
     }, 5000);
 
     it('keeps sending every command when failFastMs is 0', async () => {

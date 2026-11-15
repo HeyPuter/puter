@@ -47,7 +47,10 @@ const replyTo = (name: string) =>
     name === 'get' ? '$-1\r\n' : name === 'eval' ? ':1\r\n' : '+OK\r\n';
 
 /** Answers only the handshake until `answer()`; commands land in `seen`. */
-export const startSilentRedis = async (clusterReady = false) => {
+export const startSilentRedis = async (
+    clusterReady = false,
+    { moved = 0 } = {},
+) => {
     const sockets = new Set<Socket>();
     const seen: string[] = [];
     const unanswered: Array<{ socket: Socket; name: string }> = [];
@@ -78,7 +81,10 @@ export const startSilentRedis = async (clusterReady = false) => {
                     socket.write(`$${info.length}\r\n${info}\r\n`);
                 } else {
                     seen.push(name);
-                    if (answering) socket.write(replyTo(name));
+                    if (moved > 0) {
+                        moved--;
+                        socket.write(`-MOVED 0 127.0.0.1:${port}\r\n`);
+                    } else if (answering) socket.write(replyTo(name));
                     else unanswered.push({ socket, name });
                 }
             }

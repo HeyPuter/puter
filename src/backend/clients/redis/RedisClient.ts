@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import Redis, { Cluster, Command } from 'ioredis';
+import Redis, { Cluster, Command, ReplyError } from 'ioredis';
 import MockRedis from 'ioredis-mock';
 import type { IConfig, WithLifecycle } from '../../types';
 import {
@@ -93,9 +93,14 @@ class TimedCluster extends Redis.Cluster {
         const [command, stream] = args;
         if (
             this.commandTimeoutMs <= 0 ||
-            Command.checkFlag('BLOCKING_COMMANDS', command.name) ||
-            this.#admitted.has(command)
+            Command.checkFlag('BLOCKING_COMMANDS', command.name)
         ) {
+            return super.sendCommand(...args);
+        }
+        // Pipeline retries resend commands whose error reply cleared the timer.
+        if (this.#admitted.has(command) || command.name === 'asking') {
+            this.#admitted.add(command);
+            command.setTimeout(this.commandTimeoutMs);
             return super.sendCommand(...args);
         }
         const pipeline = (stream as { isPipeline?: boolean } | undefined)
@@ -116,8 +121,16 @@ class TimedCluster extends Redis.Cluster {
         // Not redisOptions.commandTimeout: that misses the cluster's queue.
         command.setTimeout(this.commandTimeoutMs);
         command.promise.then(
-            () => this.#settled(probe, true),
-            (error: unknown) => this.#settled(probe, !isCommandTimeout(error)),
+            () => this.#settled(probe, 'answered'),
+            (error: unknown) =>
+                this.#settled(
+                    probe,
+                    error instanceof ReplyError
+                        ? 'answered'
+                        : isCommandTimeout(error)
+                          ? 'timedOut'
+                          : 'failed',
+                ),
         );
         return super.sendCommand(...args);
     }
@@ -134,12 +147,14 @@ class TimedCluster extends Redis.Cluster {
         return { admit: true, probe: true };
     }
 
-    #settled(probe: boolean, answered: boolean): void {
+    #settled(
+        probe: boolean,
+        outcome: 'answered' | 'timedOut' | 'failed',
+    ): void {
         if (probe) this.#probing = false;
-        if (answered) {
-            if (probe || this.#openUntil !== 0) this.#close();
-            return;
-        }
+        if (outcome === 'answered') return this.#close();
+        // No reply either way, but only a timeout starts failing fast.
+        if (outcome === 'failed' && this.#openUntil === 0) return;
         if (this.failFastMs <= 0) return;
         if (this.#openUntil === 0) {
             console.warn(
