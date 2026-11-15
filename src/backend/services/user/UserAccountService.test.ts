@@ -253,7 +253,12 @@ describe('UserAccountService', () => {
 
         it("reads a group member's grant from the primary once its issuer is deleted", async () => {
             const member = await seedUser();
-            const { owner, permission, row } = await seedGroupGrant(member.id);
+            const { owner, permission, row } = await seedGroupGrant(
+                member.id,
+                `zztest:del-${uuidv4()}:ii:read`,
+            );
+            // Sqlite reuses a deleted account's id; drop a mark left on it.
+            await server.clients.redis.del(`perms:u2g:${member.id}:deleted`);
 
             await server.services.userAccount.cascadeDelete(owner.id);
 
