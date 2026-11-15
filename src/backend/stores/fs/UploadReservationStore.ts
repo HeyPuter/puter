@@ -17,7 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { isCommandTimeout } from '../../clients/redis/commandTimeout.js';
+import {
+    isCommandTimeout,
+    sendAsUndo,
+} from '../../clients/redis/commandTimeout.js';
 import { PuterStore } from '../types.js';
 
 // -- Constants --------------------------------------------------------
@@ -340,7 +343,9 @@ export class UploadReservationStore extends PuterStore {
                 `[fs] upload reservation not taken for owner ${ownerId}: ${(e as Error).message}`,
             );
             // Same keys: runs behind the timed-out take if that ever does.
-            if (isCommandTimeout(e)) void this.release(ownerId, leases);
+            if (isCommandTimeout(e)) {
+                void sendAsUndo(() => this.release(ownerId, leases));
+            }
             return null;
         }
     }

@@ -20,6 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { RedisClient } from '../clients/redis/RedisClient.ts';
+import { startSilentRedis } from '../testFixtures/silentRedis.ts';
 import type { IConfig } from '../types';
 import { deleteIfEqual, withRedisLock } from './redisLock.ts';
 
@@ -239,6 +240,47 @@ describe('withRedisLock', () => {
             expect(onBusy).toHaveBeenCalledWith(down);
         });
     });
+
+    it('sends its undo while failing fast, and none for an unsent claim', async () => {
+        const silent = await startSilentRedis(true);
+        const quiet = ['log', 'warn', 'error'].map((level) =>
+            vi.spyOn(console, level as 'log').mockImplementation(() => {}),
+        );
+        const stalled = new RedisClient({
+            redis: {
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 200,
+                failFastMs: 60_000,
+            },
+        } as unknown as IConfig);
+        try {
+            await new Promise<void>((r) => stalled.once('ready', () => r()));
+            const onBusy = vi.fn(busy);
+            const claim = () =>
+                withRedisLock(stalled, lockKey(), async () => 'ran', {
+                    ttlMs: 60_000,
+                    onUnavailable: 'busy',
+                    onBusy,
+                });
+
+            await claim();
+            await vi.waitFor(() =>
+                expect(silent.seen).toEqual(['set', 'eval']),
+            );
+
+            await claim();
+            await new Promise((r) => setTimeout(r, 50));
+            expect(silent.seen).toEqual(['set', 'eval']);
+            expect(onBusy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ message: 'Redis unavailable' }),
+            );
+        } finally {
+            stalled.disconnect();
+            await silent.close();
+            for (const spy of quiet) spy.mockRestore();
+        }
+    }, 5000);
 
     it('frees a claim that timed out but landed', async () => {
         const key = lockKey();

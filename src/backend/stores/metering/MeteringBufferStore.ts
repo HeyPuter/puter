@@ -25,7 +25,10 @@ import {
     KvFencedWriteError,
     type RecursiveRecord,
 } from '../systemKv/SystemKVStore';
-import { isCommandTimeout } from '../../clients/redis/commandTimeout.js';
+import {
+    isCommandTimeout,
+    sendAsUndo,
+} from '../../clients/redis/commandTimeout.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { PuterStore } from '../types';
 import {
@@ -1325,7 +1328,9 @@ export class MeteringBufferStore extends PuterStore {
         for (const [path, amount] of Object.entries(pathAndAmountMap))
             negated[path] = -amount;
         try {
-            await this.#buffer({ key, pathAndAmountMap: negated });
+            await sendAsUndo(() =>
+                this.#buffer({ key, pathAndAmountMap: negated }),
+            );
         } catch (e) {
             const message = (e as Error).message;
             console.warn(
