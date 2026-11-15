@@ -20,11 +20,17 @@
 import Redis, { Cluster, Command } from 'ioredis';
 import MockRedis from 'ioredis-mock';
 import type { IConfig, WithLifecycle } from '../../types';
+import {
+    isCommandTimeout,
+    isSendingUndo,
+    REDIS_UNAVAILABLE_MESSAGE,
+} from './commandTimeout';
 
 const redisStartupRetryMaxDelayMs = 2000;
 const redisSlotsRefreshTimeoutMs = 5000;
 const redisConnectTimeoutMs = 10000;
 const defaultCommandTimeoutMs = 2000;
+const defaultFailFastMs = 5000;
 const redisBootRetryRegex =
     /Cluster(All)?FailedError|None of startup nodes is available/i;
 
@@ -70,17 +76,84 @@ const attachClusterEventHandlers = (clusterClient: Cluster): void => {
 // A timed-out command is not withdrawn: queued or sent, it may still run.
 class TimedCluster extends Redis.Cluster {
     commandTimeoutMs = 0;
+    failFastMs = 0;
+    #openUntil = 0;
+    #probing = false;
+    // The cluster's offline queue re-enters sendCommand; admit each command once.
+    #admitted = new WeakSet<Command>();
+    // A pipeline only writes once every command is written, so admit all or none.
+    #pipelines = new WeakMap<object, boolean>();
+
+    constructor(...args: ConstructorParameters<typeof Redis.Cluster>) {
+        super(...args);
+        this.on('ready', () => this.#close());
+    }
 
     override sendCommand(...args: Parameters<Cluster['sendCommand']>) {
-        const [command] = args;
+        const [command, stream] = args;
         if (
-            this.commandTimeoutMs > 0 &&
-            !Command.checkFlag('BLOCKING_COMMANDS', command.name)
+            this.commandTimeoutMs <= 0 ||
+            Command.checkFlag('BLOCKING_COMMANDS', command.name) ||
+            this.#admitted.has(command)
         ) {
-            // Not redisOptions.commandTimeout: that misses the cluster's queue.
-            command.setTimeout(this.commandTimeoutMs);
+            return super.sendCommand(...args);
         }
+        const pipeline = (stream as { isPipeline?: boolean } | undefined)
+            ?.isPipeline
+            ? (stream as object)
+            : null;
+        let admit = pipeline ? this.#pipelines.get(pipeline) : undefined;
+        let probe = false;
+        if (admit === undefined) {
+            ({ admit, probe } = this.#admit(command.name));
+            if (pipeline) this.#pipelines.set(pipeline, admit);
+        }
+        if (!admit) {
+            command.reject(new Error(REDIS_UNAVAILABLE_MESSAGE));
+            return command.promise;
+        }
+        this.#admitted.add(command);
+        // Not redisOptions.commandTimeout: that misses the cluster's queue.
+        command.setTimeout(this.commandTimeoutMs);
+        command.promise.then(
+            () => this.#settled(probe, true),
+            (error: unknown) => this.#settled(probe, !isCommandTimeout(error)),
+        );
         return super.sendCommand(...args);
+    }
+
+    #admit(name: string): { admit: boolean; probe: boolean } {
+        // The ready check sends CLUSTER INFO; failing it fast would block 'ready'.
+        if (this.#openUntil === 0 || isSendingUndo() || name === 'cluster') {
+            return { admit: true, probe: false };
+        }
+        if (this.#probing || Date.now() < this.#openUntil) {
+            return { admit: false, probe: false };
+        }
+        this.#probing = true;
+        return { admit: true, probe: true };
+    }
+
+    #settled(probe: boolean, answered: boolean): void {
+        if (probe) this.#probing = false;
+        if (answered) {
+            if (probe || this.#openUntil !== 0) this.#close();
+            return;
+        }
+        if (this.failFastMs <= 0) return;
+        if (this.#openUntil === 0) {
+            console.warn(
+                `[redis] no reply within ${this.commandTimeoutMs}ms; failing fast, probing every ${this.failFastMs}ms`,
+            );
+        }
+        this.#openUntil = Date.now() + this.failFastMs;
+    }
+
+    #close(): void {
+        if (this.#openUntil === 0) return;
+        this.#openUntil = 0;
+        this.#probing = false;
+        console.log('[redis] replies resumed; no longer failing fast');
     }
 }
 
@@ -121,6 +194,7 @@ const buildCluster = (config: IConfig): Cluster => {
     );
     cluster.commandTimeoutMs =
         redisConfig.commandTimeoutMs ?? defaultCommandTimeoutMs;
+    cluster.failFastMs = redisConfig.failFastMs ?? defaultFailFastMs;
     attachClusterEventHandlers(cluster);
     console.log('connecting to redis from config');
     return cluster;

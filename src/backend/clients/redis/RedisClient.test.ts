@@ -17,9 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createServer, type Server, type Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { startSilentRedis } from '../../testFixtures/silentRedis';
 import type { IConfig } from '../../types';
+import { sendAsUndo } from './commandTimeout';
 import { RedisClient } from './RedisClient';
 
 const config = (redis: Record<string, unknown>): IConfig =>
@@ -171,71 +172,6 @@ describe('RedisClient — real cluster wiring', () => {
     });
 });
 
-/** Split complete RESP arrays off the front of `buf`, as lowercased words. */
-const takeCommands = (buf: string): { commands: string[][]; rest: string } => {
-    const commands: string[][] = [];
-    const pattern = /^\*(\d+)\r\n/;
-    let rest = buf;
-    for (;;) {
-        const head = pattern.exec(rest);
-        if (!head) break;
-        let at = head[0].length;
-        const words: string[] = [];
-        for (let i = 0; i < Number(head[1]); i++) {
-            const len = /^\$(\d+)\r\n/.exec(rest.slice(at));
-            if (!len || rest.length < at + len[0].length + +len[1] + 2) break;
-            at += len[0].length;
-            words.push(rest.slice(at, at + +len[1]).toLowerCase());
-            at += +len[1] + 2;
-        }
-        if (words.length !== Number(head[1])) break;
-        commands.push(words);
-        rest = rest.slice(at);
-    }
-    return { commands, rest };
-};
-
-/** Accepts and never replies; `clusterReady` answers only the handshake. */
-const startSilentRedis = async (clusterReady = false) => {
-    const sockets = new Set<Socket>();
-    const server: Server = createServer((socket) => {
-        sockets.add(socket);
-        socket.on('close', () => sockets.delete(socket));
-        socket.on('error', () => {});
-        if (!clusterReady) return;
-        let buf = '';
-        socket.on('data', (chunk) => {
-            const { commands, rest } = takeCommands(buf + chunk.toString());
-            buf = rest;
-            for (const [name, sub] of commands) {
-                if (name === 'client') {
-                    socket.write('+OK\r\n');
-                } else if (name === 'cluster' && sub === 'slots') {
-                    const host = '127.0.0.1';
-                    socket.write(
-                        `*1\r\n*3\r\n:0\r\n:16383\r\n*2\r\n` +
-                            `$${host.length}\r\n${host}\r\n:${port}\r\n`,
-                    );
-                } else if (name === 'cluster' && sub === 'info') {
-                    const info = 'cluster_state:ok\r\n';
-                    socket.write(`$${info.length}\r\n${info}\r\n`);
-                } else if (name === 'info') {
-                    const info = 'loading:0\r\n';
-                    socket.write(`$${info.length}\r\n${info}\r\n`);
-                }
-            }
-        });
-    });
-    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-    const port = (server.address() as { port: number }).port;
-    const close = () =>
-        new Promise<void>((r) => {
-            for (const socket of sockets) socket.destroy();
-            server.close(() => r());
-        });
-    return { port, close };
-};
-
 describe('RedisClient — command timeout', () => {
     let client: RedisClient | null = null;
     let silent: Awaited<ReturnType<typeof startSilentRedis>> | null = null;
@@ -248,7 +184,7 @@ describe('RedisClient — command timeout', () => {
         vi.restoreAllMocks();
     });
 
-    const connect = async (clusterReady: boolean) => {
+    const connect = async (clusterReady: boolean, failFastMs = 0) => {
         silent = await startSilentRedis(clusterReady);
         vi.spyOn(console, 'log').mockImplementation(() => {});
         vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -258,10 +194,69 @@ describe('RedisClient — command timeout', () => {
                 startupNodes: [{ host: '127.0.0.1', port: silent.port }],
                 tls: false,
                 commandTimeoutMs: 200,
+                failFastMs,
             }),
         );
         return client;
     };
+
+    const ready = async (failFastMs: number) => {
+        const redis = await connect(true, failFastMs);
+        await new Promise<void>((r) => redis.once('ready', () => r()));
+        return redis;
+    };
+
+    it('rejects commands unsent for a while after one times out', async () => {
+        const redis = await ready(60_000);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+
+        const started = Date.now();
+        for (const key of ['b', 'c', 'd']) {
+            await expect(redis.get(key)).rejects.toThrow('Redis unavailable');
+        }
+        expect(Date.now() - started).toBeLessThan(50);
+        const piped = await redis.pipeline().get('e').get('f').exec();
+        expect(piped!.map(([error]) => error?.message)).toEqual([
+            'Redis unavailable',
+            'Redis unavailable',
+        ]);
+        await expect(
+            redis.multi().set('g', '1').get('g').exec(),
+        ).rejects.toThrow();
+        expect(silent!.seen).toEqual(['set']);
+    }, 5000);
+
+    it('closes once a probe after the interval gets a reply', async () => {
+        const redis = await ready(300);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+        await expect(redis.get('b')).rejects.toThrow('Redis unavailable');
+
+        silent!.answer();
+        await new Promise((r) => setTimeout(r, 350));
+        await expect(redis.get('c')).resolves.toBeNull();
+        await expect(redis.get('d')).resolves.toBeNull();
+        expect(silent!.seen).toEqual(['set', 'get', 'get']);
+    }, 5000);
+
+    it('sends an undo past the open breaker, behind the original', async () => {
+        const redis = await ready(60_000);
+        await expect(redis.set('lock', 't')).rejects.toThrow(
+            'Command timed out',
+        );
+        await expect(redis.get('lock')).rejects.toThrow('Redis unavailable');
+
+        const undo = sendAsUndo(() => redis.eval('return 1', 1, 'lock', 't'));
+        silent!.answer();
+        await expect(undo).resolves.toBe(1);
+        expect(silent!.seen).toEqual(['set', 'eval']);
+    }, 5000);
+
+    it('keeps sending every command when failFastMs is 0', async () => {
+        const redis = await ready(0);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+        await expect(redis.get('b')).rejects.toThrow('Command timed out');
+        expect(silent!.seen).toEqual(['set', 'get']);
+    }, 5000);
 
     it('rejects a command sent to a node that never answers', async () => {
         const redis = await connect(true);
@@ -296,7 +291,7 @@ describe('RedisClient — command timeout', () => {
         }
     }, 5000);
 
-    it('defaults to a 2000 ms timeout', () => {
+    it('defaults to a 2000 ms timeout and 5000 ms of failing fast', () => {
         client = new RedisClient(
             config({
                 startupNodes: [{ host: '127.0.0.1', port: 7001 }],
@@ -307,5 +302,8 @@ describe('RedisClient — command timeout', () => {
             (client as unknown as { commandTimeoutMs: number })
                 .commandTimeoutMs,
         ).toBe(2000);
+        expect((client as unknown as { failFastMs: number }).failFastMs).toBe(
+            5000,
+        );
     });
 });

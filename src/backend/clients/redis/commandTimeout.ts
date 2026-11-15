@@ -17,6 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+export const REDIS_UNAVAILABLE_MESSAGE = 'Redis unavailable';
+
 /** True for the rejection of a command that got no reply within the timeout. */
 export const isCommandTimeout = (error: unknown): boolean =>
     error instanceof Error && error.message === 'Command timed out';
+
+/** True for a command rejected unsent while Redis is failing fast. */
+export const isRedisUnavailable = (error: unknown): boolean =>
+    error instanceof Error && error.message === REDIS_UNAVAILABLE_MESSAGE;
+
+const undoScope = new AsyncLocalStorage<true>();
+
+/** Sends the commands `send` issues past fail-fast, still timed and queued. */
+export const sendAsUndo = <T>(send: () => T): T => undoScope.run(true, send);
+
+export const isSendingUndo = (): boolean => undoScope.getStore() === true;
