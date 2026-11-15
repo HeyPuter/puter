@@ -1392,6 +1392,49 @@ describe('BroadcastService — pubsub subscribe retry', () => {
             warn.mockRestore();
         }
     });
+
+    it('stops retrying once the service shuts down', async () => {
+        const subscribe = vi
+            .fn()
+            .mockRejectedValue(new Error('Connection is closed.'));
+        const sub = {
+            subscribe,
+            on: vi.fn(),
+            unsubscribe: vi.fn().mockResolvedValue(1),
+            quit: vi.fn(),
+        };
+        const live = server.services.broadcast as unknown as {
+            config: unknown;
+            stores: unknown;
+            services: unknown;
+            constructor: new (...args: unknown[]) => BroadcastService;
+        };
+        const service = new live.constructor(
+            live.config,
+            {
+                ...server.clients,
+                redis: {
+                    duplicate: () => sub,
+                    publish: vi.fn().mockResolvedValue(0),
+                },
+            },
+            live.stores,
+            live.services,
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.useFakeTimers({ toFake: ['setTimeout'] });
+        try {
+            service.onServerStart();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(subscribe).toHaveBeenCalledTimes(1);
+            await service.onServerPrepareShutdown();
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(subscribe).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+            warn.mockRestore();
+        }
+    });
 });
 
 describe('BroadcastService shutdown drain', () => {

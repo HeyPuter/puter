@@ -18,7 +18,6 @@
  */
 
 import axios from 'axios';
-import type { Cluster } from 'ioredis';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
 import { IBroadcastPeerConfig } from '../../types.js';
@@ -391,7 +390,9 @@ export class BroadcastService extends PuterService {
             });
     }
 
-    #subscribePubsub(sub: ReturnType<Cluster['duplicate']>, attempt: number) {
+    #subscribePubsub(attempt: number): void {
+        const sub = this.#redisSub;
+        if (!sub) return;
         sub.subscribe('pubsub').catch((err: unknown) => {
             if (this.#redisSub !== sub) return;
             const delayMs = Math.min(1000 * 2 ** attempt, 30_000);
@@ -399,10 +400,9 @@ export class BroadcastService extends PuterService {
                 `[broadcast] pubsub subscribe failed, retrying in ${delayMs}ms`,
                 err,
             );
-            setTimeout(
-                () => this.#subscribePubsub(sub, attempt + 1),
-                delayMs,
-            ).unref();
+            setTimeout(() => {
+                if (this.#redisSub === sub) this.#subscribePubsub(attempt + 1);
+            }, delayMs).unref();
         });
     }
 
@@ -410,7 +410,7 @@ export class BroadcastService extends PuterService {
     // pubsub.* will only fan-out to same-cluster nodes.
     #subscribeRedisOutbound(): void {
         this.#redisSub = this.clients.redis.duplicate();
-        this.#subscribePubsub(this.#redisSub, 0);
+        this.#subscribePubsub(0);
         this.#redisSub.on('message', (channel: string, message: string) => {
             if (channel !== 'pubsub') return;
             const parsed = JSON.parse(message);
