@@ -843,7 +843,7 @@ Every driver call also counts toward **8,000 calls/min**, before the per-API lim
 
 ## Storage quota
 
-Every account has a filesystem quota (100 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 input_too_large`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
+Every account has a filesystem quota (200 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 input_too_large`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
 
 An upload reserves its declared size, minus the size of any file it replaces, from the moment it starts. The reservation is released when the upload completes (the real size counts instead), is cancelled, or expires (15 minutes after starting by default, at most 1 hour, plus 5 minutes' grace). An abandoned upload holds its space until it expires. A `startBatchWrite` that doesn't fit fails as a whole, up front. `space()` counts stored bytes only, not reservations.
 
