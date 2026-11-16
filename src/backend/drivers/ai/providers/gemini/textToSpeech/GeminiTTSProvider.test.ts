@@ -41,18 +41,22 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { SYSTEM_ACTOR_UUID } from '../../../../../core/actor.js';
 import { Context } from '../../../../../core/context.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import type { UsageInput } from '../../../../../services/metering/types.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { callerError, withTestActor } from '../../../shared/integrationTestUtil.js';
+import {
+    callerError,
+    withTestActor,
+} from '../../../shared/integrationTestUtil.js';
 import {
     GEMINI_TTS_MAX_RESPONSE_BYTES,
     GeminiTTSProvider,
 } from './GeminiTTSProvider.js';
-import { GEMINI_TTS_COSTS, GEMINI_TTS_LAUNCH_PRICING_ENDS } from './costs.js';
+import { GEMINI_TTS_COSTS } from './costs.js';
 
 const INTERACTIONS_URL =
     'https://generativelanguage.googleapis.com/v1beta/interactions';
@@ -68,6 +72,10 @@ let batchIncrementUsagesSpy: MockInstance<
 
 beforeAll(async () => {
     server = await setupTestServer();
+    await server.services.metering.updateAddonCredit(
+        SYSTEM_ACTOR_UUID,
+        100_000_000,
+    );
 });
 
 afterAll(async () => {
@@ -105,26 +113,26 @@ const USAGE = {
     total_tokens: 75,
 };
 
-/** What `USAGE` settles to on the default model at launch rates. */
+/** What `USAGE` settles to on the default model at standard rates. */
 const SETTLED_USAGE = [
     {
         usageType: 'gemini:gemini-3.8-flash-tts:input',
         usageAmount: 7,
-        costOverride: 7 * 50,
+        costOverride: 7 * 100,
     },
     {
         usageType: 'gemini:gemini-3.8-flash-tts:output:audio',
         usageAmount: 68,
-        costOverride: 68 * 900,
+        costOverride: 68 * 1800,
     },
 ];
 
-/** µ¢ held for the full 8,192 input and 16,384 audio token budget. */
+/** Μ¢ held for the full 8,192 input and 16,384 audio token budget. */
 const reservation = (inputRate: number, audioRate: number) =>
     8192 * inputRate + 16_384 * audioRate;
 
-/** The default model's hold at launch rates. */
-const FLASH_RESERVATION = reservation(50, 900);
+/** The default model's hold at standard rates. */
+const FLASH_RESERVATION = reservation(100, 1800);
 
 /** A completed reply; `usage` given as undefined leaves the field out. */
 const interaction = (
@@ -185,7 +193,9 @@ const trackHolds = () => {
     const metering = server.services.metering;
     const realReserve = Object.getPrototypeOf(
         metering,
-    ).reserveCreditsIfAffordable.bind(metering) as typeof metering.reserveCreditsIfAffordable;
+    ).reserveCreditsIfAffordable.bind(
+        metering,
+    ) as typeof metering.reserveCreditsIfAffordable;
     const held: number[] = [];
     const released = vi.fn();
     vi.spyOn(metering, 'reserveCreditsIfAffordable').mockImplementation(
@@ -206,11 +216,9 @@ const trackHolds = () => {
 };
 
 beforeEach(() => {
-    // The full flash hold at later rates exceeds the system actor's allowance;
-    // tests of later rates set the clock themselves.
     vi.useFakeTimers({
         toFake: ['Date'],
-        now: GEMINI_TTS_LAUNCH_PRICING_ENDS - 1,
+        now: Date.UTC(2027, 0, 1) - 1,
     });
     fetchSpy = vi
         .spyOn(globalThis, 'fetch')
@@ -280,25 +288,25 @@ describe('GeminiTTSProvider.getReportedCosts', () => {
                 ]),
         );
 
-    it('reports the launch rates through 2026-12-31 UTC', () => {
+    it('reports standard rates before the former cutoff', () => {
         vi.useFakeTimers({
             toFake: ['Date'],
-            now: GEMINI_TTS_LAUNCH_PRICING_ENDS - 1,
+            now: Date.UTC(2027, 0, 1) - 1,
         });
         expect(reportedRates()).toEqual({
-            'gemini:gemini-3.8-flash-tts:tts': [50, 900],
-            'gemini:gemini-3.8-flash-lite-tts:tts': [50, 600],
+            'gemini:gemini-3.8-flash-tts:tts': [100, 1800],
+            'gemini:gemini-3.8-flash-lite-tts:tts': [100, 1200],
         });
     });
 
-    it('reports doubled rates from 2027-01-01 UTC, read at call time', () => {
+    it('reports the same standard rates after the former cutoff', () => {
         vi.useFakeTimers({
             toFake: ['Date'],
-            now: GEMINI_TTS_LAUNCH_PRICING_ENDS - 1,
+            now: Date.UTC(2027, 0, 1) - 1,
         });
         const provider = makeProvider();
         provider.getReportedCosts();
-        vi.setSystemTime(GEMINI_TTS_LAUNCH_PRICING_ENDS);
+        vi.setSystemTime(Date.UTC(2027, 0, 1));
         expect(
             Object.fromEntries(
                 provider
@@ -505,7 +513,7 @@ describe('GeminiTTSProvider.synthesize credit gate', () => {
             expect(meteredUsages()).toEqual(SETTLED_USAGE);
             await expect
                 .poll(() => server.services.metering.getRemainingUsage(actor))
-                .toBe(FLASH_RESERVATION - 7 * 50 - 68 * 900);
+                .toBe(FLASH_RESERVATION - 7 * 100 - 68 * 1800);
         } finally {
             await blocking.release();
         }
@@ -575,9 +583,9 @@ describe('GeminiTTSProvider.synthesize request shape', () => {
             await withTestActor(() =>
                 makeProvider().synthesize({ text: 'hi', model }),
             );
-            expect(
-                sentRequest().body.generation_config.max_output_tokens,
-            ).toBe(16_384);
+            expect(sentRequest().body.generation_config.max_output_tokens).toBe(
+                16_384,
+            );
         },
     );
 
@@ -1087,8 +1095,8 @@ describe('GeminiTTSProvider.synthesize upstream failures', () => {
 
 describe('GeminiTTSProvider.synthesize metering', () => {
     it.each([
-        ['gemini-3.8-flash-tts', 900],
-        ['gemini-3.8-flash-lite-tts', 600],
+        ['gemini-3.8-flash-tts', 1800],
+        ['gemini-3.8-flash-lite-tts', 1200],
     ])(
         'meters %s text input and audio output from the usage modalities',
         async (model, audioRate) => {
@@ -1107,7 +1115,7 @@ describe('GeminiTTSProvider.synthesize metering', () => {
                 {
                     usageType: `gemini:${model}:input`,
                     usageAmount: 7,
-                    costOverride: 7 * 50,
+                    costOverride: 7 * 100,
                 },
                 {
                     usageType: `gemini:${model}:output:audio`,
@@ -1314,20 +1322,20 @@ describe('GeminiTTSProvider.synthesize metering', () => {
     );
 });
 
-// -- Scheduled rates --
+// -- Standard rates --
 
-describe('GeminiTTSProvider.synthesize scheduled rates', () => {
-    const BEFORE = GEMINI_TTS_LAUNCH_PRICING_ENDS - 1;
-    const AT = GEMINI_TTS_LAUNCH_PRICING_ENDS;
+describe('GeminiTTSProvider.synthesize standard rates', () => {
+    const BEFORE = Date.UTC(2027, 0, 1) - 1;
+    const AT = Date.UTC(2027, 0, 1);
 
     beforeEach(() => {
         vi.useFakeTimers({ toFake: ['Date'], now: BEFORE });
     });
 
     const SCHEDULE: [string, number, number, number, number][] = [
-        ['gemini-3.8-flash-tts', BEFORE, 50, 900, 15_155_200],
+        ['gemini-3.8-flash-tts', BEFORE, 100, 1800, 30_310_400],
         ['gemini-3.8-flash-tts', AT, 100, 1800, 30_310_400],
-        ['gemini-3.8-flash-lite-tts', BEFORE, 50, 600, 10_240_000],
+        ['gemini-3.8-flash-lite-tts', BEFORE, 100, 1200, 20_480_000],
         ['gemini-3.8-flash-lite-tts', AT, 100, 1200, 20_480_000],
     ];
 
@@ -1382,7 +1390,7 @@ describe('GeminiTTSProvider.synthesize scheduled rates', () => {
         },
     );
 
-    it('settles a request that crosses the change at the rates it was held at', async () => {
+    it('holds and settles at standard rates across the former cutoff', async () => {
         const { held } = trackHolds();
         fetchSpy.mockImplementationOnce(async () => {
             vi.setSystemTime(AT);
@@ -1395,8 +1403,8 @@ describe('GeminiTTSProvider.synthesize scheduled rates', () => {
         );
 
         expect(held).toEqual([FLASH_RESERVATION]);
-        expect(metered(':input').costOverride).toBe(7 * 50);
-        expect(metered(':output:audio').costOverride).toBe(68 * 900);
+        expect(metered(':input').costOverride).toBe(7 * 100);
+        expect(metered(':output:audio').costOverride).toBe(68 * 1800);
     });
 
     it('throws 500 when no cost data exists for the resolved model', async () => {

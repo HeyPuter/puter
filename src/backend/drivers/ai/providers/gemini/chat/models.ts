@@ -64,55 +64,30 @@ export const GEMINI_NATIVE_MODELS: ReadonlyMap<string, GeminiNativeOptions> =
         ['gemini-3-flash-preview', FLASH_NATIVE_OPTIONS],
     ]);
 
-const DOUBLED_RATES = [
-    'prompt_tokens',
-    'completion_tokens',
-    'thinking_tokens',
-    'cached_tokens',
-] as const;
-
-/** Launch pricing whose token rates all double to list pricing at `startsAt`. */
-const listPricingFrom = (
-    startsAt: string,
-    launch: ModelCost,
-): ModelPricingOverride[] => [
-    {
-        startsAt,
-        costs: Object.fromEntries(
-            DOUBLED_RATES.map((key) => [key, launch[key] * 2]),
-        ),
-    },
-];
-
-// Gemini 3.6/3.8 Flash launch pricing.
-const FLASH_LAUNCH_COSTS: ModelCost = {
+const FLASH_COSTS: ModelCost = {
     tokens: 1_000_000,
-    prompt_tokens: 75,
-    completion_tokens: 375,
-    thinking_tokens: 375,
-    cached_tokens: 7.5,
+    prompt_tokens: 150,
+    completion_tokens: 750,
+    thinking_tokens: 750,
+    cached_tokens: 15,
     // Gemini 3.x grounding is $14 / 1,000 requests
     grounding_requests: 1_400_000,
 };
-const FLASH_LIST_PRICING = listPricingFrom(
-    '2027-01-01T00:00:00Z',
-    FLASH_LAUNCH_COSTS,
-);
 
-const GEMINI_4_LAUNCH_COSTS: ModelCost = {
+const GEMINI_4_COSTS: ModelCost = {
+    tokens: 1_000_000,
+    prompt_tokens: 400,
+    completion_tokens: 2000,
+    thinking_tokens: 2000,
+    cached_tokens: 20,
+};
+
+const ROBOTICS_COSTS: ModelCost = {
     tokens: 1_000_000,
     prompt_tokens: 200,
     completion_tokens: 1000,
     thinking_tokens: 1000,
-    cached_tokens: 10,
-};
-
-const ROBOTICS_LAUNCH_COSTS: ModelCost = {
-    tokens: 1_000_000,
-    prompt_tokens: 100,
-    completion_tokens: 500,
-    thinking_tokens: 500,
-    cached_tokens: 10,
+    cached_tokens: 20,
     grounding_requests: 1_400_000,
 };
 
@@ -151,11 +126,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         serviceSpeedRates: { fast: 1.8 },
-        costs: GEMINI_4_LAUNCH_COSTS,
-        pricingOverrides: listPricingFrom(
-            '2026-12-01T00:00:00Z',
-            GEMINI_4_LAUNCH_COSTS,
-        ),
+        costs: GEMINI_4_COSTS,
     },
     {
         puterId: 'google:google/gemini-4-carbon',
@@ -177,11 +148,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         serviceSpeedRates: { fast: 1.8 },
-        costs: GEMINI_4_LAUNCH_COSTS,
-        pricingOverrides: listPricingFrom(
-            '2026-12-01T00:00:00Z',
-            GEMINI_4_LAUNCH_COSTS,
-        ),
+        costs: GEMINI_4_COSTS,
     },
     {
         puterId: 'google:google/gemini-4-hydrogen',
@@ -238,8 +205,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         output_cost_key: 'completion_tokens',
         // Google serves this endpoint with gemini-3.6-flash and bills its rates.
         serviceSpeedRates: { fast: 1.8 },
-        costs: FLASH_LAUNCH_COSTS,
-        pricingOverrides: FLASH_LIST_PRICING,
+        costs: FLASH_COSTS,
     },
     {
         puterId: 'google:google/gemini-3.5-flash-lite',
@@ -294,8 +260,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         serviceSpeedRates: { fast: 1.8 },
-        costs: FLASH_LAUNCH_COSTS,
-        pricingOverrides: FLASH_LIST_PRICING,
+        costs: FLASH_COSTS,
     },
     {
         puterId: 'google:google/gemini-3.7-flash',
@@ -317,8 +282,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         output_cost_key: 'completion_tokens',
         // Google serves this endpoint with gemini-3.8-flash and bills its rates.
         serviceSpeedRates: { fast: 1.8 },
-        costs: FLASH_LAUNCH_COSTS,
-        pricingOverrides: FLASH_LIST_PRICING,
+        costs: FLASH_COSTS,
     },
     {
         puterId: 'google:google/gemini-3.8-flash',
@@ -338,8 +302,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         serviceSpeedRates: { fast: 1.8 },
-        costs: FLASH_LAUNCH_COSTS,
-        pricingOverrides: FLASH_LIST_PRICING,
+        costs: FLASH_COSTS,
     },
     {
         puterId: 'google:google/gemini-3.1-flash-lite',
@@ -581,11 +544,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
-        costs: ROBOTICS_LAUNCH_COSTS,
-        pricingOverrides: listPricingFrom(
-            '2027-01-01T00:00:00Z',
-            ROBOTICS_LAUNCH_COSTS,
-        ),
+        costs: ROBOTICS_COSTS,
     },
     {
         puterId: 'google:google/gemma-4-31b-it',

@@ -486,6 +486,10 @@ describe('TTSDriver Gemini registration with a custom apiBaseUrl', () => {
     ) => {
         const booted = await setupTestServer({ providers } as never);
         try {
+            await booted.services.metering.updateAddonCredit(
+                SYSTEM_ACTOR.user!.uuid!,
+                100_000_000,
+            );
             const passthrough = fetchSpy.getMockImplementation()!;
             fetchSpy.mockImplementation((input, init) =>
                 String(input).startsWith(GOOGLE)

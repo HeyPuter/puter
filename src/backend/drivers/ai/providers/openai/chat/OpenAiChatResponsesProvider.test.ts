@@ -813,8 +813,6 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
             cached_tokens: 10,
         });
 
-        // gpt-5.6-sol costs: prompt=400, completion=2000, cached=40.
-        const sol = OPEN_AI_MODELS.find((m) => m.id === 'gpt-5.6-sol')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(actor).toBe(SYSTEM_ACTOR);
@@ -825,9 +823,9 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
             cached_tokens: 10,
         });
         expect(overrides).toEqual({
-            prompt_tokens: 90 * Number(sol.costs.prompt_tokens),
-            completion_tokens: 50 * Number(sol.costs.completion_tokens),
-            cached_tokens: 10 * Number(sol.costs.cached_tokens ?? 0),
+            prompt_tokens: 90 * 500,
+            completion_tokens: 50 * 3000,
+            cached_tokens: 10 * 50,
         });
     });
 
@@ -1168,15 +1166,13 @@ describe('OpenAiResponsesChatProvider.complete streaming', () => {
             cached_tokens: 1,
         });
 
-        // gpt-5.6-sol costs: prompt=400, completion=2000, cached=40.
-        const sol = OPEN_AI_MODELS.find((m) => m.id === 'gpt-5.6-sol')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('openai:gpt-5.6-sol');
         expect(overrides).toEqual({
-            prompt_tokens: 3 * Number(sol.costs.prompt_tokens),
-            completion_tokens: 2 * Number(sol.costs.completion_tokens),
-            cached_tokens: 1 * Number(sol.costs.cached_tokens ?? 0),
+            prompt_tokens: 3 * 500,
+            completion_tokens: 2 * 3000,
+            cached_tokens: 1 * 50,
         });
     });
 

@@ -90,6 +90,8 @@ For more details about each option, see the [ElevenLabs API reference](https://e
 
 ### Gemini models
 
+Gemini models use regular token prices, including during provider launch promotions.
+
 Available when `provider: 'gemini'`:
 
 | Option | Type | Description |

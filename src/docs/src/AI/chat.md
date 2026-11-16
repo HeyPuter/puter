@@ -385,6 +385,8 @@ The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the
 
 ### OpenAI models
 
+GPT-5.6 Sol uses regular prices of $5 per million input tokens and $30 per million output tokens.
+
 Passing `service_tier: "priority"` selects fast service, and `service_tier: "ultrafast"` selects ultrafast service. These requests use the same prices and supported-speed selection as `serviceSpeed`. An explicit `serviceSpeed` takes precedence.
 
 Input and reasoning tokens reported by a non-streaming Responses API call are billed even when its output is empty. These charges apply whether the request fails or retries another provider.
@@ -480,6 +482,8 @@ Pass in the `cache_control` parameter inside the object in the `messages` array.
 You can find the implementation in our [prompt caching example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
 
 ### Gemini models
+
+Gemini models use regular token prices, including during provider launch promotions.
 
 Fast service uses Priority inference on supported text and image requests. Other media use standard service to preserve input handling.
 
