@@ -352,6 +352,42 @@ describe('2FA setup: verifying the code', () => {
         expect(screen()).toBe(4);
     });
 
+    it('keeps a code typed while the refused one is still showing', async () => {
+        await reachVerify();
+        fetch.mockResolvedValueOnce(reply(400, { code: 'code_mismatch' }));
+        await typeCode('111111');
+        expect(document.activeElement).toBe(inputs().get(0));
+
+        inputs().eq(0).val('2').trigger('input');
+        expect(inputs().map((_, el) => el.value).get()).toEqual(['2', '', '', '', '', '']);
+        expect(inputs().hasClass('login-2fa-wrong')).toBe(false);
+
+        await new Promise(resolve => setTimeout(resolve, 1300));
+        expect(inputs().eq(0).val()).toBe('2');
+
+        fetch.mockResolvedValueOnce(reply(200, {}));
+        [...'22222'].forEach((digit, i) => inputs().eq(i + 1).val(digit).trigger('input'));
+        await settle();
+        expect(bodyOf(2)).toEqual({ code: '222222' });
+        expect(screen()).toBe(4);
+    });
+
+    it('keeps a code pasted while the refused one is still showing', async () => {
+        await reachVerify();
+        fetch.mockResolvedValueOnce(reply(400, { code: 'code_mismatch' }));
+        await typeCode('111111');
+        let answer;
+        fetch.mockReturnValueOnce(new Promise((resolve) => {
+            answer = resolve;
+        }));
+        inputs().eq(0).trigger($.Event('paste', { originalEvent: { preventDefault () {}, clipboardData: { getData: () => '654321' } } }));
+        await new Promise(resolve => setTimeout(resolve, 1300));
+        expect(inputs().map((_, el) => el.value).get().join('')).toBe('654321');
+        answer(reply(200, {}));
+        await settle();
+        expect(screen()).toBe(4);
+    });
+
     it('gives the boxes back when the request gets no answer', async () => {
         await reachVerify();
         fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));

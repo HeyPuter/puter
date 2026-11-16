@@ -294,6 +294,7 @@ export default function UIDashboard2FASetupDialog ({ $container, returnFocusTo }
         // The code is asked for on the last step, right before it's used, so
         // it can't expire while the recovery codes are being saved. A network
         // failure is a refusal like any other, so the boxes come back.
+        let wrong_code_timer = null;
         const enable2FA = async (code) => {
             is_verifying = true;
             $inputs.prop('disabled', true);
@@ -328,10 +329,26 @@ export default function UIDashboard2FASetupDialog ({ $container, returnFocusTo }
             setStatus($code_status, data.code === 'code_mismatch'
                 ? t('confirm_code_generic_incorrect')
                 : (data.message || t('something_went_wrong')));
-            setTimeout(() => {
-                $inputs.val('').removeClass('login-2fa-wrong');
+            // Disabling the boxes dropped focus to the page.
+            const focusFirst = () => {
                 if ( ! isClosed() && screen === SCREEN.verify ) $inputs.first().get(0)?.focus({ preventScroll: true });
+            };
+            focusFirst();
+            wrong_code_timer = setTimeout(() => {
+                wrong_code_timer = null;
+                $inputs.val('').removeClass('login-2fa-wrong');
+                focusFirst();
             }, WRONG_CODE_RESET_MS);
+        };
+
+        // A code typed or pasted while the refused one is still showing
+        // replaces it, and must not be cleared along with it.
+        const startNewCode = () => {
+            if ( ! wrong_code_timer ) return false;
+            clearTimeout(wrong_code_timer);
+            wrong_code_timer = null;
+            $inputs.removeClass('login-2fa-wrong');
+            return true;
         };
 
         const typedCode = () => $inputs.map(function () {
@@ -341,6 +358,7 @@ export default function UIDashboard2FASetupDialog ({ $container, returnFocusTo }
         $inputs.on('input', function () {
             const idx = Number($(this).attr('data-idx'));
             const digits = String($(this).val()).replace(/\D/g, '');
+            if ( startNewCode() ) $inputs.not(this).val('');
             $(this).val(digits.slice(0, 1)).removeClass('login-2fa-wrong');
             if ( ! is_verifying ) setStatus($code_status, '');
             if ( digits && idx < CODE_LENGTH - 1 ) $inputs.eq(idx + 1).focus();
@@ -373,6 +391,7 @@ export default function UIDashboard2FASetupDialog ({ $container, returnFocusTo }
             const pasted = (e.originalEvent.clipboardData || window.clipboardData)
                 .getData('text').replace(/\D/g, '').slice(0, CODE_LENGTH);
             if ( ! pasted ) return;
+            startNewCode();
             $inputs.each(function (i) {
                 $(this).val(pasted[i] || '');
             });
