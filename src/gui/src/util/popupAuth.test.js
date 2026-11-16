@@ -173,7 +173,6 @@ describe('any other popup action', () => {
         'foo',
         'authme',
         'copyauth',
-        'change-username',
         'set-new-password',
         'password-recovery',
     ];

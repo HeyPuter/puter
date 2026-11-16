@@ -276,6 +276,15 @@ describe('HomepageController shell routes', () => {
         }
     });
 
+    it('redirects /action/change-username to the dashboard Account tab', async () => {
+        const path = '/action/change-username';
+        const { res, captured } = makeRes();
+        await callRoute('get', path, makeReq({ path }), res);
+        expect(captured.statusCode).toBe(302);
+        expect(captured.location).toBe('/dashboard#account');
+        expect(captured.body).toBeUndefined();
+    });
+
     it('redirects /@:username to the dashboard', async () => {
         const { res, captured } = makeRes();
         await callRoute(
