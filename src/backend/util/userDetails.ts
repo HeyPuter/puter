@@ -28,6 +28,7 @@ import {
     type CardFallbackClients,
 } from './cardFallback.js';
 import { isEmailGateLast } from './verificationOrder.js';
+import { resolveRevalidateUrl } from './revalidateUrl.js';
 
 export interface UserDetailsDeps {
     config: IConfig;
@@ -178,15 +179,14 @@ export async function buildUserDetails(
         hasDevAccountAccess: !!user.metadata?.hasDevAccountAccess,
     };
 
-    const linkedProvider = async () => {
-        if (!oidcOnly) return null;
-        try {
-            return await services.oidc.getLinkedProviderForUser(user.id);
-        } catch {
-            // OIDC not configured
-            return null;
-        }
-    };
+    const revalidateUrl = async () =>
+        oidcOnly
+            ? resolveRevalidateUrl(user, {
+                  config,
+                  event: clients.event,
+                  oidc: services.oidc,
+              })
+            : null;
     // The team that pays for the account; every seat restriction keys on it.
     const orgSeat = async () => {
         if (!isUser || config.teams_enabled !== true) return null;
@@ -198,11 +198,13 @@ export async function buildUserDetails(
     };
     // Independent and each best-effort, so read together; the results land
     // below in the order the payload has always listed them.
-    const [provider, team] = await Promise.all([linkedProvider(), orgSeat()]);
+    const [oidcRevalidateUrl, team] = await Promise.all([
+        revalidateUrl(),
+        orgSeat(),
+    ]);
 
-    if (provider) {
-        const origin = (config.origin ?? '').replace(/\/$/, '');
-        details.oidc_revalidate_url = `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`;
+    if (oidcRevalidateUrl) {
+        details.oidc_revalidate_url = oidcRevalidateUrl;
     }
 
     if (isUser) {

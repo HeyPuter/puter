@@ -26,6 +26,8 @@ import type { IConfig } from '../../../types';
 import type { UserStore, UserRow } from '../../../stores/user/UserStore';
 import type { OIDCService } from '../../../services/auth/OIDCService';
 import type { TokenService } from '../../../services/auth/TokenService';
+import type { EventClient } from '../../../clients/event/EventClient';
+import { resolveRevalidateUrl } from '../../../util/revalidateUrl.js';
 
 /**
  * Gate for security-critical account endpoints mounted under
@@ -66,6 +68,7 @@ export interface UserProtectedGateDeps {
     userStore: UserStore;
     oidcService: OIDCService;
     tokenService: TokenService;
+    eventClient: Pick<EventClient, 'emitAndWait'>;
 }
 
 /**
@@ -128,17 +131,15 @@ declare module 'express-serve-static-core' {
 }
 
 async function buildRevalidateFields(
-    config: IConfig,
-    oidcService: OIDCService,
+    deps: UserProtectedGateDeps,
     user: UserRow,
 ): Promise<Record<string, string> | undefined> {
-    const origin = (config.origin ?? '').replace(/\/$/, '');
-    if (!origin) return undefined;
-    const provider = await oidcService.getLinkedProviderForUser(user.id);
-    if (!provider) return undefined;
-    return {
-        revalidate_url: `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`,
-    };
+    const url = await resolveRevalidateUrl(user, {
+        config: deps.config,
+        event: deps.eventClient,
+        oidc: deps.oidcService,
+    });
+    return url ? { revalidate_url: url } : undefined;
 }
 
 /** Password checks per account per route per hour, as the siblings bound. */
@@ -150,7 +151,7 @@ export const createUserProtectedGate = (
     deps: UserProtectedGateDeps,
     options: UserProtectedGateOptions = {},
 ): RequestHandler[] => {
-    const { config, userStore, oidcService, tokenService } = deps;
+    const { config, userStore, tokenService } = deps;
     const allowTemp = !!options.allowTempUsers;
 
     // 1. Session cookie only. Shared with the standalone cookie-only gate.
@@ -217,11 +218,7 @@ export const createUserProtectedGate = (
             typeof req.body?.password === 'string' ? req.body.password : null;
         if (bodyPassword) {
             if (user.password === null) {
-                const fields = await buildRevalidateFields(
-                    config,
-                    oidcService,
-                    user,
-                );
+                const fields = await buildRevalidateFields(deps, user);
                 throw new HttpError(403, 'OIDC revalidation required', {
                     legacyCode: 'oidc_revalidation_required',
                     fields,
@@ -279,11 +276,7 @@ export const createUserProtectedGate = (
         }
 
         if (user.password === null) {
-            const fields = await buildRevalidateFields(
-                config,
-                oidcService,
-                user,
-            );
+            const fields = await buildRevalidateFields(deps, user);
             throw new HttpError(403, 'OIDC revalidation required', {
                 legacyCode: 'oidc_revalidation_required',
                 fields,
