@@ -185,6 +185,36 @@ describe('Blocked people dialog', () => {
         expect(allSwitch().prop('disabled')).toBe(false);
     });
 
+    it('gives focus back to the control that was used once it is usable again', async () => {
+        await open();
+        // jsdom keeps focus on a control that gets disabled; a browser drops it.
+        const dropFocus = () => {
+            $('.dashboard-blocked-dialog').get(0).focus();
+            document.activeElement.blur();
+        };
+
+        allSwitch().get(0).focus();
+        allSwitch().prop('checked', true).trigger('change');
+        dropFocus();
+        await settle();
+        expect(document.activeElement).toBe(allSwitch().get(0));
+
+        $('.dashboard-blocked-username').val('eve');
+        $('.dashboard-blocked-add-btn').get(0).focus();
+        $('.dashboard-blocked-add').trigger('submit');
+        dropFocus();
+        await settle();
+        expect(document.activeElement).toBe($('.dashboard-blocked-add-btn').get(0));
+
+        failWith = 'Try again later';
+        const $unblock = $('.dashboard-blocked-unblock').first();
+        $unblock.get(0).focus();
+        $unblock.trigger('click');
+        dropFocus();
+        await settle();
+        expect(document.activeElement).toBe($unblock.get(0));
+    });
+
     it('puts the switch back when the change fails', async () => {
         await open();
         failWith = 'Try again later';

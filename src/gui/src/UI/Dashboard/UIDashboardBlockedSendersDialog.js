@@ -97,10 +97,12 @@ export default function UIDashboardBlockedSendersDialog ({ $container, returnFoc
     };
     const fail = (err) => setStatus(err?.message || t('blocked_failed'));
 
-    // A focused button that is disabled or redrawn drops focus to the page.
-    const holdFocus = () => {
+    // A focused control that is disabled or redrawn drops focus to the page.
+    // It goes back to that control when it is usable again, else to the card.
+    const holdFocus = (el_control) => {
         const el_active = document.activeElement;
-        if ( ! isClosed() && (! el_active || el_active === document.body) ) el_dialog.focus({ preventScroll: true });
+        if ( isClosed() || (el_active && el_active !== document.body) ) return;
+        (el_control?.isConnected && ! el_control.disabled ? el_control : el_dialog).focus({ preventScroll: true });
     };
 
     const render = (items) => {
@@ -154,7 +156,7 @@ export default function UIDashboardBlockedSendersDialog ({ $container, returnFoc
             fail(err);
         } finally {
             this.disabled = false;
-            holdFocus();
+            holdFocus(this);
         }
     });
 
@@ -164,17 +166,19 @@ export default function UIDashboardBlockedSendersDialog ({ $container, returnFoc
         const $btn = $dialog.find('.dashboard-blocked-add-btn');
         if ( ! username || $btn.prop('disabled') ) return;
         $btn.prop('disabled', true);
+        let added = true;
         try {
             await blocksApi('POST', { username });
-            $username.val('');
-            setStatus(t('blocked_added', { username }), 'info');
-            await refresh();
         } catch ( err ) {
+            added = false;
             fail(err);
-        } finally {
-            $btn.prop('disabled', false);
-            holdFocus();
         }
+        $btn.prop('disabled', false);
+        holdFocus($btn.get(0));
+        if ( ! added ) return;
+        $username.val('');
+        setStatus(t('blocked_added', { username }), 'info');
+        await refresh();
     });
 
     $dialog.on('click', '.dashboard-blocked-unblock', async function () {
@@ -185,7 +189,7 @@ export default function UIDashboardBlockedSendersDialog ({ $container, returnFoc
         } catch ( err ) {
             fail(err);
             $(this).prop('disabled', false);
-            holdFocus();
+            holdFocus(this);
             return;
         }
         // They are unblocked now, whether or not the list reloads.
