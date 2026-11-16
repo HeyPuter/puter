@@ -39,3 +39,21 @@ export const catalogPrice = (
         ? converted
         : undefined;
 };
+
+// A plain USD decimal, e.g. "0.0000160000".
+const USD_PATTERN = /^(\d+)(?:\.(\d+))?$/;
+const UCENTS_PER_USD_DIGITS = 8;
+
+/**
+ * Microcents for a plain USD decimal string, shifted digit by digit so a rate
+ * like "0.0006" comes out as exactly 60000. Undefined for any other format.
+ */
+export const usdToUcents = (usd: string): number | undefined => {
+    const match = USD_PATTERN.exec(usd);
+    if (!match) return undefined;
+    const fraction = (match[2] ?? '').padEnd(UCENTS_PER_USD_DIGITS, '0');
+    const ucents = Number(
+        `${match[1]}${fraction.slice(0, UCENTS_PER_USD_DIGITS)}.${fraction.slice(UCENTS_PER_USD_DIGITS) || '0'}`,
+    );
+    return Number.isFinite(ucents) ? ucents : undefined;
+};

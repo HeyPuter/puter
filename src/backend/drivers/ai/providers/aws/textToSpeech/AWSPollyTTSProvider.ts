@@ -43,11 +43,8 @@ import {
     meterPerCharacter,
 } from '../../../interfaces/textToSpeech/common.js';
 import { AWS_POLLY_COSTS } from './costs.js';
-import {
-    fetchPollyPriceList,
-    isPollyPriceRegion,
-    type PollyRates,
-} from './pricing.js';
+import { fetchPollyPriceList, type PollyRates } from './pricing.js';
+import { isAwsPriceRegion } from '../priceList.js';
 
 const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 
@@ -94,7 +91,7 @@ export class AWSPollyTTSProvider implements ITTSProvider {
         this.region = config.region ?? 'us-west-2';
         const region = this.region;
         // Rates the feed omits or can't vouch for keep their last known value.
-        this.rates = isPollyPriceRegion(region)
+        this.rates = isAwsPriceRegion(region)
             ? cachedRemoteCatalog<PollyRates>({
                   name: `AWS Polly ${region} price list`,
                   fallback: AWS_POLLY_COSTS,

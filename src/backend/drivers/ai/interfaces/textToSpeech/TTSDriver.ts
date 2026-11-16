@@ -32,7 +32,7 @@ import { usesGoogleGeminiEndpoint } from '../../providers/gemini/geminiRest.js';
 import { ProviderRegistry } from '../../shared/providerRegistry.js';
 import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import { TTS_CATALOG, TTS_DRIVER_ALIASES } from './providerAliases.js';
-import { AWSPollyTTSProvider } from '../../providers/awsPolly/textToSpeech/AWSPollyTTSProvider.js';
+import { AWSPollyTTSProvider } from '../../providers/aws/textToSpeech/AWSPollyTTSProvider.js';
 import { ElevenLabsTTSProvider } from '../../providers/elevenlabs/textToSpeech/ElevenLabsTTSProvider.js';
 import { GeminiTTSProvider } from '../../providers/gemini/textToSpeech/GeminiTTSProvider.js';
 import { KlingTTSProvider } from '../../providers/kling/textToSpeech/KlingTTSProvider.js';
@@ -258,8 +258,7 @@ export class TTSDriver extends PuterDriver {
 
         const polly = providers['aws-polly'];
         const pollyAws = (polly?.aws ?? polly) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const pollyCredentials = awsCredentialsFrom(pollyAws);
         if (pollyCredentials) {
             register(
@@ -268,8 +267,7 @@ export class TTSDriver extends PuterDriver {
                     new AWSPollyTTSProvider(m, {
                         credentials: pollyCredentials,
                         region: (pollyAws?.region ?? polly?.region) as
-                            | string
-                            | undefined,
+                            string | undefined,
                     }),
             );
         }
@@ -305,8 +303,7 @@ export class TTSDriver extends PuterDriver {
                     new KlingTTSProvider(m, {
                         apiKey,
                         apiBaseUrl: providers['kling']?.apiBaseUrl as
-                            | string
-                            | undefined,
+                            string | undefined,
                     }),
                 providers['kling'],
             ),

@@ -37,7 +37,7 @@ import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import {
     TEXTRACT_PAGE_USAGE_TYPE,
     TextractOcrProvider,
-} from '../../providers/awsTextract/ocr/TextractOcrProvider.js';
+} from '../../providers/aws/ocr/TextractOcrProvider.js';
 import { MistralOcrProvider } from '../../providers/mistral/ocr/MistralOcrProvider.js';
 import { badRequest } from './common.js';
 import { OCR_COSTS } from './costs.js';
@@ -135,11 +135,9 @@ export class OCRDriver extends PuterDriver {
         const metering = this.#aiMetering;
 
         const textract = providers['aws-textract'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractAws = (textract?.aws ?? textract) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractCredentials = awsCredentialsFrom(textractAws);
         if (textractCredentials) {
             this.#textract = new TextractOcrProvider(metering, {

@@ -22,9 +22,7 @@ import usEast1 from './fixtures/us-east-1.json';
 import usWest2 from './fixtures/us-west-2.json';
 import {
     fetchPollyPriceList,
-    isPollyPriceRegion,
     parsePollyPriceList,
-    POLLY_PRICE_LIST_MAX_BYTES,
 } from './pricing.js';
 
 // The fixtures are AWS's public price lists for the region, trimmed only of
@@ -265,19 +263,8 @@ describe('parsePollyPriceList on the published price lists', () => {
     });
 });
 
-describe('isPollyPriceRegion', () => {
-    it('accepts plain AWS region codes only', () => {
-        for (const region of ['us-west-2', 'ap-southeast-5', 'us-gov-west-1']) {
-            expect(isPollyPriceRegion(region)).toBe(true);
-        }
-        for (const region of ['', 'US-WEST-2', '../us-west-2', 'us-west-2/x']) {
-            expect(isPollyPriceRegion(region)).toBe(false);
-        }
-    });
-});
-
 describe('fetchPollyPriceList', () => {
-    it('reads the region price list from the public AWS endpoint', async () => {
+    it('reads the region price list from the public AWS endpoint without following redirects', async () => {
         const fetchMock = vi.fn(async () => Response.json(usWest2));
         vi.stubGlobal('fetch', fetchMock);
         const signal = new AbortController().signal;
@@ -291,17 +278,8 @@ describe('fetchPollyPriceList', () => {
         );
         expect(fetchMock).toHaveBeenCalledWith(
             'https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonPolly/current/us-west-2/index.json',
-            expect.objectContaining({ signal }),
+            expect.objectContaining({ signal, redirect: 'error' }),
         );
-    });
-
-    it('never requests an invalid region', async () => {
-        const fetchMock = vi.fn();
-        vi.stubGlobal('fetch', fetchMock);
-        await expect(
-            fetchPollyPriceList('../../evil', new AbortController().signal),
-        ).rejects.toThrow();
-        expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('rejects an error status', async () => {
@@ -314,26 +292,14 @@ describe('fetchPollyPriceList', () => {
         ).rejects.toThrow('403');
     });
 
-    it('rejects a body over the size cap', async () => {
+    it('rejects a region AWS publishes no price list for', async () => {
         vi.stubGlobal(
             'fetch',
-            vi.fn(
-                async () =>
-                    new Response(' '.repeat(POLLY_PRICE_LIST_MAX_BYTES + 1)),
-            ),
+            vi.fn(async () => new Response('NoSuchKey', { status: 404 })),
         );
         await expect(
             fetchPollyPriceList('us-west-2', new AbortController().signal),
-        ).rejects.toThrow('size cap');
+        ).rejects.toThrow('no Polly price list');
     });
 
-    it('rejects a body that is not JSON', async () => {
-        vi.stubGlobal(
-            'fetch',
-            vi.fn(async () => new Response('<html>')),
-        );
-        await expect(
-            fetchPollyPriceList('us-west-2', new AbortController().signal),
-        ).rejects.toThrow();
-    });
 });
