@@ -2461,6 +2461,11 @@ describe('enable after the user removed this browser in Puter', () => {
             expect(reauthOf('/push/web/key')).toEqual([false]);
             expect(reauthOf('/push/web/subscriptions')).toEqual([false]);
         });
+
+        it('tells the desktop that enable() takes background', () => {
+            const { module } = makeModule({ env: 'gui' });
+            expect(module._enableTakesBackground).toBe(true);
+        });
     });
 });
 

@@ -65,6 +65,7 @@ describe('syncBrowserPush with the built-in client', () => {
         const notifications = {
             enable: vi.fn(async () => true),
             _enableWebPush: vi.fn(async () => {}),
+            _enableTakesBackground: true,
             disable: vi.fn(async () => true),
             listDevices: vi.fn(async () => [current]),
         };

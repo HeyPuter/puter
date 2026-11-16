@@ -62,7 +62,7 @@ const fakeIdb = (entries = {}) => {
 };
 
 /** A client over a stand-in puter.js that keeps its push record in a Map. */
-const make = ({ on = true, devices = [], permission = 'granted', subscription = { endpoint: 'https://push.test/1' }, user = 'u-1', serverState = 'active', kept = {}, storage = fakeStorage(), idb = fakeIdb(), oldSdk = false } = {}) => {
+const make = ({ on = true, devices = [], permission = 'granted', subscription = { endpoint: 'https://push.test/1' }, user = 'u-1', serverState = 'active', kept = {}, storage = fakeStorage(), idb = fakeIdb(), oldSdk = false, takesBackground = true } = {}) => {
     const sdk = new Map(Object.entries(kept));
     const state = { subscription, user, serverState, now: 0 };
     const notifications = {
@@ -74,6 +74,7 @@ const make = ({ on = true, devices = [], permission = 'granted', subscription = 
             return on;
         }),
         _enableWebPush: vi.fn(async () => {}),
+        ...(takesBackground ? { _enableTakesBackground: true } : {}),
         disable: vi.fn(async () => true),
         listDevices: vi.fn(async () => devices),
         _webPushRecord: vi.fn(async ({ endpoint = true } = {}) => ({ endpoint: endpoint ? sdk.get(`${SYNCED_PREFIX}${state.user}`)?.endpoint ?? null : null, changed: sdk.get(CHANGED) ?? null })),
@@ -180,6 +181,18 @@ describe('webPushClient', () => {
         const removed = Object.assign(new Error('removed'), { code: 'push_device_removed' });
         notifications.enable.mockRejectedValue(removed);
         await expect(client.enable({ background: true })).rejects.toBe(removed);
+    });
+
+    it('turns on in the background through the internal call with a puter.js whose enable() has no background option', async () => {
+        const { notifications, client } = make({ devices: [current], takesBackground: false });
+        await expect(client.enable({ background: true })).resolves.toEqual({ deviceUid: 'd1' });
+        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { background: true });
+        expect(notifications.enable).not.toHaveBeenCalled();
+
+        const removed = Object.assign(new Error('removed'), { code: 'push_device_removed' });
+        notifications._enableWebPush.mockRejectedValue(removed);
+        await expect(client.enable({ background: true })).rejects.toBe(removed);
+        expect(notifications.enable).not.toHaveBeenCalled();
     });
 
     it('rejects in the background when enable() resolves false', async () => {

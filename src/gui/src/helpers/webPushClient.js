@@ -29,6 +29,9 @@ import {
 } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import { forgetPushApps, webPushEndpointState } from './notificationApi.js';
 
+/** `/sw.js` as puter.js registers it, for a puter.js whose `enable()` has no `background`. */
+const GUI_WORKER = { url: '/sw.js', scope: '/' };
+
 /** Per user, the confirmed endpoint when puter.js has no push record to keep it. */
 export const LAST_ENDPOINT_PREFIX = 'puter.push.last-endpoint:';
 
@@ -148,7 +151,10 @@ export const webPushClient = ({
                     if ( earlier === 'removed' ) throw removedError();
                     // The mark stays, so the next run asks again.
                     if ( earlier === 'busy' ) throw busyError();
-                    return await notifications.enable({ background: true });
+                    if ( notifications._enableTakesBackground === true ) return await notifications.enable({ background: true });
+                    // An older puter.js runs `enable()` as a click, which replaces a browser removed in Puter.
+                    await notifications._enableWebPush(GUI_WORKER, { background: true });
+                    return true;
                 })
                 : notifications.enable();
             return turningOn.then(async (on) => {
