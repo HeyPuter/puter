@@ -165,6 +165,10 @@ export class UserAccountService extends PuterService {
         ]);
         if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
         else await this.stores.user.invalidateById(userId);
+        // Its issued grant rows cascaded; holders' cached copies still name it.
+        await this.stores.permission.markUserUserPermsChanged(
+            issuedRefs.map((ref) => ref.holderUserId),
+        );
         await this.stores.subdomain.forgetCascadeDeleted(appSites);
 
         if (issuedRefs.length > 0) {

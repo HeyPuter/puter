@@ -578,6 +578,41 @@ describe('UserAccountService', () => {
             );
         });
 
+        it("does not pass manage down a folder on a deleted re-sharer's cached grant row", async () => {
+            const owner = await seedUser();
+            const resharer = await seedUser();
+            const holder = await seedUser();
+            const dir = `/${owner.username}/d_${uuidv4().slice(0, 8)}`;
+            const dirUid = await insertEntry(owner.id, dir, true);
+            const fileUid = await insertEntry(owner.id, `${dir}/f.txt`, false);
+            await flatGrant(holder.id, resharer.id, `manage:fs:${dirUid}`);
+            // An old grant: its write mark is gone and the holder's rows are cached.
+            await server.clients.redis.del(
+                `perms:u2u:holder:${holder.id}:deleted`,
+            );
+            await server.stores.permission.readLinkedUserUserPerms(holder.id, [
+                `manage:fs:${dirUid}`,
+            ]);
+            await vi.waitFor(async () =>
+                expect(
+                    await server.clients.redis.get(
+                        `perms:u2u:holder:${holder.id}`,
+                    ),
+                ).toContain(dirUid),
+            );
+            const asked = `manage:fs:${fileUid}`;
+            const actor = await actorOf(holder.id);
+            expect(await server.services.permission.check(actor, asked)).toBe(
+                true,
+            );
+
+            await server.services.userAccount.cascadeDelete(resharer.id);
+
+            expect(await server.services.permission.check(actor, asked)).toBe(
+                false,
+            );
+        });
+
         it("does not list a share backed only by a deleted issuer's leftover entry", async () => {
             const owner = await seedUser();
             const issuer = await seedUser();

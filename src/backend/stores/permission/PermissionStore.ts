@@ -742,6 +742,14 @@ export class PermissionStore extends PuterStore {
         }));
     }
 
+    /** Drops these holders' cached grant rows, for rows that cascaded away. */
+    async markUserUserPermsChanged(holderUserIds: number[]): Promise<void> {
+        const ids = [...new Set(holderUserIds.map(Number))].filter((id) =>
+            Number.isFinite(id),
+        );
+        await this.tombstoneCacheKeys(ids.map((id) => this.#u2uCacheKey(id)));
+    }
+
     /** `primary` when a grant may be too new for a replica to have it. */
     #grantRead(primary: boolean): DbRead {
         return primary
