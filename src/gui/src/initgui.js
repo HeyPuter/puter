@@ -25,7 +25,6 @@ import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
 import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
-import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowPasswordChangeRequired from './UI/UIWindowPasswordChangeRequired.js';
@@ -2106,12 +2105,6 @@ window.initgui = async function (options) {
             user: user,
             token: token,
         });
-    }
-    //--------------------------------------------------------------------------------------
-    // Action: Change Username
-    //--------------------------------------------------------------------------------------
-    else if (action === 'change-username') {
-        await UIWindowChangeUsername();
     }
     //--------------------------------------------------------------------------------------
     // Action: Login

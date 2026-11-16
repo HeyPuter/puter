@@ -297,6 +297,10 @@ export class HomepageController extends PuterController {
             res.redirect(`/${queryOf(req)}`),
         );
 
+        // Old change-username links land on the dashboard's Account tab.
+        router.get('/action/change-username', {}, (_req, res) =>
+            res.redirect('/dashboard#account'),
+        );
         router.get('/action/*splat', {}, (req, res) => sendShell(req, res));
 
         // Old links to a user's public folder land on the dashboard.
