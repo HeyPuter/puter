@@ -562,6 +562,15 @@ describe('webPushClient and a browser removed from another device', () => {
             expect(made.storage.map.get(OPT_OUT)).toBe('1');
         });
 
+        it('stays off from the endpoint a newer puter.js recorded on an earlier load', async () => {
+            const made = removedElsewhere({ oldSdk: true, takesBackground: false, subscription: null, idb: fakeIdb(synced(OLD)) });
+            await expect(sync(made.storage)).resolves.toBe('removed');
+            expect(made.endpointState).toHaveBeenCalledWith(OLD);
+            expect(made.notifications._enableWebPush).not.toHaveBeenCalled();
+            expect(made.notifications.enable).not.toHaveBeenCalled();
+            expect(made.storage.map.get(OPT_OUT)).toBe('1');
+        });
+
         it('ends the subscription and forgets its receipt and the mark on a removed answer', async () => {
             const made = removedElsewhere({ oldSdk: true, idb: fakeIdb({ [CHANGED]: { at: 1, oldEndpoint: OLD }, [RECEIPT]: { endpoint: OLD, receipt: 'r.sig' } }) });
             await expect(sync(made.storage)).resolves.toBe('removed');

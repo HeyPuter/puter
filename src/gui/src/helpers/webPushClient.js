@@ -24,6 +24,7 @@ import {
     RECEIPT_PREFIX,
     SUBSCRIPTION_CHANGED_MESSAGE,
     SUBSCRIPTION_CHANGED_PREFIX,
+    SYNCED_PREFIX,
     idbDelete,
     idbGet,
 } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
@@ -101,9 +102,19 @@ export const webPushClient = ({
             // The next load registers again.
         }
     };
+    // A newer puter.js on an earlier load may have kept the endpoint only there.
+    const directSynced = async () => {
+        try {
+            const user = userUid();
+            const synced = user ? await idbGet(HANDLERS_STORE, SYNCED_PREFIX + user, idb) : null;
+            return typeof synced?.endpoint === 'string' && synced.endpoint ? synced.endpoint : null;
+        } catch ( e ) {
+            return null;
+        }
+    };
     const pushRecord = async ({ endpoint = true } = {}) => (viaSdk()
         ? await notifications._webPushRecord({ endpoint })
-        : { endpoint: null, changed: await directMark() });
+        : { endpoint: endpoint ? await directSynced() : null, changed: await directMark() });
     const storedEndpoint = () => {
         try {
             return storage.getItem(endpointKey(userUid()));
