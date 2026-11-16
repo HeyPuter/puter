@@ -60,7 +60,7 @@ import { setupTestServer } from '../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import type { OCRDriver } from './OCRDriver.js';
 import { OCR_COSTS } from './costs.js';
-import textractUsWest2 from '../../providers/awsTextract/ocr/fixtures/textract-us-west-2.json';
+import textractUsWest2 from '../../providers/aws/ocr/fixtures/textract-us-west-2.json';
 
 // ── SDK mocks ───────────────────────────────────────────────────────
 //

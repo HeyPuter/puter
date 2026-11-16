@@ -46,7 +46,7 @@ import { PuterServer } from '../../../../server.js';
 import { setupTestServer, withAiCostFactorHook } from '../../../../testUtil.js';
 import { readStreamResult } from '../../shared/integrationTestUtil.js';
 import type { TTSDriver } from './TTSDriver.js';
-import pollyPriceList from '../../providers/awsPolly/textToSpeech/fixtures/us-west-2.json';
+import pollyPriceList from '../../providers/aws/textToSpeech/fixtures/us-west-2.json';
 
 // ── SDK mocks ──────────────────────────────────────────────────────
 //
