@@ -96,7 +96,7 @@ describe('workers.create', () => {
         const sdk = makeSdk({ sandboxApp: { uid: 'app-bob', owner: { uuid: 'u-bob', username: 'bob' } } });
         vi.stubGlobal('puter', sdk);
         await expect(new WorkersHandler(sdk).create('myworker', '/alice/worker.js')).rejects.toThrow(
-            'Sandbox context is not owned by you! This worker\'s sandbox is currently owned by: bob',
+            'The sandbox app \'sandbox-myworker\' belongs to another user. Choose another worker name, or pass { sandbox: false }.',
         );
         expect(driverCalls).toEqual([]);
         expect(sdk.apps.create).not.toHaveBeenCalled();
