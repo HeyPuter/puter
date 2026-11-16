@@ -481,6 +481,8 @@ You can find the implementation in our [prompt caching example](/playground/ai-c
 
 ### Gemini models
 
+Gemini models use regular token prices, including during provider launch promotions.
+
 Fast service uses Priority inference on supported text and image requests. Other media use standard service to preserve input handling.
 
 #### `temperature`

@@ -50,11 +50,7 @@ import {
     assertMaxChars,
     TTS_UPSTREAM_TIMEOUT_MS,
 } from '../../../interfaces/textToSpeech/common.js';
-import {
-    GEMINI_TTS_COSTS,
-    type GeminiTTSCosts,
-    geminiTTSCostsAt,
-} from './costs.js';
+import { GEMINI_TTS_COSTS, type GeminiTTSCosts } from './costs.js';
 
 /**
  * Largest Interactions reply read; audio arrives base64-encoded inside JSON.
@@ -259,9 +255,8 @@ export class GeminiTTSProvider implements ITTSProvider {
     }
 
     getReportedCosts(): Record<string, unknown>[] {
-        const now = Date.now();
         return Object.keys(GEMINI_TTS_COSTS).flatMap((model) => {
-            const costs = geminiTTSCostsAt(model, now);
+            const costs = GEMINI_TTS_COSTS[model];
             if (!costs) return [];
             return [
                 {
@@ -351,9 +346,7 @@ export class GeminiTTSProvider implements ITTSProvider {
         }
 
         const actor = Context.get('actor')!;
-        // Priced once, so a request that crosses a rate change settles at the
-        // rates it was held at.
-        const costs = geminiTTSCostsAt(model, Date.now());
+        const costs = GEMINI_TTS_COSTS[model];
         if (!costs) {
             throw new HttpError(500, `No cost data for model: ${model}`, {
                 legacyCode: 'internal_error',

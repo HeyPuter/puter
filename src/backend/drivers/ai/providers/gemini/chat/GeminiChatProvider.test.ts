@@ -497,13 +497,13 @@ describe('GeminiChatProvider pricing tiers', () => {
         'gemini-3.7-flash',
         'gemini-3.8-flash',
     ].flatMap((model) => [
-        [model, '2026-12-31T23:59:59.999Z', 75, 375, 7.5] as const,
+        [model, '2026-12-31T23:59:59.999Z', 150, 750, 15] as const,
         [model, '2027-01-01T00:00:00.000Z', 150, 750, 15] as const,
     ]);
 
     it.each([
         ...SCHEDULED,
-        ['gemini-robotics-er-2-preview', '2026-12-31T23:59:59.999Z', 100, 500, 10] as const,
+        ['gemini-robotics-er-2-preview', '2026-12-31T23:59:59.999Z', 200, 1000, 20] as const,
         ['gemini-robotics-er-2-preview', '2027-01-01T00:00:00.000Z', 200, 1000, 20] as const,
     ])(
         'settles %s started at %s at its rates in force',
@@ -529,7 +529,7 @@ describe('GeminiChatProvider pricing tiers', () => {
     );
 
     it.each(['gemini-3.6-flash', 'gemini-robotics-er-2-preview'])(
-        'lists %s at launch rates before the cutoff and doubled from it',
+        'lists %s at standard rates on both sides of the former cutoff',
         (id) => {
             const model = GEMINI_MODELS.find((m) => m.id === id)!;
             const before = listedCosts(
@@ -543,7 +543,7 @@ describe('GeminiChatProvider pricing tiers', () => {
                 'thinking_tokens',
                 'cached_tokens',
             ]) {
-                expect(after[key]).toBe(before[key]! * 2);
+                expect(after[key]).toBe(before[key]);
             }
             expect(after.grounding_requests).toBe(1_400_000);
         },

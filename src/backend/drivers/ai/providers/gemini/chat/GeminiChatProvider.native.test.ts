@@ -112,7 +112,7 @@ const makeProvider = (
 ) => new GeminiChatProvider(config, server.services.metering);
 
 const ARGON = GEMINI_MODELS.find((m) => m.id === 'gemini-4-argon')!;
-const LAUNCH = new Date('2026-10-14T12:00:00Z');
+const REQUEST_TIME = new Date('2026-10-14T12:00:00Z');
 const NATIVE_IDS = [
     'gemini-4-hydrogen',
     'gemini-4-carbon',
@@ -171,7 +171,7 @@ const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
     },
 });
 
-const complete = (args: Partial<ICompleteArguments>, pricingTime = LAUNCH) =>
+const complete = (args: Partial<ICompleteArguments>, pricingTime = REQUEST_TIME) =>
     withTestActor(() =>
         makeProvider().complete(
             {
@@ -439,11 +439,11 @@ describe('gemini-4-argon text completion', () => {
             thinking_tokens: 69,
             cached_tokens: 0,
         });
-        // $2 in, $10 out and thinking per million, in µ¢ per token.
+        // $4 in, $20 out and thinking per million, in µ¢ per token.
         expect(costs).toEqual({
-            prompt_tokens: 36 * 200,
-            completion_tokens: 5 * 1000,
-            thinking_tokens: 69 * 1000,
+            prompt_tokens: 36 * 400,
+            completion_tokens: 5 * 2000,
+            thinking_tokens: 69 * 2000,
             cached_tokens: 0,
         });
         // The reported breakdown counts the same output tokens that were billed.
@@ -483,10 +483,10 @@ describe('gemini-4-argon text completion', () => {
             cached_tokens: 800,
         });
         expect(costs).toEqual({
-            prompt_tokens: 200 * 200,
-            completion_tokens: 10 * 1000,
-            thinking_tokens: 20 * 1000,
-            cached_tokens: 800 * 10,
+            prompt_tokens: 200 * 400,
+            completion_tokens: 10 * 2000,
+            thinking_tokens: 20 * 2000,
+            cached_tokens: 800 * 20,
         });
     });
 
@@ -496,7 +496,7 @@ describe('gemini-4-argon text completion', () => {
         );
         await complete({});
         const [, , , costs] = recordSpy.mock.calls[0]!;
-        expect(costs).toMatchObject({ tool_use_prompt_tokens: 7 * 200 });
+        expect(costs).toMatchObject({ tool_use_prompt_tokens: 7 * 400 });
     });
 
     it('inlines data-URL images as inline data', async () => {
@@ -585,7 +585,7 @@ describe('gemini-4-argon unsupported content', () => {
 
 describe('gemini-4-argon pricing by date', () => {
     it.each([
-        ['2026-11-30T23:59:59.999Z', 200, 1000, 10],
+        ['2026-11-30T23:59:59.999Z', 400, 2000, 20],
         ['2026-12-01T00:00:00.000Z', 400, 2000, 20],
         ['2027-01-15T08:00:00.000Z', 400, 2000, 20],
     ])(
@@ -618,9 +618,9 @@ describe('gemini-4-argon pricing by date', () => {
             await complete({}, new Date('2026-11-30T23:59:58Z'));
             const [, , , costs] = recordSpy.mock.calls[0]!;
             expect(costs).toEqual({
-                prompt_tokens: 36 * 200,
-                completion_tokens: 5 * 1000,
-                thinking_tokens: 69 * 1000,
+                prompt_tokens: 36 * 400,
+                completion_tokens: 5 * 2000,
+                thinking_tokens: 69 * 2000,
                 cached_tokens: 0,
             });
         } finally {
@@ -825,8 +825,8 @@ describe('gemini-4-argon output cap', () => {
         let reserve: MockInstance<MeteringService['reserveCredits']>;
 
         beforeEach(async () => {
-            // Launch rates, so a hold converts to output tokens exactly.
-            vi.useFakeTimers({ toFake: ['Date'], now: LAUNCH });
+            // Fix the request time for deterministic reservations.
+            vi.useFakeTimers({ toFake: ['Date'], now: REQUEST_TIME });
             driver = new ChatCompletionDriver(
                 {
                     providers: {
@@ -1621,7 +1621,7 @@ describe('geminiNativeClient deadline', () => {
 
 describe('Gemini 4 Carbon', () => {
     it.each([
-        ['2026-11-30T23:59:59.999Z', 200, 1000, 10],
+        ['2026-11-30T23:59:59.999Z', 400, 2000, 20],
         ['2026-12-01T00:00:00.000Z', 400, 2000, 20],
     ])(
         'routes natively and meters thinking at %s',

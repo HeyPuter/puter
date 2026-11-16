@@ -23,27 +23,13 @@ export interface GeminiTTSCosts {
     output_audio: number;
 }
 
-/** The instant launch pricing ends and both rates double. */
-export const GEMINI_TTS_LAUNCH_PRICING_ENDS = Date.UTC(2027, 0, 1);
-
-/** Launch pricing, through 2026-12-31 UTC. */
 export const GEMINI_TTS_COSTS: Record<string, GeminiTTSCosts> = {
     'gemini-3.8-flash-tts': {
-        input: 50, // $0.50 per 1M tokens
-        output_audio: 900, // $9.00 per 1M tokens
+        input: 100, // $1.00 per 1M tokens
+        output_audio: 1800, // $18.00 per 1M tokens
     },
     'gemini-3.8-flash-lite-tts': {
-        input: 50, // $0.50 per 1M tokens
-        output_audio: 600, // $6.00 per 1M tokens
+        input: 100, // $1.00 per 1M tokens
+        output_audio: 1200, // $12.00 per 1M tokens
     },
-};
-
-/** `model`'s rates in force at `at` (ms since epoch); undefined when unpriced. */
-export const geminiTTSCostsAt = (
-    model: string,
-    at: number,
-): GeminiTTSCosts | undefined => {
-    const launch = GEMINI_TTS_COSTS[model];
-    if (!launch || at < GEMINI_TTS_LAUNCH_PRICING_ENDS) return launch;
-    return { input: launch.input * 2, output_audio: launch.output_audio * 2 };
 };
