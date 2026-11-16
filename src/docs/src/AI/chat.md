@@ -385,6 +385,8 @@ The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the
 
 ### OpenAI models
 
+GPT-5.6 Sol uses regular prices of $5 per million input tokens and $30 per million output tokens.
+
 Passing `service_tier: "priority"` selects fast service, and `service_tier: "ultrafast"` selects ultrafast service. These requests use the same prices and supported-speed selection as `serviceSpeed`. An explicit `serviceSpeed` takes precedence.
 
 Input and reasoning tokens reported by a non-streaming Responses API call are billed even when its output is empty. These charges apply whether the request fails or retries another provider.
