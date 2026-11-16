@@ -68,6 +68,9 @@ export const U2U_EXACT_DELETE_CHUNK = 500;
 /** Flat entries one page of a deleted holder's purge lists, and the pages. */
 const HELD_FLAT_PURGE_PAGE = 500;
 const HELD_FLAT_PURGE_MAX_PAGES = 200;
+/** Groups and members read for a deleted issuer; past these the TTLs apply. */
+const ISSUED_GROUPS_CAP = 200;
+const ISSUED_GROUP_MEMBERS_CAP = 2000;
 
 /** The user-to-app grant a user's first sign-in to an app records. */
 export const APP_AUTHENTICATED_FLAG = 'flag:app-is-authenticated';
@@ -183,6 +186,12 @@ export interface FlatPermRef {
  */
 const subtreeRoot = (prefix: string): string =>
     prefix.endsWith(':') ? prefix.slice(0, -1) : prefix;
+
+/** A flat entry's issuer id, or null when it names none usable. */
+const flatIssuerId = (value: FlatPermValue): number | null => {
+    const id = Number(value.issuer_user_id);
+    return Number.isFinite(id) && id > 0 ? id : null;
+};
 
 /** Match a permission and everything beneath it. */
 const subtreeClause = (
@@ -320,6 +329,84 @@ export class PermissionStore extends PuterStore {
         return values.filter(
             (v): v is FlatPermValue => v !== null && typeof v === 'object',
         );
+    }
+
+    /**
+     * Drops entries whose issuer is gone, deleting them off the request path.
+     * Issuers in `knownUsers` (rows the caller already read) aren't read
+     * again.
+     */
+    async withoutOrphanedFlatPerms<
+        T extends { ref: FlatPermRef; value: FlatPermValue },
+    >(
+        items: T[],
+        knownUsers?: Map<number, UserRow>,
+    ): Promise<{ kept: T[]; issuers: Map<number, UserRow> }> {
+        const ids = [
+            ...new Set(items.map(({ value }) => flatIssuerId(value))),
+        ].filter((id): id is number => id !== null);
+        const issuers = new Map<number, UserRow>();
+        const unknown: number[] = [];
+        for (const id of ids) {
+            const user = knownUsers?.get(id);
+            if (user) issuers.set(id, user);
+            else unknown.push(id);
+        }
+        if (unknown.length > 0) {
+            const read = await this.stores.user.getByIds(unknown);
+            for (const [id, user] of read) issuers.set(id, user);
+            // A lagging replica can miss part of a batch; the primary decides.
+            const missing = unknown.filter((id) => !issuers.has(id));
+            if (missing.length > 0) {
+                const reread =
+                    await this.stores.user.getByIdsFromPrimary(missing);
+                for (const [id, user] of reread) issuers.set(id, user);
+            }
+        }
+
+        const orphaned: T[] = [];
+        const kept = items.filter((item) => {
+            const issuerId = flatIssuerId(item.value);
+            if (issuerId === null || issuers.has(issuerId)) return true;
+            orphaned.push(item);
+            return false;
+        });
+        if (orphaned.length > 0) {
+            void (async () => {
+                try {
+                    await this.#deleteOrphanedFlatPerms(orphaned);
+                } catch (e) {
+                    console.warn(
+                        '[PermissionStore] orphaned flat entries kept:',
+                        e,
+                    );
+                }
+            })();
+        }
+        return { kept, issuers };
+    }
+
+    /** Only where the entry still names the gone issuer; a fresh grant stays. */
+    async #deleteOrphanedFlatPerms(
+        orphaned: Array<{ ref: FlatPermRef; value: FlatPermValue }>,
+    ): Promise<void> {
+        const goneBy = new Map(
+            orphaned.map(({ ref, value }) => [
+                `${ref.holderUserId}:${ref.permission}`,
+                flatIssuerId(value),
+            ]),
+        );
+        const current = await this.getFlatUserPermsForRefs(
+            orphaned.map(({ ref }) => ref),
+        );
+        const stale = current
+            .filter(
+                ({ ref, value }) =>
+                    flatIssuerId(value) ===
+                    goneBy.get(`${ref.holderUserId}:${ref.permission}`),
+            )
+            .map(({ ref }) => ref);
+        if (stale.length > 0) await this.delFlatUserPerms(stale);
     }
 
     /**
@@ -643,7 +730,8 @@ export class PermissionStore extends PuterStore {
     async listUserUserPermRefsIssuedBy(
         issuerUserId: number,
     ): Promise<FlatPermRef[]> {
-        const rows = (await this.clients.db.read(
+        // Primary: a grant the replica lacks would keep its flat entry forever.
+        const rows = (await this.clients.db.pread(
             'SELECT `holder_user_id`, `permission` FROM `user_to_user_permissions` ' +
                 'WHERE `issuer_user_id` = ?',
             [issuerUserId],
@@ -652,6 +740,14 @@ export class PermissionStore extends PuterStore {
             holderUserId: row.holder_user_id,
             permission: row.permission,
         }));
+    }
+
+    /** Drops these holders' cached grant rows, for rows that cascaded away. */
+    async markUserUserPermsChanged(holderUserIds: number[]): Promise<void> {
+        const ids = [...new Set(holderUserIds.map(Number))].filter((id) =>
+            Number.isFinite(id),
+        );
+        await this.tombstoneCacheKeys(ids.map((id) => this.#u2uCacheKey(id)));
     }
 
     /** `primary` when a grant may be too new for a replica to have it. */
@@ -1415,7 +1511,10 @@ export class PermissionStore extends PuterStore {
             .filter((uuid): uuid is string => Boolean(uuid));
     }
 
-    async #listGroupMembers(groupIds: number[]): Promise<GroupMember[]> {
+    async #listGroupMembers(
+        groupIds: number[],
+        limit?: number,
+    ): Promise<GroupMember[]> {
         const ids = [...new Set(groupIds.map(Number))].filter((id) =>
             Number.isFinite(id),
         );
@@ -1423,10 +1522,24 @@ export class PermissionStore extends PuterStore {
         const rows = (await this.clients.db.pread(
             'SELECT DISTINCT u.`id`, u.`uuid` FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
-                `WHERE ug.\`group_id\` IN (${ids.map(() => '?').join(', ')})`,
-            ids,
+                `WHERE ug.\`group_id\` IN (${ids.map(() => '?').join(', ')})` +
+                (limit === undefined ? '' : ' LIMIT ?'),
+            limit === undefined ? ids : [...ids, limit],
         )) as { id: number; uuid: string | null }[];
         return rows.map((row) => ({ id: Number(row.id), uuid: row.uuid }));
+    }
+
+    /** Members of the groups this user granted to; their grants go with it. */
+    async listIssuedGroupMembers(issuerUserId: number): Promise<GroupMember[]> {
+        const groups = (await this.clients.db.pread(
+            'SELECT DISTINCT `group_id` FROM `user_to_group_permissions` ' +
+                'WHERE `user_id` = ? LIMIT ?',
+            [issuerUserId, ISSUED_GROUPS_CAP],
+        )) as { group_id: number }[];
+        return this.#listGroupMembers(
+            groups.map((g) => g.group_id),
+            ISSUED_GROUP_MEMBERS_CAP,
+        );
     }
 
     /**

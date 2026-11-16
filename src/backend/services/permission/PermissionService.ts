@@ -921,22 +921,23 @@ export class PermissionService extends PuterService {
         permissions: string[],
     ): Promise<ReadingNode[]> {
         if (!actor.user?.id) return [];
-        const values = await this.stores.permission.getFlatUserPerms(
-            actor.user.id,
-            permissions,
+        const userId = actor.user.id;
+        const entries = await this.stores.permission.getFlatUserPermsForRefs(
+            [...new Set(permissions)].map((permission) => ({
+                holderUserId: userId,
+                permission,
+            })),
         );
-
-        let anyDeleted = false;
-        for (const v of values) {
-            if (v.deleted) {
-                anyDeleted = true;
-                continue;
-            }
-            const { permission, issuer_user_id, ...extra } = v;
-            if (!permission) continue;
-            const issuer = issuer_user_id
-                ? await this.stores.user.getById(issuer_user_id)
-                : null;
+        const { kept, issuers } =
+            await this.stores.permission.withoutOrphanedFlatPerms(
+                entries.filter(
+                    ({ value }) => !value.deleted && value.permission,
+                ),
+            );
+        const anyDeleted = entries.some(({ value }) => value.deleted);
+        for (const { value } of kept) {
+            const { permission, issuer_user_id, ...extra } = value;
+            const issuer = issuers.get(Number(issuer_user_id));
             return [
                 {
                     $: 'option',

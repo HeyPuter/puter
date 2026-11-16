@@ -187,6 +187,488 @@ describe('UserAccountService', () => {
             expect(Number(sessions[0].n)).toBe(0);
         });
 
+        /** A group with a grant, and `member` in it; returns the grant's row. */
+        const seedGroupGrant = async (
+            memberId: number,
+            permission = `fs:${uuidv4()}:read`,
+        ) => {
+            const owner = await seedUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) VALUES (?, ?, ?, ?)',
+                [groupUid, owner.id, '{}', '{}'],
+            );
+            const [group] = (await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            )) as Array<{ id: number }>;
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [memberId, group.id],
+            );
+            await server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [owner.id, group.id, permission, '{}'],
+            );
+            const [row] = await server.stores.permission.readUserGroupPerms(
+                memberId,
+                [permission],
+            );
+            expect(row).toBeDefined();
+            return { owner, permission, row: { ...row, extra: '{}' } };
+        };
+
+        /** Replica reads of group grants keep returning `row`. */
+        const lagGroupGrants = (row: Record<string, unknown>) => {
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('user_to_group_permissions')
+                        ? [row]
+                        : primaryRead(sql, params),
+                );
+            return () => {
+                read.mockRestore();
+                pread.mockRestore();
+            };
+        };
+
+        /** The issuer holds `permission` itself, so what it grants resolves. */
+        const holdOwn = (issuerId: number, permission: string) =>
+            server.stores.permission.setFlatUserPerm(issuerId, permission, {
+                permission,
+                deleted: false,
+                issuer_user_id: issuerId,
+            } as never);
+
+        const actorOf = async (userId: number) => {
+            const user = (await server.stores.user.getById(userId))!;
+            return { user: { ...user } } as never;
+        };
+
+        it("reads a group member's grant from the primary once its issuer is deleted", async () => {
+            const member = await seedUser();
+            const { owner, permission, row } = await seedGroupGrant(
+                member.id,
+                `zztest:del-${uuidv4()}:ii:read`,
+            );
+            // Sqlite reuses a deleted account's id; drop a mark left on it.
+            await server.clients.redis.del(`perms:u2g:${member.id}:deleted`);
+
+            await server.services.userAccount.cascadeDelete(owner.id);
+
+            const restore = lagGroupGrants(row);
+            try {
+                expect(
+                    await server.stores.permission.readUserGroupPerms(
+                        member.id,
+                        [permission],
+                    ),
+                ).toEqual([]);
+            } finally {
+                restore();
+            }
+        });
+
+        it('refuses a member of a group the deleted account granted to, right after a check they passed', async () => {
+            const member = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            const { owner, row } = await seedGroupGrant(member.id, permission);
+            await holdOwn(owner.id, permission);
+            const actor = await actorOf(member.id);
+            expect(
+                await server.services.permission.check(actor, permission),
+            ).toBe(true);
+
+            await server.services.userAccount.cascadeDelete(owner.id);
+
+            const restore = lagGroupGrants(row);
+            try {
+                expect(
+                    await server.services.permission.check(actor, permission),
+                ).toBe(false);
+            } finally {
+                restore();
+            }
+        });
+
+        it('refuses a holder of a grant the deleted account issued, right after a check they passed', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await holdOwn(issuer.id, permission);
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+            const actor = await actorOf(holder.id);
+            expect(
+                await server.services.permission.check(actor, permission),
+            ).toBe(true);
+
+            await server.services.userAccount.cascadeDelete(issuer.id);
+
+            expect(
+                await server.services.permission.check(actor, permission),
+            ).toBe(false);
+        });
+
+        it("reads the account's group grants from the primary once it is deleted", async () => {
+            const member = await seedUser();
+            const { permission, row } = await seedGroupGrant(member.id);
+
+            await server.services.userAccount.cascadeDelete(member.id);
+
+            // The replica still returns the membership; the primary has none.
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('user_to_group_permissions')
+                        ? [row]
+                        : primaryRead(sql, params),
+                );
+            try {
+                expect(
+                    await server.stores.permission.readUserGroupPerms(
+                        member.id,
+                        [permission],
+                    ),
+                ).toEqual([]);
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+        });
+
+        it("drops the account's cached permission readings", async () => {
+            const user = await seedUser();
+            const before = await server.stores.permission.getCacheGeneration(
+                `user:${user.uuid}`,
+            );
+
+            await server.services.userAccount.cascadeDelete(user.id);
+
+            expect(
+                await server.stores.permission.getCacheGeneration(
+                    `user:${user.uuid}`,
+                ),
+            ).toBeGreaterThan(before);
+        });
+
+        it('finishes when the group mark cannot be written', async () => {
+            const member = await seedUser();
+            await seedGroupGrant(member.id);
+            const mark = `perms:u2g:${member.id}:deleted`;
+
+            const redis = server.clients.redis;
+            const realPipeline = redis.pipeline.bind(redis);
+            const pipeline = vi.spyOn(redis, 'pipeline').mockImplementation(((
+                ...args: Parameters<typeof realPipeline>
+            ) => {
+                const p = realPipeline(...args);
+                const set = p.set.bind(p) as (...a: unknown[]) => typeof p;
+                let failing = false;
+                (p as unknown as { set: unknown }).set = (...a: unknown[]) => {
+                    if (a[0] === mark) failing = true;
+                    return set(...a);
+                };
+                const exec = p.exec.bind(p);
+                p.exec = (async () => {
+                    if (failing) throw new Error('redis down');
+                    return exec();
+                }) as typeof p.exec;
+                return p;
+            }) as never);
+            const warn = vi.spyOn(console, 'warn');
+            try {
+                await server.services.userAccount.cascadeDelete(member.id);
+                expect(warn).toHaveBeenCalledWith(
+                    expect.stringContaining('publishCacheKeys'),
+                    [mark],
+                );
+            } finally {
+                pipeline.mockRestore();
+                warn.mockRestore();
+            }
+            expect(await server.stores.user.getById(member.id)).toBeNull();
+        });
+
+        it('refuses a holder who was checked while the flat entries were being purged', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await holdOwn(issuer.id, permission);
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+            const actor = await actorOf(holder.id);
+
+            const store = server.stores.permission;
+            const delFlat = store.delFlatUserPerms.bind(store);
+            const purge = vi
+                .spyOn(store, 'delFlatUserPerms')
+                .mockImplementation(async (entries) => {
+                    // The row is gone; the flat entry still answers.
+                    await server.services.permission.check(actor, permission);
+                    return delFlat(entries);
+                });
+            try {
+                await server.services.userAccount.cascadeDelete(issuer.id);
+            } finally {
+                purge.mockRestore();
+            }
+
+            expect(
+                await server.services.permission.check(actor, permission),
+            ).toBe(false);
+        });
+
+        it('refuses a holder whose issuer is gone though the flat entry stayed', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await holdOwn(issuer.id, permission);
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+
+            // The purge fails, so the entry outlives its issuer.
+            const purge = vi
+                .spyOn(server.stores.permission, 'delFlatUserPerms')
+                .mockRejectedValue(new Error('kv down'));
+            try {
+                await server.services.userAccount.cascadeDelete(issuer.id);
+            } finally {
+                purge.mockRestore();
+            }
+            expect(
+                (
+                    await server.stores.permission.getFlatUserPerms(holder.id, [
+                        permission,
+                    ])
+                )[0]?.permission,
+            ).toBe(permission);
+
+            expect(
+                await server.services.permission.check(
+                    await actorOf(holder.id),
+                    permission,
+                ),
+            ).toBe(false);
+        });
+
+        /** Deletes `issuerId` with the issued-grant flat purge failing. */
+        const deleteLeavingFlatEntries = async (issuerId: number) => {
+            const purge = vi
+                .spyOn(server.stores.permission, 'delFlatUserPerms')
+                .mockRejectedValue(new Error('kv down'));
+            try {
+                await server.services.userAccount.cascadeDelete(issuerId);
+            } finally {
+                purge.mockRestore();
+            }
+        };
+
+        /** `holder` holds `permission` in the flat view, issued by `issuer`. */
+        const flatGrant = async (
+            holderId: number,
+            issuerId: number,
+            permission: string,
+        ) => {
+            await server.stores.permission.upsertUserUserPerm(
+                holderId,
+                issuerId,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holderId,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuerId,
+                } as never,
+            );
+        };
+
+        const insertEntry = async (
+            ownerId: number,
+            path: string,
+            isDir: boolean,
+        ) => {
+            const uuid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, ?, ?)',
+                [
+                    uuid,
+                    path.split('/').pop(),
+                    path,
+                    ownerId,
+                    server.clients.db.booleanValue(isDir),
+                    Math.floor(Date.now() / 1000),
+                ],
+            );
+            return uuid;
+        };
+
+        it("does not pass manage down a folder on a deleted re-sharer's leftover entry", async () => {
+            const owner = await seedUser();
+            const resharer = await seedUser();
+            const holder = await seedUser();
+            const dir = `/${owner.username}/d_${uuidv4().slice(0, 8)}`;
+            const dirUid = await insertEntry(owner.id, dir, true);
+            const fileUid = await insertEntry(owner.id, `${dir}/f.txt`, false);
+            await flatGrant(holder.id, resharer.id, `manage:fs:${dirUid}`);
+            const asked = `manage:fs:${fileUid}`;
+            const actor = await actorOf(holder.id);
+            expect(await server.services.permission.check(actor, asked)).toBe(
+                true,
+            );
+
+            await deleteLeavingFlatEntries(resharer.id);
+
+            expect(await server.services.permission.check(actor, asked)).toBe(
+                false,
+            );
+        });
+
+        it("does not pass manage down a folder on a deleted re-sharer's cached grant row", async () => {
+            const owner = await seedUser();
+            const resharer = await seedUser();
+            const holder = await seedUser();
+            const dir = `/${owner.username}/d_${uuidv4().slice(0, 8)}`;
+            const dirUid = await insertEntry(owner.id, dir, true);
+            const fileUid = await insertEntry(owner.id, `${dir}/f.txt`, false);
+            await flatGrant(holder.id, resharer.id, `manage:fs:${dirUid}`);
+            // An old grant: its write mark is gone and the holder's rows are cached.
+            await server.clients.redis.del(
+                `perms:u2u:holder:${holder.id}:deleted`,
+            );
+            await server.stores.permission.readLinkedUserUserPerms(holder.id, [
+                `manage:fs:${dirUid}`,
+            ]);
+            await vi.waitFor(async () =>
+                expect(
+                    await server.clients.redis.get(
+                        `perms:u2u:holder:${holder.id}`,
+                    ),
+                ).toContain(dirUid),
+            );
+            const asked = `manage:fs:${fileUid}`;
+            const actor = await actorOf(holder.id);
+            expect(await server.services.permission.check(actor, asked)).toBe(
+                true,
+            );
+
+            await server.services.userAccount.cascadeDelete(resharer.id);
+
+            expect(await server.services.permission.check(actor, asked)).toBe(
+                false,
+            );
+        });
+
+        it("does not list a share backed only by a deleted issuer's leftover entry", async () => {
+            const owner = await seedUser();
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const path = `/${owner.username}/s_${uuidv4().slice(0, 8)}.txt`;
+            const uid = await insertEntry(owner.id, path, false);
+            const entry = (await server.stores.fsEntry.getEntryByUuid(uid))!;
+            // The owner's own grant is gone; only the index row is left of it.
+            await server.clients.db.write(
+                'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, `holder_user_id`, `fsentry_id`, `mode`, `applied_at`, `data`, `created_at`) ' +
+                    'VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)',
+                [
+                    uuidv4(),
+                    owner.id,
+                    holder.email,
+                    holder.id,
+                    entry.id,
+                    'read',
+                    '{}',
+                ],
+            );
+            await flatGrant(holder.id, issuer.id, `fs:${uid}:read`);
+            const actor = await actorOf(holder.id);
+            const listed = async () =>
+                JSON.stringify(
+                    (await server.services.share.listSharedWithMe(actor)).items,
+                ).includes(uid);
+            expect(await listed()).toBe(true);
+
+            await deleteLeavingFlatEntries(issuer.id);
+
+            expect(await listed()).toBe(false);
+        });
+
+        it("deletes a deleted issuer's leftover entry once a check finds it", async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await holdOwn(issuer.id, permission);
+            await flatGrant(holder.id, issuer.id, permission);
+            await deleteLeavingFlatEntries(issuer.id);
+
+            await server.services.permission.check(
+                await actorOf(holder.id),
+                permission,
+            );
+
+            await vi.waitFor(async () => {
+                const [flat] = await server.stores.permission.getFlatUserPerms(
+                    holder.id,
+                    [permission],
+                );
+                expect(flat).toBeUndefined();
+            });
+        });
+
         it('clears the flat entries for grants the account issued', async () => {
             const issuer = await seedUser();
             const holder = await seedUser();
@@ -219,6 +701,52 @@ describe('UserAccountService', () => {
 
             // The SQL row cascades; without the purge the flat entry would
             // keep answering for an issuer nobody can ask about any more.
+            const [flat] = await server.stores.permission.getFlatUserPerms(
+                holder.id,
+                [permission],
+            );
+            expect(flat?.permission).toBeUndefined();
+        });
+
+        it('clears the flat entry for a grant the replica has not seen yet', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('FROM `user_to_user_permissions`')
+                        ? []
+                        : primaryRead(sql, params),
+                );
+            try {
+                await server.services.userAccount.cascadeDelete(issuer.id);
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+
             const [flat] = await server.stores.permission.getFlatUserPerms(
                 holder.id,
                 [permission],
