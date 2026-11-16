@@ -37,6 +37,8 @@ function normalizeError (reason) {
  * @typedef {Object} PSocketEventMap
  * @property {void} open Fires when the socket is initialized and ready to send data.
  * @property {Uint8Array} data Fires when the remote server sends data over the socket.
+ * @property {void} drain Fires right after `open` once the writes made before the socket
+ * opened have been sent. Writes made after `open` are not queued and never fire it.
  * @property {Error} error Fires when the socket hits an error; a `close` follows shortly after. The
  * human-readable reason is on `error.message`.
  * @property {boolean} close Fires when the socket is closed. `true` if it closed due to an error.
@@ -102,6 +104,24 @@ export class PSocket extends EventListener {
         }
 
         return super.on(event, callback);
+    }
+
+    /**
+     * Removes a handler previously registered with {@link PSocket#on}. On a
+     * TLS socket the plain `'open'`, `'data'` and `'close'` names remove from
+     * the `tls`-prefixed event the handler was registered under.
+     *
+     * @template {SocketEvent} K
+     * @param {K} event
+     * @param {(data: PSocketEventMap[K]) => void} callback
+     * @returns {this | undefined}
+     */
+    off (event, callback) {
+        if ( this.#useTls && (event === 'open' || event === 'data' || event === 'close') ) {
+            return super.off(`tls${event}`, callback);
+        }
+
+        return super.off(event, callback);
     }
 
     /**
@@ -202,10 +222,15 @@ export class PSocket extends EventListener {
         this.#writer = stream.write.getWriter();
         this.#open = true;
 
-        await this.#flushPendingWrites();
+        const flushedBacklog = await this.#flushPendingWrites();
         if (this.#closed || this.#closing) return;
         // A throwing handler must not read as a failed connect and retry.
         this.#emitFromListener(this.#eventName('open'));
+        // The pre-open backlog has been sent. Skipped when an `open` handler
+        // closed the socket.
+        if ( flushedBacklog && !this.#closed && !this.#closing ) {
+            this.#emitFromListener(this.#eventName('drain'));
+        }
         void this.#readLoop();
     }
 
@@ -220,10 +245,13 @@ export class PSocket extends EventListener {
     async #flushPendingWrites () {
         this.#flushing = true;
         try {
+            const queued = this.#pendingWrites.length > 0;
             while ( this.#pendingWrites.length && !this.#closed && !this.#closing ) {
                 const { payload, callback } = this.#pendingWrites.shift();
                 await this.#writePayload(payload, callback);
             }
+            // Whether a backlog was queued and fully sent.
+            return queued && !this.#closed && !this.#closing;
         } finally {
             // Cleared in the same tick as the last queue check; a write
             // landing before the caller resumes would otherwise stay queued.
