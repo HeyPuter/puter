@@ -921,20 +921,30 @@ export class NotificationsModule extends EventListener {
      */
     async _webPushRecord({ endpoint = true } = {}) {
         const worker = workerFor(this.puter.env);
+        const readSynced = async () => {
+            if (!endpoint) return null;
+            try {
+                const uuid = await this.#userUuid();
+                return uuid
+                    ? await idbGet(HANDLERS_STORE, SYNCED_PREFIX + uuid)
+                    : null;
+            } catch {
+                return null;
+            }
+        };
+        const readChanged = async () => {
+            try {
+                return await idbGet(
+                    HANDLERS_STORE,
+                    SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
+                );
+            } catch {
+                return null;
+            }
+        };
         const [synced, changed] = await Promise.all([
-            endpoint
-                ? this.#userUuid()
-                      .then((uuid) =>
-                          uuid
-                              ? idbGet(HANDLERS_STORE, SYNCED_PREFIX + uuid)
-                              : null,
-                      )
-                      .catch(() => null)
-                : null,
-            idbGet(
-                HANDLERS_STORE,
-                SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
-            ).catch(() => null),
+            readSynced(),
+            readChanged(),
         ]);
         return {
             endpoint:
