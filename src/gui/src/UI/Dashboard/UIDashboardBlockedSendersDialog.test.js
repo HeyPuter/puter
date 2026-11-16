@@ -91,6 +91,13 @@ describe('Blocked people dialog', () => {
         expect($('.dashboard-blocked-empty').text()).toBe('blocked_none');
     });
 
+    it('says so, and stops reporting the list as loading, when it cannot be loaded', async () => {
+        fetch.mockImplementationOnce(async () => new Response(JSON.stringify({ message: 'Try again later' }), { status: 500 }));
+        await open();
+        expect(status()).toBe('Try again later');
+        expect($('.dashboard-blocked-list').attr('aria-busy')).toBe('false');
+    });
+
     it('blocks the typed username and lists it', async () => {
         await open();
         $('.dashboard-blocked-username').val('  eve  ');

@@ -134,7 +134,9 @@ export default function UIDashboardBlockedSendersDialog ({ $container, returnFoc
             if ( all_at_request === all_seq ) $all.prop('checked', Boolean(all));
             render(items ?? []);
         } catch ( err ) {
-            if ( ! isClosed() ) fail(err);
+            if ( isClosed() ) return;
+            fail(err);
+            if ( seq === list_seq ) $list.attr('aria-busy', 'false');
         }
     };
 
