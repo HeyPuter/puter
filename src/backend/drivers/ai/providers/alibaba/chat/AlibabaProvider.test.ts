@@ -195,6 +195,7 @@ describe('AlibabaProvider model catalog', () => {
         ['qwen3.8-flash', 15, 47, 1.6],
         ['qwen3.8-omni-flash', 15, 47, 1.6],
         ['qwen3.8-max-0902', 200, 600, 25],
+        ['qwen4-max', 150, 450, 7.5],
         // No cache discount: cached reads bill at the input rate.
         ['qwen3.7-max-2026-05-17', 250, 750, undefined],
         ['deepseek-v4.1-flash', 30, 120, undefined],
@@ -575,44 +576,57 @@ describe('AlibabaProvider.complete non-stream output', () => {
         expect(overrides).toMatchObject({ cached_tokens: 0 });
     });
 
-    it('accounts for cached_tokens when prompt_tokens_details is present', async () => {
-        const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce({
-            choices: [
-                {
-                    message: { content: 'ok', role: 'assistant' },
-                    finish_reason: 'stop',
+    it.each(['qwen3.8-max', 'qwen4-max'])(
+        'accounts for cached tokens in %s completions',
+        async (modelId) => {
+            axiosGetMock.mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    output: {
+                        total: 1,
+                        page_no: 1,
+                        models: [{ model: modelId, capabilities: ['TG'] }],
+                    },
                 },
-            ],
-            usage: {
-                prompt_tokens: 50,
+            });
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: { content: 'ok', role: 'assistant' },
+                        finish_reason: 'stop',
+                    },
+                ],
+                usage: {
+                    prompt_tokens: 50,
+                    completion_tokens: 20,
+                    prompt_tokens_details: { cached_tokens: 15 },
+                },
+            });
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: modelId,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            const model = ALIBABA_MODELS.find((m) => m.id === modelId)!;
+            const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
+            // Cached reads come out of `prompt_tokens`; they're priced once.
+            expect(usage).toEqual({
+                prompt_tokens: 35,
                 completion_tokens: 20,
-                prompt_tokens_details: { cached_tokens: 15 },
-            },
-        });
-
-        await withTestActor(() =>
-            provider.complete({
-                model: 'qwen3.8-max',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        const model = ALIBABA_MODELS.find((m) => m.id === 'qwen3.8-max')!;
-        const [usage, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        // Cached reads come out of `prompt_tokens`; they're priced once.
-        expect(usage).toEqual({
-            prompt_tokens: 35,
-            completion_tokens: 20,
-            cached_tokens: 15,
-        });
-        expect(prefix).toBe('alibaba:qwen3.8-max');
-        expect(overrides).toEqual({
-            prompt_tokens: 35 * Number(model.costs.prompt_tokens),
-            completion_tokens: 20 * Number(model.costs.completion_tokens),
-            cached_tokens: 15 * Number(model.costs.cached_tokens ?? 0),
-        });
-    });
+                cached_tokens: 15,
+            });
+            expect(prefix).toBe(`alibaba:${modelId}`);
+            expect(overrides).toEqual({
+                prompt_tokens: 35 * Number(model.costs.prompt_tokens),
+                completion_tokens: 20 * Number(model.costs.completion_tokens),
+                cached_tokens: 15 * Number(model.costs.cached_tokens ?? 0),
+            });
+        },
+    );
 });
 
 // ── Streaming deltas ────────────────────────────────────────────────

@@ -45,6 +45,30 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
 
+    // International USD rates: https://www.alibabacloud.com/en/press-room/alibaba-unveils-qwen4-max
+    {
+        puterId: 'alibaba:qwen/qwen4-max',
+        id: 'qwen4-max',
+        name: 'Qwen4-Max',
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-11-16',
+        aliases: ['qwen/qwen4-max'],
+        context: 1_000_000,
+        max_tokens: 131_072,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'qwen4-max-prime' },
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 150,
+            completion_tokens: 450,
+            cached_tokens: 7.5,
+        },
+    },
+
     // -- Plus tier --------------------------------------------------
     {
         puterId: 'alibaba:qwen/qwen-plus',
