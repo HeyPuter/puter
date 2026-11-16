@@ -18,7 +18,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { closeLocalBanner, pushWorkerEnabled } from './pushWorker.js';
+import { pushWorkerEnabled } from './pushWorker.js';
 
 afterEach(() => {
     vi.resetModules();
@@ -157,30 +157,5 @@ describe('startPushWorker', () => {
         });
         expect(clearParam).toHaveBeenCalledWith('puter.notification');
         expect(handler).not.toHaveBeenCalled();
-    });
-});
-
-describe('closeLocalBanner', () => {
-    it('closes only the desktop worker notification with the acknowledged uid', async () => {
-        const shown = [
-            { data: { uid: 'one' }, close: vi.fn() },
-            { data: { uid: 'two' }, close: vi.fn() },
-            { data: { puter: { uid: 'one' } }, close: vi.fn() },
-        ];
-        const getRegistration = vi.fn(async () => ({ getNotifications: async () => shown }));
-        await closeLocalBanner('one', { serviceWorker: { getRegistration } });
-        expect(getRegistration).toHaveBeenCalledWith('/');
-        expect(shown.map((n) => n.close.mock.calls.length)).toEqual([1, 0, 0]);
-    });
-
-    it('works without a registered worker', async () => {
-        await expect(closeLocalBanner('one', {})).resolves.toBeUndefined();
-    });
-
-    it('contains browser API failures', async () => {
-        vi.spyOn(console, 'warn').mockImplementation(() => {});
-        await expect(closeLocalBanner('one', {
-            serviceWorker: { getRegistration: async () => { throw new Error('unavailable'); } },
-        })).resolves.toBeUndefined();
     });
 });

@@ -59,7 +59,6 @@ vi.mock('./UI/Dashboard/UIDashboard.js', () => ({
     }),
 }));
 vi.mock('./UI/Dashboard/TabApps.js', () => ({ default: {} }));
-vi.mock('./UI/UIDesktop.js', () => ({ default: vi.fn(async () => null) }));
 vi.mock('./UI/UIAlert.js', () => ({ default: vi.fn(async () => undefined) }));
 vi.mock('./UI/UIItem.js', () => ({ default: vi.fn() }));
 vi.mock('./UI/UIWindow.js', () => ({ default: vi.fn(async () => null) }));

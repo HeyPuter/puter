@@ -196,7 +196,6 @@ async function create_app (title, source_path = null, items = null) {
         feedbackEnabled: true,
         metadata: {
             window_resizable: true,
-            fullpage_on_landing: true,
         },
     })
         .then(async (app) => {
@@ -225,7 +224,6 @@ async function create_app (title, source_path = null, items = null) {
                 metadata: {
                     category: null, // default category on creation
                     window_resizable: true,
-                    fullpage_on_landing: true,
                 },
             }).then(async (app) => {
                 // refresh app list
@@ -472,11 +470,6 @@ function generate_edit_app_section (app) {
                 </div>
 
                 <div>
-                    <input type="checkbox" id="edit-app-fullpage-on-landing" name="edit-app-fullpage-on-landing" value="true" style="margin-top:30px;" ${app.metadata?.fullpage_on_landing ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
-                    <label for="edit-app-fullpage-on-landing" style="display: inline;">Load in full-page mode when a user lands directly on this app.</label>
-                </div>
-
-                <div>
                     <input type="checkbox" id="edit-app-maximize-on-start" name="edit-app-maximize-on-start" value="true" style="margin-top:30px;" ${maximize_on_start ? 'checked' : ''} ${app.background ? 'disabled' : ''}>
                     <label for="edit-app-maximize-on-start" style="display: inline;">Maximize window on start</label>
                 </div>
@@ -593,7 +586,6 @@ function trackOriginalValues () {
             resizableWindow: $('#edit-app-window-resizable').is(':checked'),
             hideTitleBar: $('#edit-app-hide-titlebar').is(':checked'),
             locked: $('#edit-app-locked').is(':checked'),
-            fullPageOnLanding: $('#edit-app-fullpage-on-landing').is(':checked'),
             setTitleToFile: $('#edit-app-set-title-to-file').is(':checked'),
             userFeedback: $('#edit-app-user-feedback').is(':checked'),
         },
@@ -635,7 +627,6 @@ function hasChanges () {
         $('#edit-app-window-resizable').is(':checked') !== originalValues.checkboxes.resizableWindow ||
         $('#edit-app-hide-titlebar').is(':checked') !== originalValues.checkboxes.hideTitleBar ||
         $('#edit-app-locked').is(':checked') !== originalValues.checkboxes.locked ||
-        $('#edit-app-fullpage-on-landing').is(':checked') !== originalValues.checkboxes.fullPageOnLanding ||
         $('#edit-app-set-title-to-file').is(':checked') !== originalValues.checkboxes.setTitleToFile ||
         $('#edit-app-user-feedback').is(':checked') !== originalValues.checkboxes.userFeedback
     );
@@ -683,7 +674,6 @@ function resetToOriginalValues () {
     $('#edit-app-window-resizable').prop('checked', originalValues.checkboxes.resizableWindow);
     $('#edit-app-hide-titlebar').prop('checked', originalValues.checkboxes.hideTitleBar);
     $('#edit-app-locked').prop('checked', originalValues.checkboxes.locked);
-    $('#edit-app-fullpage-on-landing').prop('checked', originalValues.checkboxes.fullPageOnLanding);
     $('#edit-app-set-title-to-file').prop('checked', originalValues.checkboxes.setTitleToFile);
     $('#edit-app-user-feedback').prop('checked', originalValues.checkboxes.userFeedback);
 
@@ -1299,7 +1289,6 @@ async function saveEditedApp (mode) {
         background: $('#edit-app-background').is(':checked'),
         feedbackEnabled: $('#edit-app-user-feedback').is(':checked'),
         metadata: {
-            fullpage_on_landing: $('#edit-app-fullpage-on-landing').is(':checked'),
             social_image: socialImageUrl,
             category: category || null,
             window_size: {
@@ -2583,7 +2572,6 @@ $(document).on('change', '#edit-app-background', function (e) {
 
 function disable_window_settings () {
     $('#edit-app-maximize-on-start').prop('disabled', true);
-    $('#edit-app-fullpage-on-landing').prop('disabled', true);
     $('#edit-app-window-width, #edit-app-window-height').prop('disabled', true);
     $('#edit-app-window-top, #edit-app-window-left').prop('disabled', true);
     $('#edit-app-window-resizable').prop('disabled', true);
@@ -2592,7 +2580,6 @@ function disable_window_settings () {
 
 function enable_window_settings () {
     $('#edit-app-maximize-on-start').prop('disabled', false);
-    $('#edit-app-fullpage-on-landing').prop('disabled', false);
     $('#edit-app-window-width, #edit-app-window-height').prop('disabled', false);
     $('#edit-app-window-top, #edit-app-window-left').prop('disabled', false);
     $('#edit-app-window-resizable').prop('disabled', false);

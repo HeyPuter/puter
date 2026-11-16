@@ -396,8 +396,6 @@ const fr = {
         'perm_subdomains_read': 'voir vos sous-domaines',
         'perm_subdomains_write': 'gérer vos sous-domaines',
 
-        'error_user_or_path_not_found': 'Utilisateur ou chemin introuvable.',
-
         // Auth token
         auth_token: 'Jeton d\'authentification',
         token_copied: 'Jeton copié',
