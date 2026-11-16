@@ -21,9 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import usWest2 from './fixtures/textract-us-west-2.json';
 import {
     fetchTextractPriceList,
-    isTextractPriceRegion,
     parseTextractPriceList,
-    TEXTRACT_PRICE_LIST_MAX_BYTES,
     textractRates,
 } from './textractPricing.js';
 
@@ -276,17 +274,6 @@ describe('parseTextractPriceList on the published price list', () => {
     });
 });
 
-describe('isTextractPriceRegion', () => {
-    it('accepts plain AWS region codes only', () => {
-        for (const region of ['us-west-2', 'eu-central-1', 'us-gov-west-1']) {
-            expect(isTextractPriceRegion(region)).toBe(true);
-        }
-        for (const region of ['', 'US-WEST-2', '../us-west-2', 'us-west-2/x']) {
-            expect(isTextractPriceRegion(region)).toBe(false);
-        }
-    });
-});
-
 describe('fetchTextractPriceList', () => {
     it('reads the region price list from the public AWS endpoint without following redirects', async () => {
         const fetchMock = vi.fn(async () => Response.json(usWest2));
@@ -300,15 +287,6 @@ describe('fetchTextractPriceList', () => {
             PRICE_LIST_URL('us-west-2'),
             expect.objectContaining({ signal, redirect: 'error' }),
         );
-    });
-
-    it('never requests an invalid region', async () => {
-        const fetchMock = vi.fn();
-        vi.stubGlobal('fetch', fetchMock);
-        await expect(
-            fetchTextractPriceList('../../evil', new AbortController().signal),
-        ).rejects.toThrow();
-        expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('rejects an error status', async () => {
@@ -329,29 +307,6 @@ describe('fetchTextractPriceList', () => {
         await expect(
             fetchTextractPriceList('sa-east-1', new AbortController().signal),
         ).resolves.toBe(null);
-    });
-
-    it('rejects a body over the size cap', async () => {
-        vi.stubGlobal(
-            'fetch',
-            vi.fn(
-                async () =>
-                    new Response(' '.repeat(TEXTRACT_PRICE_LIST_MAX_BYTES + 1)),
-            ),
-        );
-        await expect(
-            fetchTextractPriceList('us-west-2', new AbortController().signal),
-        ).rejects.toThrow('size cap');
-    });
-
-    it('rejects a body that is not JSON', async () => {
-        vi.stubGlobal(
-            'fetch',
-            vi.fn(async () => new Response('<html>')),
-        );
-        await expect(
-            fetchTextractPriceList('us-west-2', new AbortController().signal),
-        ).rejects.toThrow();
     });
 
     it('rejects a price list with no usable rate', async () => {

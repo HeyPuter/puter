@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { catalogPrice } from './catalogPrice.js';
+import { catalogPrice, usdToUcents } from './catalogPrice.js';
 
 describe('catalogPrice', () => {
     it('reads numbers and numeric strings', () => {
@@ -42,5 +42,21 @@ describe('catalogPrice', () => {
     it('leaves overflowing and underflowing conversions unknown', () => {
         expect(catalogPrice(1e308, 100)).toBeUndefined();
         expect(catalogPrice(1e-320, 1e-10)).toBeUndefined();
+    });
+});
+
+describe('usdToUcents', () => {
+    it('shifts USD decimals into exact microcents', () => {
+        expect(usdToUcents('0.0006')).toBe(60000);
+        expect(usdToUcents('0.0000160000')).toBe(1600);
+        expect(usdToUcents('0.000016125')).toBe(1612.5);
+        expect(usdToUcents('12')).toBe(1_200_000_000);
+        expect(usdToUcents('0')).toBe(0);
+    });
+
+    it('leaves anything but a plain decimal unconverted', () => {
+        for (const value of ['', ' 1', '1.', '.5', '-1', '1e-6', '$1', '1,5']) {
+            expect(usdToUcents(value)).toBeUndefined();
+        }
     });
 });
