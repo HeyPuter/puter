@@ -201,11 +201,14 @@ export const parseTextractPriceList = (
     return found.length === 1 ? found[0] : undefined;
 };
 
-/** Fetches one region's public Textract price list and reads its rate. */
+/**
+ * Fetches one region's public Textract price list and reads its rate. Null when
+ * AWS publishes no list for the region, as for every region without Textract.
+ */
 export const fetchTextractPriceList = async (
     region: string,
     signal: AbortSignal,
-): Promise<number> => {
+): Promise<number | null> => {
     if (!isTextractPriceRegion(region)) {
         throw new Error('Invalid AWS region for the Textract price list');
     }
@@ -219,6 +222,7 @@ export const fetchTextractPriceList = async (
     );
     if (!response.ok) {
         await response.body?.cancel();
+        if (response.status === 404) return null;
         throw new Error(`AWS Textract price list returned ${response.status}`);
     }
     const body = await readBoundedBody(
@@ -241,9 +245,10 @@ export const fetchTextractPriceList = async (
 export interface TextractRates {
     /**
      * Microcents per page in a region: its last good feed rate, else the
-     * curated one.
+     * curated one. Null when AWS publishes no price list for the region, which
+     * means it doesn't run Textract there.
      */
-    rate(region: string): Promise<number>;
+    rate(region: string): Promise<number | null>;
     /** The rate {@link rate} last settled on for a region, without fetching. */
     peek(region: string): number;
 }
@@ -257,15 +262,15 @@ export const textractRates = (
     fallback: number,
     maxRegions: number = TEXTRACT_PRICE_MAX_REGIONS,
 ): TextractRates => {
-    const catalogs = new Map<string, () => Promise<number>>();
-    const latest = new Map<string, number>();
+    const catalogs = new Map<string, () => Promise<number | null>>();
+    const latest = new Map<string, number | null>();
 
     const catalogFor = (region: string) => {
         const existing = catalogs.get(region);
         if (existing) return existing;
         if (!isTextractPriceRegion(region) || catalogs.size >= maxRegions)
             return undefined;
-        const catalog = cachedRemoteCatalog<number>({
+        const catalog = cachedRemoteCatalog<number | null>({
             name: `AWS Textract ${region} price list`,
             fallback,
             fetch: (signal) => fetchTextractPriceList(region, signal),

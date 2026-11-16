@@ -321,6 +321,16 @@ describe('fetchTextractPriceList', () => {
         ).rejects.toThrow('403');
     });
 
+    it('reads a missing price list as a region without Textract', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response('NoSuchKey', { status: 404 })),
+        );
+        await expect(
+            fetchTextractPriceList('sa-east-1', new AbortController().signal),
+        ).resolves.toBe(null);
+    });
+
     it('rejects a body over the size cap', async () => {
         vi.stubGlobal(
             'fetch',
@@ -358,10 +368,18 @@ describe('fetchTextractPriceList', () => {
 describe('textractRates', () => {
     const CURATED = 150000;
 
-    /** Serves each region's price list from `docs`, 404 for the rest. */
-    const stubPriceLists = (docs: Record<string, unknown>) => {
+    /**
+     * Serves each region's price list from `docs` and a 503 for the `failing`
+     * ones. AWS answers 404 for a region it doesn't run Textract in.
+     */
+    const stubPriceLists = (
+        docs: Record<string, unknown>,
+        failing = new Set<string>(),
+    ) => {
         const fetchMock = vi.fn(async (url: string) => {
             const region = /\/current\/([^/]+)\/index\.json$/.exec(url)?.[1];
+            if (region && failing.has(region))
+                return new Response('unavailable', { status: 503 });
             const doc = region ? docs[region] : undefined;
             return doc
                 ? Response.json(doc)
@@ -412,10 +430,30 @@ describe('textractRates', () => {
 
     it('falls back to the curated rate when a region has never loaded', async () => {
         vi.spyOn(console, 'warn').mockImplementation(() => {});
-        stubPriceLists({});
+        stubPriceLists({}, new Set(['us-west-2']));
         const rates = textractRates(CURATED);
         expect(await rates.rate('us-west-2')).toBe(CURATED);
         expect(rates.peek('us-west-2')).toBe(CURATED);
+    });
+
+    it('reports no rate for a region without Textract until AWS publishes one', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const docs: Record<string, unknown> = {};
+        const fetchMock = stubPriceLists(docs);
+        const rates = textractRates(CURATED);
+
+        expect(await rates.rate('sa-east-1')).toBe(null);
+        expect(rates.peek('sa-east-1')).toBe(CURATED);
+        // The answer is cached like a price, not retried like a failure.
+        vi.advanceTimersByTime(60 * 1000);
+        expect(await rates.rate('sa-east-1')).toBe(null);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(warn).not.toHaveBeenCalled();
+
+        docs['sa-east-1'] = regionDoc('sa-east-1', '0.0020000000');
+        vi.advanceTimersByTime(16 * 60 * 1000);
+        expect(await rates.rate('sa-east-1')).toBe(200000);
     });
 
     it('keeps a region on its last good rate when a refresh fails or loses the rate', async () => {
@@ -425,7 +463,8 @@ describe('textractRates', () => {
             'us-west-2': regionDoc('us-west-2', '0.0020000000'),
             'eu-west-1': regionDoc('eu-west-1', '0.0030000000'),
         };
-        stubPriceLists(docs);
+        const failing = new Set<string>();
+        stubPriceLists(docs, failing);
         const rates = textractRates(CURATED);
         expect(await rates.rate('us-west-2')).toBe(200000);
         expect(await rates.rate('eu-west-1')).toBe(300000);
@@ -433,7 +472,7 @@ describe('textractRates', () => {
         // One region's list drops the rate, the other's starts failing.
         const zeroed = regionDoc('us-west-2', '0.0000000000');
         docs['us-west-2'] = zeroed;
-        delete docs['eu-west-1'];
+        failing.add('eu-west-1');
         vi.advanceTimersByTime(16 * 60 * 1000);
 
         expect(await rates.rate('us-west-2')).toBe(200000);
