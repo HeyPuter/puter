@@ -1,0 +1,27 @@
+<html>
+<body>
+    <button id="detach">Remove a custom domain</button>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        document.getElementById('detach').addEventListener('click', async () => {
+            // (1) Pick a website of the user's that has a custom domain
+            const sites = await puter.hosting.list();
+            const site = sites.find((s) => s.custom_domains?.length);
+            if (!site) {
+                puter.print('None of your websites has a custom domain.');
+                return;
+            }
+
+            // (2) Let the user remove its domains
+            const removed = await puter.hosting.detach(site.subdomain);
+            if (removed.length === 0) {
+                puter.print('No domain was removed.');
+                return;
+            }
+            for (const domain of removed) {
+                puter.print(`Removed ${domain.hostname}<br>`);
+            }
+        });
+    </script>
+</body>
+</html>

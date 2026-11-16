@@ -1519,17 +1519,16 @@ const ipc_listener = async (event, handled) => {
         }
     }
     //--------------------------------------------------------
-    // attachCustomDomain
+    // attachCustomDomain / detachCustomDomain
     //--------------------------------------------------------
-    else if ( event.data.msg === 'attachCustomDomain' ) {
+    else if ( event.data.msg === 'attachCustomDomain' || event.data.msg === 'detachCustomDomain' ) {
+        const detaching = event.data.msg === 'detachCustomDomain';
         // Always answer, as for showFeedbackDialog: the SDK promise only
         // settles on a reply.
-        const respond = (domain) => {
-            target_iframe?.contentWindow?.postMessage({
-                msg: 'customDomainAttached',
-                domain: domain ?? null,
-                original_msg_id: msg_id,
-            }, '*');
+        const respond = (answer) => {
+            target_iframe?.contentWindow?.postMessage(detaching
+                ? { msg: 'customDomainDetached', domains: answer ?? [], original_msg_id: msg_id }
+                : { msg: 'customDomainAttached', domain: answer ?? null, original_msg_id: msg_id }, '*');
         };
 
         const subdomain = typeof event.data.subdomain === 'string' ? event.data.subdomain : '';
@@ -1546,23 +1545,24 @@ const ipc_listener = async (event, handled) => {
                     return;
                 }
             } catch ( e ) {
-                console.error('IPC attachCustomDomain: auth gate failed', e);
+                console.error(`IPC ${event.data.msg}: auth gate failed`, e);
                 respond(null);
                 return;
             }
 
-            let domain = null;
+            let answer = null;
             try {
                 // The requester shown is the app's registered name from the
                 // GUI's own records; its window title is app-controlled.
-                domain = await UIWindowAttachCustomDomain({
+                answer = await UIWindowAttachCustomDomain({
                     subdomain,
                     requester: app_name,
+                    mode: detaching ? 'detach' : 'attach',
                 });
             } catch ( e ) {
-                console.error('IPC attachCustomDomain failed', e);
+                console.error(`IPC ${event.data.msg} failed`, e);
             }
-            respond(domain);
+            respond(answer);
             $(target_iframe).get(0)?.focus({ preventScroll: true });
         } finally {
             custom_domain_dialog_guard.markClosed();

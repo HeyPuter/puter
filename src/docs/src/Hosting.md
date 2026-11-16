@@ -192,6 +192,7 @@ These hosting features are supported out of the box when using Puter.js:
 - **[`puter.hosting.update()`](/Hosting/update/)** - Update hosting settings
 - **[`puter.hosting.delete()`](/Hosting/delete/)** - Delete a hosting deployment
 - **[`puter.hosting.attach()`](/Hosting/attach/)** - Let the user connect their own domain to a website
+- **[`puter.hosting.detach()`](/Hosting/detach/)** - Let the user remove the custom domains of a website
 
 ## Examples
 

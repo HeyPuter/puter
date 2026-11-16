@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>puter-js test fixture: hosting.attach</title>
+    <title>puter-js test fixture: hosting.attach and hosting.detach</title>
     <style>
         body { font-family: system-ui, sans-serif; padding: 16px; }
         button { padding: 8px 12px; margin-right: 8px; font-size: 14px; }
@@ -15,6 +15,7 @@
     <p id="status">Loading puter.js…</p>
 
     <button id="attach" disabled>Attach Domain</button>
+    <button id="detach" disabled>Detach Domain</button>
 
     <div id="log" data-testid="log"></div>
 
@@ -42,6 +43,7 @@
             document.body.classList.add('ready');
             statusEl.textContent = `Ready (env=${puter.env})`;
             document.getElementById('attach').disabled = false;
+            document.getElementById('detach').disabled = false;
         }
 
         function waitForPuter() {
@@ -56,6 +58,15 @@
                 log(`attach:${domain ? domain.hostname : 'null'}`);
             } catch (e) {
                 log(`attach:error:${e?.code ?? e?.message ?? e}`);
+            }
+        });
+
+        document.getElementById('detach').addEventListener('click', async () => {
+            try {
+                const removed = await puter.hosting.detach('e2e-attach-site');
+                log(`detach:${removed.map((d) => d.hostname).join(',') || 'none'}`);
+            } catch (e) {
+                log(`detach:error:${e?.code ?? e?.message ?? e}`);
             }
         });
     </script>

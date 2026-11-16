@@ -30,7 +30,7 @@ export const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
 // message is never replied to, and a reply timeout can't stand in for the
 // check because legitimate replies only arrive when the user closes the dialog.
 // `push-permission`: `requestPermission` settles a held push grant itself.
-const GUI_FEATURES = 'feedback-dialog,enable-push,custom-domains,push-status,disable-push,push-permission';
+const GUI_FEATURES = 'feedback-dialog,enable-push,custom-domains,custom-domains-detach,push-status,disable-push,push-permission';
 
 /**
  * Where an app was launched from, sent to the app as `utm_campaign` so its

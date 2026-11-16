@@ -32,6 +32,8 @@ A `Promise` that resolves to a [`CustomDomain`](/Objects/customdomain/) object f
 
 A newly added domain resolves with `status` set to `pending`. Its `records` list the DNS records the user still has to set.
 
+When the user moved the domain from another of their websites, its `previousSite` attribute names that website. The other website no longer has the domain.
+
 On a website that is cross-origin isolated, the popup can't send its result back to your page, so the promise resolves `null` even if the user goes on to connect a domain in the popup.
 
 ## Errors

@@ -11,6 +11,34 @@ import { PUSH_NOTIFICATIONS_PERMISSION } from './perms/lib/permissionStrings.js'
 
 
 /**
+ * How each custom domain dialog is reached: the desktop feature that marks
+ * its handler, the desktop message, and the GUI popup action and its reply.
+ *
+ * @typedef {{ method: string, feature: string, unsupported: string, ipcMsg: string, action: 'attach-custom-domain' | 'detach-custom-domain', replyMsg: string, title: string }} CustomDomainDialog
+ */
+/** @type {{ attach: CustomDomainDialog, detach: CustomDomainDialog }} */
+const CUSTOM_DOMAIN_DIALOGS = {
+    attach: {
+        method: 'attach',
+        feature: 'custom-domains',
+        unsupported: 'Custom domains are not available on this Puter desktop',
+        ipcMsg: 'attachCustomDomain',
+        action: 'attach-custom-domain',
+        replyMsg: 'customDomainAttached',
+        title: 'Connect a custom domain',
+    },
+    detach: {
+        method: 'detach',
+        feature: 'custom-domains-detach',
+        unsupported: 'Removing custom domains is not available on this Puter desktop',
+        ipcMsg: 'detachCustomDomain',
+        action: 'detach-custom-domain',
+        replyMsg: 'customDomainDetached',
+        title: 'Remove a custom domain',
+    },
+};
+
+/**
  * A button shown in an `alert()` dialog.
  *
  * @typedef {Object} AlertButton
@@ -2793,49 +2821,72 @@ export class UIModule extends EventListener {
      * @returns {Promise<import('./hosting/types.js').CustomDomain | null>}
      */
     async attachCustomDomain_ (subdomain) {
+        const result = await this.#customDomainDialog(CUSTOM_DOMAIN_DIALOGS.attach, subdomain);
+        return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
+    }
+
+    /**
+     * Backs `puter.hosting.detach()`: lets the user remove the custom domains
+     * of `subdomain` in a Puter dialog. The app learns which ones were removed.
+     *
+     * @internal
+     * @param {string} subdomain
+     * @returns {Promise<import('./hosting/types.js').CustomDomain[]>}
+     */
+    async detachCustomDomain_ (subdomain) {
+        const result = await this.#customDomainDialog(CUSTOM_DOMAIN_DIALOGS.detach, subdomain);
+        const domains = result?.domains;
+        return /** @type {import('./hosting/types.js').CustomDomain[]} */ (Array.isArray(domains) ? domains : []);
+    }
+
+    /**
+     * Shows a custom domain dialog wherever this page can: the desktop's, a
+     * frame over the page, or a popup. Resolves the GUI's reply, or null.
+     *
+     * @param {CustomDomainDialog} dialog
+     * @param {string} subdomain
+     * @returns {Promise<Record<string, unknown> | null>}
+     */
+    async #customDomainDialog (dialog, subdomain) {
         if ( this.env === 'app' ) {
             // An older desktop has no handler and would never reply; see
             // showFeedbackDialog.
-            if ( ! this.#guiOffers('custom-domains') ) {
-                throw new PuterJSError(
-                    'Custom domains are not available on this Puter desktop',
-                    'not_supported',
-                );
+            if ( ! this.#guiOffers(dialog.feature) ) {
+                throw new PuterJSError(dialog.unsupported, 'not_supported');
             }
-            const result = await this.#postMessageAsync('attachCustomDomain', { subdomain });
-            return result?.domain ?? null;
+            return await this.#postMessageAsync(dialog.ipcMsg, { subdomain });
         }
 
         if ( this.env !== 'web' ) {
             throw new PuterJSError(
-                'puter.hosting.attach() needs a browser page or a Puter app',
+                `puter.hosting.${dialog.method}() needs a browser page or a Puter app`,
                 'not_available',
             );
         }
         // Not awaited where no frame can show, so the popup opens within the click.
         if ( this.#canFrameForUser() ) {
-            const framed = await this.#showCustomDomainFrame(subdomain);
-            if ( framed ) return framed.domain;
+            const framed = await this.#showCustomDomainFrame(dialog, subdomain);
+            if ( framed ) return framed;
         }
-        const result = await this.#runGuiActionPopup({
-            action: 'attach-custom-domain',
+        return await this.#runGuiActionPopup({
+            action: dialog.action,
             params: { subdomain },
-            replyMsg: 'customDomainAttached',
+            replyMsg: dialog.replyMsg,
             popupName: 'puter-custom-domain',
         });
-        return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
     }
 
     /**
      * The custom domain dialog in a frame over the page, for the page's
      * signed-in user, or null when the popup has to host it. One at a time: a
-     * call while one is open resolves no domain, as the desktop does.
+     * call while one is open resolves as if it was closed, as the desktop does.
      *
+     * @param {CustomDomainDialog} dialog
      * @param {string} subdomain
-     * @returns {Promise<{ domain: import('./hosting/types.js').CustomDomain | null } | null>}
+     * @returns {Promise<Record<string, unknown> | null>}
      */
-    async #showCustomDomainFrame (subdomain) {
-        if ( this.#customDomainFrameOpen ) return { domain: null };
+    async #showCustomDomainFrame (dialog, subdomain) {
+        if ( this.#customDomainFrameOpen ) return {};
         this.#customDomainFrameOpen = true;
         try {
             const user = await this.#frameUser();
@@ -2843,13 +2894,13 @@ export class UIModule extends EventListener {
             const msgId = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
             return await showPopupFrame({
                 guiOrigin: puter.defaultGUIOrigin,
-                action: 'attach-custom-domain',
+                action: dialog.action,
                 fragment: { user: user.uuid, subdomain, msg_id: msgId },
-                title: 'Connect a custom domain',
-                closed: () => ({ domain: null }),
+                title: dialog.title,
+                closed: () => ({}),
                 onMessage: (data, finish) => {
-                    if ( data.msg !== 'customDomainAttached' || data.original_msg_id !== msgId ) return;
-                    finish({ domain: /** @type {import('./hosting/types.js').CustomDomain | null} */ (data.domain ?? null) });
+                    if ( data.msg !== dialog.replyMsg || data.original_msg_id !== msgId ) return;
+                    finish(data);
                 },
             });
         } finally {

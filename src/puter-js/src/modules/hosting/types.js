@@ -9,6 +9,18 @@
  * (e.g. `example` in `example.puter.site`).
  * @property {import('../FSItem.js').FSItem} root_dir The root directory of the subdomain, where its
  * files are stored.
+ * @property {SiteCustomDomain[]} [custom_domains] The custom domains attached to the site, pending or
+ * active. Missing when Puter couldn't look them up.
+ */
+
+/**
+ * A custom domain as a {@link Subdomain} lists it.
+ *
+ * @typedef {Object} SiteCustomDomain
+ * @property {string} uuid Unique identifier of the custom domain.
+ * @property {string} hostname The domain, e.g. `www.example.com`.
+ * @property {'pending' | 'active' | 'failed'} status `active` once DNS is set up and the
+ * domain serves the site.
  */
 
 /**
@@ -43,6 +55,8 @@
  * domain, when Puter looked it up while adding it.
  * @property {string} [redirectFrom] The root domain forwarded to this `www.` hostname, when
  * the root domain couldn't be served directly.
+ * @property {string} [previousSite] The subdomain the domain served before, when the user
+ * moved it from another site in the [`attach()`](/Hosting/attach/) dialog.
  */
 
 export {};
