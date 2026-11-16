@@ -158,7 +158,7 @@ export function performLegacyBatchUpload (ctx) {
     mkdirRequests.reverse();
 
     fd.append('operation_id', operationId);
-    // No socket at all for a client that opted out (`puter.socketEnabled`).
+    // No socket at all when the client doesn't open one (see `wantsSocket`).
     if ( this.socket ) {
         fd.append('socket_id', this.socket.id);
         fd.append('original_client_socket_id', this.socket.id);

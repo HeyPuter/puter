@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
+import { WebSocket } from 'ws';
 import { coverageEnabled, type IstanbulCoverage } from './coverage.ts';
 import type { EnvManifest, PuterSDK } from './types.ts';
 
@@ -70,6 +71,8 @@ export const loadNodePuter = (env: EnvManifest, token: string): PuterSDK => {
         }
     }
     context.globalThis = context;
+    // As in `init.cjs`: a WebSocket that can be unref'd, so the SDK opens its sockets.
+    context.WebSocket = WebSocket;
     context.PUTER_API_ORIGIN = env.apiOrigin;
     context.PUTER_ORIGIN = env.origin;
     // The SDK's nodejs branch only shims localStorage when it's absent;
