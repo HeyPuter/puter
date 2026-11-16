@@ -204,7 +204,7 @@ describe('2FA setup: confirming identity', () => {
 
     it('sends nothing when the provider sign-in does not finish', async () => {
         openRevalidatePopup.mockRejectedValueOnce(new Error('closed'));
-        await open({ oidc_only: true });
+        await open({ oidc_only: true, oidc_revalidate_url: 'https://puter.test/revalidate' });
         action(0).trigger('click');
         await settle();
         expect(fetch).not.toHaveBeenCalled();

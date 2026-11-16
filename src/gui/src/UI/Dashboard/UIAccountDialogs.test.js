@@ -478,7 +478,7 @@ describe('disable 2FA', () => {
 
     it('sends nothing when the provider sign-in does not finish', async () => {
         openRevalidatePopup.mockRejectedValueOnce(new Error('closed'));
-        const result = open({ oidc_only: true });
+        const result = open({ oidc_only: true, oidc_revalidate_url: 'https://puter.test/revalidate' });
 
         await submitWith({ code: '000123' });
 
