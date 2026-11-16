@@ -145,6 +145,7 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
 import type { SignInInput } from '../../services/auth/SignInService.js';
 import { claimOnce } from '../../util/kvClaim.js';
+import { secretsEqual } from '../../util/secureCompare.js';
 import { knownDeviceStatus } from './knownDevice.js';
 import {
     rememberProvenDevice,
@@ -152,7 +153,11 @@ import {
     signInOf,
     startWebSession,
 } from './webSession.js';
-import { completeOidcLoginReturn } from './oidcLoginReturn.js';
+import {
+    completeOidcLoginReturn,
+    OIDC_POPUP_RETURN_COOKIE_NAME,
+    verifyOidcPopupReturn,
+} from './oidcLoginReturn.js';
 
 const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
@@ -825,6 +830,52 @@ export class AuthController extends PuterController {
             'otp',
             decoded.oidcContinuation,
         );
+    }
+
+    // -- SSO popup return --------------------------------------------
+
+    /**
+     * Hand back what a popup-return proof attests. The popup can't trust the
+     * opener origin in its own query string, so it redeems the signed proof
+     * here. Public on purpose, and on the GUI origin too since the binding
+     * cookie is host-only.
+     */
+    @Post('/auth/oidc/verify-popup-return', {
+        subdomain: ['api', ''],
+        rateLimit: {
+            scope: 'oidc-verify-popup-return',
+            limit: 60,
+            window: 60_000,
+        },
+    })
+    async handleVerifyPopupReturn(req: Request, res: Response): Promise<void> {
+        const proof = req.body?.opener_state;
+        if (typeof proof !== 'string' || !proof) {
+            throw new HttpError(400, 'Missing `opener_state`', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const decoded = verifyOidcPopupReturn(this.services.token, proof);
+        const cookieNonce = req.cookies?.[OIDC_POPUP_RETURN_COOKIE_NAME];
+        if (
+            !decoded ||
+            typeof decoded.nonce !== 'string' ||
+            typeof cookieNonce !== 'string' ||
+            !secretsEqual(cookieNonce, decoded.nonce)
+        ) {
+            throw new HttpError(400, 'Invalid `opener_state`', {
+                legacyCode: 'bad_request',
+            });
+        }
+        // Single-use; a rejected call must not burn the cookie.
+        res.clearCookie(OIDC_POPUP_RETURN_COOKIE_NAME, { path: '/' });
+        res.json({
+            opener_origin: decoded.opener_origin ?? null,
+            msg_id: decoded.msg_id ?? null,
+            action: decoded.action ?? null,
+            oidc_login: decoded.oidc_login === true,
+            user_uuid: decoded.user_uuid ?? null,
+        });
     }
 
     // -- Login: recovery code ----------------------------------------
@@ -5315,7 +5366,7 @@ export class AuthController extends PuterController {
                 ? undefined
                 : completeOidcLoginReturn(res, resolvedUser, oidcContinuation, {
                       config: this.config,
-                      oidc: this.services.oidc,
+                      token: this.services.token,
                   });
         // The row it hands back carries the gates the sign-in just set, so
         // the client opens the right verification flow straight away.

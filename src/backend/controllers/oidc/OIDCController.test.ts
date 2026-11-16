@@ -36,6 +36,10 @@ import type { OIDCService } from '../../services/auth/OIDCService.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { KNOWN_DEVICE_COOKIE_NAME } from '../auth/knownDevice.js';
+import {
+    signOidcPopupReturn,
+    verifyOidcPopupReturn,
+} from '../auth/oidcLoginReturn.js';
 
 const TEST_ORIGIN = 'http://test.local';
 
@@ -88,6 +92,7 @@ beforeAll(async () => {
     } as never);
     router = new PuterRouter();
     server.controllers.oidc.registerRoutes(router);
+    server.controllers.auth.registerRoutes(router);
     server.clients.event.on(
         'puter.signup.validate',
         (_k: unknown, data: unknown) => {
@@ -1036,7 +1041,10 @@ describe('OIDCController login callback', () => {
         const openerState = new URL(captured.redirectUrl!).searchParams.get(
             'opener_state',
         );
-        const proof = oidc().verifyPopupReturn(openerState!);
+        const proof = verifyOidcPopupReturn(
+            server.services.token,
+            openerState!,
+        );
         expect(proof?.oidc_login).toBe(true);
         const user = await server.stores.user.getByEmail(email);
         expect(user?.uuid).toBeTruthy();
@@ -1102,7 +1110,8 @@ describe('OIDCController login callback', () => {
 
         // The error leg must stamp the action its own redirect names.
         const url = new URL(captured.redirectUrl!);
-        const proof = oidc().verifyPopupReturn(
+        const proof = verifyOidcPopupReturn(
+            server.services.token,
             url.searchParams.get('opener_state')!,
         );
         expect(proof?.oidc_login).toBe(false);
@@ -2205,7 +2214,7 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
     const NONCE = 'binding-nonce';
 
     const mint = (payload: Record<string, unknown>) =>
-        server.services.oidc.signPopupReturn({
+        signOidcPopupReturn(server.services.token, {
             nonce: NONCE,
             action: 'sign-in',
             ...payload,
