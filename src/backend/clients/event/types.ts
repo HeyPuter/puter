@@ -512,6 +512,16 @@ export type EventMap = {
         // null when it sent none.
         dispatch_id: string | null;
     };
+    /**
+     * Where a password-less account signs in again before a protected action,
+     * emitted via `emitAndWait`. An SSO listener sets `revalidateUrl`; core
+     * falls back to its own OIDC route when none does.
+     */
+    'auth.reauth.options': {
+        userId: number;
+        userUuid: string;
+        revalidateUrl: string | null;
+    };
     'user.phone-verified': {
         user_id: number;
         user_uid: string;

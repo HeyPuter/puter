@@ -69,6 +69,7 @@ const buildGate = (opts: { allowTempUsers?: boolean } = {}) =>
             userStore,
             oidcService,
             tokenService,
+            eventClient: server.clients.event,
         },
         opts,
     );
@@ -188,6 +189,7 @@ describe('userProtected — requireSessionCookie (step 1)', () => {
             userStore,
             oidcService,
             tokenService,
+            eventClient: server.clients.event,
         });
         const arg = await run(gates[0], {
             cookies: { custom_session: 'tok' },
@@ -501,5 +503,41 @@ describe('userProtected — OIDC-only accounts', () => {
         expect((arg as HttpError).legacyCode).toBe(
             'oidc_revalidation_required',
         );
+    });
+
+    it("hands back an auth.reauth.options listener's revalidate URL", async () => {
+        const user = await makeUserWithPassword('seed-then-null');
+        await server.clients.db.write(
+            'UPDATE user SET password = NULL WHERE id = ?',
+            [user.id],
+        );
+        const refreshed = (await userStore.getByProperty('id', user.id, {
+            force: true,
+        }))!;
+        const listener = (
+            _key: unknown,
+            data: { userUuid: string; revalidateUrl: string | null },
+        ) => {
+            if (data.userUuid === user.uuid) {
+                data.revalidateUrl = 'https://test.local/auth/sso/revalidate';
+            }
+        };
+        server.clients.event.on('auth.reauth.options', listener);
+        try {
+            const [, , verifyIdentity] = buildGate();
+            const arg = await run(verifyIdentity, {
+                userProtected: { user: refreshed },
+                body: {},
+                cookies: {},
+            });
+            expect((arg as HttpError).legacyCode).toBe(
+                'oidc_revalidation_required',
+            );
+            expect((arg as HttpError).fields).toEqual({
+                revalidate_url: 'https://test.local/auth/sso/revalidate',
+            });
+        } finally {
+            server.clients.event.off('auth.reauth.options', listener);
+        }
     });
 });
