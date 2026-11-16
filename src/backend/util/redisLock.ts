@@ -19,6 +19,10 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Cluster } from 'ioredis';
+import {
+    isCommandTimeout,
+    sendAsUndo,
+} from '../clients/redis/commandTimeout.js';
 
 const DELETE_IF_EQUAL_SCRIPT =
     "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0";
@@ -68,6 +72,12 @@ export const withRedisLock = async <T>(
             }
         }
     } catch (err) {
+        // Same key, so this runs behind the timed-out claim if that ever does.
+        if (isCommandTimeout(err)) {
+            sendAsUndo(() => deleteIfEqual(redis, key, token)).catch(
+                () => false,
+            );
+        }
         if (onUnavailable === 'run') return fn();
         return onBusy(err);
     }
@@ -76,11 +86,7 @@ export const withRedisLock = async <T>(
     try {
         return await fn();
     } finally {
-        try {
-            // A GET then DEL could drop a lock another holder took after ours lapsed.
-            await deleteIfEqual(redis, key, token);
-        } catch {
-            // The TTL clears it.
-        }
+        // A GET then DEL could drop a lock another holder took after ours lapsed.
+        sendAsUndo(() => deleteIfEqual(redis, key, token)).catch(() => false);
     }
 };

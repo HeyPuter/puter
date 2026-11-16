@@ -1986,6 +1986,19 @@ describe('PermissionStore', () => {
             expect(await store.getScanCache(nextKey)).toBeNull();
         });
 
+        it('reads a scan cache that Redis fails to serve as a miss', async () => {
+            const get = vi
+                .spyOn(server.clients.redis, 'get')
+                .mockRejectedValueOnce(new Error('Command timed out'));
+            try {
+                await expect(
+                    store.getScanCache(`permission-scan:${uuidv4()}`),
+                ).resolves.toBeNull();
+            } finally {
+                get.mockRestore();
+            }
+        });
+
         it('announces a bump so peer regions can bump their own counter', async () => {
             const actorUid = `actor-${uuidv4()}`;
             const seen: unknown[] = [];

@@ -243,7 +243,11 @@
         ]
         // Defaults to true (matches prod ElastiCache). Set false for plain-TCP
         // self-host Valkey/Redis.
-        // "tls": false
+        // "tls": false,
+        // A command with no reply after this many ms rejects; 0 waits forever.
+        // "commandTimeoutMs": 2000,
+        // After a timeout, ms that commands reject unsent bar one probe; 0 off.
+        // "failFastMs": 5000
     },
 
     // ── Email (transactional) ───────────────────────────────────────────

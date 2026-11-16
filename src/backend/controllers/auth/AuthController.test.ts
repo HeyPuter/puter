@@ -36,6 +36,7 @@ import { TOTP } from 'otpauth';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
+import { RedisClient } from '../../clients/redis/RedisClient.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -59,7 +60,9 @@ import {
     FULL_API_ACCESS,
     NOTIFICATIONS_PUSH_PERMISSION,
 } from '../../services/permission/consts.js';
+import { startSilentRedis } from '../../testFixtures/silentRedis.js';
 import { setupTestServer } from '../../testUtil.js';
+import type { IConfig } from '../../types.js';
 import { resetCardVerificationStatusCache } from '../../util/cardFallback.js';
 import { FS_READ_LIMIT } from '../fs/limits.js';
 
@@ -10980,6 +10983,45 @@ describe('AuthController.loginWait audience binding', () => {
 
     const waitAlone = async (session: string, origin: string, now?: number) =>
         (await runWaits([{ session, origin }], { now }))[0];
+
+    it('relays a token from set to a wait within one timeout when Redis never answers', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+
+        const silent = await startSilentRedis(true);
+        const quiet = ['log', 'warn', 'error'].map((level) =>
+            vi.spyOn(console, level as 'log').mockImplementation(() => {}),
+        );
+        const stalled = new RedisClient({
+            redis: {
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 1000,
+            },
+        } as unknown as IConfig);
+        await new Promise<void>((r) => stalled.once('ready', () => r()));
+        const clients = server.clients as { redis: RedisClient };
+        const real = clients.redis;
+        clients.redis = stalled;
+        try {
+            const started = Date.now();
+            const { res, outcome } = await waitWithRelay(
+                uuidv4(),
+                { origin: OPENER },
+                token,
+            );
+            const elapsed = Date.now() - started;
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+            // One timeout, not one per call: two calls would take 2000 ms.
+            expect(elapsed).toBeLessThan(1800);
+        } finally {
+            clients.redis = real;
+            stalled.disconnect();
+            await silent.close();
+            for (const spy of quiet) spy.mockRestore();
+        }
+    }, 30_000);
 
     it('delivers a token set before the wait subscribes', async () => {
         const { actor } = await makeUserAndActor();

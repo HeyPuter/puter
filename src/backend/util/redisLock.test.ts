@@ -20,6 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { RedisClient } from '../clients/redis/RedisClient.ts';
+import { startSilentRedis } from '../testFixtures/silentRedis.ts';
 import type { IConfig } from '../types';
 import { deleteIfEqual, withRedisLock } from './redisLock.ts';
 
@@ -143,7 +144,7 @@ describe('withRedisLock', () => {
             onBusy: unexpectedBusy,
         });
 
-        expect(state.lapsed).toBe(true);
+        await vi.waitFor(() => expect(state.lapsed).toBe(true));
         expect(await redis.get(key)).toBe('next-holder');
     });
 
@@ -238,6 +239,114 @@ describe('withRedisLock', () => {
             expect(fn).not.toHaveBeenCalled();
             expect(onBusy).toHaveBeenCalledWith(down);
         });
+    });
+
+    it('sends its undo while failing fast, and none for an unsent claim', async () => {
+        const silent = await startSilentRedis(true);
+        const quiet = ['log', 'warn', 'error'].map((level) =>
+            vi.spyOn(console, level as 'log').mockImplementation(() => {}),
+        );
+        const stalled = new RedisClient({
+            redis: {
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 200,
+                failFastMs: 60_000,
+            },
+        } as unknown as IConfig);
+        try {
+            await new Promise<void>((r) => stalled.once('ready', () => r()));
+            const onBusy = vi.fn(busy);
+            const claim = () =>
+                withRedisLock(stalled, lockKey(), async () => 'ran', {
+                    ttlMs: 60_000,
+                    onUnavailable: 'busy',
+                    onBusy,
+                });
+
+            await claim();
+            await vi.waitFor(() =>
+                expect(silent.seen).toEqual(['set', 'eval']),
+            );
+
+            await claim();
+            await new Promise((r) => setTimeout(r, 50));
+            expect(silent.seen).toEqual(['set', 'eval']);
+            expect(onBusy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ message: 'Redis unavailable' }),
+            );
+        } finally {
+            stalled.disconnect();
+            await silent.close();
+            for (const spy of quiet) spy.mockRestore();
+        }
+    }, 5000);
+
+    it('sends its release while failing fast, without waiting on it', async () => {
+        const silent = await startSilentRedis(true);
+        const quiet = ['log', 'warn', 'error'].map((level) =>
+            vi.spyOn(console, level as 'log').mockImplementation(() => {}),
+        );
+        const stalled = new RedisClient({
+            redis: {
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 200,
+                failFastMs: 60_000,
+            },
+        } as unknown as IConfig);
+        try {
+            await new Promise<void>((r) => stalled.once('ready', () => r()));
+            silent.answer();
+            let fnDone = 0;
+            await withRedisLock(
+                stalled,
+                lockKey(),
+                async () => {
+                    silent.stall();
+                    await expect(stalled.get('other')).rejects.toThrow(
+                        'Command timed out',
+                    );
+                    await expect(stalled.get('other')).rejects.toThrow(
+                        'Redis unavailable',
+                    );
+                    fnDone = Date.now();
+                },
+                {
+                    ttlMs: 60_000,
+                    onUnavailable: 'busy',
+                    onBusy: unexpectedBusy,
+                },
+            );
+            expect(Date.now() - fnDone).toBeLessThan(250);
+            await vi.waitFor(() =>
+                expect(silent.seen).toEqual(['set', 'get', 'eval']),
+            );
+        } finally {
+            stalled.disconnect();
+            await silent.close();
+            for (const spy of quiet) spy.mockRestore();
+        }
+    }, 5000);
+
+    it('frees a claim that timed out but landed', async () => {
+        const key = lockKey();
+        const late = {
+            set: async (...args: Parameters<RedisClient['set']>) => {
+                await redis.set(...args);
+                throw new Error('Command timed out');
+            },
+            eval: redis.eval.bind(redis),
+        } as unknown as RedisClient;
+
+        const result = await withRedisLock(late, key, async () => 'ran', {
+            ttlMs: 60_000,
+            onUnavailable: 'busy',
+            onBusy: busy,
+        });
+
+        expect(result).toBe('busy');
+        expect(await redis.get(key)).toBeNull();
     });
 });
 

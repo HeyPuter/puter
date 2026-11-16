@@ -19,6 +19,10 @@
  */
 
 import crypto from 'node:crypto';
+import {
+    isCommandTimeout,
+    sendAsUndo,
+} from '../../../clients/redis/commandTimeout.js';
 import { withSpan } from '../../../util/span.js';
 import { Context } from '../../context.js';
 import { CallSlot } from '../callSlot.js';
@@ -220,7 +224,9 @@ async function claimCountRedis(redis, key, limit, windowMs, units) {
         windowMs,
     );
     const admitted = countedAdmits(used, limit, units);
-    if (admitted < units) await redis.decrby(current, units - admitted);
+    if (admitted < units) {
+        sendAsUndo(() => redis.decrby(current, units - admitted)).catch(noop);
+    }
     return admitted;
 }
 
@@ -298,7 +304,7 @@ async function checkRedis(
 
     const count = Number(multiResult(results, 2));
     if (count > limit) {
-        await redis.zrem(redisKey, member);
+        sendAsUndo(() => redis.zrem(redisKey, member)).catch(noop);
         return false;
     }
     return true;
@@ -326,7 +332,11 @@ async function claimRedis(redis, key, limit, windowMs, units) {
 
     const count = Number(multiResult(results, 2));
     const excess = Math.min(units, Math.max(0, count - limit));
-    if (excess > 0) await redis.zrem(redisKey, ...members.slice(-excess));
+    if (excess > 0) {
+        sendAsUndo(() => redis.zrem(redisKey, ...members.slice(-excess))).catch(
+            noop,
+        );
+    }
     return units - excess;
 }
 
@@ -481,17 +491,22 @@ async function acquireRedisConcurrent(redis, key, limit, retried = false) {
             await redis.del(redisKey);
             return acquireRedisConcurrent(redis, key, limit, true);
         }
+        // Same key, so this runs behind the timed-out MULTI if that ever does.
+        if (isCommandTimeout(err)) {
+            sendAsUndo(() => redis.zrem(redisKey, member)).catch(noop);
+        }
         throw err;
     }
+    const release = () => sendAsUndo(() => redis.zrem(redisKey, member));
     if (count > limit) {
-        await redis.zrem(redisKey, member);
+        release().catch(noop);
         return { ok: false };
     }
     return {
         ok: true,
-        release: async () => {
-            await redis.zrem(redisKey, member);
-        },
+        release,
+        // Later commands on this key queue behind it, so callers need not wait.
+        releaseInOrder: true,
         renew: async () => {
             // Re-score in place so a slot held longer than the orphan window
             // isn't mistaken for one whose owner died. `ZADD XX` only touches
@@ -840,11 +855,12 @@ function guardSlot(slot, label) {
         release: async () => {
             if (released) return;
             released = true;
-            try {
-                await slot.release();
-            } catch (err) {
-                console.error(`${label} release failed:`, err);
-            }
+            const pending = Promise.resolve()
+                .then(() => slot.release())
+                .catch((err) => {
+                    console.error(`${label} release failed:`, err);
+                });
+            if (!slot.releaseInOrder) await pending;
         },
         renew: async () => {
             if (released) return;
@@ -1074,10 +1090,10 @@ export async function peekRateLimit(key, limit, windowMs, backend) {
  * (`ok: false` still returns a no-op `release`, so callers can release
  * unconditionally). Fails open on backend error.
  *
- * `release()` returns a promise that settles once the slot is actually back —
- * await it when the next observation has to see the freed slot. Fire-and-forget
- * is fine for the usual case (an event handler on connection close), which is
- * why it never rejects.
+ * `release()` never rejects. On the redis backend it settles once the release
+ * is sent, and later commands on the key queue behind it; on the others it
+ * settles once the slot is back. Fire-and-forget is fine for the usual case (an
+ * event handler on connection close).
  *
  * A holder that can outlive `ORPHAN_SAFETY_TTL_MS` must call `renew()` on a
  * timer, or the orphan sweep will reclaim its slot as abandoned and the cap

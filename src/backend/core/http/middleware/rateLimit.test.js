@@ -29,6 +29,7 @@ import {
     vi,
 } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { isSendingUndo } from '../../../clients/redis/commandTimeout.ts';
 import { Context, runWithContext } from '../../context.js';
 import { isHttpError } from '../HttpError.js';
 import { setupTestServer } from '../../../testUtil.ts';
@@ -1155,6 +1156,28 @@ describe('acquireConcurrent — orphan recovery (redis)', () => {
         expect((await acquireConcurrent(key, 1)).ok).toBe(true);
     });
 
+    it('takes back a slot whose MULTI timed out but landed', async () => {
+        configureRateLimit({ default: 'redis', redis });
+        const key = 'timed-out-acquire';
+        const realMulti = redis.multi.bind(redis);
+        const multi = vi.spyOn(redis, 'multi').mockImplementationOnce(() => {
+            const chain = realMulti();
+            const exec = chain.exec.bind(chain);
+            chain.exec = async () => {
+                await exec();
+                throw new Error('Command timed out');
+            };
+            return chain;
+        });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        await acquireConcurrent(key, 1);
+        multi.mockRestore();
+        warn.mockRestore();
+
+        expect(await redis.zcard(`concurrent:${key}`)).toBe(0);
+    });
+
     it('heals a legacy string counter key and enforces the limit again', async () => {
         // The pre-zset implementation stored these buckets as INCR string
         // counters. Against such a key every zset command fails WRONGTYPE
@@ -1851,6 +1874,79 @@ describe('driver helpers — backend failures', () => {
             expect.any(Error),
         );
         spy.mockRestore();
+    });
+
+    it('swallows a release that throws synchronously', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                ...stubConcurrentRedis(),
+                zrem: () => {
+                    throw new Error('zrem threw');
+                },
+            },
+        });
+        const handle = await acquireDriverConcurrent(req, 'iface', 'm', {
+            limit: 5,
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        await expect(handle.release()).resolves.toBeUndefined();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(spy).toHaveBeenCalledWith(
+            '[concurrent] driver release failed:',
+            expect.any(Error),
+        );
+        spy.mockRestore();
+    });
+
+    it('takes back a denied window charge past fail-fast, and still denies', async () => {
+        const undoScoped = [];
+        const takeBack = () => {
+            undoScoped.push(isSendingUndo());
+            return Promise.resolve(1);
+        };
+        const chain = (results) => {
+            const multi = {};
+            for (const name of [
+                'zremrangebyscore',
+                'zadd',
+                'zcard',
+                'pexpire',
+                'incrby',
+                'get',
+            ]) {
+                multi[name] = () => multi;
+            }
+            multi.exec = async () => results;
+            return multi;
+        };
+        const over = [
+            [null, 0],
+            [null, 1],
+            [null, 99],
+            [null, 1],
+        ];
+        configureRateLimit({
+            default: 'redis',
+            redis: { multi: () => chain(over), zrem: takeBack },
+        });
+        expect(await checkRateLimit('tb-check', 5, 60_000)).toBe(false);
+        expect(await claimRateLimit('tb-claim', 5, 60_000, 3)).toBe(0);
+
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () =>
+                    chain([
+                        [null, 99],
+                        [null, 1],
+                        [null, '0'],
+                    ]),
+                decrby: takeBack,
+            },
+        });
+        expect(await claimCountedRateLimit('tb-count', 5, 60_000, 3)).toBe(0);
+        expect(undoScoped).toEqual([true, true, true]);
     });
 
     it('concurrencyGate logs but does not throw when release fails', async () => {

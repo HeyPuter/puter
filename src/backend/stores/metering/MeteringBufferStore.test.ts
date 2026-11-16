@@ -26,6 +26,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { isSendingUndo } from '../../clients/redis/commandTimeout.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import {
@@ -384,6 +385,80 @@ describe('MeteringBufferStore', () => {
             boom.mockRestore();
         });
 
+        it('counts an increment once when its buffering times out but lands', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const real = redis.meterIncr.bind(redis);
+            const late = vi
+                .spyOn(redis, 'meterIncr')
+                .mockImplementationOnce(async (...args) => {
+                    await real(...args);
+                    throw new Error('Command timed out');
+                });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { res, exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 6 },
+            });
+            late.mockRestore();
+            warn.mockRestore();
+
+            expect(exact).toBe(true);
+            expect((res as { total: number }).total).toBe(6);
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(6);
+        });
+
+        it('drops the cached base past fail-fast, without waiting on it', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+                del: (...keys: string[]) => Promise<number>;
+            };
+            const timedOut = vi
+                .spyOn(redis, 'meterIncr')
+                .mockRejectedValueOnce(new Error('Command timed out'))
+                .mockResolvedValueOnce([[], [], [], '', '']);
+            const undoScoped: boolean[] = [];
+            const del = vi.spyOn(redis, 'del').mockImplementationOnce(() => {
+                undoScoped.push(isSendingUndo());
+                return new Promise(() => {});
+            });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 2 },
+            });
+            timedOut.mockRestore();
+            del.mockRestore();
+            warn.mockRestore();
+
+            expect(exact).toBe(true);
+            expect(undoScoped).toEqual([true]);
+        }, 5000);
+
+        it('answers without waiting on the undo of a timed-out buffering', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const stuck = vi
+                .spyOn(redis, 'meterIncr')
+                .mockRejectedValueOnce(new Error('Command timed out'))
+                .mockReturnValueOnce(new Promise(() => {}));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 2 },
+            });
+            stuck.mockRestore();
+            warn.mockRestore();
+
+            expect(exact).toBe(true);
+        }, 5000);
+
         it('counts an increment once when the base read fails after buffering', async () => {
             await kv.incr({ key, pathAndAmountMap: { total: 80 } });
             const boom = vi
@@ -455,6 +530,26 @@ describe('MeteringBufferStore', () => {
 
             expect(await storedTotal(key)).toBe(4);
             boom.mockRestore();
+        });
+        it('counts an aggregate once when its buffering times out but lands', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const real = redis.meterIncr.bind(redis);
+            const late = vi
+                .spyOn(redis, 'meterIncr')
+                .mockImplementationOnce(async (...args) => {
+                    await real(...args);
+                    throw new Error('Command timed out');
+                });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await target.incrAux({ key, pathAndAmountMap: { total: 3 } });
+            late.mockRestore();
+            warn.mockRestore();
+
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(3);
         });
     });
 

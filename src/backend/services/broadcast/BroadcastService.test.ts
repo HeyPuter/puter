@@ -1297,6 +1297,37 @@ describe('BroadcastService — same-cluster pub/sub fan-out', () => {
         }
     });
 
+    it('warns once per stretch of failing fast, not once per publish', async () => {
+        const unavailable = () => Promise.reject(new Error('Redis unavailable'));
+        const publish = vi
+            .spyOn(server.clients.redis, 'publish')
+            .mockImplementationOnce(unavailable)
+            .mockImplementationOnce(unavailable)
+            .mockImplementationOnce(unavailable)
+            .mockResolvedValueOnce(1)
+            .mockImplementationOnce(unavailable);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failedPublishes = () =>
+            warn.mock.calls.filter(
+                ([message]) => message === '[broadcast] pubsub publish failed',
+            ).length;
+        try {
+            for (let i = 0; i < 5; i++) {
+                server.clients.event.emit(
+                    'pubsub.quiet' as never,
+                    { i } as never,
+                    {},
+                );
+                await new Promise((r) => setImmediate(r));
+                if (i === 2) expect(failedPublishes()).toBe(1);
+            }
+            expect(failedPublishes()).toBe(2);
+        } finally {
+            publish.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
     it('re-emits another node\'s message locally, and skips its own', async () => {
         const seen: { key: string; data: unknown; meta: object }[] = [];
         server.clients.event.on(
@@ -1333,6 +1364,107 @@ describe('BroadcastService — same-cluster pub/sub fan-out', () => {
             data: { n: 2 },
             meta: { tag: 'x', from_fanout: true, from_outside: true },
         });
+    });
+});
+
+describe('BroadcastService — pubsub subscribe retry', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('retries a rejected subscribe until it lands', async () => {
+        const subscribe = vi
+            .fn()
+            .mockRejectedValueOnce(new Error('Connection is closed.'))
+            .mockRejectedValueOnce(new Error('Connection is closed.'))
+            .mockResolvedValue(1);
+        const sub = {
+            subscribe,
+            on: vi.fn(),
+            unsubscribe: vi.fn().mockResolvedValue(1),
+            quit: vi.fn(),
+        };
+        const live = server.services.broadcast as unknown as {
+            config: unknown;
+            stores: unknown;
+            services: unknown;
+            constructor: new (...args: unknown[]) => BroadcastService;
+        };
+        const service = new live.constructor(
+            live.config,
+            {
+                ...server.clients,
+                redis: {
+                    duplicate: () => sub,
+                    publish: vi.fn().mockResolvedValue(0),
+                },
+            },
+            live.stores,
+            live.services,
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.useFakeTimers({ toFake: ['setTimeout'] });
+        try {
+            service.onServerStart();
+            await vi.advanceTimersByTimeAsync(1000);
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(subscribe).toHaveBeenCalledTimes(3);
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(subscribe).toHaveBeenCalledTimes(3);
+        } finally {
+            vi.useRealTimers();
+            await service.onServerPrepareShutdown();
+            warn.mockRestore();
+        }
+    });
+
+    it('stops retrying once the service shuts down', async () => {
+        const subscribe = vi
+            .fn()
+            .mockRejectedValue(new Error('Connection is closed.'));
+        const sub = {
+            subscribe,
+            on: vi.fn(),
+            unsubscribe: vi.fn().mockResolvedValue(1),
+            quit: vi.fn(),
+        };
+        const live = server.services.broadcast as unknown as {
+            config: unknown;
+            stores: unknown;
+            services: unknown;
+            constructor: new (...args: unknown[]) => BroadcastService;
+        };
+        const service = new live.constructor(
+            live.config,
+            {
+                ...server.clients,
+                redis: {
+                    duplicate: () => sub,
+                    publish: vi.fn().mockResolvedValue(0),
+                },
+            },
+            live.stores,
+            live.services,
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.useFakeTimers({ toFake: ['setTimeout'] });
+        try {
+            service.onServerStart();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(subscribe).toHaveBeenCalledTimes(1);
+            await service.onServerPrepareShutdown();
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(subscribe).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+            warn.mockRestore();
+        }
     });
 });
 

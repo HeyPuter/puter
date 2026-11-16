@@ -53,6 +53,10 @@ export interface IRedisConfig {
      * empty.
      */
     useMock?: boolean;
+    /** Ms until a sent or queued command rejects. Default 2000; 0 off. */
+    commandTimeoutMs?: number;
+    /** Ms commands reject unsent after a timeout, bar one probe. Default 5000. */
+    failFastMs?: number;
 }
 
 /**

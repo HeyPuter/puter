@@ -20,6 +20,7 @@
 import type { TeamStoreContract } from '../core/teams.js';
 
 import type { puterClients } from '../clients';
+import { sendAsUndo } from '../clients/redis/commandTimeout.js';
 import type { IExtensionClientInstances } from '../clients/types';
 import type { IConfig, LayerInstances, WithLifecycle } from '../types';
 
@@ -393,7 +394,8 @@ export const PuterStore = class PuterStore implements WithLifecycle {
                     pipeline.set(key, serializedData, 'EX', ttl);
                 }
             }
-            await pipeline.exec();
+            // Sent while failing fast: a dropped one leaves the old entry live.
+            await sendAsUndo(() => pipeline.exec());
         } catch {
             console.warn(
                 '[PuterStore] publishCacheKeys failed to update local cache:',

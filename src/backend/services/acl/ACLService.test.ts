@@ -1238,6 +1238,10 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
             await runWithContext({ actor: issuer }, () =>
                 acl.setUserUser(issuer, holder, res, 'read'),
             );
+            // The release is sent without being awaited.
+            await vi.waitFor(async () =>
+                expect(await real.get(key)).toBe('next-holder'),
+            );
         } finally {
             for (const spy of spies) spy.mockRestore();
         }

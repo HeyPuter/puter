@@ -2012,10 +2012,9 @@ export class PermissionStore extends PuterStore {
     }
 
     async getScanCache(cacheKey: string): Promise<unknown | null> {
-        const raw = await this.clients.redis.get(cacheKey);
-        if (!raw) return null;
         try {
-            return JSON.parse(raw);
+            const raw = await this.clients.redis.get(cacheKey);
+            return raw ? JSON.parse(raw) : null;
         } catch {
             return null;
         }
