@@ -152,7 +152,6 @@ const ta = {
         ok: 'சரி',
         open: 'திற',
         open_in_new_tab: 'புதிய தாவலில் திறக்கவும்',
-        open_in_new_window: 'Open in New Window',
         open_with: 'உடன் திற',
         original_name: 'அசல் பெயர்',
         original_path: 'அசல் பாதை',

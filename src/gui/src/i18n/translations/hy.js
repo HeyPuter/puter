@@ -152,7 +152,6 @@ const hy = {
         ok: 'Լավ',
         open: 'Բացել',
         open_in_new_tab: 'Բացել նոր ներդիրով',
-        open_in_new_window: 'Բացել նոր պատուհանում',
         open_with: 'Բացել հավելվածով',
         original_name: 'սկզբնական անուն',
         original_path: 'սկզբնական ուղի',

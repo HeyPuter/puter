@@ -604,10 +604,7 @@ async function UIItem (options) {
                 return false;
             }
 
-            open_item({
-                item: el_item,
-                new_window: e.metaKey || e.ctrlKey,
-            });
+            open_item({ item: el_item });
         });
     }
 
@@ -1188,27 +1185,6 @@ async function UIItem (options) {
                 menu_items.push('-');
             }
 
-            // -------------------------------------------
-            // Open in New Window
-            // (only if the item is on a window)
-            // -------------------------------------------
-            if ( $(el_item).closest('.window-body').length > 0 && options.is_dir ) {
-                menu_items.push({
-                    html: i18n('open_in_new_window'),
-                    onClick: function () {
-                        if ( options.is_dir ) {
-                            open_item({ item: el_item, new_window: true });
-                        }
-                    },
-                });
-                // -------------------------------------------
-                // -- separator --
-                // -------------------------------------------
-                if ( !is_trash && !is_trashed && options.is_dir )
-                {
-                    menu_items.push('-');
-                }
-            }
             // -------------------------------------------
             // Deploy As App
             // -------------------------------------------

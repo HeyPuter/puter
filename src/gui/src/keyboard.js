@@ -619,10 +619,7 @@ $(document).bind('keyup keydown', async function (e) {
                 e.preventDefault();
                 e.stopPropagation();
                 $selected_items.each(function () {
-                    open_item({
-                        item: this,
-                        new_window: e.metaKey || e.ctrlKey,
-                    });
+                    open_item({ item: this });
                 });
                 return false;
             }

@@ -140,7 +140,6 @@ const nl = {
         ok: 'OK',
         open: 'Openen',
         open_in_new_tab: 'Openen in Nieuw Tabblad',
-        open_in_new_window: 'Openen in Nieuw Venster',
         open_with: 'Openen met',
         original_name: 'Originele Naam',
         original_path: 'Origineel Pad',

@@ -189,7 +189,6 @@ const fi = {
         ok: 'OK',
         open: 'Avaa',
         open_in_new_tab: 'Avaa uudessa välilehdessä',
-        open_in_new_window: 'Avaa uudessa ikkunassa',
 
         open_with: 'Avaa sovelluksessa', // TODO: Context dependent
         // "Open" => "Avaa", can be "Avaa..." in this context or

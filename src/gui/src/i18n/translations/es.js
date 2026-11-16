@@ -158,7 +158,6 @@ const es = {
         ok: 'OK',
         open: 'Abrir',
         open_in_new_tab: 'Abrir en una nueva pestaña',
-        open_in_new_window: 'Abrir en una nueva ventana',
         open_with: 'Abrir con',
         original_name: 'Nombre original',
         original_path: 'Ruta original',

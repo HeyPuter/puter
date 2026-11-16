@@ -139,7 +139,6 @@ const da = {
         ok: 'OK',
         open: 'Åbn',
         open_in_new_tab: 'Åbn i ny fane',
-        open_in_new_window: 'Åbn i nyt vindue',
         open_with: 'Åbn med',
         original_name: 'Originalt navn',
         original_path: 'Original sti',

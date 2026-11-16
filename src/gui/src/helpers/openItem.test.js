@@ -21,10 +21,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
-vi.mock('../UI/UIWindow.js', () => ({ default: vi.fn() }));
 vi.mock('../UI/UIAlert.js', () => ({ default: vi.fn(async () => undefined) }));
 vi.mock('./launchApp.js', () => ({ default: vi.fn(async () => ({ launchResult: { launched: true } })) }));
-vi.mock('./itemIcon.js', () => ({ default: vi.fn() }));
 vi.mock('./defaultApp.js', () => ({ resolve_default_app: vi.fn(async () => null) }));
 
 globalThis.$ = globalThis.jQuery = jQuery;
@@ -35,20 +33,20 @@ const { default: UIAlert } = await import('../UI/UIAlert.js');
 const { resolve_default_app } = await import('./defaultApp.js');
 const { default: open_item } = await import('./openItem.js');
 
-const row = ({ name = 'notes.txt', path = '/user/notes.txt', uid = 'file-1' } = {}) => {
+const row = ({ name = 'notes.txt', path = '/user/notes.txt', uid = 'file-1', isDir = false, parent = document.body } = {}) => {
     const el = document.createElement('div');
     for ( const [key, value] of Object.entries({
         'data-uid': uid,
         'data-path': path,
         'data-name': name,
-        'data-is_dir': '0',
+        'data-is_dir': isDir ? '1' : '0',
         'data-shortcut_to': '',
         'data-shortcut_to_path': '',
         'data-associated_app_name': '',
     }) ) {
         el.setAttribute(key, value);
     }
-    document.body.appendChild(el);
+    parent.appendChild(el);
     return el;
 };
 
@@ -127,3 +125,34 @@ describe('open_item with no app for the file', () => {
     });
 });
 
+
+describe('open_item with a folder', () => {
+    const folder = (parent) => row({ name: 'Docs', path: '/user/Docs', uid: 'dir-1', isDir: true, parent });
+
+    it('shows it in the window that lists it', async () => {
+        const win = document.createElement('div');
+        win.className = 'window';
+        win.setAttribute('data-id', '7');
+        document.body.appendChild(win);
+        window.window_nav_history = { 7: ['/user'] };
+        window.window_nav_history_current_position = { 7: 0 };
+        window.update_window_path = vi.fn();
+
+        await open_item({ item: folder(win) });
+
+        expect(window.window_nav_history[7]).toEqual(['/user', '/user/Docs']);
+        expect(window.window_nav_history_current_position[7]).toBe(1);
+        expect(window.update_window_path).toHaveBeenCalledWith(expect.anything(), '/user/Docs');
+        expect(launch_app).not.toHaveBeenCalled();
+    });
+
+    it('opens nothing when no window lists it', async () => {
+        window.update_window_path = vi.fn();
+
+        await open_item({ item: folder() });
+
+        expect(window.update_window_path).not.toHaveBeenCalled();
+        expect(launch_app).not.toHaveBeenCalled();
+        expect(jQuery.ajax).not.toHaveBeenCalled();
+    });
+});

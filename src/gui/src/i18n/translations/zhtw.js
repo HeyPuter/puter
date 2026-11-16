@@ -157,7 +157,6 @@ const zhtw = {
         ok: '確定',
         open: '開啟',
         open_in_new_tab: '在新分頁中開啟',
-        open_in_new_window: '在新視窗中開啟',
         open_with: '開啟方式',
         original_name: '原始名稱',
         original_path: '原始路徑',

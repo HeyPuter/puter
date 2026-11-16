@@ -140,7 +140,6 @@ const ml = {
         ok: 'ശരി',
         open: 'തുറക്കുക',
         open_in_new_tab: 'പുതിയ ടാബിൽ തുറക്കുക',
-        open_in_new_window: 'പുതിയ വിൻഡോയിൽ തുറക്കുക',
         open_with: 'ഇതുപയോഗിച്ച് തുറക്കുക',
         original_name: 'യഥാർത്ഥ പേര്',
         original_path: 'യഥാർത്ഥ പാത',

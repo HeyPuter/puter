@@ -158,7 +158,6 @@ const my = {
         ok: 'OK',
         open: 'Buka',
         open_in_new_tab: 'Buka dalam Tab Baru',
-        open_in_new_window: 'Buka dalam Tetingkap Baru',
         open_with: 'Buka Dengan',
         original_name: 'Nama Asal',
         original_path: 'Laluan Asal',

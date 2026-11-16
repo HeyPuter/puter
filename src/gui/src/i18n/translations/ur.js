@@ -140,7 +140,6 @@ const ur = {
         ok: 'ٹھیک ہے',
         open: 'کھولیں',
         open_in_new_tab: 'نئی ٹیب میں کھولیں',
-        open_in_new_window: 'نئی ونڈو میں کھولیں ',
         open_with: 'کے ساتھ کھولیں ',
         password: 'پاس ورڈ ',
         password_changed: 'پاس ورڈ تبدیل ہوگیا ',

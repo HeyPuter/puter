@@ -143,7 +143,6 @@ const sl = {
         ok: 'V redu',
         open: 'Odpri',
         open_in_new_tab: 'Odpri v novem zavihku',
-        open_in_new_window: 'Odpri v novem oknu',
         open_with: 'Odpri z',
         original_name: 'Izvirno ime',
         original_path: 'Izvirna pot',

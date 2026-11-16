@@ -149,7 +149,6 @@ const id = {
         ok: 'OK',
         open: 'Buka',
         open_in_new_tab: 'Buka di Tab Baru',
-        open_in_new_window: 'Buka di Jendela Baru',
         open_with: 'Buka Dengan',
         original_name: 'Nama Asli',
         original_path: 'Lokasi Asli',

@@ -138,7 +138,6 @@ const de = {
         ok: 'OK',
         open: 'Öffnen',
         open_in_new_tab: 'In neuem Tab öffnen',
-        open_in_new_window: 'In neuem Fenster öffnen',
         open_with: 'Öffnen mit',
         original_name: 'Originalname',
         original_path: 'Originalpfad',

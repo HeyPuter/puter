@@ -139,7 +139,6 @@ const sv = {
         ok: 'OK',
         open: 'Öppna',
         open_in_new_tab: 'Öppna i ny flik',
-        open_in_new_window: 'Öppna i nytt fönster',
         open_with: 'Öppna med',
         original_name: 'Utsprungligt namn',
         original_path: 'Utsprunglig filväg',
