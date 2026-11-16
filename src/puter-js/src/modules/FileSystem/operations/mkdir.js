@@ -37,7 +37,7 @@ const mkdir = defineOperation({
                 overwrite: options.overwrite ?? false,
                 dedupe_name: firstDefined(options, 'dedupeName', 'rename') ?? false,
                 shortcut_to: options.shortcutTo,
-                // No socket at all for a client that opted out (`puter.socketEnabled`).
+                // No socket at all when the client doesn't open one (see `wantsSocket`).
                 original_client_socket_id: this.socket?.id,
                 create_missing_parents: firstDefined(options, 'createMissingParents', 'recursive') ?? false,
             },

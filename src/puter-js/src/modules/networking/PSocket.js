@@ -264,7 +264,7 @@ export class PSocket extends EventListener {
                 }
 
                 if ( value ) {
-                    this.emit(this.#eventName('data'), value);
+                    this.#emitFromListener(this.#eventName('data'), value);
                 }
             }
 
@@ -356,7 +356,7 @@ export class PSocket extends EventListener {
         }
 
         this.#closed = true;
-        this.emit(this.#eventName('close'), Boolean(hadError));
+        this.#emitFromListener(this.#eventName('close'), Boolean(hadError));
     }
 
     #eventName (event) {

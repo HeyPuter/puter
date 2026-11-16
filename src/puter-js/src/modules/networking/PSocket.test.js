@@ -549,6 +549,43 @@ describe('PSocket throwing listeners', () => {
         expect(events.error).not.toHaveBeenCalled();
         socket.close();
     });
+
+    it('keeps reading when a data listener throws', async () => {
+        const rethrows = captureRethrows();
+        const { socket, events, stream } = await connected();
+        const listenerError = new Error('handler bug');
+        socket.on('data', (chunk) => {
+            if ( chunk[0] === 1 ) throw listenerError;
+        });
+
+        stream.push(new Uint8Array([1]));
+        stream.push(new Uint8Array([2]));
+        await until(() => expect(events.data).toHaveBeenCalledTimes(2));
+
+        expect(events.error).not.toHaveBeenCalled();
+        expect(events.close).not.toHaveBeenCalled();
+        expect(mockDiscardOnRelayFailure).not.toHaveBeenCalled();
+        expect(rethrows).toHaveLength(1);
+        expect(() => rethrows[0]()).toThrow(listenerError);
+        socket.close();
+    });
+
+    it('closes once when a close listener throws', async () => {
+        const rethrows = captureRethrows();
+        const { socket, events } = await connected();
+        const listenerError = new Error('handler bug');
+        socket.on('close', () => {
+            throw listenerError;
+        });
+
+        socket.close();
+        await until(() => expect(rethrows).toHaveLength(1));
+
+        expect(events.close).toHaveBeenCalledTimes(1);
+        expect(events.close).toHaveBeenCalledWith(false);
+        expect(events.error).not.toHaveBeenCalled();
+        expect(() => rethrows[0]()).toThrow(listenerError);
+    });
 });
 
 describe('PSocket close', () => {
