@@ -221,6 +221,14 @@ export class NotificationsModule extends EventListener {
     /** @type {OmitThisParameter<typeof removeDevice>} */
     removeDevice = removeDevice;
 
+    /**
+     * `enable()` takes `background`. The desktop checks it, since an older
+     * puter.js would run that call as a click.
+     *
+     * @internal
+     */
+    _enableTakesBackground = true;
+
     #pushListener = (notification) => {
         if (this.#pushHandlers.size > 0) return this.#dispatchPush(notification);
     };

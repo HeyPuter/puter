@@ -58,10 +58,11 @@ const fakeIdb = (entries = {}) => {
     };
 };
 
-const make = ({ on = true, devices = [], permission = 'granted', subscription = { endpoint: 'https://push.test/1' }, user = 'u-1', serverState = 'active', idb = fakeIdb(), storage = fakeStorage() } = {}) => {
+const make = ({ on = true, devices = [], permission = 'granted', subscription = { endpoint: 'https://push.test/1' }, user = 'u-1', serverState = 'active', idb = fakeIdb(), storage = fakeStorage(), takesBackground = true } = {}) => {
     const notifications = {
         enable: vi.fn(async () => on),
         _enableWebPush: vi.fn(async () => {}),
+        ...(takesBackground ? { _enableTakesBackground: true } : {}),
         disable: vi.fn(async () => true),
         listDevices: vi.fn(async () => devices),
     };
@@ -155,6 +156,18 @@ describe('webPushClient', () => {
         const removed = Object.assign(new Error('removed'), { code: 'push_device_removed' });
         notifications.enable.mockRejectedValue(removed);
         await expect(client.enable({ background: true })).rejects.toBe(removed);
+    });
+
+    it('turns on in the background through the internal call with a puter.js whose enable() has no background option', async () => {
+        const { notifications, client } = make({ devices: [current], takesBackground: false });
+        await expect(client.enable({ background: true })).resolves.toEqual({ deviceUid: 'd1' });
+        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { background: true });
+        expect(notifications.enable).not.toHaveBeenCalled();
+
+        const removed = Object.assign(new Error('removed'), { code: 'push_device_removed' });
+        notifications._enableWebPush.mockRejectedValue(removed);
+        await expect(client.enable({ background: true })).rejects.toBe(removed);
+        expect(notifications.enable).not.toHaveBeenCalled();
     });
 
     it('rejects in the background when enable() resolves false', async () => {
