@@ -156,6 +156,48 @@ describe('Blocked people dialog', () => {
         expect(status()).toBe('Try again later');
     });
 
+    it('keeps the switch as it was set when the list requested before it arrives after', async () => {
+        const list = Promise.withResolvers();
+        fetch.mockImplementationOnce(async () => {
+            const stale = JSON.stringify(server);
+            await list.promise;
+            return new Response(stale, { status: 200 });
+        });
+        UIDashboardBlockedSendersDialog();
+        allSwitch().prop('checked', true).trigger('change');
+        await settle();
+        expect(server.all).toBe(true);
+
+        list.resolve();
+        await settle();
+        expect(allSwitch().prop('checked')).toBe(true);
+        expect(blocked()).toEqual(['mallory']);
+    });
+
+    it('ignores a list that arrives after a newer one', async () => {
+        server.items.push({ username: 'eve' });
+        await open();
+        // The list read after the first unblock is answered last.
+        const first_list = Promise.withResolvers();
+        const respond = fetch.getMockImplementation();
+        let lists = 0;
+        fetch.mockImplementation(async (url, opts) => {
+            if ( opts.method !== 'GET' || ++lists > 1 ) return respond(url, opts);
+            const stale = JSON.stringify(server);
+            await first_list.promise;
+            return new Response(stale, { status: 200 });
+        });
+        $('.dashboard-blocked-unblock[data-username="mallory"]').trigger('click');
+        await settle();
+        $('.dashboard-blocked-unblock[data-username="eve"]').trigger('click');
+        await settle();
+        expect(blocked()).toEqual([]);
+
+        first_list.resolve();
+        await settle();
+        expect(blocked()).toEqual([]);
+    });
+
     it('closes on Done and hands focus back to the opener', async () => {
         const opener = $('<button type="button">Manage</button>').appendTo('body').get(0);
         await open({ returnFocusTo: opener });

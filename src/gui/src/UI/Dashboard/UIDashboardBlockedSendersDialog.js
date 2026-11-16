@@ -120,11 +120,18 @@ export default function UIDashboardBlockedSendersDialog ({ $container, returnFoc
         holdFocus();
     };
 
+    // Answers can arrive out of order: an older list must not replace a newer
+    // one, nor the switch's state a change made since it was requested.
+    let list_seq = 0;
+    let all_seq = 0;
+
     const refresh = async () => {
+        const seq = ++list_seq;
+        const all_at_request = all_seq;
         try {
             const { all, items } = await blocksApi('GET');
-            if ( isClosed() ) return;
-            $all.prop('checked', Boolean(all));
+            if ( isClosed() || seq !== list_seq ) return;
+            if ( all_at_request === all_seq ) $all.prop('checked', Boolean(all));
             render(items ?? []);
         } catch ( err ) {
             if ( ! isClosed() ) fail(err);
@@ -135,6 +142,7 @@ export default function UIDashboardBlockedSendersDialog ({ $container, returnFoc
     // off restores exactly what it hid.
     $all.on('change', async function () {
         const on = this.checked;
+        all_seq++;
         this.disabled = true;
         try {
             await blocksApi(on ? 'POST' : 'DELETE', { all: true });
