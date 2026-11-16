@@ -278,7 +278,24 @@ describe('2FA setup: recovery codes', () => {
         expect(writeText).toHaveBeenLastCalledWith('JBSWY3DPEHPK3PXP');
         $('.tfa-copy-codes').trigger('click');
         expect(writeText).toHaveBeenLastCalledWith(SETUP.codes.join('\n'));
+        await settle();
         expect($('.tfa-copy-codes span').text()).toBe('copied');
+    });
+
+    it('does not say copied when nothing could be copied, and leaves the codes selected', async () => {
+        Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+        fetch.mockResolvedValueOnce(reply(200, SETUP));
+        await open();
+        await confirmPassword();
+        const secret_icon = $('.tfa-copy-secret').html();
+
+        $('.tfa-copy-secret').trigger('click');
+        $('.tfa-copy-codes').trigger('click');
+        await settle();
+        expect($('.tfa-copy-secret').html()).toBe(secret_icon);
+        expect($('.tfa-copy-codes span').text()).toBe('copy');
+        expect($('.tfa-copy-codes').hasClass('copied')).toBe(false);
+        expect(window.getSelection().containsNode($('.tfa-code-item').get(0), true)).toBe(true);
     });
 });
 

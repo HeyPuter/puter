@@ -21,6 +21,7 @@
 // steps through: confirm identity, scan the QR code, save the recovery
 // codes, enter a code from the authenticator, done.
 
+import copyElementText from '../../helpers/copyElementText.js';
 import postUserProtected from '../../helpers/postUserProtected.js';
 import UIQRCode from '../UIQRCode.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
@@ -399,22 +400,23 @@ export default function UIDashboard2FASetupDialog ({ $container, returnFocusTo }
             if ( pasted.length === CODE_LENGTH && ! is_verifying ) enable2FA(pasted);
         });
 
-        // An insecure origin has no navigator.clipboard; the text stays selectable.
-        const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
-
-        $dialog.find('.tfa-copy-secret').on('click', function () {
-            copy(secret);
-            const $btn = $(this).html(TFA_ICONS.check);
-            setTimeout(() => $btn.html(TFA_ICONS.copy), COPIED_RESET_MS);
+        // The buttons say "copied" only once the clipboard has it.
+        $dialog.find('.tfa-copy-secret').on('click', async function () {
+            const $btn = $(this);
+            if ( ! await copyElementText($dialog.find('.tfa-secret-key').get(0)) ) return;
+            $btn.html(TFA_ICONS.check);
+            clearTimeout($btn.data('reset'));
+            $btn.data('reset', setTimeout(() => $btn.html(TFA_ICONS.copy), COPIED_RESET_MS));
         });
 
-        $dialog.find('.tfa-copy-codes').on('click', function () {
-            copy(setup_data.codes.join('\n'));
-            const $btn = $(this).addClass('copied');
-            $btn.find('span').text(t('copied'));
-            setTimeout(() => {
+        $dialog.find('.tfa-copy-codes').on('click', async function () {
+            const $btn = $(this);
+            if ( ! await copyElementText($dialog.find('.tfa-codes-grid').get(0), setup_data.codes.join('\n')) ) return;
+            $btn.addClass('copied').find('span').text(t('copied'));
+            clearTimeout($btn.data('reset'));
+            $btn.data('reset', setTimeout(() => {
                 $btn.removeClass('copied').find('span').text(t('copy'));
-            }, COPIED_RESET_MS);
+            }, COPIED_RESET_MS));
         });
 
         $dialog.find('.tfa-print-codes').on('click', function () {

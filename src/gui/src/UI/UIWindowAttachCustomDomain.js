@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import copyElementText from '../helpers/copyElementText.js';
 import { isPlausibleHostname, normalizeHostnameInput } from '../helpers/customDomainHostname.js';
 import {
     customDomainErrorText,
@@ -263,32 +264,10 @@ async function UIWindowAttachCustomDomain (options) {
             if ( ! busy ) close();
         });
 
-        /**
-         * True once `el`'s text is on the clipboard. Without clipboard access
-         * (an insecure origin has no `navigator.clipboard` at all), the text
-         * is selected for the legacy copy and stays selected to copy by hand.
-         */
-        const copyText = async (el) => {
-            try {
-                await navigator.clipboard.writeText(el.textContent);
-                return true;
-            } catch {
-                const range = document.createRange();
-                range.selectNodeContents(el);
-                const selection = window.getSelection();
-                selection.removeAllRanges();
-                selection.addRange(range);
-                try {
-                    return document.execCommand('copy');
-                } catch {
-                    return false;
-                }
-            }
-        };
         // Copy buttons flip to a check for a moment once the value is copied.
         $overlay.on('click', '.custom-domain-copy', async function () {
             const $btn = $(this);
-            if ( ! await copyText($btn.siblings('code').get(0)) ) return;
+            if ( ! await copyElementText($btn.siblings('code').get(0)) ) return;
             clearTimeout($btn.data('reset'));
             $btn.addClass('is-copied').attr('aria-label', text('copied')).attr('title', text('copied'));
             $btn.data('reset', setTimeout(() => {
