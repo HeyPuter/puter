@@ -180,13 +180,19 @@ export default function UIDashboardBlockedSendersDialog ({ $container, returnFoc
         $(this).prop('disabled', true);
         try {
             await blocksApi('DELETE', { username });
-            setStatus(t('blocked_removed', { username }), 'info');
-            await refresh();
         } catch ( err ) {
             fail(err);
             $(this).prop('disabled', false);
             holdFocus();
+            return;
         }
+        // They are unblocked now, whether or not the list reloads.
+        $list.find('.dashboard-blocked-unblock').filter((_, el) => el.dataset.username === username)
+            .closest('.dashboard-blocked-row').remove();
+        if ( ! $list.children().length ) render([]);
+        holdFocus();
+        setStatus(t('blocked_removed', { username }), 'info');
+        await refresh();
     });
 
     $dialog.on('click', '.dashboard-blocked-done', () => close());

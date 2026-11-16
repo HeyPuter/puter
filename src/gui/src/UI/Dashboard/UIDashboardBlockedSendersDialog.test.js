@@ -133,6 +133,37 @@ describe('Blocked people dialog', () => {
         expect(document.activeElement).toBe($('.dashboard-blocked-dialog').get(0));
     });
 
+    it('takes an unblocked person off the list even when the list cannot be reloaded', async () => {
+        server.items.push({ username: 'eve' });
+        await open();
+        const respond = fetch.getMockImplementation();
+        fetch.mockImplementation(async (url, opts) => (opts.method === 'GET'
+            ? new Response('{}', { status: 500 })
+            : respond(url, opts)));
+        const $unblock = $('.dashboard-blocked-unblock[data-username="mallory"]');
+        $unblock.get(0).focus();
+        $unblock.trigger('click');
+        await settle();
+        expect(server.items).toEqual([{ username: 'eve' }]);
+        expect(blocked()).toEqual(['eve']);
+        expect($('.dashboard-blocked-unblock').prop('disabled')).toBe(false);
+        expect(document.activeElement).toBe($('.dashboard-blocked-dialog').get(0));
+
+        $('.dashboard-blocked-unblock').trigger('click');
+        await settle();
+        expect($('.dashboard-blocked-empty').length).toBe(1);
+    });
+
+    it('gives the Unblock button back when unblocking is refused', async () => {
+        await open();
+        failWith = 'Try again later';
+        $('.dashboard-blocked-unblock').trigger('click');
+        await settle();
+        expect(blocked()).toEqual(['mallory']);
+        expect(status()).toBe('Try again later');
+        expect($('.dashboard-blocked-unblock').prop('disabled')).toBe(false);
+    });
+
     it('refuses everyone with the switch, and accepts again when switched off', async () => {
         await open();
         allSwitch().prop('checked', true).trigger('change');
