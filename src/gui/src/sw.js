@@ -30,20 +30,24 @@ const DEFAULT_TITLE = 'New notification';
 const DEFAULT_ICON = '/favicons/android-icon-192x192.png';
 const CLICK_MESSAGE = 'puter-notification-click';
 const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 const CHALLENGE_MESSAGE = 'puter-push-challenge';
 const CLICK_PARAM = 'puter.notification';
 // Browsers allow openWindow only shortly after the click.
 const CLICK_ACK_BUDGET_MS = 600;
 const GUI_PATHS = /^\/(?:$|desktop(?:\/|$)|dashboard(?:\/|$)|app\/|settings(?:\/|$)|@)/;
-// Entries puter.js keeps here (modules/notifications/lib/pushStore.js).
-const DB_NAME = 'puter-push';
-const HANDLERS = 'handlers';
-const CLICKS = 'clicks';
-const SERVER_KEY = 'puter:server-key';
-const SERVER_KEYS = 'puter:server-keys';
-const CHANGED_PREFIX = 'puter:subscription-changed:';
+// Shared with puter.js: generated from lib/pushNames.js by tools/pushWorkerNames.mjs.
+const CLICKS_STORE = 'clicks';
+const HANDLERS_STORE = 'handlers';
+const OPT_IN_PREFIX = 'puter:opt-in:';
+const PUSH_DB_NAME = 'puter-push';
 const RECEIPT_PREFIX = 'puter:receipt:';
+const SERVER_KEYS_ENTRY = 'puter:server-keys';
+const SERVER_KEY_ENTRY = 'puter:server-key';
+const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
+const SUBSCRIPTION_CHANGED_PREFIX = 'puter:subscription-changed:';
+const SYNCED_PREFIX = 'puter:synced:';
+const TAP_BASE_PREFIX = 'puter:tap-base:';
+// End of generated names.
 
 const nonEmptyString = (value) => (
     typeof value === 'string' && value.trim() !== '' ? value : undefined
@@ -221,10 +225,10 @@ async function postToWindows (scope, message) {
 
 function openDB () {
     return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, 1);
+        const req = indexedDB.open(PUSH_DB_NAME, 1);
         req.onupgradeneeded = () => {
-            req.result.createObjectStore(HANDLERS);
-            req.result.createObjectStore(CLICKS);
+            req.result.createObjectStore(HANDLERS_STORE);
+            req.result.createObjectStore(CLICKS_STORE);
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -235,7 +239,7 @@ async function idb (mode, action) {
     const db = await openDB();
     try {
         return await new Promise((resolve, reject) => {
-            const req = action(db.transaction(HANDLERS, mode).objectStore(HANDLERS));
+            const req = action(db.transaction(HANDLERS_STORE, mode).objectStore(HANDLERS_STORE));
             req.onsuccess = () => resolve(req.result);
             req.onerror = () => reject(req.error);
         });
@@ -262,8 +266,8 @@ function sameKey (buffer, value) {
 }
 
 async function puterKeys () {
-    const last = await idb('readonly', (s) => s.get(SERVER_KEY));
-    const listed = await idb('readonly', (s) => s.get(SERVER_KEYS));
+    const last = await idb('readonly', (s) => s.get(SERVER_KEY_ENTRY));
+    const listed = await idb('readonly', (s) => s.get(SERVER_KEYS_ENTRY));
     return [last, ...(Array.isArray(listed) ? listed : [])].filter((key) => nonEmptyString(key));
 }
 
@@ -276,12 +280,12 @@ async function keepSubscription (scope, event) {
     if ( old && ! keys.some((key) => sameKey(old, key)) ) return;
     // The page asks the server whether the old endpoint was removed before registering again.
     const receipt = await idb('readonly', (s) => s.get(RECEIPT_PREFIX + registration.scope));
-    const earlier = await idb('readonly', (s) => s.get(CHANGED_PREFIX + registration.scope));
+    const earlier = await idb('readonly', (s) => s.get(SUBSCRIPTION_CHANGED_PREFIX + registration.scope));
     // A mark no page handled yet keeps the endpoint the server last knew.
     const oldEndpoint = nonEmptyString(earlier?.oldEndpoint)
         ?? nonEmptyString(event.oldSubscription?.endpoint)
         ?? nonEmptyString(receipt?.endpoint);
-    await idb('readwrite', (s) => s.put({ at: Date.now(), ...(oldEndpoint ? { oldEndpoint } : {}) }, CHANGED_PREFIX + registration.scope));
+    await idb('readwrite', (s) => s.put({ at: Date.now(), ...(oldEndpoint ? { oldEndpoint } : {}) }, SUBSCRIPTION_CHANGED_PREFIX + registration.scope));
     // The receipt names the old endpoint and keys.
     await idb('readwrite', (s) => s.delete(RECEIPT_PREFIX + registration.scope));
     if ( event.newSubscription ) return;

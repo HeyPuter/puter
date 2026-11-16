@@ -24,6 +24,7 @@ import {
     RECEIPT_PREFIX,
     SUBSCRIPTION_CHANGED_MESSAGE,
     SUBSCRIPTION_CHANGED_PREFIX,
+    SYNCED_PREFIX,
     idbDelete,
     idbGet,
 } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
@@ -32,7 +33,7 @@ import { forgetPushApps, webPushEndpointState } from './notificationApi.js';
 /** `/sw.js` as puter.js registers it, for a puter.js whose `enable()` has no `background`. */
 const GUI_WORKER = { url: '/sw.js', scope: '/' };
 
-/** The endpoint the server last confirmed here for each user, in `localStorage`. */
+/** Per user, the confirmed endpoint when puter.js has no push record to keep it. */
 export const LAST_ENDPOINT_PREFIX = 'puter.push.last-endpoint:';
 
 const removedError = () => Object.assign(new Error('this browser was removed from push in Puter'), { code: 'push_device_removed' });
@@ -82,56 +83,73 @@ export const webPushClient = ({
         return devices.find((d) => d.current && d.platform === 'webpush') ?? null;
     };
     const registration = async () => await nav.serviceWorker?.getRegistration('/');
-    /** The worker's mark for a replaced subscription, else null. */
-    const marker = async (scope) => {
-        try {
-            return (await idbGet(HANDLERS_STORE, SUBSCRIPTION_CHANGED_PREFIX + scope, idb)) ?? null;
-        } catch ( e ) {
-            return null;
-        }
-    };
-    const rememberEndpoint = (endpoint) => {
-        const user = userUid();
-        if ( ! user ) return;
-        try {
-            storage.setItem(LAST_ENDPOINT_PREFIX + user, endpoint);
-        } catch ( e ) {
-            // Only the removed-elsewhere check below reads it.
-        }
-    };
-    const lastEndpoint = () => {
-        try {
-            return storage.getItem(LAST_ENDPOINT_PREFIX + userUid());
-        } catch ( e ) {
-            return null;
-        }
-    };
-    const clearChanged = async () => {
+    const endpointKey = (user) => LAST_ENDPOINT_PREFIX + user;
+    // Without puter.js's push record, the client reads and clears the store itself.
+    const viaSdk = () => typeof notifications._webPushRecord === 'function';
+    const directMark = async () => {
         try {
             const scope = (await registration())?.scope;
-            if ( scope ) await idbDelete(HANDLERS_STORE, SUBSCRIPTION_CHANGED_PREFIX + scope, idb);
+            return scope ? (await idbGet(HANDLERS_STORE, SUBSCRIPTION_CHANGED_PREFIX + scope, idb)) ?? null : null;
+        } catch ( e ) {
+            return null;
+        }
+    };
+    const directForget = async (prefix) => {
+        try {
+            const scope = (await registration())?.scope;
+            if ( scope ) await idbDelete(HANDLERS_STORE, prefix + scope, idb);
         } catch ( e ) {
             // The next load registers again.
         }
     };
+    // A newer puter.js on an earlier load may have kept the endpoint only there.
+    const directSynced = async () => {
+        try {
+            const user = userUid();
+            const synced = user ? await idbGet(HANDLERS_STORE, SYNCED_PREFIX + user, idb) : null;
+            return typeof synced?.endpoint === 'string' && synced.endpoint ? synced.endpoint : null;
+        } catch ( e ) {
+            return null;
+        }
+    };
+    const pushRecord = async ({ endpoint = true } = {}) => (viaSdk()
+        ? await notifications._webPushRecord({ endpoint })
+        : { endpoint: endpoint ? await directSynced() : null, changed: await directMark() });
+    const storedEndpoint = () => {
+        try {
+            return storage.getItem(endpointKey(userUid()));
+        } catch ( e ) {
+            return null;
+        }
+    };
+    /** Keeps `endpoint` as the one the server confirmed for `user`. */
+    const noteConfirmed = async (user, endpoint) => {
+        try {
+            if ( ! viaSdk() ) return storage.setItem(endpointKey(user), endpoint);
+            const known = (await notifications._webPushRecord()).endpoint;
+            if ( known !== endpoint && ! await notifications._noteWebPushSynced(endpoint) ) return;
+            storage.removeItem(endpointKey(user));
+        } catch ( e ) {
+            // Only the removed-elsewhere check reads it.
+        }
+    };
     /** `'removed'` when the user removed any earlier endpoint of this browser, ending the subscription here; `'busy'` on a 429. */
     const removedElsewhere = async () => {
-        const worker = await registration();
-        const mark = worker?.scope ? await marker(worker.scope) : null;
-        const earlier = [...new Set([mark?.oldEndpoint, lastEndpoint()].filter((e) => typeof e === 'string' && e))];
-        const states = await Promise.all(earlier.map((endpoint) => endpointState(endpoint)));
+        const { endpoint, changed } = await pushRecord();
+        const earlier = [...new Set([changed?.oldEndpoint, endpoint, storedEndpoint()].filter((e) => typeof e === 'string' && e))];
+        const states = await Promise.all(earlier.map((e) => endpointState(e)));
         if ( ! states.includes('removed') ) return states.includes('busy') ? 'busy' : null;
+        if ( viaSdk() ) {
+            await notifications._dropRemovedWebPush();
+            return 'removed';
+        }
         try {
-            await (await worker?.pushManager?.getSubscription())?.unsubscribe();
+            await (await (await registration())?.pushManager?.getSubscription())?.unsubscribe();
         } catch ( e ) {
             // The next background run asks again.
         }
-        try {
-            if ( worker?.scope ) await idbDelete(HANDLERS_STORE, RECEIPT_PREFIX + worker.scope, idb);
-        } catch ( e ) {
-            // A receipt is only sent for its own endpoint.
-        }
-        await clearChanged();
+        await directForget(RECEIPT_PREFIX);
+        await directForget(SUBSCRIPTION_CHANGED_PREFIX);
         return 'removed';
     };
     return {
@@ -159,10 +177,10 @@ export const webPushClient = ({
                 const user = userUid();
                 const device = await currentDevice();
                 if ( ! device ) throw new Error('this browser was not registered');
-                await clearChanged();
+                if ( ! viaSdk() ) await directForget(SUBSCRIPTION_CHANGED_PREFIX);
                 const subscription = await (await registration())?.pushManager?.getSubscription();
                 if ( subscription?.endpoint && user === userUid() ) {
-                    rememberEndpoint(subscription.endpoint);
+                    if ( user ) await noteConfirmed(user, subscription.endpoint);
                     if ( reading === generation && user ) {
                         lastOn = { userUid: user, endpoint: subscription.endpoint, deviceUid: device.uid, at: now(), enabled: true };
                     }
@@ -192,7 +210,7 @@ export const webPushClient = ({
                 return { permission, registered: false };
             }
             // A subscription the browser replaced is registered again in full.
-            if ( await marker(worker.scope) != null ) {
+            if ( (await pushRecord({ endpoint: false })).changed != null ) {
                 forgetOn();
                 return { permission, registered: false };
             }
@@ -208,7 +226,7 @@ export const webPushClient = ({
             // The server's answer can trail what `enable()` just registered in this page.
             const trailing = state === 'unknown' && kept && lastOn?.enabled === true;
             const registered = !! device && (state === 'active' || state === null || state === 'busy' || trailing);
-            if ( registered && state === 'active' && user === userUid() ) rememberEndpoint(subscription.endpoint);
+            if ( registered && state === 'active' && user && user === userUid() ) await noteConfirmed(user, subscription.endpoint);
             if ( reading === generation && ! trailing ) {
                 // Only an `on` the server confirmed for this endpoint and user is kept.
                 lastOn = registered && state === 'active' && user && user === userUid()

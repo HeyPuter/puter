@@ -2469,6 +2469,88 @@ describe('enable after the user removed this browser in Puter', () => {
     });
 });
 
+describe('the push record inside the Puter GUI', () => {
+    const SYNCED = 'handlers:puter:synced:u-1';
+    const CHANGED = `handlers:puter:subscription-changed:${ORIGIN}/`;
+    const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
+    const guiNav = (existing = null) => {
+        const nav = makeNav({
+            existing,
+            active: { scriptURL: `${ORIGIN}/sw.js` },
+        });
+        withBrowser(nav);
+        return nav;
+    };
+
+    it('records the endpoint the server confirmed and clears the mark on enable()', async () => {
+        guiNav(makeSubscription());
+        server();
+        store.set(CHANGED, { at: 1, oldEndpoint: 'https://push.example/0' });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module._webPushRecord()).resolves.toEqual({
+            endpoint: null,
+            changed: { at: 1, oldEndpoint: 'https://push.example/0' },
+        });
+        await expect(module.enable({ background: true })).resolves.toBe(true);
+        expect(store.get(SYNCED)).toEqual({
+            endpoint: 'https://push.example/send/abc',
+            at: expect.any(Number),
+        });
+        expect(store.has(CHANGED)).toBe(false);
+        await expect(module._webPushRecord()).resolves.toEqual({
+            endpoint: 'https://push.example/send/abc',
+            changed: null,
+        });
+    });
+
+    it('records a confirmed endpoint without clearing the mark', async () => {
+        guiNav();
+        store.set(CHANGED, { at: 1 });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(
+            module._noteWebPushSynced('https://push.example/1'),
+        ).resolves.toBe(true);
+        await expect(module._webPushRecord()).resolves.toEqual({
+            endpoint: 'https://push.example/1',
+            changed: { at: 1 },
+        });
+        await expect(
+            module._webPushRecord({ endpoint: false }),
+        ).resolves.toEqual({ endpoint: null, changed: { at: 1 } });
+    });
+
+    it('reads nulls, and records nothing, when IndexedDB fails', async () => {
+        guiNav();
+        storage.broken = true;
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module._webPushRecord()).resolves.toEqual({
+            endpoint: null,
+            changed: null,
+        });
+        await expect(
+            module._noteWebPushSynced('https://push.example/1'),
+        ).resolves.toBe(false);
+    });
+
+    it('ends a removed subscription and forgets its receipt and the mark', async () => {
+        const removed = makeSubscription(undefined, 'https://push.example/1');
+        guiNav(removed);
+        store.set(CHANGED, { at: 1, oldEndpoint: 'https://push.example/0' });
+        store.set(RECEIPT, {
+            endpoint: 'https://push.example/1',
+            receipt: 'r',
+        });
+        store.set(SYNCED, { endpoint: 'https://push.example/0', at: 1 });
+        const { module } = makeModule({ env: 'gui' });
+        await module._dropRemovedWebPush();
+        expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+        expect(store.has(RECEIPT)).toBe(false);
+        expect(store.has(CHANGED)).toBe(false);
+        expect(store.get(SYNCED)?.endpoint).toBe('https://push.example/0');
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+});
+
 describe('status', () => {
     it('is unavailable where the browser has no Web Push, and outside a page', async () => {
         const { module } = makeModule();

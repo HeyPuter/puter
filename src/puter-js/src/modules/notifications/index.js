@@ -912,15 +912,12 @@ export class NotificationsModule extends EventListener {
 
     /** Remembers the subscription the server confirmed, for the next loads. */
     async #noteSynced(worker, endpoint) {
-        if (this.puter.env !== 'web') return;
+        await this._noteWebPushSynced(endpoint);
+        await this.#clearChanged(worker);
+    }
+
+    async #clearChanged(worker) {
         try {
-            const uuid = await this.#userUuid();
-            if (uuid) {
-                await idbPut(HANDLERS_STORE, SYNCED_PREFIX + uuid, {
-                    endpoint,
-                    at: Date.now(),
-                });
-            }
             await idbDelete(
                 HANDLERS_STORE,
                 SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
@@ -928,6 +925,87 @@ export class NotificationsModule extends EventListener {
         } catch {
             // The next load registers again.
         }
+    }
+
+    /**
+     * The worker's mark and, unless `endpoint` is false, the user's confirmed
+     * endpoint; nulls when unknown.
+     *
+     * @param {{ endpoint?: boolean }} [options]
+     * @returns {Promise<{
+     *     endpoint: string | null;
+     *     changed: { at?: number; oldEndpoint?: string } | null;
+     * }>}
+     * @internal
+     */
+    async _webPushRecord({ endpoint = true } = {}) {
+        const worker = workerFor(this.puter.env);
+        const readSynced = async () => {
+            if (!endpoint) return null;
+            try {
+                const uuid = await this.#userUuid();
+                return uuid
+                    ? await idbGet(HANDLERS_STORE, SYNCED_PREFIX + uuid)
+                    : null;
+            } catch {
+                return null;
+            }
+        };
+        const readChanged = async () => {
+            try {
+                return await idbGet(
+                    HANDLERS_STORE,
+                    SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
+                );
+            } catch {
+                return null;
+            }
+        };
+        const [synced, changed] = await Promise.all([
+            readSynced(),
+            readChanged(),
+        ]);
+        return {
+            endpoint:
+                typeof synced?.endpoint === 'string' && synced.endpoint
+                    ? synced.endpoint
+                    : null,
+            changed: changed ?? null,
+        };
+    }
+
+    /**
+     * Records `endpoint` as the one the server confirmed.
+     *
+     * @param {string} endpoint
+     * @returns {Promise<boolean>} Whether it was recorded.
+     * @internal
+     */
+    async _noteWebPushSynced(endpoint) {
+        try {
+            const uuid = await this.#userUuid();
+            if (!uuid) return false;
+            await idbPut(HANDLERS_STORE, SYNCED_PREFIX + uuid, {
+                endpoint,
+                at: Date.now(),
+            });
+            return true;
+        } catch {
+            // The next load registers again.
+            return false;
+        }
+    }
+
+    /**
+     * Ends a subscription removed in Puter, with its receipt and mark.
+     *
+     * @returns {Promise<void>}
+     * @internal
+     */
+    async _dropRemovedWebPush() {
+        const worker = workerFor(this.puter.env);
+        await this.#dropRemoved(worker);
+        await this.#clearChanged(worker);
     }
 
     /** Ends a subscription left here without an opt-in, in the browser only. */

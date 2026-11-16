@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import webpack from 'webpack';
+import { hasPushNames } from '../../tools/pushNamesBlock.mjs';
 
 // '__dirname' isn't defined by default in ES modules.
 // We didn't really want to migrate this file to ESM because
@@ -20,8 +21,12 @@ class EmitPushWorker {
             compilation.hooks.processAssets.tap(
                 { name: 'EmitPushWorker', stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL },
                 () => {
+                    const source = readFileSync(PUSH_WORKER, 'utf8');
+                    if ( ! hasPushNames(source) ) {
+                        compilation.errors.push(new webpack.WebpackError('push-sw.js: stale push names; run node tools/pushWorkerNames.mjs'));
+                    }
                     // `minimized` keeps terser off it, so the published file is the source.
-                    compilation.emitAsset('push-sw.js', new webpack.sources.RawSource(readFileSync(PUSH_WORKER, 'utf8')), { minimized: true });
+                    compilation.emitAsset('push-sw.js', new webpack.sources.RawSource(source), { minimized: true });
                 },
             );
         });
