@@ -46,13 +46,8 @@ const MICROSOFT_SCOPES = 'openid email profile';
 // admin-editable and only attested via the opt-in `xms_edov` claim.
 const MICROSOFT_CONSUMER_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
 const STATE_EXPIRY_SEC = 600; // 10 minutes
-// The popup redeems this on the request the provider redirects it into, so it
-// only has to outlive one hop.
-const POPUP_RETURN_EXPIRY_SEC = 300; // 5 minutes
 const VALID_OIDC_FLOWS = ['login', 'signup', 'revalidate'] as const;
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
-// Every `oidc-state` token shares one signing key; the payload says which job.
-const POPUP_RETURN_PURPOSE = 'popup-return';
 
 interface ProviderConfig {
     client_id: string;
@@ -264,34 +259,6 @@ export class OIDCService extends PuterService {
         return this.services.token.sign('oidc-state', payload, {
             expiresIn: STATE_EXPIRY_SEC,
         });
-    }
-
-    /**
-     * Sign the facts a popup needs back from an OIDC round trip.
-     *
-     * The return URL states the opener's origin and that a login completed.
-     * Both come out of a verified `state`, but they reach the popup as bare
-     * query parameters — and the popup treats the opener's origin as the app
-     * identity it mints a token for. Since a URL says nothing about who wrote
-     * it, that pair is re-signed here so the popup can tell a real return leg
-     * from a crafted link.
-     *
-     * Short-lived: this is consumed on the very next request, as the provider
-     * redirects the popup home.
-     */
-    signPopupReturn(payload: Record<string, unknown>): string {
-        return this.services.token.sign(
-            'oidc-state',
-            { ...payload, purpose: POPUP_RETURN_PURPOSE },
-            { expiresIn: POPUP_RETURN_EXPIRY_SEC },
-        );
-    }
-
-    /** Verify a popup-return proof. Returns null on a bad or expired one. */
-    verifyPopupReturn(token: string): Record<string, unknown> | null {
-        const decoded = this.#verifySigned(token);
-        if (decoded?.purpose !== POPUP_RETURN_PURPOSE) return null;
-        return decoded;
     }
 
     verifyState(token: string): Record<string, unknown> | null {
