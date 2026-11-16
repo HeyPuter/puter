@@ -537,6 +537,28 @@ describe('disable 2FA', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
+    it.each([
+        ['true when the server accepts', reply(200), true],
+        ['false when the server refuses', reply(400, { code: 'code_mismatch', factor: 'otp' }), false],
+    ])('closed while the request is out, resolves %s', async (_, response, value) => {
+        let answer;
+        fetch.mockReturnValueOnce(new Promise((resolve) => {
+            answer = resolve;
+        }));
+        const result = open();
+        await submitWith({ password: 'hunter2', code: '000123' });
+
+        $('.dashboard-dialog-close').trigger('click');
+        await settle();
+        expect(isOpen()).toBe(false);
+        expect(result.settled).toBe(false);
+
+        answer(response);
+        for ( let i = 0; i < 10; i++ ) await settle();
+        expect(result).toEqual({ settled: true, value });
+        expect(window.user.otp).toBe(! value);
+    });
+
     it('resolves false when dismissed with Escape', async () => {
         const result = open();
 

@@ -170,8 +170,7 @@ const TabSecurity = {
             if ( ! succeeded ) {
                 $toggle.prop('checked', ! enabling);
                 // 2FA may have changed regardless: turned on in another tab
-                // (setup then refuses, "already enabled"), or by a code the
-                // server accepted after the dialog was closed.
+                // (setup then refuses, "already enabled").
                 await window.refresh_user_data?.(window.auth_token);
                 if ( typeof window.user?.otp === 'boolean' ) showState(window.user.otp);
                 return;

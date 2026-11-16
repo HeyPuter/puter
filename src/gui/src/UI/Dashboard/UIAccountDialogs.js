@@ -411,6 +411,34 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
 export function openDisable2FADialog (opts = {}) {
     return new Promise((resolve) => {
         let disabled = false;
+        let closed = false;
+        let submitting = false;
+        const submit = async (dialog) => {
+            const { password, code } = dialog.values();
+            if ( ! isOidcOnly() && ! password ) {
+                dialog.setStatus(t('all_fields_required'), { field: 'password' });
+                return;
+            }
+            let result;
+            try {
+                // A pasted recovery code is normalized like the sign-in dialog's.
+                result = await postUserProtected('disable-2fa', { code: code.trim().toUpperCase() || undefined }, {
+                    password,
+                    onRevalidate: revalidating(dialog),
+                });
+            } catch {
+                // The request never got an answer (offline).
+                dialog.setStatus(t('something_went_wrong'));
+                return;
+            }
+            if ( ! result.ok ) {
+                dialog.setStatus(result.message, result.data.factor === 'otp' ? { field: 'code' } : wrongPassword(result, 'password'));
+                return;
+            }
+            if ( window.user ) window.user.otp = false;
+            disabled = true;
+            dialog.close();
+        };
         UIDashboardFormDialog({
             ...opts,
             title: t('disable_2fa'),
@@ -424,32 +452,19 @@ export function openDisable2FADialog (opts = {}) {
                     attrs: { autocomplete: 'one-time-code', maxlength: 64, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' },
                 },
             ],
-            onClose: () => resolve(disabled),
+            // Closed while the request is out, the result waits for its answer.
+            onClose: () => {
+                closed = true;
+                if ( ! submitting ) resolve(disabled);
+            },
             async onSubmit (dialog) {
-                const { password, code } = dialog.values();
-                if ( ! isOidcOnly() && ! password ) {
-                    dialog.setStatus(t('all_fields_required'), { field: 'password' });
-                    return;
-                }
-                let result;
+                submitting = true;
                 try {
-                    // A pasted recovery code is normalized like the sign-in dialog's.
-                    result = await postUserProtected('disable-2fa', { code: code.trim().toUpperCase() || undefined }, {
-                        password,
-                        onRevalidate: revalidating(dialog),
-                    });
-                } catch {
-                    // The request never got an answer (offline).
-                    dialog.setStatus(t('something_went_wrong'));
-                    return;
+                    await submit(dialog);
+                } finally {
+                    submitting = false;
+                    if ( closed ) resolve(disabled);
                 }
-                if ( ! result.ok ) {
-                    dialog.setStatus(result.message, result.data.factor === 'otp' ? { field: 'code' } : wrongPassword(result, 'password'));
-                    return;
-                }
-                if ( window.user ) window.user.otp = false;
-                disabled = true;
-                dialog.close();
             },
         });
     });

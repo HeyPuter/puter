@@ -482,7 +482,7 @@ describe('2FA setup: closing', () => {
         expect(result).toEqual({ settled: true, value: true });
     });
 
-    it('stays up on Escape while the code is being checked, and resolves false if closed anyway', async () => {
+    it('stays up on Escape while the code is being checked', async () => {
         const result = await reachVerify();
         let answer;
         fetch.mockReturnValueOnce(new Promise((resolve) => {
@@ -494,11 +494,28 @@ describe('2FA setup: closing', () => {
         await settle();
         expect(isOpen()).toBe(true);
         expect(result.settled).toBe(false);
+        answer(reply(200, {}));
+        await settle();
+    });
+
+    it.each([
+        ['true when the server accepts the code', reply(200, {}), true],
+        ['false when the server refuses the code', reply(400, { code: 'code_mismatch' }), false],
+    ])('closed while the code is being checked, resolves %s', async (_, response, value) => {
+        const result = await reachVerify();
+        let answer;
+        fetch.mockReturnValueOnce(new Promise((resolve) => {
+            answer = resolve;
+        }));
+        await typeCode('123456');
 
         $('.dashboard-dialog-close').trigger('click');
         await settle();
-        expect(result).toEqual({ settled: true, value: false });
-        answer(reply(200, {}));
+        expect(isOpen()).toBe(false);
+        expect(result.settled).toBe(false);
+
+        answer(response);
         await settle();
+        expect(result).toEqual({ settled: true, value });
     });
 });

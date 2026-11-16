@@ -158,7 +158,8 @@ export default function UIDashboard2FASetupDialog ({ $container, returnFocusTo }
 
         // The secret and the recovery codes are shown once, so a stray click
         // outside the card doesn't close them; while a request is out, only
-        // the ✕ does. However it closes, 2FA is on once the server said so.
+        // the ✕ does. Closed while a code is being checked, the result waits
+        // for the server's answer.
         const { $dialog, close, isClosed } = mountDashboardOverlay({
             html: h,
             $container,
@@ -167,7 +168,9 @@ export default function UIDashboard2FASetupDialog ({ $container, returnFocusTo }
                 is_confirming || is_verifying
                 || (via === 'backdrop' && screen > SCREEN.identity && screen < SCREEN.done)
             ),
-            onDismiss: () => resolve(setup_succeeded),
+            onDismiss: () => {
+                if ( ! is_verifying ) resolve(setup_succeeded);
+            },
         });
         const el_dialog = $dialog.get(0);
         const $password = $dialog.find('.dashboard-form-input[name="password"]');
@@ -317,15 +320,16 @@ export default function UIDashboard2FASetupDialog ({ $container, returnFocusTo }
             } catch { /* handled as a refusal below */ }
 
             is_verifying = false;
-            if ( ok ) {
-                setup_succeeded = true;
-                if ( ! isClosed() ) {
-                    setStatus($code_status, '');
-                    goToScreen(SCREEN.done);
-                }
+            setup_succeeded = ok;
+            if ( isClosed() ) {
+                resolve(ok);
                 return;
             }
-            if ( isClosed() ) return;
+            if ( ok ) {
+                setStatus($code_status, '');
+                goToScreen(SCREEN.done);
+                return;
+            }
             $inputs.addClass('login-2fa-wrong').prop('disabled', false);
             setStatus($code_status, data.code === 'code_mismatch'
                 ? t('confirm_code_generic_incorrect')
