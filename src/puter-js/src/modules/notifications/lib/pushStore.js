@@ -19,6 +19,8 @@ export const RECEIPT_PREFIX = 'puter:receipt:';
 export const TAP_BASE_PREFIX = 'puter:tap-base:';
 /** How long a kept tap waits for its page, as in `push-sw.js`. */
 export const CLICK_KEEP_MS = 5 * 60 * 1000;
+/** What a worker posts when the browser replaced the push subscription. */
+export const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 
 const open = (idb) =>
     new Promise((resolve, reject) => {

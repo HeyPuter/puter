@@ -19,6 +19,7 @@
 
 // The page's side of `/sw.js`: routed taps, and updates once push is on.
 
+import { SUBSCRIPTION_CHANGED_MESSAGE } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import {
     dispatchPushTap,
     normalizePushTap,
@@ -33,7 +34,6 @@ import { webPushClient } from './webPushClient.js';
 export const WORKER_URL = '/sw.js';
 export const WORKER_CLICK_MESSAGE = 'puter-notification-click';
 export const WORKER_CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-export const WORKER_SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 
 /**
  * @param {Object} [params] - `window.gui_params`
@@ -74,7 +74,7 @@ export const startPushWorker = async ({
         registerPushClient(webPushClient());
     }
     nav.serviceWorker.addEventListener('message', (event) => {
-        if ( event.data?.type === WORKER_SUBSCRIPTION_CHANGED_MESSAGE ) {
+        if ( event.data?.type === SUBSCRIPTION_CHANGED_MESSAGE ) {
             void resync();
             return;
         }

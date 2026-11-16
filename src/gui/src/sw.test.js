@@ -27,6 +27,7 @@ import {
     RECEIPT_PREFIX,
     SERVER_KEY_ENTRY,
     SERVER_KEYS_ENTRY,
+    SUBSCRIPTION_CHANGED_MESSAGE,
     SUBSCRIPTION_CHANGED_PREFIX,
 } from '../../puter-js/src/modules/notifications/lib/pushStore.js';
 
@@ -375,6 +376,7 @@ describe('service worker pushsubscriptionchange', () => {
             SERVER_KEYS: SERVER_KEYS_ENTRY,
             CHANGED_PREFIX: SUBSCRIPTION_CHANGED_PREFIX,
             RECEIPT_PREFIX,
+            SUBSCRIPTION_CHANGED_MESSAGE,
         }) ) {
             expect(SOURCE).toContain(`const ${name} = '${value}';`);
         }
@@ -387,7 +389,7 @@ describe('service worker pushsubscriptionchange', () => {
         expect(worker.idb.map.get(CHANGED)).toEqual({ at: expect.any(Number), oldEndpoint: 'https://push.example/1' });
         expect(worker.idb.map.has(RECEIPT)).toBe(false);
         expect(worker.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
-        expect(win.postMessage).toHaveBeenCalledWith({ type: 'puter-push-subscription-changed' });
+        expect(win.postMessage).toHaveBeenCalledWith({ type: SUBSCRIPTION_CHANGED_MESSAGE });
     });
 
     it('marks the endpoint of the subscription the browser ended, over the receipt`s', async () => {
@@ -444,7 +446,7 @@ describe('service worker pushsubscriptionchange', () => {
         const worker = loadWorker({ windows: [win], handlers: pushOn });
         worker.idb.broken = true;
         await worker.fire('pushsubscriptionchange', {});
-        expect(win.postMessage).toHaveBeenCalledWith({ type: 'puter-push-subscription-changed' });
+        expect(win.postMessage).toHaveBeenCalledWith({ type: SUBSCRIPTION_CHANGED_MESSAGE });
         warn.mockRestore();
     });
 
@@ -456,7 +458,7 @@ describe('service worker pushsubscriptionchange', () => {
         await worker.fire('pushsubscriptionchange', {});
         expect(worker.scope.clients.matchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
         for ( const win of [desktop, hidden] ) {
-            expect(win.postMessage).toHaveBeenCalledWith({ type: 'puter-push-subscription-changed' });
+            expect(win.postMessage).toHaveBeenCalledWith({ type: SUBSCRIPTION_CHANGED_MESSAGE });
         }
         expect(other.postMessage).not.toHaveBeenCalled();
         expect(worker.shown).toEqual([]);

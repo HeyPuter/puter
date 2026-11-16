@@ -18,6 +18,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SUBSCRIPTION_CHANGED_MESSAGE } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import { closeLocalBanner, pushWorkerEnabled } from './pushWorker.js';
 
 afterEach(() => {
@@ -99,7 +100,7 @@ describe('startPushWorker', () => {
         await start(await load(), { nav, resync });
         nav.listeners.message({ data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: UID } }, source: { postMessage: vi.fn() } });
         expect(resync).not.toHaveBeenCalled();
-        nav.listeners.message({ data: { type: 'puter-push-subscription-changed' }, source: {} });
+        nav.listeners.message({ data: { type: SUBSCRIPTION_CHANGED_MESSAGE }, source: {} });
         expect(resync).toHaveBeenCalledTimes(1);
     });
 
