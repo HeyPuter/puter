@@ -1185,10 +1185,12 @@ export class ShareService extends PuterService {
      * Two batched reads for all pairs together, however many holders: the
      * linked rows by `holder IN … AND permission IN …`, the flat view as one
      * multi-get. Reading per holder here turned a full outbound page into
-     * hundreds of queries on a cold cache.
+     * hundreds of queries on a cold cache. `knownUsers` are rows the caller
+     * already read, so a flat entry's issuer isn't read again.
      */
     async #grantEvidence(
         pairs: Array<{ holderId: number; entry: FSEntry }>,
+        knownUsers?: Map<number, UserRow>,
     ): Promise<Map<string, GrantEvidence>> {
         const evidence = new Map<string, GrantEvidence>();
         const unique = new Map<string, { holderId: number; entry: FSEntry }>();
@@ -1255,6 +1257,7 @@ export class ShareService extends PuterService {
         const { kept: liveFlat } =
             await this.stores.permission.withoutOrphanedFlatPerms(
                 flat.filter(({ value }) => !value.deleted),
+                knownUsers,
             );
         for (const { ref, value } of liveFlat) {
             record(ref.holderUserId, ref.permission, value.issuer_user_id);
@@ -1294,9 +1297,11 @@ export class ShareService extends PuterService {
     async #liveGrants(
         holderId: number,
         entries: FSEntry[],
+        knownUsers?: Map<number, UserRow>,
     ): Promise<Set<string>> {
         const evidence = await this.#grantEvidence(
             entries.map((entry) => ({ holderId, entry })),
+            knownUsers,
         );
         const live = new Set<string>();
         for (const entry of entries) {
@@ -1378,9 +1383,11 @@ export class ShareService extends PuterService {
             fsentry_id: number;
         }>,
         nodeById: Map<number, FSEntry>,
+        knownUsers?: Map<number, UserRow>,
     ): Promise<Set<string>> {
         const evidence = await this.#grantEvidence(
             this.#rowPairs(rows, nodeById),
+            knownUsers,
         );
         const live = new Set<string>();
         for (const row of rows) {
@@ -2061,7 +2068,7 @@ export class ShareService extends PuterService {
         // sees only the part of that its user handed to the app, where a
         // session sees all of it.
         const [live, reachable] = await Promise.all([
-            this.#liveGrants(holderId, [...entries.values()]),
+            this.#liveGrants(holderId, [...entries.values()], issuers),
             this.#reachableBy(actor, [...entries.values()]),
         ]);
         const teamsById = await teamsLookup;
@@ -2188,7 +2195,7 @@ export class ShareService extends PuterService {
         // credential reaches in its own right.
         const [stillReaches, issuerAllowed, reachable, liveGroupGrants] =
             await Promise.all([
-                this.#reachingGrants(rows, nodeById),
+                this.#reachingGrants(rows, nodeById, users),
                 this.#issuerStillAuthorized(
                     rows.filter((row) => {
                         if (row.anyone) return false;
@@ -2622,6 +2629,7 @@ export class ShareService extends PuterService {
         const stillReaches = await this.#reachingGrants(
             [...rows, ...inherited.map((i) => i.row)],
             nodeById,
+            users,
         );
         const isLive = (row: ShareIndexRow): boolean =>
             stillReaches.has(

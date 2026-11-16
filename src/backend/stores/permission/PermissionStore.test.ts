@@ -443,6 +443,35 @@ describe('PermissionStore', () => {
             expect(now?.value.issuer_user_id).toBe(live.id);
         });
 
+        it('reads only the issuers the caller has not already read', async () => {
+            const known = await makeUser();
+            const other = await makeUser();
+            const holder = await makeUser();
+            const refs = [
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, known.id),
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, other.id),
+            ];
+            const items = await store.getFlatUserPermsForRefs(refs);
+            const knownUsers = await server.stores.user.getByIds([known.id]);
+
+            const getByIds = vi.spyOn(server.stores.user, 'getByIds');
+            let result;
+            try {
+                result = await store.withoutOrphanedFlatPerms(
+                    items,
+                    knownUsers,
+                );
+                expect(getByIds.mock.calls).toEqual([[[other.id]]]);
+            } finally {
+                getByIds.mockRestore();
+            }
+
+            expect(result.kept).toHaveLength(2);
+            expect(new Set(result.issuers.keys())).toEqual(
+                new Set([known.id, other.id]),
+            );
+        });
+
         it('keeps an entry that names no usable issuer', async () => {
             const holder = await makeUser();
             const refs = [

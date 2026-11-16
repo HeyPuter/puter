@@ -331,20 +331,37 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    /** Drops entries whose issuer is gone, deleting them off the request path. */
+    /**
+     * Drops entries whose issuer is gone, deleting them off the request path.
+     * Issuers in `knownUsers` (rows the caller already read) aren't read
+     * again.
+     */
     async withoutOrphanedFlatPerms<
         T extends { ref: FlatPermRef; value: FlatPermValue },
-    >(items: T[]): Promise<{ kept: T[]; issuers: Map<number, UserRow> }> {
+    >(
+        items: T[],
+        knownUsers?: Map<number, UserRow>,
+    ): Promise<{ kept: T[]; issuers: Map<number, UserRow> }> {
         const ids = [
             ...new Set(items.map(({ value }) => flatIssuerId(value))),
         ].filter((id): id is number => id !== null);
-        if (ids.length === 0) return { kept: items, issuers: new Map() };
-        const issuers = await this.stores.user.getByIds(ids);
-        // A lagging replica can miss part of a batch; the primary decides.
-        const missing = ids.filter((id) => !issuers.has(id));
-        if (missing.length > 0) {
-            const reread = await this.stores.user.getByIdsFromPrimary(missing);
-            for (const [id, user] of reread) issuers.set(id, user);
+        const issuers = new Map<number, UserRow>();
+        const unknown: number[] = [];
+        for (const id of ids) {
+            const user = knownUsers?.get(id);
+            if (user) issuers.set(id, user);
+            else unknown.push(id);
+        }
+        if (unknown.length > 0) {
+            const read = await this.stores.user.getByIds(unknown);
+            for (const [id, user] of read) issuers.set(id, user);
+            // A lagging replica can miss part of a batch; the primary decides.
+            const missing = unknown.filter((id) => !issuers.has(id));
+            if (missing.length > 0) {
+                const reread =
+                    await this.stores.user.getByIdsFromPrimary(missing);
+                for (const [id, user] of reread) issuers.set(id, user);
+            }
         }
 
         const orphaned: T[] = [];
@@ -355,12 +372,16 @@ export class PermissionStore extends PuterStore {
             return false;
         });
         if (orphaned.length > 0) {
-            this.#deleteOrphanedFlatPerms(orphaned).catch((e) =>
-                console.warn(
-                    '[PermissionStore] orphaned flat entries kept:',
-                    e,
-                ),
-            );
+            void (async () => {
+                try {
+                    await this.#deleteOrphanedFlatPerms(orphaned);
+                } catch (e) {
+                    console.warn(
+                        '[PermissionStore] orphaned flat entries kept:',
+                        e,
+                    );
+                }
+            })();
         }
         return { kept, issuers };
     }
