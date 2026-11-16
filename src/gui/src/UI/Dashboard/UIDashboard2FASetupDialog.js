@@ -348,6 +348,11 @@ export default function UIDashboard2FASetupDialog ({ $container, returnFocusTo }
             if ( code.length === CODE_LENGTH && ! is_verifying ) enable2FA(code);
         });
 
+        // A box holds one digit, so typing into a filled one has to replace it.
+        $inputs.on('focus', function () {
+            this.select();
+        });
+
         $inputs.on('keydown', function (e) {
             const idx = Number($(this).attr('data-idx'));
             if ( e.key === 'Backspace' && ! $(this).val() && idx > 0 ) {

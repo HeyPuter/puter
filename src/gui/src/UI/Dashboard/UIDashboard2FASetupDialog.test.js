@@ -315,6 +315,13 @@ describe('2FA setup: verifying the code', () => {
         expect(fetch).toHaveBeenCalledTimes(1);
     });
 
+    it('selects a filled box on focus, so the next digit replaces it', async () => {
+        await reachVerify();
+        const el_box = inputs().eq(1).val('4').get(0);
+        el_box.focus();
+        expect([el_box.selectionStart, el_box.selectionEnd]).toEqual([0, 1]);
+    });
+
     it('takes a pasted code and submits it', async () => {
         await reachVerify();
         fetch.mockResolvedValueOnce(reply(200, {}));
