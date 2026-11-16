@@ -33,6 +33,7 @@ const defaultCommandTimeoutMs = 2000;
 const defaultFailFastMs = 5000;
 const redisBootRetryRegex =
     /Cluster(All)?FailedError|None of startup nodes is available/i;
+const noop = (): void => {};
 
 const formatRedisError = (error: unknown): string => {
     if (error instanceof Error) {
@@ -115,6 +116,8 @@ class TimedCluster extends Redis.Cluster {
         }
         if (!admit) {
             command.reject(new Error(REDIS_UNAVAILABLE_MESSAGE));
+            // Handled, as a sent command's is below: an ignored one can't crash.
+            command.promise.then(noop, noop);
             return command.promise;
         }
         this.#admitted.add(command);

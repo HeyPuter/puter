@@ -227,6 +227,23 @@ describe('RedisClient — command timeout', () => {
         expect(silent!.seen).toEqual(['set']);
     }, 5000);
 
+    it('leaves an ignored command rejected unsent handled, as a sent one is', async () => {
+        const redis = await ready(60_000);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        try {
+            // Fire-and-forget, as the socket.io adapter publishes.
+            void redis.publish('channel', 'x');
+            await new Promise((r) => setTimeout(r, 50));
+        } finally {
+            process.off('unhandledRejection', unhandled);
+        }
+        expect(unhandled).not.toHaveBeenCalled();
+        expect(silent!.seen).toEqual(['set']);
+    }, 5000);
+
     it('closes once a probe after the interval gets a reply', async () => {
         const redis = await ready(300);
         await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
