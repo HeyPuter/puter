@@ -43,6 +43,7 @@ import {
     vi,
     type MockInstance,
 } from 'vitest';
+import { CreateBucketCommand } from '@aws-sdk/client-s3';
 import {
     InvalidS3ObjectException,
     UnsupportedDocumentException,
@@ -119,6 +120,11 @@ const S3_RATE = 150000;
 const CONFIGURED_RATE = 200000;
 const TEXTRACT_USAGE = 'aws-textract:detect-document-text:page';
 
+// Regions AWS runs no Textract in, so it publishes no price list for them
+// either. The second one's price list request fails here instead.
+const NO_TEXTRACT_REGION = 'sa-east-1';
+const UNPRICED_REGION = 'af-south-1';
+
 /** The fixture re-published for another region at another first-tier price. */
 const textractPriceList = (region: string, usd: string) => {
     const doc = structuredClone(textractUsWest2) as Record<string, any>;
@@ -154,6 +160,8 @@ const priceListFetch = async (
     if (!url.startsWith(PRICE_LIST_PREFIX)) return realFetch(input, init);
     priceListRequests.push(url);
     const region = url.slice(PRICE_LIST_PREFIX.length).split('/')[0]!;
+    if (region === UNPRICED_REGION)
+        return new Response('unavailable', { status: 503 });
     const doc = priceLists[region];
     return doc ? Response.json(doc) : new Response('missing', { status: 404 });
 };
@@ -163,6 +171,23 @@ const sentRegions = () =>
     textractSendMock.mock.contexts.map(
         (client) => (client as { region?: string }).region,
     );
+
+/** Answers with `response`, except where Textract's hostname doesn't exist. */
+const textractAnswering = (response: unknown) =>
+    async function (this: { region?: string }) {
+        if (
+            this.region === NO_TEXTRACT_REGION ||
+            this.region === UNPRICED_REGION
+        ) {
+            throw Object.assign(
+                new Error(
+                    `getaddrinfo ENOTFOUND textract.${this.region}.amazonaws.com`,
+                ),
+                { code: 'ENOTFOUND', syscall: 'getaddrinfo' },
+            );
+        }
+        return response;
+    };
 
 // ── Test harness ────────────────────────────────────────────────────
 
@@ -184,7 +209,24 @@ beforeAll(async () => {
             },
             'mistral-ocr': { apiKey: 'mistral-key' },
         },
+        // A write can place a file in either region's bucket.
+        servers: {
+            [NO_TEXTRACT_REGION]: {
+                bucket: 'puter-south',
+                bucketRegion: NO_TEXTRACT_REGION,
+            },
+            [UNPRICED_REGION]: {
+                bucket: 'puter-cape',
+                bucketRegion: UNPRICED_REGION,
+            },
+        },
     } as never);
+    await server.clients.s3
+        .get(NO_TEXTRACT_REGION)
+        .send(new CreateBucketCommand({ Bucket: 'puter-south' }));
+    await server.clients.s3
+        .get(UNPRICED_REGION)
+        .send(new CreateBucketCommand({ Bucket: 'puter-cape' }));
     driver = server.drivers.aiOcr as unknown as OCRDriver;
 });
 
@@ -445,7 +487,10 @@ describe('OCRDriver.recognize (aws-textract)', () => {
         expect(textractSendMock).not.toHaveBeenCalled();
     });
 
-    const writePuterImage = async (): Promise<{
+    /** A Puter file in the default bucket, or in `bucketRegion`'s. */
+    const writePuterImage = async (
+        bucketRegion?: string,
+    ): Promise<{
         actor: Actor;
         path: string;
         bytes: Buffer;
@@ -453,14 +498,20 @@ describe('OCRDriver.recognize (aws-textract)', () => {
         const { actor, userId } = await makeUser();
         const path = `/${actor.user.username}/scan.png`;
         const bytes = Buffer.from('png-bytes');
-        await server.services.fs.write(userId, {
-            fileMetadata: {
-                path,
-                size: bytes.byteLength,
-                contentType: 'image/png',
+        await server.services.fs.write(
+            userId,
+            {
+                fileMetadata: {
+                    path,
+                    size: bytes.byteLength,
+                    contentType: 'image/png',
+                },
+                fileContent: bytes,
             },
-            fileContent: bytes,
-        });
+            undefined,
+            undefined,
+            bucketRegion,
+        );
         return { actor, path, bytes };
     };
 
@@ -621,6 +672,52 @@ describe('OCRDriver.recognize (aws-textract)', () => {
             expect(sentRegions()).toEqual([S3_REGION, CONFIGURED_REGION]);
             expect(checkedCosts()).toEqual([CONFIGURED_RATE]);
             expect(textractCharges()).toEqual([[1, CONFIGURED_RATE]]);
+        });
+
+        it('sends a file stored where AWS runs no Textract to the configured region as bytes', async () => {
+            const { actor, path, bytes } =
+                await writePuterImage(NO_TEXTRACT_REGION);
+            textractSendMock.mockImplementation(textractAnswering(onePage));
+
+            await recognizeFile(actor, path);
+
+            // The region's missing price list settles it before any call.
+            expect(sentRegions()).toEqual([CONFIGURED_REGION]);
+            expect(
+                textractSendMock.mock.calls[0]![0].input.Document.Bytes,
+            ).toEqual(bytes);
+            expect(checkedCosts()).toEqual([CONFIGURED_RATE]);
+            expect(textractCharges()).toEqual([[1, CONFIGURED_RATE]]);
+        });
+
+        it('sends the bytes to the configured region when the bucket region has no Textract host to resolve', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const { actor, path, bytes } =
+                await writePuterImage(UNPRICED_REGION);
+            textractSendMock.mockImplementation(textractAnswering(onePage));
+
+            await recognizeFile(actor, path);
+
+            expect(sentRegions()).toEqual([UNPRICED_REGION, CONFIGURED_REGION]);
+            expect(
+                textractSendMock.mock.calls[1]![0].input.Document.Bytes,
+            ).toEqual(bytes);
+            expect(textractCharges()).toEqual([[1, CONFIGURED_RATE]]);
+        });
+
+        it('surfaces any other failure from a bucket region that runs Textract', async () => {
+            const { actor, path } = await writePuterImage();
+            textractSendMock.mockRejectedValueOnce(
+                Object.assign(new Error('socket hang up'), {
+                    code: 'ECONNRESET',
+                }),
+            );
+
+            await expect(recognizeFile(actor, path)).rejects.toThrow(
+                'socket hang up',
+            );
+            expect(sentRegions()).toEqual([S3_REGION]);
+            expect(textractCharges()).toEqual([]);
         });
 
         it('holds the bucket region rate when it is the higher of the two', async () => {

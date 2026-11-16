@@ -52,8 +52,17 @@ interface TextractBlock {
 }
 
 /**
+ * Textract can't read the object, or the bucket's region has no Textract
+ * endpoint to resolve (when its price list couldn't be loaded to tell).
+ */
+const isUnreadableS3Source = (err: unknown): boolean =>
+    err instanceof InvalidS3ObjectException ||
+    (err as { code?: unknown } | null)?.code === 'ENOTFOUND';
+
+/**
  * AWS Textract OCR: DetectDocumentText through region-aware clients, reading a
- * Puter file straight from its S3 bucket when it has one.
+ * Puter file straight from its S3 bucket when the bucket's region has
+ * Textract.
  */
 export class TextractOcrProvider implements IOcrProvider {
     /** One client per region. */
@@ -114,19 +123,24 @@ export class TextractOcrProvider implements IOcrProvider {
 
         // Both regions the call may run in are priced up front, so the hold
         // covers either and a refresh mid-call can't change the charge.
-        const [configuredRate, s3Rate] = await Promise.all([
+        const [listedRate, s3Rate] = await Promise.all([
             this.#rates.rate(configuredRegion),
-            s3Info ? this.#rates.rate(s3Info.bucketRegion) : undefined,
+            s3Info ? this.#rates.rate(s3Info.bucketRegion) : null,
         ]);
+        // Calls run in the configured region even if AWS lists no price there.
+        const configuredRate =
+            listedRate ?? OCR_COSTS[TEXTRACT_PAGE_USAGE_TYPE];
+        // Textract reads S3 only in its own region, and a region with no price
+        // list has no Textract, so a file stored there is sent as bytes.
+        const s3Source = s3Rate === null ? null : s3Info;
 
-        const tryRun = async (useS3: boolean) => {
-            const region =
-                s3Info && useS3 ? s3Info.bucketRegion : configuredRegion;
-            const client = this.#clientFor(region);
-            const document =
-                s3Info && useS3
-                    ? { S3Object: { Bucket: s3Info.bucket, Name: s3Info.key } }
-                    : { Bytes: (await input.load()).buffer };
+        const tryRun = async (s3: typeof s3Info) => {
+            const client = this.#clientFor(
+                s3 ? s3.bucketRegion : configuredRegion,
+            );
+            const document = s3
+                ? { S3Object: { Bucket: s3.bucket, Name: s3.key } }
+                : { Bytes: (await input.load()).buffer };
             return client.send(
                 new DetectDocumentTextCommand({ Document: document }),
             );
@@ -144,12 +158,11 @@ export class TextractOcrProvider implements IOcrProvider {
             let costPerPage: number;
             try {
                 try {
-                    response = await tryRun(Boolean(s3Info));
+                    response = await tryRun(s3Source);
                     costPerPage = s3Rate ?? configuredRate;
                 } catch (err) {
-                    if (!(s3Info && err instanceof InvalidS3ObjectException))
-                        throw err;
-                    response = await tryRun(false);
+                    if (!(s3Source && isUnreadableS3Source(err))) throw err;
+                    response = await tryRun(null);
                     costPerPage = configuredRate;
                 }
             } catch (err) {
