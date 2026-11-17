@@ -556,12 +556,19 @@ function UIContextMenu (options) {
         }
 
         // X position
-        if ( start_x + menu_width > window.innerWidth ) {
-            x_pos = start_x - menu_width;
-            // if this is a child menu, the width of parent must also be considered
-            if ( options.parent_id && $(`.context-menu[data-element-id="${options.parent_id}"]`).length > 0 ) {
-                x_pos -= $(`.context-menu[data-element-id="${options.parent_id}"]`).width() + 30;
-            }
+        const $parent_menu = options.parent_id ? $(`.context-menu[data-element-id="${options.parent_id}"]`) : $();
+        let flipped_x = start_x - menu_width;
+        // if this is a child menu, the width of parent must also be considered
+        if ( $parent_menu.length > 0 ) {
+            flipped_x -= $parent_menu.width() + 30;
+        }
+        // A submenu of a submenu that opened to the left keeps going left
+        // while it fits: on the right it would cover the menu before that one.
+        const $grandparent_menu = $(`.context-menu[data-element-id="${$parent_menu.attr('data-parent-id')}"]`);
+        const parent_opened_left = $grandparent_menu.length > 0
+            && $parent_menu.offset().left < $grandparent_menu.offset().left;
+        if ( start_x + menu_width > window.innerWidth || (parent_opened_left && flipped_x >= 0) ) {
+            x_pos = flipped_x;
         } else {
             x_pos = start_x;
         }
@@ -688,6 +695,11 @@ function UIContextMenu (options) {
                 } else {
                     return 'left';
                 }
+            }
+            // A submenu's own submenu: the side it opened on.
+            const $open_submenu = $(`.context-menu[data-parent-id="${menu_id}"]`);
+            if ( $open_submenu.length > 0 && $open_submenu.offset().left < $(contextMenu).offset().left ) {
+                return 'left';
             }
         },
         enter: function (e) {

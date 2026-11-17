@@ -113,3 +113,48 @@ describe('UIContextMenu submenus', () => {
         expect(openLabels()).toEqual(['Open', 'Open With']);
     });
 });
+
+describe('UIContextMenu submenu placement', () => {
+    const left = (label) => parseFloat(menuWith(label).get(0).style.left);
+    const openAllAt = (x) => {
+        UIContextMenu({ items: nestedItems(), position: { left: x, top: 100 } });
+        openSubmenu('Open With');
+        openSubmenu('Always Open With');
+    };
+
+    beforeEach(() => {
+        // jsdom has no layout: every menu is 200px wide with 190px rows, and
+        // sits where its inline position puts it.
+        vi.spyOn(jQuery.fn, 'width').mockReturnValue(200);
+        vi.spyOn(jQuery.fn, 'outerWidth').mockReturnValue(200);
+        vi.spyOn(jQuery.fn, 'offset').mockImplementation(function () {
+            return { left: parseFloat(this[0].style.left) || 0, top: parseFloat(this[0].style.top) || 0 };
+        });
+        vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ top: 0, left: 0, width: 190, height: 28 });
+        window.innerWidth = 1000;
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('opens each submenu to the right while there is room', () => {
+        openAllAt(100);
+        expect(left('Editor')).toBeGreaterThan(left('Open'));
+        expect(left('Code')).toBeGreaterThan(left('Editor'));
+    });
+
+    it('keeps a nested submenu going left, off the root menu, once its parent opened left', () => {
+        openAllAt(700);
+        expect(left('Editor')).toBeLessThan(left('Open'));
+        expect(left('Code') + 200).toBeLessThanOrEqual(left('Editor'));
+    });
+
+    it('opens a nested submenu to the right when the left has no room for it', () => {
+        window.innerWidth = 600;
+        openAllAt(300);
+        expect(left('Editor')).toBeLessThan(left('Open'));
+        expect(left('Code')).toBeGreaterThan(left('Editor'));
+        expect(left('Code')).toBeGreaterThanOrEqual(0);
+    });
+});
