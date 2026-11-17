@@ -883,6 +883,33 @@ describe('OpenAIRealtimeRelayService relay', () => {
         );
     });
 
+    it('holds each response for the conversation the last one reported', async () => {
+        const talker = await createTestUser(server, {
+            username: 'realtime-context',
+            password: 'realtime-context-password',
+        });
+        const row = await server.stores.user.getByUsername(talker.username);
+        const actor = { user: row } as never;
+        const metering = server.services.metering;
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${talker.token}`,
+        );
+        await c.waitFor('session.created');
+        // The upstream's reply reports 7 input and 3 output tokens.
+        c.ws.send(JSON.stringify({ type: 'response.create' }));
+        await c.waitFor('response.done');
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(
+                MINI_HOLD + 10 * 1000,
+            ),
+        );
+        c.ws.close();
+    });
+
     const mcpTool = {
         type: 'mcp',
         server_label: 'docs',
