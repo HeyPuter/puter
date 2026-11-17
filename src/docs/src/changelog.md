@@ -23,6 +23,8 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 - Added `puterId` to every model that [`puter.ai.listModels()`](/AI/listModels/) returns. It holds the full `<service>:<provider>/<model>` name, which [`puter.ai.chat()`](/AI/chat/) accepts as `model`.
 - Changed the `mistral-large-latest`, `mistral-large`, and `mistralai/mistral-large-latest` model names in [`puter.ai.chat()`](/AI/chat/) to point to Mistral Large 4 instead of Mistral Large 3.
 - Changed the AI concurrent request limit so a chat request you stop keeps counting until the model finishes. Sending new requests right after stopping a few can hit the limit. See [Rate Limits and Quotas](/rate-limits-and-quotas/#ai).
+- Changed [`puter.ai.txt2img()`](/AI/txt2img/) on Replicate models to try again when the model's safety checker rejects the image and you didn't set a `seed`. Only the run that succeeds is charged. See [Replicate models](/AI/txt2img/#replicate-models).
+- Fixed apps opened from the Puter desktop at desktop.puter.com not getting messages from the desktop. Their windows didn't close, and [`puter.ui.onWindowClose()`](/UI/onWindowClose/), [`puter.ui.onItemsOpened()`](/UI/onItemsOpened/), and the `localeChanged` event of [`puter.ui.on()`](/UI/on/) didn't fire.
 
 ## November 13, 2026
 
