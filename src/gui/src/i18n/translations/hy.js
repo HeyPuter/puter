@@ -38,7 +38,6 @@ const hy = {
         change_username: 'Փոխել օգտանունը',
         close: 'Փակել',
         close_all_windows_and_log_out: 'Փակել պատուհաններն ու դուրս գալ',
-        change_always_open_with: 'Ցանկանու՞մ եք այս տեսակի ֆայլը միշտ բացել',
         confirm: 'Հաստատել',
         confirm_account_for_free_referral_storage_c2a:
       'Ստեղծեք հաշիվ և հաստատեք ձեր էլ. հասցեն 1 ԳԲ անվճար պահեստ ստանալու համար: Ձեր ընկերը նույնպես կստանա 1 ԳԲ անվճար պահեստ:',

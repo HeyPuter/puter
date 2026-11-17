@@ -1118,10 +1118,13 @@ export class AppStore extends PuterStore {
 
         // Rows written before writes were canonicalized may carry a leading
         // dot (`.docx`); match both forms so they work without a migration.
+        // Ordered by registration: the list feeds "Open With" and, for
+        // extensions without a built-in opener, which app opens by default.
         const rows = await this.clients.db.read(
             `SELECT a.*, ${this.#createdEpochColumn('a.')} FROM \`apps\` a
              INNER JOIN \`app_filetype_association\` fa ON fa.\`app_id\` = a.\`id\`
-             WHERE fa.\`type\` IN (?, ?)`,
+             WHERE fa.\`type\` IN (?, ?)
+             ORDER BY fa.\`id\``,
             [ext, `.${ext}`],
         );
         // An app associated under both forms joins to two rows.

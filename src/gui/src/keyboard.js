@@ -40,6 +40,10 @@ const selection_container = () => {
     return $container;
 };
 
+/** The first row of the submenu a context menu row has open, if it has one. */
+const first_submenu_row = (el_row) =>
+    $(`.context-menu[data-id="${$(el_row).attr('data-menu-id')}"] .context-menu-item`).get(0);
+
 $(document).bind('keydown', async function (e) {
     const focused_el = document.activeElement;
     //-----------------------------------------------------------------------
@@ -96,7 +100,7 @@ $(document).bind('keydown', async function (e) {
                 if ( $(selected_item).hasClass('context-menu-item-submenu') === true ) {
                     $(selected_item).removeClass('context-menu-item-active');
                     $(selected_item).addClass('context-menu-item-active-blurred');
-                    window.select_ctxmenu_item($('.context-menu[data-is-submenu="true"] .context-menu-item').get(0));
+                    window.select_ctxmenu_item(first_submenu_row(selected_item));
                 }
                 return false;
             }
@@ -603,10 +607,7 @@ $(document).bind('keyup keydown', async function (e) {
             $(selected_item).addClass('context-menu-item-active-blurred');
             $(selected_item).trigger('mouseover', { keyboard: true });
             $(selected_item).trigger('click', { keyboard: true });
-            if ( $('.context-menu[data-is-submenu="true"]').length > 0 ) {
-                let selected_item = $('.context-menu[data-is-submenu="true"] .context-menu-item').get(0);
-                window.select_ctxmenu_item(selected_item);
-            }
+            window.select_ctxmenu_item(first_submenu_row(selected_item));
 
             return false;
         }

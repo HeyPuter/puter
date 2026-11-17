@@ -35,7 +35,6 @@ const fr = {
         captcha_required: 'Veuillez compléter la vérification CAPTCHA',
         cancel: 'Annuler',
         change: 'Changer',
-        change_always_open_with: 'Voulez-vous toujours ouvrir ce type de fichier avec',
         change_email: "Changer l'e-mail",
         change_language: 'Changer de langue',
         change_password: 'Changer le mot de passe',

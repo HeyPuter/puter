@@ -38,7 +38,6 @@ const fil = {
         change_username: 'Baguhin ang username',
         close: 'Isara',
         close_all_windows_and_log_out: 'Isara ang mga window at mag-log out',
-        change_always_open_with: 'Gusto mo bang laging buksan ang ganitong file gamit ang',
         confirm: 'Kumpirmahin',
         confirm_code_generic_incorrect: 'Maling code.',
         confirm_code_generic_too_many_requests:

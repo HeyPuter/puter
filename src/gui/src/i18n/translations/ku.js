@@ -38,7 +38,6 @@ const ku = {
         change_username: 'گۆڕینی ناوی بەکارهێنەر',
         close: 'داخستن',
         close_all_windows_and_log_out: 'داخستن و چوونە دەرەوە',
-        change_always_open_with: 'ئەتەوێت هەمیشە ئەم جۆرە فایلە بکرێتەوە بە',
         confirm: 'پشتڕاستکردنەوە',
         confirm_account_for_free_referral_storage_c2a:
       'هەژمارێک دروست بکە و پەیوەندیدانی ئیمەیلەکەت پشتڕاست بکە بۆ وەرگرتنی 1 گیگابایت بەرەوپێشەوە. هاوڕێتیش 1 گیگابایت بەرەوپێشەوە دەبێت.',

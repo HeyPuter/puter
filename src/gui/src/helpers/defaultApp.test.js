@@ -18,7 +18,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { is_default_app, resolve_default_app } from './defaultApp.js';
+import { default_app_index, default_app_key, is_default_app, resolve_default_app, set_default_app } from './defaultApp.js';
 
 const EDITOR = { uuid: 'app-11111111-1111-4111-8111-111111111111', name: 'editor', title: 'Editor' };
 const MARKDOWN = { uuid: 'app-22222222-2222-4222-8222-222222222222', name: 'markdown-pro', title: 'Markdown Pro' };
@@ -41,6 +41,7 @@ beforeEach(() => {
         api_origin: 'https://api.test',
         auth_token: 'tok',
         user_preferences: {},
+        mutate_user_preferences: vi.fn(),
         suggest_apps_for_fsentry: vi.fn(async () => suggested),
     };
     globalThis.fetch = vi.fn(async (_url, init) => {
@@ -59,6 +60,51 @@ describe('is_default_app', () => {
     it('never matches an unset preference', () => {
         expect(is_default_app(undefined, MARKDOWN)).toBe(false);
         expect(is_default_app('', { uuid: '', name: '' })).toBe(false);
+    });
+});
+
+describe('default_app_key', () => {
+    it('keys the lowercased extension', () => {
+        expect(default_app_key('/alice/NOTES.MD')).toBe('default_apps.md');
+    });
+
+    it('has no key for a file without an extension', () => {
+        expect(default_app_key('/alice/Makefile')).toBeNull();
+        expect(default_app_key('/alice/.bashrc')).toBeNull();
+    });
+
+    it('has no key for a name that only ends in a dot', () => {
+        expect(default_app_key('/alice/notes.')).toBeNull();
+    });
+});
+
+describe('default_app_index', () => {
+    it('is the first suggestion when no app is saved', () => {
+        expect(default_app_index(FILE.path, [EDITOR, MARKDOWN])).toBe(0);
+    });
+
+    it('is the saved app, by uid or by name', () => {
+        window.user_preferences['default_apps.md'] = MARKDOWN.uuid;
+        expect(default_app_index(FILE.path, [EDITOR, MARKDOWN])).toBe(1);
+        window.user_preferences['default_apps.md'] = 'markdown-pro';
+        expect(default_app_index(FILE.path, [EDITOR, MARKDOWN])).toBe(1);
+    });
+
+    it('is the first suggestion when the saved app is not suggested', () => {
+        window.user_preferences['default_apps.md'] = MARKDOWN.uuid;
+        expect(default_app_index(FILE.path, [EDITOR])).toBe(0);
+    });
+});
+
+describe('set_default_app', () => {
+    it('saves the app uid under the extension', () => {
+        set_default_app('/alice/NOTES.MD', MARKDOWN);
+        expect(window.mutate_user_preferences).toHaveBeenCalledWith({ 'default_apps.md': MARKDOWN.uuid });
+    });
+
+    it('saves nothing for a file without an extension', () => {
+        set_default_app('/alice/Makefile', MARKDOWN);
+        expect(window.mutate_user_preferences).not.toHaveBeenCalled();
     });
 });
 
@@ -132,6 +178,13 @@ describe('resolve_default_app', () => {
         suggested = [EDITOR];
 
         expect(await resolve_default_app(FILE)).toBeNull();
+    });
+
+    it('returns null without asking the server for a file without an extension', async () => {
+        window.user_preferences.default_apps = MARKDOWN.uuid;
+
+        expect(await resolve_default_app({ ...FILE, path: '/alice/Makefile' })).toBeNull();
+        expect(window.suggest_apps_for_fsentry).not.toHaveBeenCalled();
     });
 
     it('returns null when suggestions cannot be loaded', async () => {

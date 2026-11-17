@@ -38,7 +38,6 @@ const vi = {
         change_username: 'Thay đổi tên người dùng',
         close: 'Đóng',
         close_all_windows_and_log_out: 'Đóng cửa sổ và đăng xuất',
-        change_always_open_with: 'Bạn có muốn luôn mở loại tệp này bằng',
         confirm: 'Xác nhận',
         confirm_account_for_free_referral_storage_c2a: 'Tạo tài khoản và xác nhận địa chỉ email của bạn để nhận 1 GB dung lượng lưu trữ miễn phí. Bạn của bạn cũng sẽ nhận được 1 GB dung lượng lưu trữ miễn phí.',
         confirm_code_generic_incorrect: 'Mã không chính xác.',

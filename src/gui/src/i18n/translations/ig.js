@@ -38,7 +38,6 @@ const ig = {
         change_username: 'ịgbanwe aha njirimara',
         close: 'mmechi',
         close_all_windows_and_log_out: 'mmechi Windows na wee pụọ',
-        change_always_open_with: 'Ị chọrọ I na mepee ụdị faịlụ site na',
         confirm: 'gosi',
         hue: 'Hue',
         confirm_account_for_free_referral_storage_c2a:

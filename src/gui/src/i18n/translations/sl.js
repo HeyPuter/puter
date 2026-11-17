@@ -33,7 +33,6 @@ const sl = {
         associated_websites: 'Povezana spletna mesta',
         cancel: 'Prekliči',
         change: 'Spremeni',
-        change_always_open_with: 'Ali želite to vrsto datotek vedno odpirati s/z',
         change_email: 'Spremeni e-poštni naslov',
         change_language: 'Spremeni jezik',
         change_password: 'Spremeni geslo',

@@ -38,7 +38,6 @@ const th = {
         change_username: 'เปลี่ยนชื่อผู้ใช้',
         close: 'ปิด',
         close_all_windows_and_log_out: 'ปิดหน้าต่างและออกจากระบบ',
-        change_always_open_with: 'คุณต้องการเปิดไฟล์ประเภทนี้ด้วย',
         confirm_account_for_free_referral_storage_c2a: 'สร้างบัญชีและยืนยันที่อยู่อีเมลของคุณเพื่อรับพื้นที่จัดเก็บข้อมูลฟรี 1 GB เพื่อนของคุณจะได้รับพื้นที่จัดเก็บข้อมูลฟรี 1 GB เช่นกัน',
         confirm_code_generic_incorrect: 'รหัสไม่ถูกต้อง',
         confirm_code_generic_too_many_requests: 'ส่งรีเควสมากเกินไป กรุณารอสักสองสามนาที',

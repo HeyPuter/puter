@@ -38,7 +38,6 @@ const bn = {
         change_username: 'ইউজারনেম পরিবর্তন করুন',
         close: 'বন্ধ করুন',
         close_all_windows_and_log_out: 'উইন্ডো বন্ধ এবং লগ আউট করুন',
-        change_always_open_with: 'আপনি কি এই ধরনের ফাইলটি সবসময় এই সাথে খোলা রাখতে চান',
         confirm: 'অনুমোদন',
         confirm_account_for_free_referral_storage_c2a: 'একটি অ্যাকাউন্ট তৈরি করুন এবং আপনার ইমেল ঠিকানা নিশ্চিত করুন যাতে ফ্রি ১ জিবি স্টোরেজ পান। আপনার বন্ধুও ১ জিবি ফ্রি স্টোরেজ পাবেন',
         confirm_code_generic_incorrect: 'কোডটি সঠিক নয় নিশ্চিত করুন।',

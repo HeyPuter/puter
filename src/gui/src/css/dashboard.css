@@ -8584,6 +8584,8 @@ body.myapps-reordering .myapps-tile {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    /* A text glyph such as a checkmark: a button doesn't inherit the text color. */
+    color: var(--dashboard-text, #444);
 }
 
 .context-menu-modal-dialog .context-menu-item-icon img {

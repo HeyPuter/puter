@@ -70,6 +70,7 @@ const { unshareAnswering, allRefused, goneRefused } =
     await import('../../tests/fixtures/sdkUnshare.js');
 const { default: refresh_item_container } =
     await import('../helpers/refreshItemContainer.js');
+const { default: launch_app } = await import('../helpers/launchApp.js');
 
 const menuItems = async (options) => {
     document.body.innerHTML =
@@ -223,5 +224,48 @@ describe('UIItem Publish as Website', () => {
         });
         expect(labels).not.toContain('publish_as_website');
         expect(labels).toContain('deploy_as_app');
+    });
+});
+
+describe('UIItem Open With', () => {
+    const editor = { name: 'editor', title: 'Editor', uuid: 'app-editor' };
+    const code = { name: 'code', title: 'Code', uuid: 'app-code' };
+
+    const openWithItems = async () => {
+        const items = await menuItems({
+            uid: 'f-1',
+            path: '/alice/notes.txt',
+            name: 'notes.txt',
+            is_dir: false,
+            shared_with_me: false,
+            suggested_apps: [editor, code],
+        });
+        return items.find((item) => item?.html === 'open_with').items;
+    };
+
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+        window.user_preferences = { 'default_apps.txt': code.uuid };
+        window.mutate_user_preferences = vi.fn();
+        launch_app.mockClear();
+        UIAlert.mockClear();
+    });
+
+    it('lists the default app first', async () => {
+        const items = await openWithItems();
+        expect(items.slice(0, 2).map((item) => item.html)).toEqual(['Code', 'Editor']);
+    });
+
+    it('opens another app without asking to make it the default', async () => {
+        await (await openWithItems()).find((item) => item.html === 'Editor').onClick();
+        expect(UIAlert).not.toHaveBeenCalled();
+        expect(window.mutate_user_preferences).not.toHaveBeenCalled();
+        expect(launch_app).toHaveBeenCalledWith({
+            name: 'editor',
+            file_path: '/alice/notes.txt',
+            window_title: 'notes.txt',
+            file_uid: 'f-1',
+        });
     });
 });

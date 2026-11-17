@@ -33,7 +33,6 @@ const ml = {
         associated_websites: 'ബന്ധപ്പെട്ട വെബ്സൈറ്റുകൾ',
         cancel: 'റദ്ദാക്കുക',
         change: 'മാറ്റുക',
-        change_always_open_with: 'ഈ തരത്തിലുള്ള ഫയൽ എപ്പോഴും ഇതുപയോഗിച്ച് തുറക്കണോ',
         change_email: 'ഇമെയിൽ മാറ്റുക',
         change_language: 'ഭാഷ മാറ്റുക',
         change_password: 'പാസ്‌വേഡ് മാറ്റുക',

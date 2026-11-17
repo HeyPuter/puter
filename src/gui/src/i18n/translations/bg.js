@@ -33,7 +33,6 @@ const bg = {
         associated_websites: 'Свързани уебсайтове',
         cancel: 'Отказ',
         change: 'Промени',
-        change_always_open_with: 'Искате ли винаги да отваряте този тип файл с',
         change_email: 'Промяна на имейл',
         change_language: 'Промяна на езика',
         change_password: 'Промяна на паролата',

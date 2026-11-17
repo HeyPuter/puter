@@ -39,7 +39,6 @@ const pt = {
         change_username: 'Alterar Nome de Utilizador',
         close: 'Fechar',
         close_all_windows_and_log_out: 'Fechar Janelas e Sair',
-        change_always_open_with: 'Queres que ficheiros deste tipo abram sempre com',
         confirm: 'Confirmar',
         confirm_account_for_free_referral_storage_c2a: 'Cria uma conta e confirma o endereço do email para receberes 1 GB de armazenamento gratuito. O teu amigo também receberá 1 GB de armazenamento gratuito.',
         confirm_code_generic_incorrect: 'Código Incorreto.',

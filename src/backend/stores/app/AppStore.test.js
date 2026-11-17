@@ -431,6 +431,18 @@ describe('AppStore filetype associations', () => {
         expect(apps.filter((a) => a.id === app.id)).toHaveLength(1);
     });
 
+    it('getAppsByFiletype lists apps in the order they registered the extension', async () => {
+        const older = await createApp();
+        const newer = await createApp();
+        const ext = freshExt();
+        await insertRawAssociation(newer.id, ext);
+        await insertRawAssociation(older.id, ext);
+
+        const apps = await appStore.getAppsByFiletype(ext);
+
+        expect(apps.map((a) => a.id)).toEqual([newer.id, older.id]);
+    });
+
     it('getAppsByFiletype normalizes the requested extension', async () => {
         const app = await createApp();
         const ext = freshExt();

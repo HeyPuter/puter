@@ -56,7 +56,6 @@ const zhtw = {
         change_username: '更改使用者名稱',
         close: '關閉',
         close_all_windows_and_log_out: '關閉視窗並登出',
-        change_always_open_with: '您是否要始終使用以下程式開啟此類型的檔案',
         confirm: '確認',
         confirm_account_for_free_referral_storage_c2a: '建立帳戶並確認您的電子郵件地址，即可獲得 1 GB 的免費儲存空間。您的朋友也會獲得 1 GB 的免費儲存空間。',
         confirm_code_generic_incorrect: '驗證碼不正確。',

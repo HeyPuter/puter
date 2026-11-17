@@ -38,7 +38,6 @@ const zh = {
         change_username: '更改用户名',
         close: '关闭',
         close_all_windows_and_log_out: '关闭窗口并退出',
-        change_always_open_with: '以后都这样打开此类型的文件？',
         confirm: '确认',
         confirm_account_for_free_referral_storage_c2a: '创建帐号并确认您的电子邮件地址，以获得1 GB的免费存储空间。您的朋友也将获得1 GB的免费存储空间。',
         confirm_code_generic_incorrect: '代码不正确!',

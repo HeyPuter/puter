@@ -38,7 +38,6 @@ const ja = {
         change_username: 'ユーザー名を変更',
         close: '閉じる',
         close_all_windows_and_log_out: 'ウィンドウを閉じてログアウト',
-        change_always_open_with: 'この種類のファイルを常にこのアプリで開きますか？',
         confirm: '確認',
         confirm_account_for_free_referral_storage_c2a: 'アカウントを作成してメールアドレスを確認すると、1GBの無料ストレージを獲得できます。友人も1GBの無料ストレージを獲得します。',
         confirm_code_generic_incorrect: 'コードが間違っています。',

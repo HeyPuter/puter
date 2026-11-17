@@ -38,7 +38,6 @@ const hi = {
         change_username: 'उपयोगकर्ता नाम बदलें',
         close: 'बंद ',
         close_all_windows_and_log_out: 'विंडोज़ बंद करें और लॉग आउट करें',
-        change_always_open_with: 'क्या आप इस प्रकार की फ़ाइल को हमेशा खोलना चाहते हैं?',
         confirm_account_for_free_referral_storage_c2a: 'एक खाता बनाएं और 1 जीबी निःशुल्क संग्रहण प्राप्त करने के लिए अपने ईमेल पते की पुष्टि करें। आपके दोस्त को भी 1 जीबी मुफ्त स्टोरेज मिलेगा।',
         confirm_code_generic_incorrect: 'गलत कोड़।',
         confirm_code_generic_too_many_requests: 'बहुत सारे अनुरोध. कृपया कुछ मिनट प्रतीक्षा करें.',

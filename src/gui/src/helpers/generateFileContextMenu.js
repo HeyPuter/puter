@@ -27,7 +27,7 @@ import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
 import { is_owned_by_me } from './pathOwner.js';
 import { can_rename, can_restructure, can_share, invalidate_shared_roots } from './sharedAccess.js';
-import { is_default_app } from './defaultApp.js';
+import build_open_with_items from './openWithItems.js';
 
 /**
  * Generates context menu items for file/folder operations
@@ -486,84 +486,13 @@ const generate_file_context_menu = async function (options) {
  * @returns {Promise<Array>} Array of menu items for "Open With" submenu
  */
 async function generateOpenWithItems (el_item, fsentry, suggested_apps, { inNewTab = false } = {}) {
-    let items = [];
-
-    // Try to find suitable apps if not provided
     if ( !suggested_apps || suggested_apps.length === 0 ) {
-        const suitable_apps = await window.suggest_apps_for_fsentry({
+        suggested_apps = await window.suggest_apps_for_fsentry({
             uid: fsentry.uid,
             path: fsentry.path,
         });
-        if ( suitable_apps && suitable_apps.length > 0 ) {
-            suggested_apps = suitable_apps;
-        }
     }
-
-    if ( suggested_apps && suggested_apps.length > 0 ) {
-        for ( let index = 0; index < suggested_apps.length; index++ ) {
-            const suggested_app = suggested_apps[index];
-            if ( ! suggested_app ) {
-                console.warn('suggested_app is null', suggested_apps, index);
-                continue;
-            }
-            items.push({
-                html: html_encode(suggested_app.title),
-                icon: `<img src="${html_encode(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
-                onClick: async function () {
-                    var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
-                    const asks_to_make_default =
-                        ! is_default_app(window.user_preferences[`default_apps${extension}`], suggested_app)
-                        &&
-                        (
-                            (!window.user_preferences[`default_apps${extension}`] && index > 0)
-                            ||
-                            (window.user_preferences[`default_apps${extension}`])
-                        );
-                    // A tab has to be opened while a click still counts as a
-                    // user gesture, or the popup blocker refuses it: this one,
-                    // or the answer to the prompt below. Refused, the app
-                    // opens in-page. Without 'noopener': the app asks this
-                    // tab for its token (see launch_app).
-                    let newTab = inNewTab && ! asks_to_make_default ? window.open('', '_blank') : null;
-                    if ( asks_to_make_default ) {
-                        const alert_resp = await UIAlert({
-                            message: `${i18n('change_always_open_with')} ${html_encode(suggested_app.title)}?`,
-                            body_icon: suggested_app.icon,
-                            buttons: [
-                                {
-                                    label: i18n('yes'),
-                                    type: 'primary',
-                                    value: 'yes',
-                                },
-                                {
-                                    label: i18n('no'),
-                                },
-                            ],
-                        });
-                        if ( (alert_resp) === 'yes' ) {
-                            window.user_preferences[`default_apps${extension}`] = suggested_app.uuid;
-                            window.mutate_user_preferences(window.user_preferences);
-                        }
-                        if ( inNewTab ) newTab = window.open('', '_blank');
-                    }
-                    launch_app({
-                        name: suggested_app.name,
-                        file_path: $(el_item).attr('data-path'),
-                        window_title: $(el_item).attr('data-name'),
-                        file_uid: $(el_item).attr('data-uid'),
-                        ...(newTab ? { newTab } : {}),
-                    });
-                },
-            });
-        }
-    } else {
-        items.push({
-            html: i18n('no_suitable_apps_found'),
-            disabled: true,
-        });
-    }
-
-    return items;
+    return build_open_with_items(el_item, suggested_apps, { inNewTab });
 }
 
 export default generate_file_context_menu;

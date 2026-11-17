@@ -275,17 +275,18 @@ describe('Open With', () => {
         }));
     });
 
-    it('opens the tab after the make-default prompt is answered', async () => {
-        let openedBeforeAnswer = null;
-        UIAlert.mockImplementation(async () => {
-            openedBeforeAnswer = window.open.mock.calls.length > 0;
-            return 'yes';
-        });
+    it('opens another app right away without asking to make it the default', async () => {
         await openWith(1, { openWithInNewTab: true });
-        expect(openedBeforeAnswer).toBe(false);
+        expect(UIAlert).not.toHaveBeenCalled();
+        expect(window.mutate_user_preferences).not.toHaveBeenCalled();
         expect(window.open).toHaveBeenCalledOnce();
-        expect(window.mutate_user_preferences).toHaveBeenCalled();
         expect(launch_app).toHaveBeenCalledWith(expect.objectContaining({ name: 'viewer', newTab: tab }));
+    });
+
+    it('lists the default app first', async () => {
+        window.user_preferences = { 'default_apps.txt': viewer.uuid };
+        await openWith(0);
+        expect(launch_app).toHaveBeenCalledWith(expect.objectContaining({ name: 'viewer' }));
     });
 
     it('opens in-page when the popup blocker refuses the tab', async () => {

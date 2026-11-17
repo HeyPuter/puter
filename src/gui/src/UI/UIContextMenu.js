@@ -556,12 +556,19 @@ function UIContextMenu (options) {
         }
 
         // X position
-        if ( start_x + menu_width > window.innerWidth ) {
-            x_pos = start_x - menu_width;
-            // if this is a child menu, the width of parent must also be considered
-            if ( options.parent_id && $(`.context-menu[data-element-id="${options.parent_id}"]`).length > 0 ) {
-                x_pos -= $(`.context-menu[data-element-id="${options.parent_id}"]`).width() + 30;
-            }
+        const $parent_menu = options.parent_id ? $(`.context-menu[data-element-id="${options.parent_id}"]`) : $();
+        let flipped_x = start_x - menu_width;
+        // if this is a child menu, the width of parent must also be considered
+        if ( $parent_menu.length > 0 ) {
+            flipped_x -= $parent_menu.width() + 30;
+        }
+        // A submenu of a submenu that opened to the left keeps going left
+        // while it fits: on the right it would cover the menu before that one.
+        const $grandparent_menu = $(`.context-menu[data-element-id="${$parent_menu.attr('data-parent-id')}"]`);
+        const parent_opened_left = $grandparent_menu.length > 0
+            && $parent_menu.offset().left < $grandparent_menu.offset().left;
+        if ( start_x + menu_width > window.innerWidth || (parent_opened_left && flipped_x >= 0) ) {
+            x_pos = flipped_x;
         } else {
             x_pos = start_x;
         }
@@ -605,9 +612,14 @@ function UIContextMenu (options) {
     $('.context-menu').not(contextMenu).removeClass('context-menu-active');
 
     let cancel_options_ = null;
-    const fade_remove = (item) => {
-        const parent_data_id = $(item).closest('.context-menu').attr('data-parent-id');
-        const $stack = $(`#context-menu-${menu_id}, .context-menu[data-element-id="${parent_data_id}"]`);
+    const fade_remove = () => {
+        // This menu and every menu above it, however deeply it is nested.
+        let $stack = $(contextMenu);
+        let $parent = $(`.context-menu[data-element-id="${$(contextMenu).attr('data-parent-id')}"]`);
+        while ( $parent.length > 0 ) {
+            $stack = $stack.add($parent);
+            $parent = $(`.context-menu[data-element-id="${$parent.attr('data-parent-id')}"]`);
+        }
         $stack.addClass('context-menu-closing');
         // Animate visible menus out. fadeOut's callback does not fire on
         // already-hidden elements (e.g. a parent sheet hidden when its submenu
@@ -660,7 +672,7 @@ function UIContextMenu (options) {
         }
         // close menu and, if exists, its parent
         if ( ! $(this).hasClass('context-menu-item-submenu') ) {
-            fade_remove(this);
+            fade_remove();
         }
         return false;
     });
@@ -683,6 +695,11 @@ function UIContextMenu (options) {
                 } else {
                     return 'left';
                 }
+            }
+            // A submenu's own submenu: the side it opened on.
+            const $open_submenu = $(`.context-menu[data-parent-id="${menu_id}"]`);
+            if ( $open_submenu.length > 0 && $open_submenu.offset().left < $(contextMenu).offset().left ) {
+                return 'left';
             }
         },
         enter: function (e) {
@@ -791,6 +808,8 @@ function UIContextMenu (options) {
 
     $(contextMenu).on('remove', function () {
         if ( submenu_delay_timer ) clearTimeout(submenu_delay_timer);
+        // A submenu goes with its menu, or it would stay on screen with nothing to close it.
+        $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
         if ( $sheet_backdrop ) $sheet_backdrop.remove();
         if ( options.onClose ) options.onClose(cancel_options_);
         // when removing, make parent scrollable again

@@ -38,7 +38,6 @@ const id = {
         change_username: 'Ubah Nama Pengguna',
         close: 'Tutup',
         close_all_windows_and_log_out: 'Tutup Jendela dan Keluar',
-        change_always_open_with: 'Apakah Anda ingin selalu membuka jenis file ini dengan',
         confirm: 'Konfirmasi',
         confirm_account_for_free_referral_storage_c2a:
       'Buat akun dan konfirmasi alamat email Anda untuk menerima 1 GB kapasitas penyimpanan gratis. Teman Anda juga akan mendapatkan 1 GB kapasitas penyimpanan gratis.',
