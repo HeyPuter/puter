@@ -6,7 +6,10 @@ import {
     PDF_THUMBNAIL_BATCH_TIMEOUT_MS,
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_BYTES,
+    WORD_BATCH_TIMEOUT_MS,
 } from './config.js';
+import { readDocPreview } from './doc.js';
+import { readDocxPreview } from './docx.js';
 import { readPsdPreview } from './psd.js';
 
 // Capture the bundle URL during evaluation; currentScript is null when an upload starts.
@@ -95,9 +98,24 @@ const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => 
     startNextJob();
 });
 
-/** Create one callback per upload so queued PDFs share a preparation deadline. */
+const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
+
+/** Create one callback per upload so queued PDFs, and queued Word documents, share a preparation deadline. */
 export const createUploadThumbnailGenerator = () => {
     let deadline;
+    let wordDeadline;
+    let wordQueue = Promise.resolve();
+    // Word documents are read on the desktop thread, so one at a time, and those still queued at the deadline are skipped.
+    const readWordPreview = (file, signal) => {
+        const preview = wordQueue.then(async () => {
+            wordDeadline ??= Date.now() + WORD_BATCH_TIMEOUT_MS;
+            if ( signal?.aborted || Date.now() >= wordDeadline ) return undefined;
+            // A name doesn't settle which of the two formats a document is in. Each reader checks the file's signature.
+            return await readDocxPreview(file, signal) ?? readDocPreview(file, signal);
+        });
+        wordQueue = preview.catch(() => {});
+        return preview;
+    };
     return async (file, context) => {
         try {
             if ( context?.signal?.aborted ) return undefined;
@@ -107,9 +125,14 @@ export const createUploadThumbnailGenerator = () => {
                 const imageGenerator = typeof context?.defaultGenerator === 'function'
                     ? context.defaultGenerator
                     : defaultThumbnailGenerator;
-                const isPsd = file.type === 'image/vnd.adobe.photoshop' || /\.ps[db]$/i.test(file.name || '');
-                // Browsers can't decode a PSD, so the image generator gets its embedded preview or a scaled-down copy.
-                const image = isPsd ? await readPsdPreview(file, context?.signal) : file;
+                const name = file.name || '';
+                // Browsers can't decode these, so the image generator gets a small image made from the file instead.
+                let image = file;
+                if ( file.type === 'image/vnd.adobe.photoshop' || /\.ps[db]$/i.test(name) ) {
+                    image = await readPsdPreview(file, context?.signal);
+                } else if ( WORD_TYPE.test(file.type) || /\.do[ct][xm]?$/i.test(name) ) {
+                    image = await readWordPreview(file, context?.signal);
+                }
                 return image ? await imageGenerator(image) : undefined;
             }
             if ( ! file.size || file.size > PDF_THUMBNAIL_MAX_FILE_BYTES ||

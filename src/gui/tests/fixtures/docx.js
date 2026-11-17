@@ -1,0 +1,91 @@
+// Word documents (DOCX) assembled part by part into a ZIP archive, generated without a document library.
+import { crc32, deflateRawSync } from 'node:zlib';
+
+const NAMESPACES = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' +
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ' +
+    'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" ' +
+    'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' +
+    'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"';
+const RELATIONSHIPS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+
+const u16 = (value) => {
+    const bytes = Buffer.alloc(2);
+    bytes.writeUInt16LE(value);
+    return bytes;
+};
+const u32 = (value) => {
+    const bytes = Buffer.alloc(4);
+    bytes.writeUInt32LE(value);
+    return bytes;
+};
+
+/**
+ * A ZIP archive holding `entries`, a map of entry names to their content. Entries are deflated, except the ones
+ * named in `stored`. `sizes` overrides the uncompressed size the archive states for an entry.
+ */
+export const createZip = (entries, { stored = [], comment = '', sizes = {}, flags = 0 } = {}) => {
+    const locals = [];
+    const directory = [];
+    let offset = 0;
+    for ( const [name, content] of Object.entries(entries) ) {
+        const data = Buffer.from(content);
+        const method = stored.includes(name) ? 0 : 8;
+        const packed = method ? deflateRawSync(data) : data;
+        // Version, flags, method, time and date, checksum, both sizes, then the lengths of the name and extra field.
+        const fields = Buffer.concat([
+            u16(20), u16(flags), u16(method), u32(0), u32(crc32(data)),
+            u32(packed.length), u32(sizes[name] ?? data.length), u16(Buffer.byteLength(name)), u16(0),
+        ]);
+        locals.push(Buffer.from('PK\x03\x04'), fields, Buffer.from(name), packed);
+        directory.push(Buffer.from('PK\x01\x02'), u16(20), fields, u16(0), u16(0), u16(0), u32(0), u32(offset),
+                        Buffer.from(name));
+        offset += 30 + Buffer.byteLength(name) + packed.length;
+    }
+    const directoryBytes = Buffer.concat(directory);
+    const count = Object.keys(entries).length;
+    return new Uint8Array(Buffer.concat([
+        ...locals,
+        directoryBytes,
+        Buffer.from('PK\x05\x06'), u16(0), u16(0), u16(count), u16(count),
+        u32(directoryBytes.length), u32(offset), u16(Buffer.byteLength(comment)), Buffer.from(comment),
+    ]));
+};
+
+/** A paragraph of plain text, with optional paragraph properties (`<w:pPr>` content). */
+export const paragraph = (text, properties = '') =>
+    `<w:p>${properties && `<w:pPr>${properties}</w:pPr>`}<w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
+
+/** An inline picture `width` x `height` points in size, shown from the media file with relationship `id`. */
+export const picture = (id, width, height) => '<w:r><w:drawing><wp:inline>' +
+    `<wp:extent cx="${width * 12700}" cy="${height * 12700}"/><a:graphic><a:graphicData><a:blip r:embed="${id}"/>` +
+    '</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+
+/**
+ * A DOCX whose main part holds `body`. `styles` is the content of the styles part, `section` the content of the
+ * section properties, `media` a map of file names under `word/media/` to their bytes (related as `rId1`, `rId2`, ...
+ * in order) and `thumbnail` a stored first-page JPEG. `main` renames the main part.
+ */
+export const createDocx = ({
+    body = paragraph('Hello'),
+    styles,
+    section = '<w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/>',
+    media = {},
+    thumbnail,
+    main = 'word/document.xml',
+    ...zipOptions
+} = {}) => createZip({
+    '[Content_Types].xml': `${XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>`,
+    '_rels/.rels': `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+        `<Relationship Id="rId1" Type="${RELATIONSHIPS}/officeDocument" Target="${main}"/></Relationships>`,
+    ...(thumbnail && { 'docProps/thumbnail.jpeg': thumbnail }),
+    [main.replace('word/', 'word/_rels/') + '.rels']:
+        `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${
+            Object.keys(media).map((name, index) =>
+                `<Relationship Id="rId${index + 1}" Type="${RELATIONSHIPS}/image" Target="media/${name}"/>`).join('')
+        }</Relationships>`,
+    [main]: `${XML}<w:document ${NAMESPACES}><w:body>${body}${section && `<w:sectPr>${section}</w:sectPr>`}` +
+        '</w:body></w:document>',
+    ...(styles !== undefined && { 'word/styles.xml': `${XML}<w:styles ${NAMESPACES}>${styles}</w:styles>` }),
+    ...Object.fromEntries(Object.entries(media).map(([name, bytes]) => [`word/media/${name}`, bytes])),
+}, zipOptions);

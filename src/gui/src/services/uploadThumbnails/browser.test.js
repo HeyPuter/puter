@@ -7,8 +7,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyPdfThumbnailAssets } from '../../../tools/copyPdfThumbnailAssets.js';
+import { createDoc } from '../../../tests/fixtures/doc.js';
+import { createDocx, paragraph, picture } from '../../../tests/fixtures/docx.js';
 import { createPdf } from '../../../tests/fixtures/pdf.js';
-import { createPsd, psdResource } from '../../../tests/fixtures/psd.js';
+import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
 
 let browser;
 let server;
@@ -232,6 +234,95 @@ describe('Upload thumbnails in a real browser', () => {
             expect(result.merged).toMatchObject({ width: 128, height: 64 });
             expect(result.merged.top).toSatisfy(near([255, 255, 255, 255]));
             expect(result.merged.bottom).toSatisfy(near([0, 255, 0, 255]));
+            expect(result.skipped).toEqual([undefined, undefined]);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
+    it.each([false, true])('draws a Word document\'s first page, or scales the thumbnail stored in it (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async ({ docx, doc, withThumbnail, blank }) => {
+                const generate = window.createUploadThumbnailGenerator();
+                // The bundled page has no SDK generator to pass, as with an SDK that predates the callback context.
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const [drawn, legacy, stored, ...skipped] = await Promise.all([
+                    new File([new Uint8Array(docx)], 'report.docx'),
+                    new File([new Uint8Array(doc)], 'letter.doc'),
+                    new File([new Uint8Array(withThumbnail)], 'saved.docx'),
+                    new File([new Uint8Array(blank)], 'blank.docx'),
+                    new File(['not a Word document'], 'broken.doc', { type: 'application/msword' }),
+                ].map(file => generate(file, context)));
+                const decode = async (thumbnail) => {
+                    if ( ! thumbnail ) return null;
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    const pixel = (x, y) => [...ctx.getImageData(x, y, 1, 1).data];
+                    // How many pixels of the rows from `top` to `bottom` are not white. Text this small is gray.
+                    const inked = (top, bottom) => {
+                        const { data } = ctx.getImageData(0, top, image.width, bottom - top);
+                        let count = 0;
+                        for ( let at = 0; at < data.length; at += 4 ) {
+                            if ( data[at] + data[at + 1] + data[at + 2] < 690 ) count++;
+                        }
+                        return count;
+                    };
+                    return { width: image.width, height: image.height, pixel, inked };
+                };
+                const [drawnImage, legacyImage, storedImage] = await Promise.all([drawn, legacy, stored].map(decode));
+                return {
+                    drawn: drawnImage && {
+                        width: drawnImage.width,
+                        height: drawnImage.height,
+                        margin: drawnImage.pixel(3, 3),
+                        heading: drawnImage.inked(12, 26),
+                        picture: drawnImage.pixel(49, 45),
+                        below: drawnImage.inked(70, 128),
+                    },
+                    legacy: legacyImage && {
+                        width: legacyImage.width,
+                        height: legacyImage.height,
+                        text: legacyImage.inked(11, 20),
+                        below: legacyImage.inked(20, 128),
+                    },
+                    stored: storedImage && {
+                        width: storedImage.width,
+                        height: storedImage.height,
+                        pixel: storedImage.pixel(5, 5),
+                    },
+                    skipped,
+                };
+            }, {
+                // US Letter: a 72 point bold heading, then a red picture as wide as the text area.
+                docx: [...createDocx({
+                    body: `<w:p><w:r><w:rPr><w:b/><w:sz w:val="144"/></w:rPr><w:t>Heading</w:t></w:r></w:p><w:p>${picture('rId1', 468, 234)}</w:p>`,
+                    media: { 'image1.jpeg': psdPreviewJpeg() },
+                })],
+                doc: [...createDoc({ pieces: [{ text: 'A letter in the older format\r', compressed: true }] })],
+                withThumbnail: [...createDocx({ thumbnail: psdPreviewJpeg() })],
+                blank: [...createDocx({ body: paragraph('') })],
+            });
+            const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 15);
+            expect(result.drawn).toMatchObject({ width: 99, height: 128, below: 0 });
+            expect(result.drawn.margin).toSatisfy(near([255, 255, 255, 255]));
+            expect(result.drawn.heading).toBeGreaterThan(20);
+            expect(result.drawn.picture).toSatisfy(near([255, 0, 0, 255]));
+            expect(result.legacy).toMatchObject({ width: 99, height: 128, below: 0 });
+            expect(result.legacy.text).toBeGreaterThan(0);
+            expect(result.stored).toMatchObject({ width: 128, height: 64 });
+            expect(result.stored.pixel).toSatisfy(near([255, 0, 0, 255]));
             expect(result.skipped).toEqual([undefined, undefined]);
             expect(errors).toEqual([]);
         } finally {

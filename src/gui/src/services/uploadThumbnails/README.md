@@ -2,10 +2,10 @@
 
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
-callback's second argument. Files that are neither PDFs nor PSDs delegate to
-that image generator; when the running SDK predates the callback context (it
-then passes only the file), the GUI's bundled copy of the SDK image generator is
-used instead, so image thumbnails do not depend on deploy order.
+callback's second argument. Files that are not PDFs, PSDs or Word documents
+delegate to that image generator; when the running SDK predates the callback
+context (it then passes only the file), the GUI's bundled copy of the SDK image
+generator is used instead, so image thumbnails do not depend on deploy order.
 
 ## PSD
 
@@ -21,6 +21,35 @@ a side for the same image generator. It reads only the rows that BMP samples, so
 the cost follows the document's width, not its size. Transparency is flattened
 onto white. Documents that are not RGB or grayscale at 8 or 16 bits per channel,
 and documents wide enough to exceed the read budget, retain their normal icon.
+
+## Word documents
+
+A DOCX is a ZIP archive of XML parts. `docx.js` lists the archive from the
+directory at its end and inflates only the parts it needs. Some editors store a
+JPEG of the first page in the archive; when it is there, it goes to the image
+generator as it is.
+
+Otherwise `docx.js` reads the main part up to the first page break and
+`page.js` draws that page on a canvas of at most 256 pixels a side: paragraphs
+with their font size, weight, color, alignment, indent and spacing, taken from
+the document's styles and direct formatting, table cells side by side, and
+pictures at their stated size. Text wraps to the page's width and margins, and
+paragraphs that start with a right-to-left letter are laid out from the right.
+The result is a likeness of the page, not a rendering of it: every font is drawn
+as the browser's sans-serif, and headers, footers, borders, shading and floating
+positions are not drawn.
+
+`doc.js` reads a Word 97-2003 document, an OLE compound file, by following the
+sector chains of its main and table streams to the text. It draws the text alone
+on a US Letter page; the format's binary formatting is not read.
+
+Both readers are tried on every Word file, because a `.doc` is sometimes a DOCX
+and the reverse; each reader checks the file's signature first. Encrypted
+documents, and documents whose first page is blank, retain their normal icon.
+
+Reading happens on the desktop thread, in a few milliseconds per document. An
+upload reads its Word documents one at a time, and the ones still queued when
+its preparation deadline passes retain their normal icon.
 
 ## PDF
 
@@ -50,6 +79,8 @@ and Chromium rendering tests (`npx playwright install chromium` if needed).
 The browser tests use the same asset-copy step as production, render real PDF
 fixtures, and check first-page pixels, text, rotation, image delegation, failure
 recovery and termination of CPU-bound work. They also decode the thumbnails made
-from a PSD fixture's preview and from a fixture's merged image. The SDK upload suites cover callback
+from a PSD fixture's preview and from a fixture's merged image, and check the
+pixels of pages drawn from DOCX and DOC fixtures. The parsers' unit tests draw on a
+recording canvas, so they assert on the words and positions laid out. The SDK upload suites cover callback
 compatibility and cancellation; its HTTP transport tests cover thumbnail
 failure, timeout and original-file failure separately.

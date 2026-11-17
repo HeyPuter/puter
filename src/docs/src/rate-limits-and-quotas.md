@@ -381,6 +381,19 @@ The Puter desktop makes a PSD or PSB upload thumbnail from the preview image sto
 | Data read from the document to scale down its merged image | 16 MiB |
 | Output | At most 128 × 128 pixels, aspect ratio preserved |
 
+The Puter desktop makes a Word document upload thumbnail from the first-page thumbnail stored in a DOCX, within these budgets. For a DOCX saved without one, the desktop draws the first page from the document's text, styles, tables, and pictures. For a DOC, the desktop draws the first page from the document's text. A document over a budget keeps its file icon, or is drawn without the content over the budget. An encrypted document, or one with a blank first page, keeps its file icon.
+
+| Word thumbnail | Limit |
+| --- | --- |
+| Word documents read per upload | 1 at a time |
+| Preparation per upload, including queued documents | 5 seconds from the first Word document |
+| Data read from the document to find its parts, and to read the text of a DOC | 4 MiB |
+| Stored thumbnail size | 1 MiB |
+| XML read from each part of a DOCX, after decompression | 1 MiB |
+| Text laid out | 16,384 characters |
+| Pictures drawn | 4, each up to 4 MiB |
+| Output | First page, at most 128 × 128 pixels, aspect ratio preserved |
+
 ### Permissions
 
 | Limit | Value |

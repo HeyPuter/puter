@@ -20,4 +20,14 @@ list of image resources and any merged image, stored raw or RLE-compressed. The
 default document is 1 × 1 and carries a thumbnail resource holding a 160 × 80
 red JPEG, encoded once with sharp.
 
+`docx.js` builds Word documents (DOCX) as ZIP archives, deflated with Node's
+zlib, from a main part's body and optional styles, media and stored thumbnail.
+`doc.js` builds Word 97-2003 documents as OLE compound files, sector by sector,
+with the text in one-byte or UTF-16 pieces. Both were checked against other
+readers when written: `unzip -t` for the archives, and `file` and the Python
+`olefile` package for the compound files.
+
+`canvas.js` stands in for OffscreenCanvas in tests that run without a browser,
+recording each piece of text and each image drawn.
+
 These fixtures contain no user documents or production credentials.

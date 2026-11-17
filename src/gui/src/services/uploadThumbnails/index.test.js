@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
+import { createDoc } from '../../../tests/fixtures/doc.js';
+import { createDocx } from '../../../tests/fixtures/docx.js';
 import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
 import {
     PDFJS_VERSION,
     PDF_THUMBNAIL_BATCH_TIMEOUT_MS,
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_FILE_BYTES,
+    WORD_BATCH_TIMEOUT_MS,
 } from './config.js';
 
 const thumbnail = 'data:image/png;base64,AAAA';
@@ -158,6 +162,114 @@ describe('GUI upload thumbnail scheduling', () => {
         expect(await generate(new File([content], 'art.psd'), { defaultGenerator })).toBeUndefined();
         expect(defaultGenerator).not.toHaveBeenCalled();
         expect(workers).toHaveLength(0);
+    });
+
+    it.each([
+        new File([createDocx()], 'report.docx'),
+        new File([createDocx()], 'template.DOTM'),
+        new File([createDocx()], 'report', {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        }),
+        new File([createDoc()], 'letter.doc'),
+        new File([createDoc()], 'letter', { type: 'application/msword' }),
+        // The name of a document doesn't always match the format it is saved in.
+        new File([createDocx()], 'report.doc'),
+        new File([createDoc()], 'letter.docx'),
+    ])('hands the image generator a drawing of a Word document\'s first page', async (file) => {
+        const { Canvas, drawn } = createRecordingCanvas();
+        vi.stubGlobal('OffscreenCanvas', Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator).toHaveBeenCalledOnce();
+        expect(defaultGenerator.mock.calls[0][0].type).toBe('image/png');
+        expect(drawn.text.map(word => word.text)).toEqual(['Hello']);
+        expect(workers).toHaveLength(0);
+    });
+
+    it('hands the image generator the thumbnail stored in a DOCX', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const file = new File([createDocx({ thumbnail: psdPreviewJpeg() })], 'report.docx');
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        const [image] = defaultGenerator.mock.calls[0];
+        expect(image.type).toBe('image/jpeg');
+        expect(new Uint8Array(await image.arrayBuffer())).toEqual(psdPreviewJpeg());
+    });
+
+    it.each([
+        ['text that is only named like a document', 'not a Word document'],
+        ['a DOCX whose main part does not inflate', (() => {
+            const docx = createDocx({ stored: ['word/document.xml'] });
+            // Mark the stored main part as deflated, in its directory entry.
+            const name = new TextEncoder().encode('word/document.xml');
+            const at = docx.findLastIndex((_, index) => name.every((byte, offset) => docx[index + offset] === byte));
+            docx[at - 36] = 8;
+            return docx;
+        })()],
+        ['a DOCX with a blank first page', createDocx({ body: '<w:p/>' })],
+    ])('skips %s', async (_label, content) => {
+        vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        expect(await generate(new File([content], 'report.docx'), { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).not.toHaveBeenCalled();
+        expect(workers).toHaveLength(0);
+    });
+
+    it('reads the Word documents of an upload one at a time', async () => {
+        const events = [];
+        const { Canvas } = createRecordingCanvas();
+        vi.stubGlobal('OffscreenCanvas', class extends Canvas {
+            constructor (...size) {
+                super(...size);
+                events.push('draw');
+            }
+        });
+        const read = Blob.prototype.arrayBuffer;
+        vi.spyOn(Blob.prototype, 'arrayBuffer').mockImplementation(function () {
+            events.push('read');
+            return read.call(this);
+        });
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        // A document this small is read whole by its first read.
+        const files = [new File([createDocx()], 'a.docx'), new File([createDocx()], 'b.docx')];
+        expect(await Promise.all(files.map(file => generate(file, { defaultGenerator })))).toEqual([thumbnail, thumbnail]);
+        expect(events).toEqual(['read', 'draw', 'read', 'draw']);
+    });
+
+    it('skips the Word documents still queued when an upload\'s preparation deadline passes', async () => {
+        vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        const file = () => new File([createDocx()], 'report.docx');
+        expect(await generate(file(), { defaultGenerator })).toBe(thumbnail);
+        vi.setSystemTime(Date.now() + WORD_BATCH_TIMEOUT_MS);
+        expect(await generate(file(), { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).toHaveBeenCalledOnce();
+        // The next upload gets its own deadline.
+        expect(await createUploadThumbnailGenerator()(file(), { defaultGenerator })).toBe(thumbnail);
+    });
+
+    it('keeps reading Word documents after one fails or the upload is cancelled', async () => {
+        vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        const controller = new AbortController();
+        controller.abort();
+        const results = await Promise.all([
+            generate(new File([createDocx({ flags: 1 })], 'locked.docx'), { defaultGenerator }),
+            generate(new File([createDocx()], 'cancelled.docx'), { defaultGenerator, signal: controller.signal }),
+            generate(new File([createDocx()], 'report.docx'), { defaultGenerator }),
+        ]);
+        expect(results).toEqual([undefined, undefined, thumbnail]);
+    });
+
+    it('skips a Word document in a browser without OffscreenCanvas', async () => {
+        vi.stubGlobal('OffscreenCanvas', undefined);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const file = new File([createDocx()], 'report.docx');
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).not.toHaveBeenCalled();
     });
 
     it('preserves graceful failure of the image generator', async () => {
