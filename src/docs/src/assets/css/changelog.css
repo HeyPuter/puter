@@ -88,8 +88,18 @@ a:hover {
     color: #55585f;
 }
 
-.changelog-markdown {
+.changelog-formats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    margin: 0;
     font-size: 14px;
+}
+
+.changelog-formats a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .changelog-month {

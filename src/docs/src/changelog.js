@@ -7,6 +7,9 @@ const { encode } = require('html-entities');
 const SOURCE_PATH = path.join('src', 'changelog.md');
 const DIST_DIR = 'dist';
 const SITE = 'https://docs.puter.com';
+const FEED_PATH = '/changelog/rss.xml';
+// Feed readers only need recent days, and they fetch the feed on every poll.
+const FEED_DAYS = 50;
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
     'August', 'September', 'October', 'November', 'December'];
@@ -128,8 +131,44 @@ function renderEntries (markdown) {
     return body.innerHTML;
 }
 
+function readIntro (markdown) {
+    return markdown.match(/^# .*\n+([^\n#][^\n]*)/)?.[1] ?? '';
+}
+
+/**
+ * Builds an RSS 2.0 feed with one item per day, newest first. Each item links
+ * to that day on the changelog page. `markdown` must already have absolute links.
+ */
+function renderFeed (markdown) {
+    const items = markdown.split(/^## /m).slice(1, FEED_DAYS + 1).map(section => {
+        const newline = section.indexOf('\n');
+        const heading = section.slice(0, newline).trim();
+        const { year, month, day } = parseDay(heading);
+        const link = `${SITE}/changelog/#${slug(heading)}`;
+        return `
+        <item>
+            <title>${encode(heading)}</title>
+            <link>${link}</link>
+            <guid isPermaLink="true">${link}</guid>
+            <pubDate>${new Date(Date.UTC(year, month, day)).toUTCString()}</pubDate>
+            <description>${encode(marked.parse(section.slice(newline + 1)).trim())}</description>
+        </item>`;
+    });
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+    <channel>
+        <title>Puter.js Changelog</title>
+        <link>${SITE}/changelog/</link>
+        <description>${encode(readIntro(markdown))}</description>
+        <language>en</language>
+        <atom:link href="${SITE}${FEED_PATH}" rel="self" type="application/rss+xml" />${items.join('')}
+    </channel>
+</rss>
+`;
+}
+
 function renderPage (markdown, latest) {
-    const intro = encode(markdown.match(/^# .*\n+([^\n#][^\n]*)/)?.[1] ?? '');
+    const intro = encode(readIntro(markdown));
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -138,6 +177,7 @@ function renderPage (markdown, latest) {
     <title>Puter.js Changelog</title>
     <meta name="description" content="${intro}">
     <link rel="canonical" href="${SITE}/changelog/">
+    <link rel="alternate" type="application/rss+xml" title="Puter.js Changelog" href="${FEED_PATH}">
     <meta name="robots" content="noindex, follow" />
     <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
@@ -157,7 +197,10 @@ function renderPage (markdown, latest) {
     <main class="changelog-main">
         <h1>Changelog</h1>
         <p class="changelog-intro">${intro}</p>
-        <a class="changelog-markdown" href="/changelog.md" target="_blank">View as Markdown</a>
+        <p class="changelog-formats">
+            <a href="/changelog.md" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-text"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>View as Markdown</a>
+            <a href="${FEED_PATH}" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rss"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>RSS feed</a>
+        </p>
         ${renderEntries(markdown)}
     </main>
     <script>
@@ -170,9 +213,9 @@ function renderPage (markdown, latest) {
 }
 
 /**
- * Writes the changelog page to dist/changelog/, and its Markdown to
- * dist/changelog.md for feeding to AI, with links made absolute so the file
- * works on its own. Returns false if a day heading is invalid.
+ * Writes the changelog page and its RSS feed to dist/changelog/, and its
+ * Markdown to dist/changelog.md for feeding to AI, with links made absolute so
+ * the files work on their own. Returns false if a day heading is invalid.
  */
 function generateChangelog () {
     const source = readChangelog();
@@ -187,6 +230,7 @@ function generateChangelog () {
     fs.writeFileSync(path.join(DIST_DIR, 'changelog', 'index.html'), renderPage(source, latest));
     fs.writeFileSync(path.join(DIST_DIR, 'changelog', 'index.md'), markdown);
     fs.writeFileSync(path.join(DIST_DIR, 'changelog.md'), markdown);
+    fs.writeFileSync(path.join(DIST_DIR, FEED_PATH), renderFeed(markdown));
     return true;
 }
 
