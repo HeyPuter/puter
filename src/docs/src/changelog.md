@@ -8,6 +8,7 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 
 ## November 16, 2026
 
+- Changed [`puter.fs.upload()`](/FS/upload/) to reject an upload with `invalid_upload_path` when a file or folder path resolves outside the destination folder, such as a path with `..` segments.
 - Added the `background` option to [`puter.notifications.enable()`](/Notifications/enable/). It turns pushes back on without a click, such as on page load, and never opens a prompt, dialog, or sign-in window. See [Calls without a click](/Notifications/enable/#calls-without-a-click).
 - Added [`puter.hosting.detach()`](/Hosting/detach/), which opens a Puter dialog where the user removes custom domains from one of their websites.
 - Added the `custom_domains` field to the [`Subdomain`](/Objects/subdomain/) objects from [`puter.hosting.get()`](/Hosting/get/) and [`puter.hosting.list()`](/Hosting/list/). Also added `previousSite` to the [`CustomDomain`](/Objects/customdomain/) from [`puter.hosting.attach()`](/Hosting/attach/), for when the user moved the domain from another of their websites.

@@ -66,6 +66,8 @@ If any part of the upload fails, the promise is rejected — it never resolves t
 
 When every failed item failed the same way, that `code` and `status` are also set on the rejection value itself, because the cause belongs to the request rather than to any one file. An upload that exceeds the account's storage quota is the common case: it rejects with `code: 'storage_limit_reached'` and `status: 413` however many files were in it.
 
+An upload with a file or folder whose path resolves outside the destination folder, such as a path with `..` segments, rejects with `code: 'invalid_upload_path'` before anything is written.
+
 ## Uploading directories
 
 Directory uploads (dropped directory entries, or `createFileParent`) work on every platform: nested paths are recreated under the destination, and files sharing a name stay apart in the directories they came from.

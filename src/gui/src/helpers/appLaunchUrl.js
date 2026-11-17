@@ -59,6 +59,10 @@ export const appLaunchUrl = ({ app, name = app.name, appInstanceID, guiOrigin, a
     } else {
         url = new URL(app.index_url);
     }
+    // The `puter.*` params describe the launch, so only the desktop sets them.
+    for ( const key of [...url.searchParams.keys()] ) {
+        if ( key.startsWith('puter.') ) url.searchParams.delete(key);
+    }
     url.searchParams.append('puter.app_instance_id', appInstanceID);
     url.searchParams.append('puter.app.id', app.uuid ?? app.uid);
     url.searchParams.append('puter.app.name', app.name);

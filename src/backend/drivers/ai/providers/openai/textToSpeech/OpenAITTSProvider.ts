@@ -17,12 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { pipeline, Transform } from 'node:stream';
 import OpenAI from 'openai';
+import type { Actor } from '../../../../../core/actor.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import { Context } from '../../../../../core/context.js';
 import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../../meta.js';
 import { SAMPLE_AUDIO_URL } from '../../../shared/testMode.js';
+import { withStreamedAiCharge } from '../../../shared/streamedAiCharge.js';
 import { upstreamBodyStream } from '../../../../util/upstreamErrors.js';
 import type {
     ITTSVoice,
@@ -34,10 +37,69 @@ import {
     characterCostReport,
     meterPerCharacter,
 } from '../../../interfaces/textToSpeech/common.js';
-import { OPENAI_TTS_COSTS } from './costs.js';
+import { OPENAI_TTS_COSTS, OPENAI_TTS_TOKEN_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'gpt-4o-mini-tts';
 const DEFAULT_VOICE = 'alloy';
+
+interface SpeechUsage {
+    input_tokens?: unknown;
+    output_tokens?: unknown;
+}
+
+const tokenCount = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : undefined;
+
+/**
+ * Turns OpenAI's speech event stream into the audio bytes it carries, and hands
+ * `onEnd` the usage from its final event, or undefined when it ends without
+ * one.
+ */
+const speechEventAudio = (
+    onEnd: (usage: SpeechUsage | undefined) => void,
+): Transform => {
+    let pending = '';
+    let usage: SpeechUsage | undefined;
+    return new Transform({
+        transform(chunk: Buffer, _encoding, done) {
+            pending = (pending + chunk.toString('utf8')).replace(/\r\n/g, '\n');
+            try {
+                let end: number;
+                while ((end = pending.indexOf('\n\n')) !== -1) {
+                    const data = pending
+                        .slice(0, end)
+                        .split('\n')
+                        .filter((line) => line.startsWith('data:'))
+                        .map((line) => line.slice(5).trimStart())
+                        .join('\n');
+                    pending = pending.slice(end + 2);
+                    if (!data || data === '[DONE]') continue;
+                    const event = JSON.parse(data);
+                    if (
+                        event?.type === 'speech.audio.delta' &&
+                        typeof event.audio === 'string'
+                    )
+                        this.push(Buffer.from(event.audio, 'base64'));
+                    else if (event?.type === 'speech.audio.done')
+                        usage = event.usage;
+                }
+                done();
+            } catch (e) {
+                done(e as Error);
+            }
+        },
+        flush(done) {
+            onEnd(usage);
+            done();
+        },
+        destroy(error, callback) {
+            onEnd(usage);
+            callback(error);
+        },
+    });
+};
 
 const RESPONSE_CONTENT_TYPES: Record<string, string> = {
     mp3: 'audio/mpeg',
@@ -123,7 +185,23 @@ export class OpenAITTSProvider implements ITTSProvider {
     }
 
     getReportedCosts(): Record<string, unknown>[] {
-        return characterCostReport('openai', OPENAI_TTS_COSTS);
+        return [
+            ...characterCostReport('openai', OPENAI_TTS_COSTS),
+            ...Object.entries(OPENAI_TTS_TOKEN_COSTS).flatMap(
+                ([model, costs]) =>
+                    (
+                        [
+                            ['input', costs.input],
+                            ['output:audio', costs.outputAudio],
+                        ] as const
+                    ).map(([kind, ucentsPerUnit]) => ({
+                        usageType: `openai:${model}:${kind}`,
+                        ucentsPerUnit,
+                        unit: 'token',
+                        source: 'driver:aiTts/openai',
+                    })),
+            ),
+        ];
     }
 
     async synthesize(
@@ -210,9 +288,20 @@ export class OpenAITTSProvider implements ITTSProvider {
         if (instructions) payload.instructions = instructions;
         if (response_format) payload.response_format = response_format;
 
+        const actor = Context.get('actor')!;
+        const tokenCosts = OPENAI_TTS_TOKEN_COSTS[model];
+        if (tokenCosts)
+            return this.#synthesizeByTokens(
+                actor,
+                payload,
+                contentType,
+                tokenCosts,
+                text.length + (instructions?.length ?? 0),
+            );
+
         return meterPerCharacter(
             this.meteringService,
-            Context.get('actor')!,
+            actor,
             `openai:${model}:character`,
             OPENAI_TTS_COSTS[model] ?? 0,
             text,
@@ -224,6 +313,77 @@ export class OpenAITTSProvider implements ITTSProvider {
                     chunked: true,
                     stream: upstreamBodyStream(response),
                 };
+            },
+        );
+    }
+
+    /**
+     * Streams a model OpenAI bills by token as server-sent events and charges
+     * the tokens its final event reports. The hold is the per-character rate on
+     * the text and instructions; a stream that ends without usage, as when the
+     * caller hangs up, is charged that hold.
+     */
+    #synthesizeByTokens(
+        actor: Actor,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        payload: any,
+        contentType: string,
+        costs: { input: number; outputAudio: number },
+        characters: number,
+    ): Promise<DriverStreamResult> {
+        const model: string = payload.model;
+        const held = (OPENAI_TTS_COSTS[model] ?? 0) * characters;
+        let reportUsage!: (usage: SpeechUsage | undefined) => void;
+        const usage = new Promise<SpeechUsage | undefined>((resolve) => {
+            reportUsage = resolve;
+        });
+        return withStreamedAiCharge(
+            this.meteringService,
+            actor,
+            `openai:${model}:character`,
+            held,
+            async () => {
+                const response = await this.openai.audio.speech.create({
+                    ...payload,
+                    stream_format: 'sse',
+                });
+                return {
+                    dataType: 'stream',
+                    content_type: contentType,
+                    chunked: true,
+                    stream: pipeline(
+                        upstreamBodyStream(response),
+                        speechEventAudio(reportUsage),
+                        () => {},
+                    ),
+                };
+            },
+            async () => {
+                const reported = await usage;
+                const input = tokenCount(reported?.input_tokens);
+                const output = tokenCount(reported?.output_tokens);
+                if (input === undefined || output === undefined)
+                    return this.meteringService.incrementUsage(
+                        actor,
+                        `openai:${model}:character`,
+                        characters,
+                        held,
+                    );
+                return this.meteringService.batchIncrementUsages(
+                    actor,
+                    [
+                        {
+                            usageType: `openai:${model}:input`,
+                            usageAmount: input,
+                            costOverride: input * costs.input,
+                        },
+                        {
+                            usageType: `openai:${model}:output:audio`,
+                            usageAmount: output,
+                            costOverride: output * costs.outputAudio,
+                        },
+                    ].filter((line) => line.usageAmount > 0),
+                );
             },
         );
     }

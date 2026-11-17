@@ -33,6 +33,20 @@ describe('appLaunchUrl', () => {
         ]);
     });
 
+    it('drops launch params the index_url sets itself', () => {
+        const url = appLaunchUrl({ ...base, app: { uid: 'app-1', name: 'notes', index_url: 'https://notes.example.com/?puter.api_origin=https://evil.example&puter.auth.token=x&mode=1' } });
+        appendLaunchContext(url, {
+            appDomain: 'puter.test',
+            pageUrl: 'https://puter.test/',
+            apiOrigin: 'https://api.puter.test',
+            locale: 'en',
+            surface: 'desktop',
+        });
+        expect(url.searchParams.getAll('puter.api_origin')).toEqual(['https://api.puter.test']);
+        expect(url.searchParams.has('puter.auth.token')).toBe(false);
+        expect(url.searchParams.get('mode')).toBe('1');
+    });
+
     it('serves a built-in app from the GUI', () => {
         const url = appLaunchUrl({ ...base, app: { uid: 'app-1', name: 'settings', index_url: 'https://builtins.namespaces.puter.com/settings' } });
         expect(`${url.origin}${url.pathname}`).toBe('https://puter.test/builtin/settings');

@@ -68,7 +68,7 @@ async function init_apps () {
                 // show payout method tab if dev has joined incentive program
                 if ( dev_profile.joined_incentive_program ) {
                     $('.tab-btn[data-tab="payout-method"]').show();
-                    $('#payout-method-email').html(dev_profile.paypal);
+                    $('#payout-method-email').text(dev_profile.paypal);
                     $('.tab-btn-separator').show();
                 }
             });

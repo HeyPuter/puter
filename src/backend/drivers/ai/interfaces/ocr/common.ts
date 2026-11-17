@@ -24,11 +24,7 @@ import type { CreditHold } from '../../../../services/metering/types.js';
 import { mimeFromName } from '../../../../util/fileSigning.js';
 import type { LoadedFile, ResolvedFileInput } from '../../../util/fileInput.js';
 import type { AiMeteringService } from '../../../../util/aiCostFactor.js';
-import {
-    OCR_MAX_INPUT_BYTES,
-    OCR_MAX_PAGES,
-    type OcrProviderId,
-} from './models.js';
+import { OCR_MAX_PAGES, type OcrProviderId } from './models.js';
 import { countPdfPages } from './pdfPages.js';
 
 export const badRequest = (message: string) =>
@@ -54,27 +50,20 @@ export const isDocumentInput = (loaded: LoadedFile): boolean => {
 
 /**
  * The most pages a call can bill, known before the provider runs: a PDF's page
- * count, or a size-based guess for other documents, capped by a `pages`
- * selection and by what the provider reads in one call. Reads the input only
- * for a provider that takes more than one page.
+ * count, capped by a `pages` selection and by what the provider reads in one
+ * call. Null for a document whose pages can't be counted, such as a PDF with an
+ * encrypted page tree, when no pages are selected. Reads the input only for a
+ * provider that takes more than one page.
  */
 export const estimateOcrPages = async (
     input: ResolvedFileInput,
     provider: OcrProviderId,
     selection?: unknown,
-): Promise<number> => {
+): Promise<number | null> => {
     const maxPages = OCR_MAX_PAGES[provider];
     if (maxPages <= 1) return 1;
     const loaded = await input.load();
     if (!isDocumentInput(loaded)) return 1;
-    // A document we can't count is billed in proportion to its size, reaching
-    // the provider's page limit at its size limit (20 pages per MB for
-    // Mistral). Small files stay cheap; a large one can't pass as one page.
-    const documentPages =
-        (await countPdfPages(loaded.buffer, maxPages)) ??
-        Math.ceil(
-            (loaded.buffer.length * maxPages) / OCR_MAX_INPUT_BYTES[provider],
-        );
     const selected = Array.isArray(selection)
         ? new Set(
               selection.filter(
@@ -82,7 +71,12 @@ export const estimateOcrPages = async (
               ),
           ).size
         : 0;
-    return Math.max(1, Math.min(documentPages, maxPages, selected || Infinity));
+    const counted = await countPdfPages(loaded.buffer, maxPages);
+    if (counted === null && !selected) return null;
+    return Math.max(
+        1,
+        Math.min(counted ?? maxPages, maxPages, selected || Infinity),
+    );
 };
 
 /**

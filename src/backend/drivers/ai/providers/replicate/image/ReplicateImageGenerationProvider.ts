@@ -51,7 +51,9 @@ import {
     catalogImageInputs,
     catalogOutputMegapixels,
     catalogCostComponents,
+    withCatalogImageInputs,
 } from './catalogRequest.js';
+import { runWithConcurrencyLimit } from '../../../../../util/concurrency.js';
 import {
     CONTENT_FILTER_PATTERN,
     isUpstreamTimeoutError,
@@ -79,6 +81,21 @@ const PREDICTION_FAILED_PREFIX = 'Prediction failed:';
 // share of seeds for any prompt, and say so by asking for another run.
 const SAFETY_RERUN_HINT = /try running it again/i;
 const MAX_SAFETY_RERUNS = 2;
+
+/** A caller's input image as measured for billing. */
+interface MeasuredInput {
+    megapixels: number;
+    /** The fetched bytes, which Replicate gets in place of the URL. */
+    upload?: Blob;
+}
+
+const unreadableInputImage = () =>
+    new HttpError(400, 'An input image could not be read', {
+        legacyCode: 'bad_request',
+    });
+
+const imageMimeType = (format: string) =>
+    format === 'svg' ? 'image/svg+xml' : `image/${format}`;
 
 function hasUpstreamStatus(err: unknown): boolean {
     const e = err as {
@@ -322,28 +339,35 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         const outputHold = await holdCredits(outputOnlyCost);
         let inputHold = NO_CREDIT_HOLD;
         try {
-            const inputMp =
-                allInputUrls.length > 0
-                    ? await this.#measureInputMegapixels(
-                          allInputUrls,
-                          !catalogInput,
-                      )
-                    : 0;
+            const measured = await this.#measureInputs(
+                allInputUrls,
+                !catalogInput,
+            );
+            const inputMp = measured.reduce(
+                (total, image) => total + image.megapixels,
+                0,
+            );
             if (inputMp > 0) {
                 inputHold = await holdCredits(
                     estimateCost(inputMp) - outputOnlyCost,
                 );
             }
 
-            const input =
-                catalogInput ??
-                this.#buildRequest(selectedModel, {
-                    prompt,
-                    ratio,
-                    transformed,
-                    inputImages,
-                    singleImage,
-                });
+            const uploads = new Map<string, Blob>();
+            allInputUrls.forEach((url, index) => {
+                const upload = measured[index]!.upload;
+                if (upload) uploads.set(url, upload);
+            });
+            const sent = (url: string) => uploads.get(url) ?? url;
+            const input = catalogInput
+                ? withCatalogImageInputs(catalogInput, sent)
+                : this.#buildRequest(selectedModel, {
+                      prompt,
+                      ratio,
+                      transformed,
+                      inputImages: inputImages.map(sent),
+                      singleImage: singleImage && sent(singleImage),
+                  });
 
             const deadline = Date.now() + PREDICTION_WINDOW_MS;
             const expired = () => Date.now() >= deadline;
@@ -485,7 +509,7 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                 const measuredOutputMp = selectedModel.billingRates?.some(
                     (rate) => rate.costs.output_mp !== undefined,
                 )
-                    ? await this.#measureMegapixels(url, false)
+                    ? await this.#measureMegapixels(url)
                     : outputMp;
                 this.#meteringService.batchIncrementUsages(
                     actor,
@@ -583,8 +607,8 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             prompt: string;
             ratio: { w: number; h: number };
             transformed: Record<string, unknown>;
-            inputImages: string[];
-            singleImage?: string;
+            inputImages: Array<string | Blob>;
+            singleImage?: string | Blob;
         },
     ): Record<string, unknown> {
         const { prompt, ratio, transformed, inputImages, singleImage } = ctx;
@@ -717,75 +741,78 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         return 1;
     }
 
-    async #measureInputMegapixels(
+    #measureInputs(
         imageUrls: string[],
-        roundUp = true,
-    ): Promise<number> {
-        const measurements: number[] = new Array(imageUrls.length).fill(0);
-        let next = 0;
-        const worker = async () => {
-            while (next < imageUrls.length) {
-                const index = next++;
-                measurements[index] = await this.#measureMegapixels(
-                    imageUrls[index],
-                    roundUp,
-                    true,
-                );
-            }
-        };
-        await Promise.all(
-            Array.from(
-                {
-                    length: Math.min(
-                        INPUT_MEASURE_CONCURRENCY,
-                        imageUrls.length,
-                    ),
-                },
-                worker,
-            ),
-        );
-        return measurements.reduce(
-            (total, megapixels) => total + megapixels,
-            0,
+        roundUp: boolean,
+    ): Promise<MeasuredInput[]> {
+        return runWithConcurrencyLimit(
+            imageUrls,
+            INPUT_MEASURE_CONCURRENCY,
+            (url) => this.#measureInput(url, roundUp),
         );
     }
 
     /**
-     * Unreadable images fall back to a one-megapixel estimate. A caller's
-     * reference over the byte cap is refused instead: it would be forwarded
-     * upstream while billed as if it were small.
+     * A caller's image must be readable, and a fetched one is sent to Replicate
+     * as the bytes measured here, so the image billed is the image Replicate
+     * reads.
      */
-    async #measureMegapixels(
-        url: string,
-        roundUp = true,
-        callerInput = false,
-    ): Promise<number> {
+    async #measureInput(url: string, roundUp: boolean): Promise<MeasuredInput> {
+        let image: { buffer: Buffer; inline: boolean };
+        let meta: sharp.Metadata;
         try {
-            const inlineImage = parseDataUri(url);
-            const buffer = inlineImage
-                ? Buffer.from(inlineImage.base64, 'base64')
-                : await readBoundedBody(
-                      await secureFetch(url, {
-                          signal: AbortSignal.timeout(INPUT_MEASURE_TIMEOUT_MS),
-                      }),
-                      INPUT_MEASURE_MAX_BYTES,
-                      inputImageTooLarge,
-                  );
-            const meta = await sharp(buffer).metadata();
-            const megapixels =
-                meta.width && meta.height
-                    ? (meta.width * meta.height) / 1_000_000
-                    : 1;
-            return roundUp ? Math.ceil(megapixels) : megapixels;
+            image = await this.#loadImage(url);
+            meta = await sharp(image.buffer).metadata();
         } catch (error) {
-            if (
-                callerInput &&
-                error instanceof HttpError &&
-                error.code === 'input_too_large'
-            )
+            if (error instanceof HttpError && error.code === 'input_too_large')
                 throw error;
+            throw unreadableInputImage();
+        }
+        if (!meta.width || !meta.height || !meta.format)
+            throw unreadableInputImage();
+        const megapixels = (meta.width * meta.height) / 1_000_000;
+        return {
+            megapixels: roundUp ? Math.ceil(megapixels) : megapixels,
+            ...(image.inline
+                ? {}
+                : {
+                      upload: new Blob([new Uint8Array(image.buffer)], {
+                          type: imageMimeType(meta.format),
+                      }),
+                  }),
+        };
+    }
+
+    /** Megapixels of a generated image; an unreadable one counts as one. */
+    async #measureMegapixels(url: string): Promise<number> {
+        try {
+            const { buffer } = await this.#loadImage(url);
+            const meta = await sharp(buffer).metadata();
+            return meta.width && meta.height
+                ? (meta.width * meta.height) / 1_000_000
+                : 1;
+        } catch {
             return 1;
         }
+    }
+
+    async #loadImage(
+        url: string,
+    ): Promise<{ buffer: Buffer; inline: boolean }> {
+        const inlineImage = parseDataUri(url);
+        if (inlineImage)
+            return {
+                buffer: Buffer.from(inlineImage.base64, 'base64'),
+                inline: true,
+            };
+        const buffer = await readBoundedBody(
+            await secureFetch(url, {
+                signal: AbortSignal.timeout(INPUT_MEASURE_TIMEOUT_MS),
+            }),
+            INPUT_MEASURE_MAX_BYTES,
+            inputImageTooLarge,
+        );
+        return { buffer, inline: false };
     }
 
     #resolveCosts(

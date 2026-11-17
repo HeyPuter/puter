@@ -51,7 +51,7 @@ import {
     withTestActor,
 } from '../../../shared/integrationTestUtil.js';
 import { OpenAITTSProvider } from './OpenAITTSProvider.js';
-import { OPENAI_TTS_COSTS } from './costs.js';
+import { OPENAI_TTS_COSTS, OPENAI_TTS_TOKEN_COSTS } from './costs.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
 
@@ -178,10 +178,13 @@ describe('OpenAITTSProvider catalog', () => {
 // ── Reported costs ──────────────────────────────────────────────────
 
 describe('OpenAITTSProvider.getReportedCosts', () => {
-    it('mirrors every entry in costs.ts as a per-character line item', () => {
+    it('mirrors every entry in costs.ts as a per-character line item, plus token lines', () => {
         const provider = makeProvider();
         const reported = provider.getReportedCosts();
-        expect(reported).toHaveLength(Object.keys(OPENAI_TTS_COSTS).length);
+        expect(reported).toHaveLength(
+            Object.keys(OPENAI_TTS_COSTS).length +
+                Object.keys(OPENAI_TTS_TOKEN_COSTS).length * 2,
+        );
         for (const [model, ucentsPerUnit] of Object.entries(OPENAI_TTS_COSTS)) {
             expect(reported).toContainEqual({
                 usageType: `openai:${model}:character`,
@@ -190,6 +193,12 @@ describe('OpenAITTSProvider.getReportedCosts', () => {
                 source: 'driver:aiTts/openai',
             });
         }
+        expect(reported).toContainEqual({
+            usageType: 'openai:gpt-4o-mini-tts:output:audio',
+            ucentsPerUnit: OPENAI_TTS_TOKEN_COSTS['gpt-4o-mini-tts']!.outputAudio,
+            unit: 'token',
+            source: 'driver:aiTts/openai',
+        });
     });
 });
 
@@ -429,7 +438,7 @@ describe('OpenAITTSProvider.synthesize streaming output', () => {
         speechCreateMock.mockResolvedValueOnce(mockAudioResponse('AAA-BBB'));
 
         const result = (await withTestActor(() =>
-            provider.synthesize({ text: 'hi' }),
+            provider.synthesize({ text: 'hi', model: 'tts-1' }),
         )) as { stream: Readable };
 
         const chunks: Buffer[] = [];
@@ -480,6 +489,121 @@ describe('OpenAITTSProvider.synthesize metering', () => {
         // The first reservation should match the metered cost.
         const creditCall = admitSpy.mock.calls[0]!;
         expect(creditCall[1]).toBe(expectedCost);
+    });
+});
+
+// ── Token-billed models ─────────────────────────────────────────────
+
+describe('OpenAITTSProvider.synthesize on a token-billed model', () => {
+    const audioEvent = (bytes: string) =>
+        `data: ${JSON.stringify({
+            type: 'speech.audio.delta',
+            audio: Buffer.from(bytes).toString('base64'),
+        })}\n\n`;
+    const doneEvent = (usage: Record<string, number>) =>
+        `event: speech.audio.done\r\ndata: ${JSON.stringify({
+            type: 'speech.audio.done',
+            usage,
+        })}\r\n\r\n`;
+    // Chunks split anywhere, as the network delivers them.
+    const eventResponse = (body: string, chunkSize = 7) =>
+        new Response(
+            new ReadableStream({
+                start(controller) {
+                    for (let i = 0; i < body.length; i += chunkSize)
+                        controller.enqueue(
+                            new TextEncoder().encode(
+                                body.slice(i, i + chunkSize),
+                            ),
+                        );
+                    controller.close();
+                },
+            }),
+        );
+    let batchIncrementUsagesSpy: MockInstance<
+        MeteringService['batchIncrementUsages']
+    >;
+    beforeEach(() => {
+        batchIncrementUsagesSpy = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+    });
+
+    it('requests events and relays the audio they carry', async () => {
+        speechCreateMock.mockResolvedValueOnce(
+            eventResponse(
+                audioEvent('AAA-') +
+                    audioEvent('BBB') +
+                    doneEvent({ input_tokens: 3, output_tokens: 40 }) +
+                    'data: [DONE]\n\n',
+            ),
+        );
+
+        const result = (await withTestActor(() =>
+            makeProvider().synthesize({ text: 'hi' }),
+        )) as { stream: Readable };
+
+        expect(speechCreateMock.mock.calls[0]![0].stream_format).toBe('sse');
+        expect((await readStreamResult(result)).toString()).toBe('AAA-BBB');
+    });
+
+    it('bills the input and audio tokens OpenAI reports, after holding the text and instructions', async () => {
+        speechCreateMock.mockResolvedValueOnce(
+            eventResponse(
+                audioEvent('audio') +
+                    doneEvent({ input_tokens: 14, output_tokens: 500 }),
+            ),
+        );
+        const text = '1≤2≥3';
+        const instructions = 'Speak slowly';
+
+        await readStreamResult(
+            await withTestActor(() =>
+                makeProvider().synthesize({ text, instructions }),
+            ),
+        );
+
+        const costs = OPENAI_TTS_TOKEN_COSTS['gpt-4o-mini-tts']!;
+        expect(admitSpy.mock.calls[0]![1]).toBe(
+            OPENAI_TTS_COSTS['gpt-4o-mini-tts']! *
+                (text.length + instructions.length),
+        );
+        await vi.waitFor(() =>
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1),
+        );
+        expect(batchIncrementUsagesSpy.mock.calls[0]![1]).toEqual([
+            {
+                usageType: 'openai:gpt-4o-mini-tts:input',
+                usageAmount: 14,
+                costOverride: 14 * costs.input,
+            },
+            {
+                usageType: 'openai:gpt-4o-mini-tts:output:audio',
+                usageAmount: 500,
+                costOverride: 500 * costs.outputAudio,
+            },
+        ]);
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('charges the hold when the stream ends without usage', async () => {
+        speechCreateMock.mockResolvedValueOnce(
+            eventResponse(audioEvent('audio')),
+        );
+        const text = 'cut short';
+
+        await readStreamResult(
+            await withTestActor(() => makeProvider().synthesize({ text })),
+        );
+
+        await vi.waitFor(() =>
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1),
+        );
+        const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe('openai:gpt-4o-mini-tts:character');
+        expect(count).toBe(text.length);
+        expect(cost).toBe(OPENAI_TTS_COSTS['gpt-4o-mini-tts']! * text.length);
     });
 });
 

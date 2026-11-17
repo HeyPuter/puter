@@ -34,6 +34,7 @@ import {
 import { isOriginBootstrapApp, toAppReadView } from '../../util/appView.js';
 import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { isGodmodeApp } from '../../util/godmodeApps.js';
 import {
     buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
@@ -99,6 +100,11 @@ const INDEX_URL_UNIQUENESS_EXEMPTION_CANDIDATES = [
 // carrying it are reserved for migration-seeded builtins — a user app
 // claiming it would load its code same-origin with the desktop.
 const BUILTIN_APPS_HOST = 'builtins.namespaces.puter.com';
+
+const systemHostError = () =>
+    new HttpError(400, '`index_url` cannot point at a Puter system host', {
+        legacyCode: 'bad_request',
+    });
 
 // Canonical-uid alias namespace. When a user-created app is merged into
 // an existing origin-bootstrap row, the source uid is mapped to the
@@ -213,6 +219,9 @@ export class AppDriver extends PuterDriver {
         // The name lookup runs alongside so the host checks add no round
         // trip of their own.
         const nameTaken = awaitLater(this.appStore.existsByName(fields.name));
+        const onGodmodeHost = awaitLater(
+            this.#findGodmodeHostApp(fields.index_url),
+        );
         const customSite = await this.#customSiteForIndexUrl(fields.index_url);
         await this.#ensurePuterSiteSubdomainIsOwned(
             fields.index_url,
@@ -232,6 +241,7 @@ export class AppDriver extends PuterDriver {
             indexUrl: fields.index_url,
             customSite,
         });
+        if (await onGodmodeHost) throw systemHostError();
 
         // Name conflict handling
         if (await nameTaken) {
@@ -422,6 +432,10 @@ export class AppDriver extends PuterDriver {
         const nameTaken = renaming
             ? awaitLater(this.appStore.existsByName(fields.name))
             : null;
+        const onGodmodeHost =
+            fields.index_url && !isGodmodeApp(app)
+                ? awaitLater(this.#findGodmodeHostApp(fields.index_url, app.id))
+                : null;
 
         // Puter-hosted index_url handling on update — same flow as create.
         // #validateInput already dropped an unchanged index_url. Self-app is
@@ -451,6 +465,7 @@ export class AppDriver extends PuterDriver {
                 excludeAppId: app.id,
                 customSite,
             });
+            if (await onGodmodeHost) throw systemHostError();
             if (
                 app.is_private &&
                 (await this.services.auth.originHeldByOtherUser(
@@ -775,11 +790,7 @@ export class AppDriver extends PuterDriver {
             reserved.has(hostname) ||
             (label !== undefined && extensionStore.claimedSubdomains.has(label))
         ) {
-            throw new HttpError(
-                400,
-                '`index_url` cannot point at a Puter system host',
-                { legacyCode: 'bad_request' },
-            );
+            throw systemHostError();
         }
     }
 
@@ -1015,6 +1026,14 @@ export class AppDriver extends PuterDriver {
         return this.appStore.findByIndexUrlCandidates(candidateList, {
             excludeAppId,
         });
+    }
+
+    /** A godmode app whose origin `indexUrl` would share. */
+    #findGodmodeHostApp(indexUrl, excludeAppId) {
+        const host = URL.parse(indexUrl)?.host;
+        return host
+            ? this.appStore.findGodmodeOnHost(host, { excludeAppId })
+            : Promise.resolve(null);
     }
 
     async #ensureIndexUrlNotAlreadyInUse({

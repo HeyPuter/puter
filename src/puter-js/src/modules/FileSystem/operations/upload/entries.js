@@ -116,8 +116,29 @@ export const normalizeUploadEntries = async (items, options) => {
 };
 
 /**
+ * `relativePath` resolved under `dirPath`. A path that resolves outside
+ * `dirPath`, such as one with `..` segments, is refused.
+ *
+ * @param {string} dirPath
+ * @param {string} relativePath
+ * @returns {string}
+ */
+const pathUnder = (dirPath, relativePath) => {
+    const root = path.join(dirPath, '/');
+    const resolved = path.join(dirPath, relativePath);
+    if ( resolved !== path.join(dirPath) && !resolved.startsWith(root) ) {
+        throw {
+            code: 'invalid_upload_path',
+            message: `${relativePath} is outside the folder being uploaded to.`,
+        };
+    }
+    return resolved;
+};
+
+/**
  * Split normalized entries into the directories and files to be created,
  * resolving each into a path under `dirPath` and tallying total upload size.
+ * Throws `invalid_upload_path` for an entry whose path leaves `dirPath`.
  *
  * @param {unknown[]} entries
  * @param {string} dirPath
@@ -146,7 +167,7 @@ export const separateFilesAndDirs = (entries, dirPath, options) => {
             const relativeDirPath = typeof rawDirPath === 'string'
                 ? rawDirPath.replace(/^\/+/, '')
                 : '';
-            dirs.push({ path: path.join(dirPath, relativeDirPath) });
+            dirs.push({ path: pathUnder(dirPath, relativeDirPath) });
         }
         // also files
         else {
@@ -168,14 +189,14 @@ export const separateFilesAndDirs = (entries, dirPath, options) => {
             // On the other hand if the file name is not blank(could be undefined), we need to create the file.
             if ( fileName !== '' ) {
                 const normalizedFileItem = fileItem || entries[i].name;
-                entries[i].puter_full_path = path.join(dirPath, normalizedFileItem);
+                entries[i].puter_full_path = pathUnder(dirPath, normalizedFileItem);
                 files.push(entries[i]);
             }
             if ( options.createFileParent && fileItem.includes('/') ) {
                 let incrementalDir;
                 dirLevel.split('/').forEach((directory) => {
                     incrementalDir = incrementalDir ? `${incrementalDir }/${ directory}` : directory;
-                    let filePath = path.join(dirPath, incrementalDir);
+                    let filePath = pathUnder(dirPath, incrementalDir);
                     // Prevent duplicate parent directory creation
                     if ( ! uniqueDirs[filePath] ) {
                         uniqueDirs[filePath] = true;

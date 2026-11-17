@@ -163,7 +163,8 @@ const PREAUTH_PER_NODE = 600;
 const MAX_AUTHENTICATING = 64;
 const MAX_TOKEN_BYTES = 8192;
 // Each response holds this much audio, at the session model's rates, from the
-// account's budget until its usage is recorded.
+// account's budget until its usage is recorded, on top of the conversation it
+// rereads.
 const RESPONSE_HOLD_INPUT_TOKENS = 8_000;
 const RESPONSE_HOLD_OUTPUT_TOKENS = 4_096;
 // Committed input items whose transcription hasn't completed.
@@ -398,21 +399,48 @@ export const realtimeTranscriptionRows = (
         }));
 };
 
-/** Budget held for one response of `model` until its usage is recorded. */
-const responseHoldAmount = (model: string): number => {
+/**
+ * Tokens a response read and wrote. The next response rereads them as its
+ * conversation so far.
+ */
+export const realtimeResponseTokens = (
+    usage: RealtimeUsage | undefined,
+): number => {
+    const n = (v: number | undefined) =>
+        typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+    const input = usage?.input_token_details ?? {};
+    const output = usage?.output_token_details ?? {};
+    return (
+        n(input.text_tokens) +
+        n(input.audio_tokens) +
+        n(input.image_tokens) +
+        n(output.text_tokens) +
+        n(output.audio_tokens)
+    );
+};
+
+/**
+ * Budget held for one response of `model` until its usage is recorded, with
+ * `contextTokens` of conversation priced as uncached audio.
+ */
+const responseHoldAmount = (model: string, contextTokens = 0): number => {
     const price = REALTIME_MODELS[model];
     return (
-        RESPONSE_HOLD_INPUT_TOKENS * price.audioIn +
+        (RESPONSE_HOLD_INPUT_TOKENS + contextTokens) * price.audioIn +
         RESPONSE_HOLD_OUTPUT_TOKENS * price.audioOut
     );
 };
 
 /** Bills `count` responses that never reported usage at one hold each. */
-const unreportedResponseRows = (model: string, count: number): UsageInput[] => [
+const unreportedResponseRows = (
+    model: string,
+    count: number,
+    contextTokens: number,
+): UsageInput[] => [
     {
         usageType: `openai:${model}:realtime:unreported_response`,
         usageAmount: count,
-        costOverride: count * responseHoldAmount(model),
+        costOverride: count * responseHoldAmount(model, contextTokens),
     },
 ];
 
@@ -953,6 +981,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let requested = 0;
         // Credit holds of responses whose usage isn't recorded yet.
         const responseHolds = new Map<string, Promise<CreditHold | null>>();
+        // Tokens in the conversation as of the last response's usage.
+        let contextTokens = 0;
         // Text sent since the last prompt check, checked when the next
         // response starts. Each started response maps to the completion id
         // its check logged, or null if the check refused it.
@@ -1462,7 +1492,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     const taken = await this.#metering.reserveAiCredits(
                         actor!,
                         `openai:${billingModel}:realtime:audio_output`,
-                        responseHoldAmount(billingModel),
+                        responseHoldAmount(billingModel, contextTokens),
                     );
                     if (!taken) {
                         await refuse(
@@ -1719,6 +1749,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 case 'response.done': {
                     inFlight = Math.max(0, inFlight - 1);
                     const usage = event.response?.usage ?? undefined;
+                    if (usage) contextTokens = realtimeResponseTokens(usage);
                     const rows = realtimeUsageRows(billingModel, usage);
                     meter(rows, takeHold(event.response?.id));
                     if (typeof event.response?.id === 'string') {
@@ -2347,7 +2378,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 { dedup: true },
             );
             // The holds are released once this charge is recorded.
-            meter(unreportedResponseRows(billingModel, inFlight), ...holds);
+            meter(
+                unreportedResponseRows(billingModel, inFlight, contextTokens),
+                ...holds,
+            );
         });
         onAdmitted();
     }

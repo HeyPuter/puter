@@ -20,6 +20,7 @@
 import { Mistral } from '@mistralai/mistralai';
 import type { Actor } from '../../../../../core/actor.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import type {
     LoadedFile,
     ResolvedFileInput,
@@ -32,14 +33,20 @@ import {
     isDocumentInput,
 } from '../../../interfaces/ocr/common.js';
 import { OCR_COSTS } from '../../../interfaces/ocr/costs.js';
-import type { OcrModel } from '../../../interfaces/ocr/models.js';
+import {
+    OCR_MAX_PAGES,
+    type OcrModel,
+} from '../../../interfaces/ocr/models.js';
 import { isMistralInputError } from '../inputError.js';
 import type {
     IOcrProvider,
     OcrBlock,
     RecognizeArgs,
 } from '../../../interfaces/ocr/types.js';
-import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import {
+    aiModelKey,
+    type AiMeteringService,
+} from '../../../../../util/aiCostFactor.js';
 
 interface MistralOcrResponse {
     model?: string;
@@ -167,12 +174,30 @@ export class MistralOcrProvider implements IOcrProvider {
             (annotations && model.annotationUsageType
                 ? OCR_COSTS[model.annotationUsageType]
                 : 0);
+        let pages = await estimateOcrPages(input, model.provider, args.pages);
+        if (pages === null) {
+            // A document whose pages can't be counted reads as many leading
+            // pages as the balance covers, up to the provider's limit.
+            const [remaining, factor] = await Promise.all([
+                this.metering.getRemainingUsage(actor),
+                this.metering.costFactor(
+                    actor,
+                    aiModelKey(model.pageUsageType),
+                ),
+            ]);
+            pages = Math.min(
+                OCR_MAX_PAGES[model.provider],
+                Math.floor(remaining / Math.ceil(costPerPage * factor)),
+            );
+            if (pages < 1) throw insufficientCreditsError();
+            if (pages < OCR_MAX_PAGES[model.provider])
+                payload.pages = Array.from({ length: pages }, (_, i) => i);
+        }
         const hold = await holdOcrCredits(
             this.metering,
             actor,
             model.pageUsageType,
-            costPerPage *
-                (await estimateOcrPages(input, model.provider, args.pages)),
+            costPerPage * pages,
         );
 
         try {
