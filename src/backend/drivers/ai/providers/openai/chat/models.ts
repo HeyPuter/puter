@@ -31,8 +31,68 @@ const GPT_LONG_CONTEXT_PRICING = {
     output_multiplier: 1.5,
 };
 
+// OpenAI's Ultrafast promotion ends at midnight Pacific on March 1, 2027.
+const GPT_62_SERVICE_SPEED_RATES = {
+    fast: 2,
+    get ultrafast() {
+        return Date.now() < Date.UTC(2027, 2, 1, 8) ? 3 : 6;
+    },
+};
+
 // Hardcoded from https://models.dev/api.json
 export const OPEN_AI_MODELS: IChatModel[] = [
+    {
+        puterId: 'openai:openai/gpt-6.2-astra',
+        id: 'gpt-6.2-astra',
+        responsesSampling: 'never',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2026-05-18',
+        aliases: ['openai/gpt-6.2-astra'],
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedRates: GPT_62_SERVICE_SPEED_RATES,
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 800,
+            cached_tokens: 40,
+            cache_write_tokens: 800 * 1.25,
+            cache_write_12h_tokens: 800 * 2.5,
+            completion_tokens: 4000,
+        },
+        long_context_pricing: GPT_LONG_CONTEXT_PRICING,
+        context: 1_050_000,
+        max_tokens: 128_000,
+        responses_api: true,
+    },
+    {
+        puterId: 'openai:openai/gpt-6.2-sol',
+        id: 'gpt-6.2-sol',
+        responsesSampling: 'never',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2026-06-01',
+        aliases: ['openai/gpt-6.2-sol'],
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedRates: GPT_62_SERVICE_SPEED_RATES,
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200,
+            cached_tokens: 10,
+            cache_write_tokens: 200 * 1.25,
+            cache_write_12h_tokens: 200 * 2.5,
+            completion_tokens: 1000,
+        },
+        long_context_pricing: GPT_LONG_CONTEXT_PRICING,
+        context: 1_050_000,
+        max_tokens: 128_000,
+        responses_api: true,
+    },
     {
         puterId: 'openai:openai/gpt-6.1-terra',
         id: 'gpt-6.1-terra',

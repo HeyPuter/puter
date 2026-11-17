@@ -391,13 +391,15 @@ Passing `service_tier: "priority"` selects fast service, and `service_tier: "ult
 
 Input and reasoning tokens reported by a non-streaming Responses API call are billed even when its output is empty. These charges apply whether the request fails or retries another provider.
 
-Fast service is available on models with a published Fast rate card. Ultrafast is available for GPT-6.1 Sol and GPT-6 Astra. Other models fall back to fast or standard. Cache and long-context rates apply to the served tier.
+Fast service is available on models with a published Fast rate card. Ultrafast is available for GPT-6.2 Astra, GPT-6.2 Sol, GPT-6.1 Sol, and GPT-6 Astra. For GPT-6.2 Astra and Sol, Ultrafast costs 3 times Standard through February 28, 2027, and 6 times Standard starting March 1, 2027, Pacific time. Other models fall back to fast or standard. Cache and long-context rates apply to the served tier.
 
 #### `temperature`
 
-Some OpenAI reasoning models ignore `temperature` and `top_p`. GPT-5.6, GPT-6 Sol/Luna, and GPT-6.1 Terra accept them only with `reasoning_effort: 'none'`, and GPT-6 Astra, GPT-6.1 Sol, and GPT-5.3 Codex always ignore them.
+Some OpenAI reasoning models ignore `temperature` and `top_p`. GPT-5.6, GPT-6 Sol/Luna, and GPT-6.1 Terra accept them only with `reasoning_effort: 'none'`, and GPT-6 Astra, GPT-6.1 Sol, GPT-6.2 Astra/Sol, and GPT-5.3 Codex always ignore them.
 
 #### `reasoning_effort`
+
+GPT-6.2 Astra and Sol accept `low`, `medium`, `high`, `xhigh`, and `max`. A requested `none` or `minimal` is clamped to `low`.
 
 GPT-6.1 Terra accepts `none`, `low`, `medium` (default), `high`, `xhigh`, and `max`.
 

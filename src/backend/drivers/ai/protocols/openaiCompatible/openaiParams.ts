@@ -227,7 +227,7 @@ const REASONING_EFFORT_TABLE: {
     allowed: readonly ReasoningEffort[];
 }[] = [
     {
-        pattern: /^gpt-6-astra|^gpt-6\.1-sol/,
+        pattern: /^gpt-6-astra|^gpt-6\.1-sol|^gpt-6\.2-(astra|sol)/,
         allowed: ['low', 'medium', 'high', 'xhigh', 'max'],
     },
     {

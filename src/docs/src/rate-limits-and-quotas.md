@@ -80,7 +80,7 @@ An input over its limit is rejected before it reaches the model, as is an image 
 
 The standard chat timeout is 10 minutes for a response to start, or to finish if it isn't streamed. Stream durations depend on the provider. Native Gemini applies the 10-minute timeout to the whole response, including streaming. Groq uses 60 seconds to start a response. Mistral streams have no timeout of their own. If the caller disconnects, a stream that's still running gets 10 more minutes to finish, and is then stopped. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
 
-GPT-6.1 Terra has a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
+GPT-6.2 Astra, GPT-6.2 Sol, and GPT-6.1 Terra have a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
 
 Gemini 4 Carbon and Gemini 4 Hydrogen accept text and images within a shared 1,048,576-token window and generate up to 65,536 tokens, including thinking.
 

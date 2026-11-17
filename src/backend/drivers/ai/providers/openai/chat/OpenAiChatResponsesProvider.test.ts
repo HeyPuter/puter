@@ -337,6 +337,8 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         'gpt-6-luna',
         'gpt-6-astra',
         'gpt-6.1-sol',
+        'gpt-6.2-sol',
+        'gpt-6.2-astra',
         'gpt-6.1-terra',
         'gpt-5.6',
         'openai/gpt-5.6',
@@ -629,6 +631,8 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
     it.each([
         'gpt-6-astra',
         'gpt-6.1-sol',
+        'gpt-6.2-sol',
+        'gpt-6.2-astra',
         'gpt-6.1-terra',
         'gpt-6-sol',
         'gpt-6-luna',

@@ -294,6 +294,10 @@ describe('clampReasoningEffort', () => {
         ['gpt-5.5', 'max', 'xhigh'],
         ['gpt-5', 'high', 'high'],
         ['gpt-6-astra-1', 'none', 'low'],
+        ...(['gpt-6.2-astra', 'gpt-6.2-sol'] as const).flatMap((id) => [
+            [id, 'none', 'low'] as const,
+            [id, 'max', 'max'] as const,
+        ]),
         ...(['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const).map(
             (effort) => ['gpt-6.1-terra', effort, effort] as const,
         ),
