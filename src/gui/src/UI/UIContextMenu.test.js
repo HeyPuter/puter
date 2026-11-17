@@ -94,4 +94,15 @@ describe('UIContextMenu submenus', () => {
         expect(openLabels()).toEqual([]);
         expect(onClose).toHaveBeenCalledOnce();
     });
+
+    it('closes a nested submenu with the submenu it belongs to', () => {
+        UIContextMenu({ items: nestedItems() });
+        openSubmenu('Open With');
+        openSubmenu('Always Open With');
+
+        // Pointing at another row of the root menu closes its open submenu.
+        row('Open').trigger('mouseenter', { keyboard: true });
+
+        expect(openLabels()).toEqual(['Open', 'Open With']);
+    });
 });

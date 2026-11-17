@@ -796,6 +796,8 @@ function UIContextMenu (options) {
 
     $(contextMenu).on('remove', function () {
         if ( submenu_delay_timer ) clearTimeout(submenu_delay_timer);
+        // A submenu goes with its menu, or it would stay on screen with nothing to close it.
+        $(`.context-menu[data-parent-id="${menu_id}"]`).remove();
         if ( $sheet_backdrop ) $sheet_backdrop.remove();
         if ( options.onClose ) options.onClose(cancel_options_);
         // when removing, make parent scrollable again
