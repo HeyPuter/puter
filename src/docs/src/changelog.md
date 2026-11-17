@@ -22,9 +22,7 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 - Added the `speed` option to [`puter.ai.chat()`](/AI/chat/) for Claude models. Set it to `"fast"` for Fast mode or `"standard"` for standard inference. See [Anthropic models](/AI/chat/#anthropic-models).
 - Added `puterId` to every model that [`puter.ai.listModels()`](/AI/listModels/) returns. It holds the full `<service>:<provider>/<model>` name, which [`puter.ai.chat()`](/AI/chat/) accepts as `model`.
 - Changed the `mistral-large-latest`, `mistral-large`, and `mistralai/mistral-large-latest` model names in [`puter.ai.chat()`](/AI/chat/) to point to Mistral Large 4 instead of Mistral Large 3.
-- Changed the AI concurrent request limit so a chat request counts against it until the model finishes, even if your app disconnects first. See [Rate Limits and Quotas](/rate-limits-and-quotas/#ai).
-- Changed [`puter.ai.txt2img()`](/AI/txt2img/) on Replicate models to try again when the model's safety checker rejects the image and you didn't set a `seed`. Only the run that succeeds is charged. See [Replicate models](/AI/txt2img/#replicate-models).
-- Fixed apps opened from the Puter desktop at desktop.puter.com not getting messages from the desktop. Their windows didn't close, and [`puter.ui.onWindowClose()`](/UI/onWindowClose/), [`puter.ui.onItemsOpened()`](/UI/onItemsOpened/), and the `localeChanged` event of [`puter.ui.on()`](/UI/on/) didn't fire.
+- Changed the AI concurrent request limit so a chat request you stop keeps counting until the model finishes. Sending new requests right after stopping a few can hit the limit. See [Rate Limits and Quotas](/rate-limits-and-quotas/#ai).
 
 ## November 13, 2026
 
@@ -45,16 +43,13 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 - Changed [`puter.ui.showColorPicker()`](/UI/showColorPicker/) in Puter apps to resolve to a lowercase 6-digit hex string, such as `#ff0000`, or to `null` if the user closes the picker. Before, it resolved to an 8-digit hex string with alpha, or to `undefined`. On websites, it also opens when the default color has alpha or isn't a valid hex color.
 - Removed the `themeChanged` event of [`puter.ui.on()`](/UI/on/). It has no replacement, and a handler for it never runs.
 - Deprecated the `show_in_taskbar` option of [`puter.ui.createWindow()`](/UI/createWindow/). It has no effect, because the Puter desktop doesn't have a taskbar anymore.
-- Fixed requests failing with `401 token_auth_failed` when Puter couldn't check a valid token during an outage, which made Puter.js on a website sign the user out. They fail with `503 db_unavailable` and a `Retry-After` header instead.
 
 ## November 11, 2026
 
 - Changed [`puter.ai.speech2speech()`](/AI/speech2speech/) to reject any `model` other than `eleven_multilingual_sts_v2` or `eleven_english_sts_v2` with a `field_invalid` error.
-- Changed non-streaming [`puter.ai.chat()`](/AI/chat/#openai-models) calls to OpenAI models that come back empty to charge their input and reasoning tokens, even though the call fails or moves to another provider.
 
 ## November 10, 2026
 
-- Fixed [`puter.ai.chat()`](/AI/chat/) requests over 50 MiB failing with HTTP 413. They're accepted up to 128 MiB. See [Rate Limits and Quotas](/rate-limits-and-quotas/#ai).
 - Fixed a file becoming unreadable when two [`puter.fs.write()`](/FS/write/) calls created the same new file at the same time. The last write wins.
 
 ## November 9, 2026
@@ -75,13 +70,13 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 - Added `priority: 'high'` to [`puter.notifications.notify()`](/Notifications/notify/) for pushes that need to arrive right away, such as an incoming call.
 - Added `requireInteraction` and `actions` to what an [`onPush()`](/Notifications/onPush/) handler can return, so a push can stay on screen and show buttons. The id of the pressed button reaches the `click` event of [`puter.notifications.on()`](/Notifications/on/) as `action`.
 - Added [`puter.events.updateSchedule()`](/Events/updateSchedule/) (beta) to change a schedule's timing or context, or a notification stored with `sendAt`, without changing its id.
-- Changed when a notification goes out as a push. Puter pushes it unless a page of your app is visible and focused when it arrives, and pages in the background don't show it themselves. See [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed).
+- Removed notifications shown by the page itself. A page of your website in the background no longer shows a notification from your [`onPush()`](/Notifications/onPush/) handler. Puter pushes it to every browser where the user turned pushes on, unless a page of your app is visible and focused when it arrives. See [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed).
 - Added the `prompt_cache_options` option to [`puter.ai.chat()`](/AI/chat/#openai-models) for GPT-5.6 and later OpenAI models. It sets a 30 minute or 12 hour cache lifetime.
 - Changed `usageDetails` from [`puter.ai.chat()`](/AI/chat/) on OpenAI models to report cache writes as `cacheWrite30mTokens` and `cacheWrite12hTokens` instead of `cacheWrite5mTokens`. See [ChatResponse](/Objects/chatresponse/).
 - Changed the default model of [`puter.ai.txt2img()`](/AI/txt2img/) from `gpt-image-2` to `gpt-image-2.6-flare`. To keep the old model, pass `model: 'gpt-image-2'`.
-- Added the `context_trimmed` event to `puter.ai.convo()`, now [`puter.ai.realtime()`](/AI/realtime/). It fires after a reconnect when older items were left out of the restored context. Before, that case fired an `error` event with `context_restore_failed`.
-- Changed `interrupt()` on a `puter.ai.convo()` conversation, now [`puter.ai.realtime()`](/AI/realtime/), to return a promise that rejects with `session_not_ready` or `session_closed` instead of throwing when the conversation isn't ready. Also changed `connect()` to retry temporary setup failures before it rejects.
-- Fixed `puter.ai.convo()`, now [`puter.ai.realtime()`](/AI/realtime/), ending the conversation when the server sent an event over 64 KiB, and its microphone capture stopping after a reconnect.
+- Added the `context_trimmed` event to [`puter.ai.convo()`](/AI/realtime/). It fires after a reconnect when older items were left out of the restored context. Before, that case fired an `error` event with `context_restore_failed`.
+- Changed `interrupt()` on a [`puter.ai.convo()`](/AI/realtime/) conversation to return a promise that rejects with `session_not_ready` or `session_closed` instead of throwing when the conversation isn't ready. Also changed `connect()` to retry temporary setup failures before it rejects.
+- Fixed [`puter.ai.convo()`](/AI/realtime/) ending the conversation when the server sent an event over 64 KiB, and its microphone capture stopping after a reconnect.
 - Changed the [Realtime WebSocket API](/AI/realtime-websocket/) to close with code 1011 and an `internal_error` when a server error stops Puter from checking your credential or plan, instead of `invalid_api_key` with code 1008. It closes with 1013 when the server is overloaded. Reconnect after 1011, 1012, or 1013.
 - Added the `purpose=handover` query parameter to the [Realtime WebSocket API](/AI/realtime-websocket/) for opening a replacement connection while the current one still works.
 - Fixed input transcription on the [Realtime WebSocket API](/AI/realtime-websocket/) failing to turn on for users with little credit.
@@ -115,8 +110,7 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 ## October 31, 2026
 
 - Added the `fallback` option to [`puter.ai.chat()`](/AI/chat/). Pass `false` to get the first provider's error, instead of having Puter retry the request on another provider that serves the same model.
-- Raised the largest request body that the OpenAI- and Anthropic-compatible endpoints accept to 128 MiB. See [Rate Limits and Quotas](/rate-limits-and-quotas/#ai).
-- Changed how `puter.ai.convo()`, now [`puter.ai.realtime()`](/AI/realtime/), reconnects. It keeps trying for about a minute, restores up to 40 recent conversation items, and moves to a new session before a planned server restart.
+- Changed how [`puter.ai.convo()`](/AI/realtime/) reconnects. It keeps trying for about a minute, restores up to 40 recent conversation items, and moves to a new session before a planned server restart.
 - Added the `puter.reconnect` event to the [Realtime WebSocket API](/AI/realtime-websocket/). Puter sends it before the server a session runs on restarts, so your client can move to a new connection first.
 - Changed realtime sessions to refuse `conversation.item.retrieve` events and MCP tools with an `invalid_event` error and a 1008 close.
 - Changed [`puter.notifications.notify()`](/Notifications/notify/) so a notification reaches only the app that sent it. The Puter desktop's notifications panel doesn't show it.
@@ -126,7 +120,6 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 - Added the `'pushNotifications'` resource to [`puter.perms.request()`](/Perms/request/), so you can ask for push permission in the same prompt as other access.
 - Changed [`puter.notifications.enable()`](/Notifications/enable/) on a website to resolve once the browser has subscribed, without waiting for the confirmation push.
 - Changed [`enable()`](/Notifications/enable/) and [`enablePush()`](/Notifications/enablePush/) in Puter apps to show Puter's permission dialog when your app doesn't have push permission yet. In Puter apps, [`disable()`](/Notifications/disable/) removes your app's push permission.
-- Raised the daily limit on notifications an app can send one user from 300 to 1,000. See [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 - Changed a `'kvShare'` request in [`puter.perms.request()`](/Perms/request/) to ask for `'read'` access when `access` is left out, the same default as [`puter.kv.share()`](/KV/share/).
 - Added a rate limit on calls through share handles into one user's data for one app. Calls over it reject with `too_many_requests`. See [Rate Limits and Quotas](/rate-limits-and-quotas/#key-value-store).
 - Changed [`puter.kv.share()`](/KV/share/) so a call that changes nothing for any recipient doesn't count toward the share limits. Your app can call it each time it opens to get the `handle` back.
@@ -138,7 +131,7 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 
 ## October 30, 2026
 
-- Added `puter.ai.convo()` (beta), renamed to [`puter.ai.realtime()`](/AI/realtime/) on November 7, for realtime voice and text conversations with OpenAI's realtime models. It has helpers for the microphone, playback, and interruptions, and needs a paid Puter plan.
+- Added [`puter.ai.convo()`](/AI/realtime/) (beta) for realtime voice and text conversations with OpenAI's realtime models. It has helpers for the microphone, playback, and interruptions, and needs a paid Puter plan.
 - Added the [Realtime WebSocket API](/AI/realtime-websocket/) (beta) to use the same realtime models through Puter without Puter.js.
 - Changed [`puter.notifications.notify()`](/Notifications/notify/) to push a notification only when no open page of your app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. See [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed).
 - Changed push opt-in on websites to stay off until your page turns it on. On page loads, [`onPush()`](/Notifications/onPush/) keeps a browser subscribed only after [`enable()`](/Notifications/enable/), and stops after [`disable()`](/Notifications/disable/), after the user turns your app off in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/).
@@ -171,7 +164,6 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 - Added sharing with up to 50 users in one [`puter.kv.share()`](/KV/share/) call (beta). Pass an array of recipients, and the call resolves to one result per recipient.
 - Added the `appUid` option to [`puter.kv.listShared()`](/KV/listShared/) and [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/), and the `state` option to [`listSharedByMe()`](/KV/listSharedByMe/) to list only live or only stopped shares. Stopped shares are kept for 30 days.
 - Changed `watch` shares so the holder can list keys, without their values, with [`puter.kv.list()`](/KV/list/).
-- Raised the limits on live key-value shares per account and per app, and added limits on shares with any one other user. See [Rate Limits and Quotas](/rate-limits-and-quotas/#key-value-store).
 - Changed Kimi K3 in [`puter.ai.chat()`](/AI/chat/#moonshot-kimi-models) to report the prompt tokens written to its cache as `cache_write_tokens` in `usage`, separate from `prompt_tokens`.
 - Fixed [`puter.ai.chat()`](/AI/chat/) encoding a tool call's `arguments` twice when you sent an assistant message with `tool_calls` back to a model served through an OpenAI-compatible API.
 
@@ -191,7 +183,6 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 
 - Changed how a stopped [`puter.ai.chat()`](/AI/chat/) stream is billed. Once the request reaches the model, the model finishes its response and the whole response is billed, even if you break out of the stream or abort it with an `AbortSignal`.
 - Fixed [`puter.workers.delete()`](/Workers/delete/) removing the worker when Puter couldn't take its script down, and rejecting when the script was already gone. A call that fails keeps the worker, so you can call it again.
-- Changed team seats over the owner's seat limit to have no free allowance. Those seats can only spend purchased credit. See [Rate Limits and Quotas](/rate-limits-and-quotas/#teams).
 
 ## October 21, 2026
 
@@ -202,7 +193,6 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 
 - Added the `inputVideo` option to [`puter.ai.txt2vid()`](/AI/txt2vid/) to edit a video you supply, with the prompt describing the change. See [Video input](/AI/txt2vid/#video-input).
 - Added `Blob`, `File`, and Puter file paths as image inputs to [`puter.ai.txt2img()`](/AI/txt2img/) and [`puter.ai.txt2vid()`](/AI/txt2vid/). Puter.js uploads a `Blob`, a `File`, or a `data:` URI over 1 MiB to a temporary file in the user's storage for the length of the call.
-- Raised the time [`puter.ai.txt2vid()`](/AI/txt2vid/) waits for a clip from 10 minutes to 14 before it fails with `upstream_timeout`.
 - Fixed `isDir` being `false` for a folder your app is opened with, in the [`FSItem`](/Objects/fsitem/) objects that [`puter.ui.onLaunchedWithItems()`](/UI/onLaunchedWithItems/) passes to your handler.
 
 ## October 19, 2026
@@ -214,6 +204,5 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 
 - Fixed [`puter.ui.showOpenFilePicker()`](/UI/showOpenFilePicker/), [`puter.ui.showSaveFilePicker()`](/UI/showSaveFilePicker/), and [`puter.ui.showDirectoryPicker()`](/UI/showDirectoryPicker/) on websites resolving with a message object when the user cancels. The promise stays pending, and [`showDirectoryPicker()`](/UI/showDirectoryPicker/) gets the same `undefinedOnCancel` promise as the file pickers, which resolves to `undefined`.
 - Fixed Gemini text-to-speech in [`puter.ai.txt2speech()`](/AI/txt2speech/) reading the `instructions` aloud along with the text. Gemini uses them only to guide the delivery, and they can be up to 3,000 characters.
-- Changed Gemini text-to-speech in [`puter.ai.txt2speech()`](/AI/txt2speech/) to fail with `insufficient_funds` when the user's credit doesn't cover the model's full token budget, even for short text.
 - Fixed Gemini function calling in [`puter.ai.chat()`](/AI/chat/) dropping the thought signature in `extra_content` when you send an assistant message's `tool_calls` back.
 - Removed OpenRouter's `:batch` model variants from [`puter.ai.listModels()`](/AI/listModels/). Use the model id without the `:batch` suffix.
