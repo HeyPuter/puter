@@ -262,7 +262,7 @@ as soon as the byte cap is exceeded. Oversized AI file inputs return
 
 `File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 input_too_large` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
 
-Before the provider runs, the balance must cover every page the call can be billed for, or it fails with `402 insufficient_funds`. A PDF counts its own pages, or only the `pages` selected when that is fewer. A PDF whose pages can't be read counts 1,000 pages, or only the `pages` selected. When the balance can't cover 1,000 pages, only that PDF's first pages are read, 20 per MB, and only those count. An image, and any Textract input, counts as one page. Other documents count 20 pages per MB, up to 1,000. That amount is reserved while the call runs; the charge is for the pages actually processed.
+Before the provider runs, the balance must cover every page the call can be billed for, or it fails with `402 insufficient_funds`. A PDF counts its own pages, or only the `pages` selected when that is fewer. A document whose pages can't be counted, such as a DOCX or an encrypted PDF, counts 1,000 pages, or only the `pages` selected. When the balance can't cover that, only as many of its first pages as the balance covers are read, and only those count. An image, and any Textract input, counts as one page. That amount is reserved while the call runs; the charge is for the pages actually processed.
 
 ### Key-value store
 

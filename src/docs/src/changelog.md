@@ -4,12 +4,7 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 
 ## November 16, 2026
 
-- Changed [`puter.ai.txt2speech()`](/AI/txt2speech/) with the `gpt-4o-mini-tts` model to charge the text and audio tokens OpenAI reports, instead of a price per character.
-- Changed [`puter.ai.txt2img()`](/AI/txt2img/) on Replicate models to reject an input image that can't be read as an image, with `bad_request`.
-- Changed [`puter.ai.img2txt()`](/AI/img2txt/) with Mistral OCR so a PDF whose pages can't be read reserves 1,000 pages. If the balance can't cover that, only its first pages are read, 20 per MB of file size. See [Rate Limits and Quotas](/rate-limits-and-quotas/).
-- Changed [`puter.ai.realtime()`](/AI/realtime/) to reserve credit for the conversation so far before each response, on top of the fixed amount. See [Rate Limits and Quotas](/rate-limits-and-quotas/).
 - Changed [`puter.fs.upload()`](/FS/upload/) to reject an upload with `invalid_upload_path` when a file or folder path resolves outside the destination folder, such as a path with `..` segments.
-- Changed [`puter.apps.create()`](/Apps/create/) and [`puter.apps.update()`](/Apps/update/) to reject an `indexURL` on the host of a Puter system app, with `bad_request`.
 - Added the `background` option to [`puter.notifications.enable()`](/Notifications/enable/). It turns pushes back on without a click, such as on page load, and never opens a prompt, dialog, or sign-in window. See [Calls without a click](/Notifications/enable/#calls-without-a-click).
 - Added [`puter.hosting.detach()`](/Hosting/detach/), which opens a Puter dialog where the user removes custom domains from one of their websites.
 - Added the `custom_domains` field to the [`Subdomain`](/Objects/subdomain/) objects from [`puter.hosting.get()`](/Hosting/get/) and [`puter.hosting.list()`](/Hosting/list/). Also added `previousSite` to the [`CustomDomain`](/Objects/customdomain/) from [`puter.hosting.attach()`](/Hosting/attach/), for when the user moved the domain from another of their websites.

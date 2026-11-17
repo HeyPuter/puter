@@ -24,12 +24,8 @@ import type { CreditHold } from '../../../../services/metering/types.js';
 import { mimeFromName } from '../../../../util/fileSigning.js';
 import type { LoadedFile, ResolvedFileInput } from '../../../util/fileInput.js';
 import type { AiMeteringService } from '../../../../util/aiCostFactor.js';
-import {
-    OCR_MAX_INPUT_BYTES,
-    OCR_MAX_PAGES,
-    type OcrProviderId,
-} from './models.js';
-import { countPdfPages, isPdf } from './pdfPages.js';
+import { OCR_MAX_PAGES, type OcrProviderId } from './models.js';
+import { countPdfPages } from './pdfPages.js';
 
 export const badRequest = (message: string) =>
     new HttpError(400, message, { legacyCode: 'bad_request' });
@@ -52,31 +48,22 @@ export const isDocumentInput = (loaded: LoadedFile): boolean => {
     );
 };
 
-export interface OcrPageEstimate {
-    /** The most pages the call can bill. */
-    pages: number;
-    /**
-     * For a PDF whose pages can't be counted: how many leading pages its size
-     * suggests, to read instead when the balance can't cover `pages`.
-     */
-    leadingPages?: number;
-}
-
 /**
  * The most pages a call can bill, known before the provider runs: a PDF's page
- * count, or a size-based guess for other documents, capped by a `pages`
- * selection and by what the provider reads in one call. Reads the input only
- * for a provider that takes more than one page.
+ * count, capped by a `pages` selection and by what the provider reads in one
+ * call. Null for a document whose pages can't be counted, such as a PDF with an
+ * encrypted page tree, when no pages are selected. Reads the input only for a
+ * provider that takes more than one page.
  */
 export const estimateOcrPages = async (
     input: ResolvedFileInput,
     provider: OcrProviderId,
     selection?: unknown,
-): Promise<OcrPageEstimate> => {
+): Promise<number | null> => {
     const maxPages = OCR_MAX_PAGES[provider];
-    if (maxPages <= 1) return { pages: 1 };
+    if (maxPages <= 1) return 1;
     const loaded = await input.load();
-    if (!isDocumentInput(loaded)) return { pages: 1 };
+    if (!isDocumentInput(loaded)) return 1;
     const selected = Array.isArray(selection)
         ? new Set(
               selection.filter(
@@ -84,21 +71,12 @@ export const estimateOcrPages = async (
               ),
           ).size
         : 0;
-    const capped = (pages: number) =>
-        Math.max(1, Math.min(pages, maxPages, selected || Infinity));
     const counted = await countPdfPages(loaded.buffer, maxPages);
-    if (counted !== null) return { pages: capped(counted) };
-    // A document we can't count is held in proportion to its size, reaching
-    // the provider's page limit at its size limit. A PDF can hide any number of
-    // pages in a few bytes, so it holds the page limit unless pages are
-    // selected, or reads only its leading pages.
-    const sizePages = capped(
-        Math.ceil(
-            (loaded.buffer.length * maxPages) / OCR_MAX_INPUT_BYTES[provider],
-        ),
+    if (counted === null && !selected) return null;
+    return Math.max(
+        1,
+        Math.min(counted ?? maxPages, maxPages, selected || Infinity),
     );
-    if (!isPdf(loaded.buffer) || selected) return { pages: sizePages };
-    return { pages: maxPages, leadingPages: sizePages };
 };
 
 /**

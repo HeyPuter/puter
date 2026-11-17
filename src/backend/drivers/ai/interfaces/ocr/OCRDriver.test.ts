@@ -1153,7 +1153,7 @@ describe('OCRDriver.recognize (mistral)', () => {
 
         await withActor(actor, () =>
             driver.recognize({
-                source: dataUrl(Buffer.from('x'), 'application/pdf'),
+                source: dataUrl(buildPdf(1), 'application/pdf'),
                 provider: 'mistral',
                 bboxAnnotationFormat: {
                     type: 'json_schema',
@@ -1361,69 +1361,74 @@ describe('OCRDriver credit pre-flight', () => {
         ]);
     });
 
-    it('falls back to 20 pages per MB for documents it cannot count', async () => {
-        const { actor } = await makeUser();
-        mistralOcrProcessMock.mockResolvedValue({ pages: [] });
-        const docx =
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-
-        for (const source of [
-            dataUrl(Buffer.alloc(512 * 1024), docx),
-            // Small unreadable input stays at one page.
-            pdfSource(Buffer.from('x')),
-        ]) {
-            await withActor(actor, () =>
-                driver.recognize({ source, provider: 'mistral' }),
-            );
-        }
-
-        expect(checkedCosts()).toEqual([perPage * 10, perPage]);
-    });
-
-    describe('a PDF whose pages it cannot count', () => {
-        // A 256 KB PDF whose page tree is hidden in an unreadable stream: its
-        // size suggests 5 pages at 20 per MB.
+    describe('a document whose pages it cannot count', () => {
+        // A PDF whose page tree is hidden in an unreadable stream.
         const unreadablePdf = Buffer.alloc(256 * 1024, 0xff);
         unreadablePdf.write('%PDF-1.7\n', 'latin1');
-        const recognize = (actor: Actor, pages?: number[]) =>
+        const docx = dataUrl(
+            Buffer.alloc(64 * 1024),
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        );
+        const recognize = (actor: Actor, source: unknown, pages?: number[]) =>
             withActor(actor, () =>
                 driver.recognize({
-                    source: pdfSource(unreadablePdf),
+                    source,
                     provider: 'mistral',
                     ...(pages ? { pages } : {}),
                 }),
             );
         const sentPages = () =>
             mistralOcrProcessMock.mock.calls.map(([payload]) => payload.pages);
+        const remainingPages = (pages: number) =>
+            vi
+                .spyOn(server.services.metering, 'getRemainingUsage')
+                .mockResolvedValue(perPage * pages + perPage - 1);
 
         it('holds the page limit when the balance covers it', async () => {
             const { actor } = await makeUser();
             mistralOcrProcessMock.mockResolvedValue({ pages: [] });
-            admitSpy.mockImplementationOnce((who, amount, opts) =>
+            remainingPages(5000);
+            admitSpy.mockImplementation((who, amount, opts) =>
                 server.services.metering.reserveCredits(who, amount, opts),
             );
 
-            await recognize(actor);
+            await recognize(actor, pdfSource(unreadablePdf));
+            await recognize(actor, docx);
 
-            expect(checkedCosts()).toEqual([perPage * 1000]);
-            expect(sentPages()).toEqual([undefined]);
+            expect(checkedCosts()).toEqual([perPage * 1000, perPage * 1000]);
+            expect(sentPages()).toEqual([undefined, undefined]);
         });
 
-        it('reads only the leading pages its size suggests when the balance does not', async () => {
+        it('reads only as many leading pages as the balance covers', async () => {
             const { actor } = await makeUser();
             mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+            remainingPages(7);
 
-            await recognize(actor);
+            await recognize(actor, pdfSource(unreadablePdf));
+            await recognize(actor, docx);
 
-            expect(checkedCosts()).toEqual([perPage * 1000, perPage * 5]);
-            expect(sentPages()).toEqual([[0, 1, 2, 3, 4]]);
+            expect(checkedCosts()).toEqual([perPage * 7, perPage * 7]);
+            expect(sentPages()).toEqual([
+                [0, 1, 2, 3, 4, 5, 6],
+                [0, 1, 2, 3, 4, 5, 6],
+            ]);
+        });
+
+        it('refuses when the balance does not cover one page', async () => {
+            const { actor } = await makeUser();
+            remainingPages(0);
+
+            await expect(
+                recognize(actor, pdfSource(unreadablePdf)),
+            ).rejects.toMatchObject({ statusCode: 402 });
+            expect(mistralOcrProcessMock).not.toHaveBeenCalled();
         });
 
         it('holds only the selected pages', async () => {
             const { actor } = await makeUser();
             mistralOcrProcessMock.mockResolvedValue({ pages: [] });
 
-            await recognize(actor, [0, 1, 2]);
+            await recognize(actor, pdfSource(unreadablePdf), [0, 1, 2]);
 
             expect(checkedCosts()).toEqual([perPage * 3]);
             expect(sentPages()).toEqual([[0, 1, 2]]);

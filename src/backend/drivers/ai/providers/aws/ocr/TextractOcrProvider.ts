@@ -151,7 +151,7 @@ export class TextractOcrProvider implements IOcrProvider {
             actor,
             model.pageUsageType,
             Math.max(configuredRate, s3Rate ?? 0) *
-                (await estimateOcrPages(input, model.provider)).pages,
+                ((await estimateOcrPages(input, model.provider)) ?? 1),
         );
         try {
             let response;

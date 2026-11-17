@@ -28,18 +28,25 @@ import type {
 import {
     badRequest,
     estimateOcrPages,
+    holdOcrCredits,
     inputMimeType,
     isDocumentInput,
 } from '../../../interfaces/ocr/common.js';
 import { OCR_COSTS } from '../../../interfaces/ocr/costs.js';
-import type { OcrModel } from '../../../interfaces/ocr/models.js';
+import {
+    OCR_MAX_PAGES,
+    type OcrModel,
+} from '../../../interfaces/ocr/models.js';
 import { isMistralInputError } from '../inputError.js';
 import type {
     IOcrProvider,
     OcrBlock,
     RecognizeArgs,
 } from '../../../interfaces/ocr/types.js';
-import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import {
+    aiModelKey,
+    type AiMeteringService,
+} from '../../../../../util/aiCostFactor.js';
 
 interface MistralOcrResponse {
     model?: string;
@@ -167,27 +174,31 @@ export class MistralOcrProvider implements IOcrProvider {
             (annotations && model.annotationUsageType
                 ? OCR_COSTS[model.annotationUsageType]
                 : 0);
-        const estimate = await estimateOcrPages(
-            input,
-            model.provider,
-            args.pages,
-        );
-        const reserve = (pages: number) =>
-            this.metering.reserveAiCredits(
-                actor,
-                model.pageUsageType,
-                costPerPage * pages,
+        let pages = await estimateOcrPages(input, model.provider, args.pages);
+        if (pages === null) {
+            // A document whose pages can't be counted reads as many leading
+            // pages as the balance covers, up to the provider's limit.
+            const [remaining, factor] = await Promise.all([
+                this.metering.getRemainingUsage(actor),
+                this.metering.costFactor(
+                    actor,
+                    aiModelKey(model.pageUsageType),
+                ),
+            ]);
+            pages = Math.min(
+                OCR_MAX_PAGES[model.provider],
+                Math.floor(remaining / Math.ceil(costPerPage * factor)),
             );
-        let hold = await reserve(estimate.pages);
-        if (!hold && estimate.leadingPages !== undefined) {
-            // Mistral reads only the pages held, so it can't bill past them.
-            payload.pages = Array.from(
-                { length: estimate.leadingPages },
-                (_, page) => page,
-            );
-            hold = await reserve(estimate.leadingPages);
+            if (pages < 1) throw insufficientCreditsError();
+            if (pages < OCR_MAX_PAGES[model.provider])
+                payload.pages = Array.from({ length: pages }, (_, i) => i);
         }
-        if (!hold) throw insufficientCreditsError();
+        const hold = await holdOcrCredits(
+            this.metering,
+            actor,
+            model.pageUsageType,
+            costPerPage * pages,
+        );
 
         try {
             const response = await this.#client.ocr.process(payload);
