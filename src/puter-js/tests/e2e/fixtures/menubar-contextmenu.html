@@ -18,6 +18,7 @@
     <button id="ctx-trigger" disabled>Show Context Menu</button>
     <button id="set-menubar-dark-btn" disabled>Set Menubar (dark)</button>
     <button id="ctx-trigger-dark" disabled>Show Context Menu (dark)</button>
+    <button id="ctx-trigger-nested" disabled>Show Nested Context Menu</button>
 
     <div id="log" data-testid="log"></div>
 
@@ -40,6 +41,7 @@
             document.getElementById('ctx-trigger').disabled = false;
             document.getElementById('set-menubar-dark-btn').disabled = false;
             document.getElementById('ctx-trigger-dark').disabled = false;
+            document.getElementById('ctx-trigger-nested').disabled = false;
         }
 
         function waitForPuter() {
@@ -71,6 +73,22 @@
                 ],
             });
             log('ctx:opened');
+        });
+
+        // A submenu inside a submenu.
+        document.getElementById('ctx-trigger-nested').addEventListener('click', () => {
+            puter.ui.contextMenu({
+                items: [
+                    { label: 'CtxPlain', action: () => log('ctx:CtxPlain') },
+                    { label: 'CtxOuter', items: [
+                        { label: 'CtxOuterItem', action: () => log('ctx:CtxOuterItem') },
+                        { label: 'CtxInner', items: [
+                            { label: 'CtxInnerItem', action: () => log('ctx:CtxInnerItem') },
+                        ]},
+                    ]},
+                ],
+            });
+            log('ctx:opened:nested');
         });
 
         // Themed variants — exercise the `theme` option, which is forwarded as
