@@ -1,0 +1,240 @@
+/* The standalone changelog page that src/changelog.js generates. The header
+   matches the recipes page. */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #f6f7f9;
+    color: #1b1b1f;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+    color: #0070ff;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* ---------- Header ---------- */
+
+.changelog-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    height: 60px;
+    padding: 0 24px;
+    background: #fff;
+    border-bottom: 1px solid #e4e6ea;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+.changelog-logo {
+    font-size: 17px;
+    font-weight: 600;
+    color: #1b1b1f;
+}
+
+.changelog-logo:hover {
+    color: #1b1b1f;
+    text-decoration: none;
+}
+
+.changelog-nav {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.changelog-nav a {
+    font-size: 14px;
+    color: #55585f;
+}
+
+.changelog-nav a:hover {
+    color: #0070ff;
+    text-decoration: none;
+}
+
+/* ---------- Page ---------- */
+
+.changelog-main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+}
+
+.changelog-main h1 {
+    margin: 0 0 8px;
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.changelog-intro {
+    margin: 0 0 12px;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #55585f;
+}
+
+.changelog-markdown {
+    font-size: 14px;
+}
+
+.changelog-month {
+    margin: 48px 0 16px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #55585f;
+}
+
+/* Each day's date stays beside its card while the card scrolls. */
+.changelog-day {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: 24px;
+    margin-bottom: 16px;
+    scroll-margin-top: 80px;
+}
+
+.changelog-date {
+    position: sticky;
+    top: 84px;
+    align-self: start;
+    margin: 21px 0 0;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.changelog-date a {
+    color: #1b1b1f;
+}
+
+.changelog-date a:hover {
+    color: #0070ff;
+    text-decoration: none;
+}
+
+.changelog-entries {
+    padding: 20px 24px;
+    background: #fff;
+    border: 1px solid #e4e6ea;
+    border-radius: 12px;
+}
+
+.changelog-day:target .changelog-entries {
+    border-color: #0070ff;
+    box-shadow: 0 0 0 3px rgba(0, 112, 255, 0.12);
+}
+
+.changelog-entries ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.changelog-entries li {
+    padding: 12px 0;
+    border-top: 1px solid #f0f1f3;
+    font-size: 15px;
+    line-height: 1.6;
+    color: #33363b;
+}
+
+.changelog-entries li:first-child {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.changelog-entries li:last-child {
+    padding-bottom: 0;
+}
+
+.changelog-entries code {
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: #f1f2f5;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: #353441;
+}
+
+.changelog-entries a code {
+    color: #0070ff;
+}
+
+.changelog-label {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 6px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: 1px;
+}
+
+.changelog-label-added {
+    background: #e3f4e4;
+    color: #2e7d32;
+}
+
+.changelog-label-changed {
+    background: #e6efff;
+    color: #1d4ed8;
+}
+
+.changelog-label-fixed {
+    background: #f1e9ff;
+    color: #6d28d9;
+}
+
+.changelog-label-removed {
+    background: #fde8e8;
+    color: #b91c1c;
+}
+
+/* ---------- Phones ---------- */
+
+@media (max-width: 720px) {
+    .changelog-header {
+        padding: 0 16px;
+    }
+
+    .changelog-nav {
+        gap: 16px;
+    }
+
+    .changelog-main {
+        padding: 32px 16px 64px;
+    }
+
+    .changelog-main h1 {
+        font-size: 28px;
+    }
+
+    .changelog-day {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .changelog-date {
+        position: static;
+        margin: 0;
+    }
+}

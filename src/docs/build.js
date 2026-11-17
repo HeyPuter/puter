@@ -12,6 +12,7 @@ const MiniSearch = require('minisearch');
 const { generatePlayground } = require('./src/playground');
 const { generateRecipes, loadRecipes } = require('./src/recipes');
 const { parseFrontMatter } = require('./src/frontmatter');
+const { generateChangelog, parseChangelog, readChangelog } = require('./src/changelog');
 
 // Index-time tokenizer. Splits on whitespace AND punctuation, and ALSO emits
 // contiguous pairwise (2-gram) joins of the parts:
@@ -44,6 +45,9 @@ const site = 'https://docs.puter.com';
 
 let usedPlaygroundExamples = new Set();
 let anyErrors = false;
+
+// The newest changelog day, for the dot on the sidebar's "What's new" link.
+const changelogLatest = parseChangelog(readChangelog()).latest;
 
 // Heading ids already used on the page being parsed. Reset before each parse.
 let usedHeadingSlugs = new Set();
@@ -422,6 +426,8 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     html += '<a target="_blank" href="/recipes/" class="download-prompt skip-insta-load" style="margin-top: 10px; font-size: 15px;"><svg style="margin-right: 10px; margin-bottom: -5px" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-book-open-icon lucide-book-open"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>Browse recipes</a>';
     // playground link
     html += '<a target="_blank" href="/playground/" class="download-prompt skip-insta-load" style="margin-top: 10px; font-size: 15px;"><svg style="margin-right: 10px; margin-bottom: -5px" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-code-xml-icon lucide-code-xml"><path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/></svg>Open playground</a>';
+    // changelog link, with a dot that assets/js/changelog.js shows for entries the reader hasn't seen
+    html += `<a target="_blank" href="/changelog/" class="download-prompt changelog-link skip-insta-load" data-latest="${changelogLatest ?? ''}" style="margin-top: 10px; font-size: 15px;"><svg style="margin-right: 10px; margin-bottom: -5px" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-megaphone-icon lucide-megaphone"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/><path d="M8 6v8"/></svg>What's new<span class="changelog-dot"></span></a>`;
     // download AI prompt
     html += '<a href="/llms.txt" class="download-prompt skip-insta-load" target="_blank"><svg style="margin-right: 10px; margin-bottom: -5px" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-bot-icon lucide-bot"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg><span style="font-size: 14px; font-family: monospace;">llms.txt</span></a>';
     // sections
@@ -871,6 +877,10 @@ if ( ! generateRecipes() ) {
     anyErrors = true;
 }
 
+if ( ! generateChangelog() ) {
+    anyErrors = true;
+}
+
 if ( anyErrors ) {
     process.exit(1);
 }
@@ -927,8 +937,9 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
     let included = 0;
 
     files.forEach(file => {
-        // exclude prompt.md, /assets/
-        if ( file.includes('prompt.md') || file.includes('/assets/') ) {
+        // exclude prompt.md, /assets/, and the changelog, which is published on its own
+        const relativePath = path.relative(`${process.cwd() }/src`, file);
+        if ( file.includes('prompt.md') || file.includes('/assets/') || relativePath === 'changelog.md' ) {
             return;
         }
         const fileContent = fs.readFileSync(file, 'utf8');
@@ -938,7 +949,6 @@ IMPORTANT: when creating an app, include a link to 'https://developer.puter.com'
             return;
         }
         included++;
-        const relativePath = path.relative(`${process.cwd() }/src`, file);
         const metadata = `\n<!--\nFile: ${relativePath}\n-->\n\n`;
         outputContent += `${metadata + stripNonEssentialMedia(fileContent) }\n`;
     });
