@@ -85,7 +85,7 @@
     "@types/ws": "^8.18.2",
     "pgmock": "^1.0.3",
     "typescript": "^5.9.3",
-    "vite": "^8.1.6",
+    "vite": "^8.1.7",
     "vitest": "^4.0.14"
   },
   "author": "Puter Technologies Inc.",
