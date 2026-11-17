@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 17, 2026
+
+- Fixed [`puter.ui.contextMenu()`](/UI/contextMenu/) menus with a submenu inside a submenu staying open after an item in the inner submenu was chosen. The inner submenu also closes when the submenu it belongs to closes.
+
 ## November 16, 2026
 
 - Added the `background` option to [`puter.notifications.enable()`](/Notifications/enable/). It turns pushes back on without a click, such as on page load, and never opens a prompt, dialog, or sign-in window. See [Calls without a click](/Notifications/enable/#calls-without-a-click).
