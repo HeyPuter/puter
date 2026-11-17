@@ -605,9 +605,14 @@ function UIContextMenu (options) {
     $('.context-menu').not(contextMenu).removeClass('context-menu-active');
 
     let cancel_options_ = null;
-    const fade_remove = (item) => {
-        const parent_data_id = $(item).closest('.context-menu').attr('data-parent-id');
-        const $stack = $(`#context-menu-${menu_id}, .context-menu[data-element-id="${parent_data_id}"]`);
+    const fade_remove = () => {
+        // This menu and every menu above it, however deeply it is nested.
+        let $stack = $(contextMenu);
+        let $parent = $(`.context-menu[data-element-id="${$(contextMenu).attr('data-parent-id')}"]`);
+        while ( $parent.length > 0 ) {
+            $stack = $stack.add($parent);
+            $parent = $(`.context-menu[data-element-id="${$parent.attr('data-parent-id')}"]`);
+        }
         $stack.addClass('context-menu-closing');
         // Animate visible menus out. fadeOut's callback does not fire on
         // already-hidden elements (e.g. a parent sheet hidden when its submenu
@@ -660,7 +665,7 @@ function UIContextMenu (options) {
         }
         // close menu and, if exists, its parent
         if ( ! $(this).hasClass('context-menu-item-submenu') ) {
-            fade_remove(this);
+            fade_remove();
         }
         return false;
     });
