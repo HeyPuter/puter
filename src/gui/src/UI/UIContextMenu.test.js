@@ -80,6 +80,13 @@ describe('UIContextMenu submenus', () => {
         expect(menuWith('Code').attr('data-parent-id')).toBe(menuWith('Editor').attr('data-element-id'));
     });
 
+    it('shows the label of a row with a submenu as text, not HTML', () => {
+        UIContextMenu({ items: [{ html: 'Always Open .<b>&c Files With', items: [{ html: 'Code' }] }] });
+        const $label = $('.context-menu-item-submenu > .contextmenu-label');
+        expect($label.text()).toBe('Always Open .<b>&c Files With');
+        expect($label.children()).toHaveLength(0);
+    });
+
     it('closes every menu above an item chosen in a nested submenu', () => {
         const onChoose = vi.fn();
         const onClose = vi.fn();

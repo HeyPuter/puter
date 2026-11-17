@@ -64,9 +64,13 @@ export default function build_open_with_items (el_item, suggested_apps, { inNewT
     }));
 
     if ( apps.length > 1 && default_app_key(file_path) ) {
+        const always_label = i18n('always_open_ext_files_with', { ext: path.extname(file_path).toLowerCase() }, false);
         items.push('-');
         items.push({
-            html: i18n('always_open_ext_files_with', { ext: path.extname(file_path).toLowerCase() }),
+            // UIContextMenu encodes a submenu row's `html` itself; the touch
+            // menu renders `label` as HTML.
+            html: always_label,
+            label: html_encode(always_label),
             items: apps.map((app, index) => ({
                 html: html_encode(app.title),
                 checked: index === default_index,

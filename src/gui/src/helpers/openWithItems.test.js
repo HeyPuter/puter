@@ -116,6 +116,7 @@ describe('Always Open … Files With', () => {
     it('names the lowercased extension and checks the app a double-click uses', () => {
         const always = alwaysMenu(build_open_with_items(fileRow(), [EDITOR, CODE]));
         expect(always.html).toBe('always_open_ext_files_with:.md');
+        expect(always.label).toBe('always_open_ext_files_with:.md');
         expect(always.items.map(item => [item.html, item.checked])).toEqual([['Editor', true], ['Code', false]]);
     });
 
@@ -131,9 +132,12 @@ describe('Always Open … Files With', () => {
         expect(always.items.find(item => item.checked).html).toBe('Code');
     });
 
-    it('encodes the extension in its label', () => {
+    // UIContextMenu encodes a submenu row's `html` itself; the touch menu
+    // renders `label` as HTML.
+    it('gives each menu the extension encoded once', () => {
         const always = alwaysMenu(build_open_with_items(fileRow('/bob/a.<img src=x onerror=alert(1)>'), [EDITOR, CODE]));
-        expect(always.html).toBe('always_open_ext_files_with:.&lt;img src=x onerror=alert(1)&gt;');
+        expect(always.html).toBe('always_open_ext_files_with:.<img src=x onerror=alert(1)>');
+        expect(always.label).toBe('always_open_ext_files_with:.&lt;img src=x onerror=alert(1)&gt;');
     });
 
     it('saves only the chosen app for the extension', () => {
