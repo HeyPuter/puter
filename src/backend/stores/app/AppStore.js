@@ -28,6 +28,7 @@ import {
 import { HttpError } from '../../core/http/HttpError.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { escapeLike } from '../../util/sqlLike.js';
 import {
     validateUrl,
     WEB_AND_EXTENSION_PROTOCOLS,
@@ -356,6 +357,29 @@ export class AppStore extends PuterStore {
             [name],
         );
         return rows.length > 0;
+    }
+
+    /**
+     * A godmode app other than `excludeAppId` loading from `host`. Godmode apps
+     * run with the desktop's authority, so their origin is theirs alone.
+     */
+    async findGodmodeOnHost(host, { excludeAppId } = {}) {
+        const params = [];
+        const clauses = [];
+        for (const scheme of ['https', 'http']) {
+            clauses.push("`index_url` = ? OR `index_url` LIKE ? ESCAPE '!'");
+            params.push(
+                `${scheme}://${host}`,
+                `${escapeLike(`${scheme}://${host}`)}/%`,
+            );
+        }
+        let sql = `SELECT \`id\`, \`uid\` FROM \`apps\` WHERE \`godmode\` = 1 AND (${clauses.join(' OR ')})`;
+        if (Number.isInteger(excludeAppId) && excludeAppId > 0) {
+            sql += ' AND `id` != ?';
+            params.push(excludeAppId);
+        }
+        const rows = await this.clients.db.read(`${sql} LIMIT 1`, params);
+        return rows[0] ?? null;
     }
 
     /**

@@ -196,6 +196,87 @@ describe('AppDriver.create', () => {
         });
     });
 
+    describe('with a godmode app on its own host', () => {
+        const host = 'console.godmode-host.test';
+        let godmodeActor: Actor;
+        let godmodeUid: string;
+
+        beforeAll(async () => {
+            ({ actor: godmodeActor } = await makeUser());
+            const app = await withActor(godmodeActor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('godmode-host'),
+                        title: 't',
+                        index_url: `https://${host}/`,
+                    },
+                }),
+            );
+            godmodeUid = app.uid as string;
+            await server.clients.db.write(
+                'UPDATE `apps` SET `godmode` = 1 WHERE `uid` = ?',
+                [godmodeUid],
+            );
+        });
+
+        it.each([
+            ['at its root', `https://${host}/`],
+            ['on another path', `https://${host}/other.html?puter.api_origin=x`],
+            ['over http', `http://${host}/`],
+        ])('rejects an index_url on it %s with 400', async (_label, index_url) => {
+            const { actor } = await makeUser();
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName('godmode-squat'),
+                            title: 't',
+                            index_url,
+                        },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: /system host/,
+            });
+        });
+
+        it('rejects updating an index_url onto it with 400', async () => {
+            const { actor } = await makeUser();
+            const created = await withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('godmode-squat-upd'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            );
+            await expect(
+                withActor(actor, () =>
+                    driver.update({
+                        uid: created.uid,
+                        object: { index_url: `https://${host}/app.html` },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: /system host/,
+            });
+        });
+
+        it('lets the godmode app itself move to another path on its host', async () => {
+            await expect(
+                withActor(godmodeActor, () =>
+                    driver.update({
+                        uid: godmodeUid,
+                        object: { index_url: `https://${host}/v2/` },
+                    }),
+                ),
+            ).resolves.toMatchObject({ uid: godmodeUid });
+        });
+    });
+
     describe('with a claimed subdomain', () => {
         const claimed = 'claimed-app-host';
 
