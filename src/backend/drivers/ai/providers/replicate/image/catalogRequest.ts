@@ -349,6 +349,26 @@ export function catalogImageInputs(input: Record<string, unknown>): string[] {
     });
 }
 
+/**
+ * A copy of `input` with each image reference `catalogImageInputs` reads
+ * replaced.
+ */
+export function withCatalogImageInputs(
+    input: Record<string, unknown>,
+    replace: (url: string) => string | Blob,
+): Record<string, unknown> {
+    const copy = { ...input };
+    for (const key of [...imageArrayKeys, ...singleImageKeys]) {
+        const value = copy[key];
+        if (typeof value === 'string') copy[key] = replace(value);
+        else if (Array.isArray(value))
+            copy[key] = value.map((v) =>
+                typeof v === 'string' ? replace(v) : v,
+            );
+    }
+    return copy;
+}
+
 export function catalogOutputMegapixels(
     input: Record<string, unknown>,
 ): number {

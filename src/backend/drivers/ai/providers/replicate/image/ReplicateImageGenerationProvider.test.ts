@@ -48,8 +48,21 @@ import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
+import sharp from 'sharp';
 import { ReplicateImageGenerationProvider } from './ReplicateImageGenerationProvider.js';
 import { REPLICATE_IMAGE_GENERATION_MODELS } from './models.js';
+
+const png = (width: number, height: number) =>
+    sharp({
+        create: { width, height, channels: 3, background: '#000' },
+    })
+        .png()
+        .toBuffer();
+// One megapixel, so each input image adds one to the bill.
+const ONE_MP_PNG = await png(1000, 1000);
+const TINY_PNG_BASE64 = (await png(2, 2)).toString('base64');
+const imageResponse = (bytes: Buffer = ONE_MP_PNG) =>
+    new Response(new Uint8Array(bytes));
 
 // ── Replicate SDK mock ──────────────────────────────────────────────
 
@@ -218,8 +231,7 @@ describe('ReplicateImageGenerationProvider.generate credit gate', () => {
     it('holds the output and input estimate while Replicate runs and releases both', async () => {
         const provider = makeProvider();
         const actor = holdUser('hold');
-        // Unreadable inputs are priced at one megapixel each.
-        secureFetchMock.mockResolvedValueOnce(new Response('not-an-image'));
+        secureFetchMock.mockResolvedValueOnce(imageResponse());
         let heldDuringCall = -1;
         createPredictionMock.mockImplementationOnce(async () => {
             heldDuringCall = await server.stores.creditHold.outstanding(
@@ -276,7 +288,7 @@ describe('ReplicateImageGenerationProvider.generate credit gate', () => {
     it('releases the output hold when the input surcharge is unaffordable', async () => {
         const provider = makeProvider();
         const actor = holdUser('surcharge');
-        secureFetchMock.mockResolvedValueOnce(new Response('not-an-image'));
+        secureFetchMock.mockResolvedValueOnce(imageResponse());
         admitSpy.mockImplementationOnce((who, amount, opts) =>
             server.services.metering.reserveCredits(who, amount, opts),
         ).mockResolvedValueOnce(false);
@@ -817,9 +829,10 @@ describe('ReplicateImageGenerationProvider.generate upstream rejections', () => 
 });
 
 describe('ReplicateImageGenerationProvider canonical inputs', () => {
-    it.each(['https://example.com/input.png', 'AQID'])(
+    it.each(['https://example.com/input.png', TINY_PNG_BASE64])(
         'forwards input_images to a single-image model',
         async (image) => {
+            secureFetchMock.mockResolvedValueOnce(imageResponse());
             createPredictionMock.mockResolvedValueOnce({
                 id: 'prediction-1',
                 status: 'succeeded',
@@ -832,13 +845,16 @@ describe('ReplicateImageGenerationProvider canonical inputs', () => {
                     input_images: [image],
                 }),
             );
-            expect(
-                createPredictionMock.mock.calls[0][0].input.image_prompt,
-            ).toBe(
-                image.startsWith('https:')
-                    ? image
-                    : 'data:image/png;base64,AQID',
-            );
+            const sent =
+                createPredictionMock.mock.calls[0][0].input.image_prompt;
+            if (image.startsWith('https:')) {
+                expect(sent).toBeInstanceOf(Blob);
+                expect(Buffer.from(await sent.arrayBuffer())).toEqual(
+                    ONE_MP_PNG,
+                );
+            } else {
+                expect(sent).toBe(`data:image/png;base64,${image}`);
+            }
         },
     );
 
@@ -1178,7 +1194,7 @@ it('measures multiple input images concurrently and bills their combined size', 
                     releaseFirst = resolve;
                 }),
         )
-        .mockResolvedValueOnce(new Response('not-an-image'));
+        .mockResolvedValueOnce(imageResponse());
     createPredictionMock.mockResolvedValueOnce({
         id: 'parallel-images',
         status: 'succeeded',
@@ -1196,7 +1212,7 @@ it('measures multiple input images concurrently and bills their combined size', 
     );
     // The output-only credit check runs first, so the fetches start a tick later.
     await vi.waitFor(() => expect(secureFetchMock).toHaveBeenCalledTimes(2));
-    releaseFirst(new Response('not-an-image'));
+    releaseFirst(imageResponse());
     await result;
     expect(batchIncrementUsagesSpy.mock.calls[0][1]).toEqual(
         expect.arrayContaining([
@@ -1206,6 +1222,82 @@ it('measures multiple input images concurrently and bills their combined size', 
             }),
         ]),
     );
+});
+
+it('sends Replicate the fetched bytes of an input image and bills their size', async () => {
+    const fourMp = await png(2000, 2000);
+    secureFetchMock.mockResolvedValueOnce(imageResponse(fourMp));
+    createPredictionMock.mockResolvedValueOnce({
+        id: 'fetched-input',
+        status: 'succeeded',
+        output: ['https://example.com/out.jpg'],
+    });
+    await withTestActor(() =>
+        makeProvider().generate({
+            prompt: 'hi',
+            model: 'black-forest-labs/flux-2-dev',
+            input_images: ['https://example.com/a.png'],
+        }),
+    );
+    expect(secureFetchMock).toHaveBeenCalledTimes(1);
+    const [sent] = createPredictionMock.mock.calls[0][0].input.input_images;
+    expect(sent).toBeInstanceOf(Blob);
+    expect(sent.type).toBe('image/png');
+    expect(Buffer.from(await sent.arrayBuffer())).toEqual(fourMp);
+    expect(batchIncrementUsagesSpy.mock.calls[0][1]).toEqual(
+        expect.arrayContaining([
+            expect.objectContaining({
+                usageType: expect.stringContaining(':input_mp'),
+                usageAmount: 4,
+            }),
+        ]),
+    );
+});
+
+it.each([
+    ['a body that is not an image', () => new Response('not-an-image')],
+    ['a failed fetch', () => Promise.reject(new Error('timed out'))],
+])('refuses an input image with %s before running a prediction', async (_, respond) => {
+    const actor = makeActor({
+        user: { id: 94, uuid: `replicate-unreadable-${Date.now()}`, username: 'unreadable' },
+    });
+    secureFetchMock.mockImplementationOnce(respond);
+    await expect(
+        withTestActor(
+            () =>
+                makeProvider().generate({
+                    prompt: 'hi',
+                    model: 'black-forest-labs/flux-2-dev',
+                    input_images: ['https://example.com/a.png'],
+                }),
+            actor,
+        ),
+    ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    expect(createPredictionMock).not.toHaveBeenCalled();
+    expect(await server.stores.creditHold.outstanding(actor.user!.uuid)).toBe(0);
+});
+
+it('sends a catalog model the fetched bytes of its input image', async () => {
+    secureFetchMock.mockResolvedValueOnce(imageResponse());
+    createPredictionMock.mockResolvedValueOnce({
+        id: 'catalog-fetched-input',
+        status: 'succeeded',
+        metrics: { predict_time: 4 },
+        output: [
+            'https://r.example/control.png',
+            'https://r.example/generated.png',
+        ],
+    });
+    await withTestActor(() =>
+        makeProvider().generate({
+            model: 'jagilley/controlnet-scribble',
+            prompt: 'A cup',
+            input_image: 'https://example.com/scribble.png',
+        }),
+    );
+    const sent = Object.values(createPredictionMock.mock.calls[0][0].input);
+    expect(sent).not.toContain('https://example.com/scribble.png');
+    expect(sent.some((value) => value instanceof Blob)).toBe(true);
 });
 
 it('surfaces a poll failure as an upstream error without cancelling or billing', async () => {
@@ -1346,11 +1438,11 @@ it('bounds input image fetches to four at a time', async () => {
     );
     await vi.waitFor(() => expect(secureFetchMock).toHaveBeenCalledTimes(4));
     releases.splice(0).forEach((release) =>
-        release(new Response('not-an-image')),
+        release(imageResponse()),
     );
     await vi.waitFor(() => expect(secureFetchMock).toHaveBeenCalledTimes(6));
     releases.splice(0).forEach((release) =>
-        release(new Response('not-an-image')),
+        release(imageResponse()),
     );
     await result;
     expect(batchIncrementUsagesSpy.mock.calls[0][1]).toEqual(
@@ -1415,7 +1507,7 @@ describe('Replicate expanded catalog billing', () => {
             makeProvider().generate({
                 model: 'jagilley/controlnet-scribble',
                 prompt: 'A cup',
-                input_image: 'data:image/png;base64,aGVsbG8=',
+                input_image: `data:image/png;base64,${TINY_PNG_BASE64}`,
             }),
         );
         expect(result).toBe('https://r.example/generated.png');
