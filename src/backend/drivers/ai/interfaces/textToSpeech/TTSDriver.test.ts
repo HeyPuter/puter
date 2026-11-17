@@ -726,6 +726,7 @@ describe('TTSDriver cost factor', () => {
                     driver.synthesize({
                         text: 'hello there',
                         provider: 'openai',
+                        model: 'tts-1',
                     }),
                 ),
             );
