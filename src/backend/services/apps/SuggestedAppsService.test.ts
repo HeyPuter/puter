@@ -371,6 +371,17 @@ describe('SuggestedAppsService hosted-backing guard', () => {
         expect(names).toContain(name);
     });
 
+    it('offers viewer as the only built-in opener for images', async () => {
+        // An app named `draw` opens images only if it registers the
+        // extension like any other app.
+        const { userId } = await makeUser();
+        await pointBuiltinAt('viewer', userId, 'https://viewer.example.com/');
+        await pointBuiltinAt('draw', userId, 'https://draw.example.com/');
+
+        const names = (await suggestFor('tiff')).map((a) => a.name);
+        expect(names).toEqual(['viewer']);
+    });
+
     it('does not hit the subdomain store for non-hosted index_urls', async () => {
         // Built-ins and apps on a developer's own domain aren't on a
         // hosting domain, so the guard short-circuits on the URL alone.
