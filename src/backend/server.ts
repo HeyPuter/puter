@@ -905,8 +905,8 @@ export class PuterServer {
                     // the map. Use this for things we want to know about
                     // even though we expose them as 4xx to users (e.g.
                     // sustained upstream provider rate limits). They are
-                    // not our own crashes, so each maps to the severity it
-                    // deserves rather than paging.
+                    // not our own crashes, so each maps to the severity and
+                    // chat channel it deserves rather than paging.
                     //
                     // SKIP_ALERT_PREFIXES override the 5xx rule the other
                     // direction: an error tagged as caused by an upstream
@@ -917,22 +917,38 @@ export class PuterServer {
                     // this failure isn't worth recording (e.g. an upstream
                     // rate limit on a free model, where the volume tracks
                     // traffic and there's nothing to act on).
-                    const FORCED_ALERT_CODES = new Map<string, PagerSeverity>([
-                        ['upstream_rate_limited', 'info'],
-                        // Our credentials for a provider stopped working —
-                        // everything through it fails until someone looks.
-                        ['upstream_auth_failed', 'warning'],
-                        // A vendor account is dry — everything through it fails until someone tops up.
-                        ['upstream_credits_exhausted', 'warning'],
+                    const FORCED_ALERT_CODES = new Map<
+                        string,
+                        { severity: PagerSeverity; channel: string }
+                    >([
+                        [
+                            'upstream_rate_limited',
+                            { severity: 'info', channel: 'ai_providers' },
+                        ],
+                        // Our credentials for a provider stopped working, or
+                        // its account is dry: everything through it fails
+                        // until someone looks.
+                        [
+                            'upstream_auth_failed',
+                            { severity: 'info', channel: 'ai_providers' },
+                        ],
+                        [
+                            'upstream_credits_exhausted',
+                            { severity: 'info', channel: 'ai_providers' },
+                        ],
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
                     if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
+                    const forced = FORCED_ALERT_CODES.get(legacyCode);
                     const forcedSeverity =
                         (isHttp ? err.alarmSeverity : undefined) ??
-                        FORCED_ALERT_CODES.get(legacyCode);
+                        forced?.severity;
+                    const channel =
+                        (isHttp ? err.alarmChannel : undefined) ??
+                        forced?.channel;
                     if (!forcedSeverity) {
                         if (status < 500) return;
                         if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
@@ -982,7 +998,7 @@ export class PuterServer {
                         forcedSeverity ?? 'critical',
                         // The id pins route + error signature, so repeats are
                         // the same fault and belong on one incident.
-                        { dedup: true },
+                        { dedup: true, ...(channel ? { channel } : {}) },
                     );
                 },
             }),

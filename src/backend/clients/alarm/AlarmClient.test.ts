@@ -5,7 +5,7 @@ import {
     MAX_TRACKED_ALARMS,
 } from './AlarmClient';
 import type { IConfig, IPagerConfig } from '../../types';
-import type { AlertPayload } from './types';
+import type { AlarmCall, AlertPayload } from './types';
 
 const pdEvent = vi.hoisted(() => vi.fn(async () => ({})));
 vi.mock('@pagerduty/pdjs', () => ({ event: pdEvent }));
@@ -196,7 +196,7 @@ describe('AlarmClient transport registration', () => {
         pdEvent.mockClear();
     });
 
-    it('splits info to Slack and everything above it to PagerDuty', async () => {
+    it('splits info and warning to Slack and everything above to PagerDuty', async () => {
         const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
         vi.stubGlobal('fetch', fetchMock);
 
@@ -207,13 +207,14 @@ describe('AlarmClient transport registration', () => {
         await client.onServerStart();
 
         client.create('quiet:thing', 'informational', {}, 'info');
-        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+        client.create('slow:thing', 'look at this today', {}, 'warning');
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
         expect(pdEvent).not.toHaveBeenCalled();
 
-        client.create('loud:thing', 'paging', {}, 'critical');
+        client.create('loud:thing', 'paging', {}, 'error');
         await vi.waitFor(() => expect(pdEvent).toHaveBeenCalledTimes(1));
         // The pager has it; chat doesn't repeat it.
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
 
         vi.unstubAllGlobals();
     });
@@ -264,8 +265,8 @@ describe('AlarmClient transport registration', () => {
         });
         await client.onServerStart();
 
-        client.create('scan:failed', 'first', {}, 'warning');
-        client.create('scan:failed', 'second', {}, 'warning');
+        client.create('scan:failed', 'first', {}, 'error');
+        client.create('scan:failed', 'second', {}, 'error');
         await vi.waitFor(() => expect(pdEvent).toHaveBeenCalledTimes(2));
 
         const keys = pdEvent.mock.calls.map(
@@ -297,6 +298,22 @@ describe('AlarmClient transport registration', () => {
         );
         expect(keys[0]).toBe('http_500:POST:/notif/mark-ack:deadlock');
         expect(keys[1]).toBe(keys[0]);
+    });
+
+    it('refuses a Slack bot token without a default channel', async () => {
+        const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const client = makeClient({
+            slack: { enabled: true, botToken: 'xoxb-test' },
+        });
+        await client.onServerStart();
+
+        client.create('boom', 'nowhere to send this', {}, 'info');
+        await Promise.resolve();
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        vi.unstubAllGlobals();
     });
 
     it('skips transports that are enabled but not configured', async () => {
@@ -688,5 +705,221 @@ describe('AlarmClient repeat reporting', () => {
         client.create('quiet', 'nobody is listening', {}, 'info');
 
         expect(seen).toHaveLength(0);
+    });
+});
+
+describe('AlarmClient channel keys', () => {
+    beforeEach(() => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('carries the channel key on the payload', () => {
+        const client = makeClient();
+        const seen = capture(client);
+
+        client.create('billing:stuck', 'stuck', {}, 'info', {
+            channel: 'billing',
+        });
+        client.create('plain', 'no key', {}, 'info');
+
+        expect(seen[0].channel).toBe('billing');
+        expect(seen[1]).not.toHaveProperty('channel');
+    });
+
+    it('keeps the channel of the first occurrence', () => {
+        const client = makeClient();
+        const seen = capture(client);
+
+        client.create('a', 'first', {}, 'info', { channel: 'billing' });
+        client.create('a', 'second', {}, 'info', { channel: 'ai_providers' });
+
+        expect(seen.map((alert) => alert.channel)).toEqual([
+            'billing',
+            'billing',
+        ]);
+    });
+});
+
+describe('AlarmClient calls', () => {
+    beforeEach(() => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const callClient = (pager: IPagerConfig = {}) => {
+        const client = makeClient({
+            ...pager,
+            calls: { rules: { 'billing:*': 'billing' }, ...pager.calls },
+        });
+        const calls: AlarmCall[] = [];
+        client.addCallHandler(async (call) => {
+            calls.push(call);
+        });
+        return { client, calls };
+    };
+
+    it('hands a matching alarm to call handlers with the links transports returned', async () => {
+        const { client, calls } = callClient();
+        client.addAlertHandler(async () => ({ url: 'https://chat/msg/1' }));
+        client.addAlertHandler(async () => {});
+
+        client.create('billing:stuck:tx1', 'top-up stuck', {}, 'info');
+
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        expect(calls[0].group).toBe('billing');
+        expect(calls[0].alert.callGroup).toBe('billing');
+        expect(calls[0].links).toEqual(['https://chat/msg/1']);
+    });
+
+    it('leaves alarms no rule names alone', async () => {
+        const { client, calls } = callClient();
+        const seen = capture(client);
+
+        client.create('ai:outage', 'provider down', {}, 'info');
+        await Promise.resolve();
+
+        expect(calls).toHaveLength(0);
+        expect(seen[0]).not.toHaveProperty('callGroup');
+    });
+
+    it('does not resolve call groups before a call handler is registered', () => {
+        const client = makeClient({
+            calls: { rules: { 'billing:*': 'billing' } },
+        });
+        const seen = capture(client);
+
+        client.create('billing:stuck', 'top-up stuck', {}, 'info');
+
+        expect(seen[0]).not.toHaveProperty('callGroup');
+    });
+
+    it('never calls for a muted alarm', async () => {
+        const { client, calls } = callClient({
+            severityOverrides: { 'billing:*': 'mute' },
+        });
+        capture(client);
+
+        client.create('billing:stuck', 'top-up stuck', {}, 'info');
+        await Promise.resolve();
+
+        expect(calls).toHaveLength(0);
+    });
+
+    it('reaches a call-taking transport outside its severity window', async () => {
+        const { client, calls } = callClient();
+        const chat: AlertPayload[] = [];
+        client.addAlertHandler(
+            async (alert) => {
+                chat.push(alert);
+                return { url: 'https://chat/msg/2' };
+            },
+            { minSeverity: 'info', maxSeverity: 'info', includeCalls: true },
+        );
+        const strict = capture(client, 'info', 'info');
+
+        client.create('billing:outage', 'billing down', {}, 'critical');
+        client.create('other:outage', 'other down', {}, 'critical');
+
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        expect(chat.map((alert) => alert.id)).toEqual(['billing:outage']);
+        expect(strict).toHaveLength(0);
+        expect(calls[0].links).toEqual(['https://chat/msg/2']);
+    });
+
+    it('keeps the last links when a repeat is not delivered again', async () => {
+        const { client, calls } = callClient();
+        let posts = 0;
+        client.addAlertHandler(async () => {
+            posts++;
+            // A throttled repeat returns nothing.
+            return posts === 1 ? { url: 'https://chat/msg/3' } : undefined;
+        });
+
+        client.create('billing:stuck', 'top-up stuck', {}, 'info');
+        client.create('billing:stuck', 'top-up stuck', {}, 'info');
+
+        await vi.waitFor(() => expect(calls).toHaveLength(2));
+        expect(calls[1].links).toEqual(['https://chat/msg/3']);
+    });
+
+    it('still calls when a transport fails', async () => {
+        const { client, calls } = callClient();
+        client.addAlertHandler(async () => {
+            throw new Error('chat is down');
+        });
+
+        client.create('billing:stuck', 'top-up stuck', {}, 'info');
+
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        expect(calls[0].links).toEqual([]);
+    });
+
+    it('keeps an open call refreshed by repeats too frequent to report', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            const { client, calls } = callClient();
+            for (let i = 0; i < 10; i++) {
+                client.create('billing:hot', 'hot', {}, 'info');
+            }
+            await vi.waitFor(() => expect(calls).toHaveLength(10));
+
+            // Unreported, and the call went out under a minute ago.
+            client.create('billing:hot', 'hot', {}, 'info');
+            await Promise.resolve();
+            expect(calls).toHaveLength(10);
+
+            vi.setSystemTime(Date.now() + 61_000);
+            client.create('billing:hot', 'hot', {}, 'info');
+            await vi.waitFor(() => expect(calls).toHaveLength(11));
+            expect(calls[10].group).toBe('billing');
+            expect(calls[10].alert.repeatCount).toBe(12);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('raises the call without links when a transport never answers', async () => {
+        vi.useFakeTimers();
+        try {
+            const { client, calls } = callClient();
+            client.addAlertHandler(() => new Promise(() => {}));
+
+            client.create('billing:stuck', 'top-up stuck', {}, 'info');
+            await vi.advanceTimersByTimeAsync(14_000);
+            expect(calls).toHaveLength(0);
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(calls).toHaveLength(1);
+            expect(calls[0].links).toEqual([]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps a failing call handler from reaching the caller', async () => {
+        const { client, calls } = callClient();
+        const error = vi.mocked(console.error);
+        client.addCallHandler(async () => {
+            throw new Error('store is down');
+        });
+
+        expect(() =>
+            client.create('billing:stuck', 'top-up stuck', {}, 'info'),
+        ).not.toThrow();
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        await vi.waitFor(() =>
+            expect(error).toHaveBeenCalledWith(
+                expect.stringContaining('call handler failed'),
+            ),
+        );
     });
 });

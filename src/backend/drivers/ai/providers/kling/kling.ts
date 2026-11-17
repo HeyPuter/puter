@@ -77,7 +77,8 @@ const klingError = (
             'Kling does not support the model Puter requested',
             {
                 legacyCode: 'upstream_failed',
-                alarmSeverity: 'warning',
+                alarmSeverity: 'info',
+                alarmChannel: 'ai_providers',
                 fields: {
                     provider: 'kling',
                     upstreamCode: String(code),

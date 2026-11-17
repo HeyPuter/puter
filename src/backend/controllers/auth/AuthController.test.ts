@@ -9618,8 +9618,8 @@ describe('AuthController.handleSignup additional branches', () => {
             // No phone/card gate outstanding: stuck on the email alone.
             expect(fields.sole_gate).toBe(true);
             expect(fields.email_domain).toBe('test.local');
-            expect(raised![3]).toBe('warning');
-            expect(raised![4]).toEqual({ dedup: true });
+            expect(raised![3]).toBe('info');
+            expect(raised![4]).toEqual({ dedup: true, channel: 'email' });
         } finally {
             alarm.mockRestore();
         }

@@ -1540,6 +1540,7 @@ describe('PuterServer HTTP alarm gate', () => {
                     throw new HttpError(400, 'Model not available: m', {
                         legacyCode: 'upstream_bad_request',
                         alarmSeverity: 'info',
+                        alarmChannel: 'ai_providers',
                     });
                 }) as unknown as RequestHandler,
             },
@@ -1588,6 +1589,7 @@ describe('PuterServer HTTP alarm gate', () => {
             id: raised![0] as string,
             fields: raised![2] as Record<string, unknown>,
             severity: raised![3] as string,
+            opts: raised![4] as { dedup?: boolean; channel?: string },
         };
     };
 
@@ -1644,15 +1646,16 @@ describe('PuterServer HTTP alarm gate', () => {
         expect(fields.queryKeys).toEqual(['auth_token']);
     });
 
-    it('raises a warning when an upstream account is out of credits', async () => {
-        const { id, fields, severity } = await raisedFor(
+    it('records an upstream account out of credits in the AI providers channel', async () => {
+        const { id, fields, severity, opts } = await raisedFor(
             '/credits-exhausted',
             503,
         );
         expect(id).toBe(
             'http_503:GET:/credits-exhausted:upstream_credits_exhausted:AI provider out of credits',
         );
-        expect(severity).toBe('warning');
+        expect(severity).toBe('info');
+        expect(opts).toEqual({ dedup: true, channel: 'ai_providers' });
         expect(fields.details).toEqual({
             attempts: [
                 {
@@ -1665,12 +1668,22 @@ describe('PuterServer HTTP alarm gate', () => {
         });
     });
 
-    it("alarms a 4xx at the thrower's alarmSeverity", async () => {
-        const { id, severity } = await raisedFor('/model-unavailable', 400);
+    it("alarms a 4xx at the thrower's alarmSeverity and alarmChannel", async () => {
+        const { id, severity, opts } = await raisedFor(
+            '/model-unavailable',
+            400,
+        );
         expect(id).toBe(
             'http_400:GET:/model-unavailable:upstream_bad_request:Model not available: m',
         );
         expect(severity).toBe('info');
+        expect(opts).toEqual({ dedup: true, channel: 'ai_providers' });
+    });
+
+    it('raises an unhandled error with no channel', async () => {
+        const { severity, opts } = await raisedFor('/plain');
+        expect(severity).toBe('critical');
+        expect(opts).toEqual({ dedup: true });
     });
 
     it('does not alarm an upstream 4xx without one', async () => {

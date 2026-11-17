@@ -2255,8 +2255,8 @@ describe('MeteringBufferStore', () => {
                 'metering_aggregate_usage_dropped',
                 expect.stringContaining('under-count'),
                 expect.objectContaining({ key: aggregate }),
-                'warning',
-                expect.objectContaining({ dedup: true }),
+                'info',
+                expect.objectContaining({ dedup: true, channel: 'billing' }),
             );
             alarmSpy.mockRestore();
         });
@@ -2646,8 +2646,8 @@ describe('MeteringBufferStore', () => {
                 'metering_counter_large',
                 expect.stringContaining(key),
                 expect.objectContaining({ key, writeUnits: 150 }),
-                'warning',
-                expect.objectContaining({ dedup: true }),
+                'info',
+                expect.objectContaining({ dedup: true, channel: 'billing' }),
             );
             alarmSpy.mockRestore();
         });

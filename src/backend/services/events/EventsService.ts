@@ -6976,8 +6976,8 @@ export class EventsService extends PuterService {
                 settlesPerWindow: CONSENT_SETTLES_PER_WINDOW,
                 windowMs: CONSENT_SETTLE_WINDOW_MS,
             },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'platform' },
         );
     }
 
@@ -7010,8 +7010,8 @@ export class EventsService extends PuterService {
     }
 
     #eagerDeploy:
-        ((scope: HandlerScope, script: string) => Promise<unknown>) | null =
-        null;
+        | ((scope: HandlerScope, script: string) => Promise<unknown>)
+        | null = null;
 
     /** Fire and forget: the publish has answered, and a miss deploys anyway. */
     #deployEagerly(
@@ -7244,8 +7244,8 @@ export class EventsService extends PuterService {
                 'events_pending_ceiling',
                 'Too many undelivered events are being held here — the oldest were dropped',
                 { subId: dropped.subId, dropped: dropped.dropped },
-                'warning',
-                { dedup: true },
+                'info',
+                { dedup: true, channel: 'platform' },
             );
         }
     }
@@ -7268,8 +7268,8 @@ export class EventsService extends PuterService {
                 holderUserId: row.holderUserId,
                 error: err instanceof Error ? err : new Error(String(err)),
             },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'platform' },
         );
     }
 

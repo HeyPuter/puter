@@ -514,7 +514,12 @@ const classifyAttempts = (
             fields: { ...fields, upstreamStatus: 404 },
             // Our provider account lost access to the model; low alarm so
             // someone notices.
-            ...(accessDenied ? { alarmSeverity: 'info' as const } : {}),
+            ...(accessDenied
+                ? {
+                      alarmSeverity: 'info' as const,
+                      alarmChannel: 'ai_providers',
+                  }
+                : {}),
         });
     }
     if (

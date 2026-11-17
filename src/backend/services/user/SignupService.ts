@@ -54,7 +54,10 @@ const emailStreamName = (value: unknown): string | null => {
 
 /** Where a confirmation email was sent from; names its failure alarm. */
 export type ConfirmationEmailStage =
-    'signup' | 'save-account' | 'resend' | 'deferred';
+    | 'signup'
+    | 'save-account'
+    | 'resend'
+    | 'deferred';
 
 /** What `puter.signup.validate` and the bonus hooks decided about a signup. */
 export type SignupGateOutcome =
@@ -953,8 +956,8 @@ export class SignupService extends PuterService {
                     detail,
                     ...(cause instanceof Error ? { error: cause } : {}),
                 },
-                'warning',
-                { dedup: true },
+                'info',
+                { dedup: true, channel: 'email' },
             );
         } catch (e) {
             console.warn(`[${stage}] confirmation-email alarm failed:`, e);

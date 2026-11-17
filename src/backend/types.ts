@@ -103,26 +103,36 @@ export interface IPagerDutyConfig {
     enabled?: boolean;
     routingKey?: string;
     /**
-     * Lowest severity that reaches PagerDuty. Default `warning`, which keeps
-     * `info` alarms out of the paging system entirely.
+     * Lowest severity that reaches PagerDuty. Default `error`, which keeps
+     * `warning` and `info` in chat.
      */
     minSeverity?: PagerSeverity;
 }
 
 export interface ISlackAlertConfig {
     enabled?: boolean;
-    /** Incoming-webhook URL to post alerts to. */
+    /**
+     * Bot token with `chat:write`. Needed to route alarms to `channels` and to
+     * link a call to its message; takes precedence over `webhookUrl`.
+     */
+    botToken?: string;
+    /** Incoming-webhook URL; posts land in the webhook's own channel. */
     webhookUrl?: string;
-    /** Channel override (e.g. `#alerts`). Defaults to the webhook's own. */
+    /**
+     * Channel for alarms with no `channel` key, or one `channels` doesn't list.
+     * Required with `botToken`; optional with a webhook.
+     */
     channel?: string;
-    /** Bot display name on the posted message. */
+    /** Alarm `channel` keys (e.g. `billing`) mapped to a channel name or ID. */
+    channels?: Record<string, string>;
+    /** Display name on the post; a bot token needs `chat:write.customize`. */
     username?: string;
     /** Lowest severity posted to Slack. Default `info`. */
     minSeverity?: PagerSeverity;
     /**
-     * Highest severity posted to Slack. Defaults to `info` when PagerDuty is
-     * configured — anything that pages belongs in the paging system, not in
-     * chat — and to `critical` (everything) when Slack is the only transport.
+     * Highest severity posted to Slack. Defaults to `warning` when PagerDuty is
+     * configured, so chat gets what doesn't page, and to `critical` when Slack
+     * is the only transport.
      */
     maxSeverity?: PagerSeverity;
     /**
@@ -146,6 +156,27 @@ export interface IPagerConfig {
     severityOverrides?: Record<string, SeverityRule>;
     pagerduty?: IPagerDutyConfig;
     slack?: ISlackAlertConfig;
+    calls?: IAlarmCallConfig;
+}
+
+/**
+ * Alarms that should phone someone. While one is active, `GET /alarms/calls`
+ * answers 503 for its group, for an external monitor to turn into a call.
+ */
+export interface IAlarmCallConfig {
+    /**
+     * Alarm ids, or prefixes ending in `*`, mapped to a call group
+     * (`[A-Za-z0-9_-]`, up to 64). Exact ids beat patterns and the longest
+     * prefix wins. A muted alarm never calls.
+     */
+    rules?: Record<string, string>;
+    /** Secret the monitor sends in `x-puter-internal-auth`; unset refuses. */
+    secret?: string;
+    /**
+     * How long a call stays active after its alarm last fired. Default 30
+     * minutes, minimum 5.
+     */
+    ttlMs?: number;
 }
 
 export interface ICfFileCacheConfig {

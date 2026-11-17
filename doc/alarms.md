@@ -2,7 +2,7 @@
 
 `clients.alarm` is the one way code reports that something is wrong. It
 de-dupes by alarm id, counts occurrences, and routes each alarm to alert
-transports by **severity**.
+transports by **severity**, then to a chat channel by its **channel key**.
 
 ```ts
 this.clients.alarm.create(
@@ -10,25 +10,27 @@ this.clients.alarm.create(
     'Metering write failed', // what a human reads
     { userUuid, appId, error }, // context fields
     'info', // severity
+    { channel: 'billing' }, // who owns it
 );
 ```
 
 ## Severity is the routing decision
 
-| Severity   | Meaning                                                | Goes to     |
-| ---------- | ------------------------------------------------------ | ----------- |
-| `critical` | An unhandled server error. Someone gets woken up.      | Pager       |
-| `error`    | Same urgency as critical; prefer one of the other two. | Pager       |
-| `warning`  | Worth a look today. Nobody is paged.                   | Pager (low) |
-| `info`     | A record of something expected-but-notable.            | Chat        |
+| Severity   | Meaning                                                    | Goes to |
+| ---------- | ---------------------------------------------------------- | ------- |
+| `critical` | An unhandled server error. Someone gets woken up.          | Pager   |
+| `error`    | Same urgency as critical; prefer one of the other two.     | Pager   |
+| `warning`  | For on-call to work through today; nobody is paged.        | Chat    |
+| `info`     | For the area that owns it, in that area's channel.         | Chat    |
 
 Each transport declares the severity window it accepts, so the value a call
 site passes is what decides where the alarm lands. The two windows don't
 overlap by default: anything that pages lives in the paging system, and chat
-is the record of what didn't. The bar for `critical` is
-deliberately high: an unhandled 5xx out of the HTTP error handler is the main
-thing that still pages. Anything a human can look at tomorrow is `warning`,
-and anything that's just worth recording is `info`.
+is the record of what didn't. The bar for `critical` is deliberately high: an
+unhandled 5xx out of the HTTP error handler is the main thing that still
+pages. `warning` is the on-call queue, mostly abuse signals (signup farms,
+usage spikes) someone should look at today. Everything else that isn't urgent
+is `info` with a channel key, so the people who own that area see it.
 
 Omitting the severity takes `pager.defaultSeverity` (itself `critical`), so
 pass one explicitly unless you really mean "page someone".
@@ -36,15 +38,17 @@ pass one explicitly unless you really mean "page someone".
 ### Choosing one
 
 - Did the server fail to do its job in a way nobody expected? → `critical`
-- Is a background job, rate, or dependency degraded, or has an account spent
-  far past its credits? → `warning`
-- Is this a user doing something notable (tripping an abuse heuristic)?
-  → `info`
+- Is a user or the fleet doing something on-call should look at today
+  (tripping a signup or usage abuse heuristic, spending far past its
+  credits)? → `warning`
+- Is a background job, dependency, or one area's pipeline degraded? → `info`,
+  with that area's channel key
 - Did one of *our own* limits reject a caller — a rate limit, a concurrency
   cap, a quota? → don't alarm at all. The limit doing its job is not an
   event; the 429 is the whole signal, and alarming on it only produces noise
   proportional to traffic. An *upstream provider* rate-limiting us is the
-  opposite case and still alarms (`upstream_rate_limited`, `info`) — that one
+  opposite case and still alarms (`upstream_rate_limited`, `info` in
+  `ai_providers`) — that one
   is not something we chose. The exception is a free model: nothing is billed,
   nothing is actionable, and the throttling is the price of the model, so the
   AI chat driver marks those `noAlarm` and only paid models still record.
@@ -55,9 +59,29 @@ call site *already knows* are expected and traffic-proportional — reach for it
 there, not as a way to quiet an alarm you haven't diagnosed
 (`severityOverrides` below is the knob for that).
 
-An extension whose signals are all one tier can default its own local
-`raiseAlarm` helper to that tier instead of repeating it at every call site —
-see [extensions/cronMonitor](../../../extensions/cronMonitor/index.js).
+An extension whose signals are all one tier and channel can fix both in its
+own local alarm helper instead of repeating them at every call site.
+
+## Channel keys
+
+`{ channel: '<key>' }` names the area that owns an alarm. Config maps each key
+to a chat channel (`pager.slack.channels`); an alarm with no key, or a key the
+map doesn't list, goes to the default channel, which is where on-call reads
+`warning`. A thrown `HttpError` sets its key with `alarmChannel`.
+
+The keys in use:
+
+| Key             | Area                                                       |
+| --------------- | ---------------------------------------------------------- |
+| `billing`       | Purchases, subscriptions, top-ups, metering correctness    |
+| `ai_providers`  | Upstream AI provider failures: credits, auth, rate limits  |
+| `content_abuse` | Hosted site and app abuse verdicts, and the scanner itself |
+| `signup`        | The signup pipeline and the checks it depends on           |
+| `email`         | Sending and mailbox infrastructure                         |
+| `platform`      | Jobs, events, KV, and other shared backend machinery       |
+
+Reuse one before adding a new key; a key nobody maps lands in on-call's
+channel.
 
 ## One incident per occurrence, unless you say otherwise
 
@@ -87,6 +111,26 @@ body, so it has to be safe to show the caller.
 Reach for it anywhere else only when the id is that specific — otherwise a
 per-request alarm can flood the pager.
 
+## Phone calls
+
+Some alarms should phone someone whatever their severity. `pager.calls.rules`
+maps alarm ids, or prefixes ending in `*`, to a **call group**; the exact id
+beats a pattern and the longest prefix wins. While an alarm in a group keeps
+firing, it is recorded in the system KV store until it has been quiet for
+`ttlMs` (default 30 minutes, minimum 5).
+
+An external uptime monitor polls `GET /alarms/calls?group=<group>` on the
+`api` subdomain, sending `pager.calls.secret` in `x-puter-internal-auth`. The
+route answers 200 while nothing in the group is calling and 503 while
+something is, or when it couldn't read the whole listing, so the monitor's own
+escalation policy places the call; leave out `group` to watch every group. The body is short plain text, one line per
+call with a link to its chat message, which needs a Slack `botToken`. An alarm
+that calls is posted to chat even when its severity is above Slack's ceiling,
+so there is always a message to link to.
+
+A call resolves by going quiet, not by a clear: acknowledge it in the monitor,
+and the route goes back to 200 once the alarm stops firing for `ttlMs`.
+
 ## Configuration
 
 Everything lives under `pager` in config (see
@@ -98,20 +142,32 @@ alarms to the console.
 "pager": {
     "defaultSeverity": "critical",
     "severityOverrides": { "cronMonitor:*": "info" },
-    "pagerduty": { "enabled": true, "routingKey": "…", "minSeverity": "warning" },
+    "pagerduty": { "enabled": true, "routingKey": "…", "minSeverity": "error" },
     "slack": {
         "enabled": true,
-        "webhookUrl": "…",
-        "channel": "#alerts",
+        "botToken": "xoxb-…",
+        "channel": "#alerts-oncall",
+        "channels": { "billing": "#alerts-billing", "ai_providers": "#alerts-ai" },
         "minSeverity": "info",
-        "maxSeverity": "info",
+        "maxSeverity": "warning",
         "repeatThrottleMs": 900000,
+    },
+    "calls": {
+        "secret": "…",
+        "rules": { "metering_usage_dropped:*": "billing" },
+        "ttlMs": 1800000,
     },
 }
 ```
 
-Slack's `maxSeverity` defaults to `info` whenever PagerDuty is configured, and
-to `critical` when it isn't — a node with only a webhook still sees
+Slack posts through the Web API when `botToken` is set (scope `chat:write`;
+invite the bot to each channel, or add `chat:write.public`). `channel` is then
+required. Channels can be names or IDs; IDs survive a rename. `username` needs
+the `chat:write.customize` scope with a bot token, so leave it out otherwise. With only a `webhookUrl`, every alarm lands in the webhook's own
+channel and calls carry no link.
+
+Slack's `maxSeverity` defaults to `warning` whenever PagerDuty is configured,
+and to `critical` when it isn't — a node with only Slack still sees
 everything. Raise it to have chat mirror the paging tiers as well.
 
 ### Retiering without a deploy

@@ -885,8 +885,8 @@ export class EventForwardService extends PuterService {
             'events_forward_overflow',
             'Events queued for another region were dropped to stay inside the queue bound',
             { peerId, dropped: dropped.length },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'platform' },
         );
         return markers;
     }
