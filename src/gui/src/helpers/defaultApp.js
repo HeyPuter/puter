@@ -24,10 +24,11 @@ import { get_app_by_uid } from './getAppByUid.js';
  * The `user_preferences` key holding the "always open with" app for a file's
  * extension, or null for a file without one: the saved preferences are listed
  * back by the `default_apps.*` pattern, which a bare `default_apps` misses.
+ * A name that only ends in a dot (`notes.`) has no extension either.
  */
 export const default_app_key = (file_path) => {
     const extension = path.extname(file_path ?? '').toLowerCase();
-    return extension ? `default_apps${extension}` : null;
+    return extension.length > 1 ? `default_apps${extension}` : null;
 };
 
 /**

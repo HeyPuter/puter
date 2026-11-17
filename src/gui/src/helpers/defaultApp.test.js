@@ -72,6 +72,10 @@ describe('default_app_key', () => {
         expect(default_app_key('/alice/Makefile')).toBeNull();
         expect(default_app_key('/alice/.bashrc')).toBeNull();
     });
+
+    it('has no key for a name that only ends in a dot', () => {
+        expect(default_app_key('/alice/notes.')).toBeNull();
+    });
 });
 
 describe('default_app_index', () => {

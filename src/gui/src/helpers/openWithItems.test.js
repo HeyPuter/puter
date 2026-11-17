@@ -153,5 +153,6 @@ describe('Always Open … Files With', () => {
     it('is left out for a file without an extension', () => {
         expect(alwaysMenu(build_open_with_items(fileRow('/alice/Makefile'), [EDITOR, CODE]))).toBeUndefined();
         expect(alwaysMenu(build_open_with_items(fileRow('/alice/.bashrc'), [EDITOR, CODE]))).toBeUndefined();
+        expect(alwaysMenu(build_open_with_items(fileRow('/alice/notes.'), [EDITOR, CODE]))).toBeUndefined();
     });
 });
