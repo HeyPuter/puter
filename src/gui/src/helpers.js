@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createUploadThumbnailGenerator } from './services/pdfThumbnails/index.js';
+import { createUploadThumbnailGenerator } from './services/uploadThumbnails/index.js';
 import { dedupedName } from './helpers/dedupedName.js';
 import { archiveEntryPath } from './helpers/archiveEntryPath.js';
 import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';

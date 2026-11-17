@@ -372,6 +372,14 @@ The Puter desktop makes PDF upload thumbnails locally within these budgets. Goin
 | Thumbnail payload | 2 MiB |
 | Thumbnail transfer | 5 seconds each |
 
+The Puter desktop makes a PSD or PSB upload thumbnail from the preview image stored in the document, within these budgets. A document without a preview, or over a budget, keeps its file icon.
+
+| PSD thumbnail | Limit |
+| --- | --- |
+| Data read from the document to find the preview | 1 MiB |
+| Stored preview size | 1 MiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
 ### Permissions
 
 | Limit | Value |
