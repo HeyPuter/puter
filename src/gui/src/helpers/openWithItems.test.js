@@ -155,4 +155,15 @@ describe('Always Open … Files With', () => {
         expect(alwaysMenu(build_open_with_items(fileRow('/alice/.bashrc'), [EDITOR, CODE]))).toBeUndefined();
         expect(alwaysMenu(build_open_with_items(fileRow('/alice/notes.'), [EDITOR, CODE]))).toBeUndefined();
     });
+
+    it('is left out for a folder, which keeps the server order', () => {
+        window.user_preferences['default_apps.js'] = CODE.uuid;
+        for ( const is_dir of ['1', 'true'] ) {
+            const folder = fileRow('/alice/three.js');
+            folder.setAttribute('data-is_dir', is_dir);
+            const items = build_open_with_items(folder, [EDITOR, CODE]);
+            expect(alwaysMenu(items)).toBeUndefined();
+            expect(apps(items).map(item => item.html)).toEqual(['Editor', 'Code']);
+        }
+    });
 });

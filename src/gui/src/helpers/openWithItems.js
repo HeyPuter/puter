@@ -42,7 +42,9 @@ export default function build_open_with_items (el_item, suggested_apps, { inNewT
     }
 
     const file_path = $(el_item).attr('data-path');
-    const default_index = default_app_index(file_path, apps);
+    // A folder opens as a folder whatever its name ends in, so no app is its default.
+    const takes_default = !['1', 'true'].includes($(el_item).attr('data-is_dir')) && !!default_app_key(file_path);
+    const default_index = takes_default ? default_app_index(file_path, apps) : 0;
     const default_first = [apps[default_index], ...apps.filter((_, index) => index !== default_index)];
 
     const items = default_first.map(app => ({
@@ -63,7 +65,7 @@ export default function build_open_with_items (el_item, suggested_apps, { inNewT
         },
     }));
 
-    if ( apps.length > 1 && default_app_key(file_path) ) {
+    if ( apps.length > 1 && takes_default ) {
         const always_label = i18n('always_open_ext_files_with', { ext: path.extname(file_path).toLowerCase() }, false);
         items.push('-');
         items.push({
