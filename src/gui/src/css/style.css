@@ -1702,6 +1702,12 @@ span.header-sort-icon img {
     height: 12px;
 }
 
+/* Keeps a label off the arrow when its row is the one that sets the menu's width. */
+.context-menu-item-submenu .contextmenu-label,
+.context-menu-item-submenu .contextmenu-label-active {
+    margin-right: 12px;
+}
+
 .context-menu-item-active .submenu-arrow {
     display: none;
     pointer-events: none;
