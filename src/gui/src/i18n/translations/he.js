@@ -38,7 +38,6 @@ const he = {
         change_username: 'שינוי שם משתמש',
         close: 'סגירה',
         close_all_windows_and_log_out: 'סגור את החלונות והתנתק',
-        change_always_open_with: 'האם אתה רוצה תמיד לפתוח סוג זה של קובץ עם',
         confirm: 'לאשר',
         confirm_account_for_free_referral_storage_c2a:
       'צור חשבון ואשר את כתובת הדוא"ל שלך כדי לקבל 1 גיגה בייט של אחסון בחינם. חברך יקבל גם 1 גיגה בייט של אחסון בחינם.',

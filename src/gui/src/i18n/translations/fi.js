@@ -44,8 +44,6 @@ const fi = {
         change_username: 'Vaihda käyttäjänimi',
         close: 'Sulje',
         close_all_windows_and_log_out: 'Sulje ikkunat ja kirjaudu ulos',
-        change_always_open_with:
-      'Haluatko aina avata tämän tyyppisen tiedoston sovelluksella',
         confirm: 'Vahvista',
         confirm_account_for_free_referral_storage_c2a:
       'Luo tili ja vahvista sähköpostiosoitteesi saadaksesi 1 Gt ilmaista tallennustilaa. Myös kaverisi saa 1 Gt:n ilmaista tallennustilaa.',

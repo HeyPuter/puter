@@ -33,7 +33,6 @@ const fa = {
         associated_websites: 'وب سایت های مرتبط',
         cancel: 'لغو',
         change: 'تغییر',
-        change_always_open_with: 'آیا می‌خواهید همیشه این نوع فایل را با ... باز کنید؟',
         change_email: 'تغییر ایمیل',
         change_language: 'تغییر زبان',
         change_password: 'تغییر رمز عبور',

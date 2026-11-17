@@ -38,7 +38,6 @@ const tr = {
         change_username: 'Kullanıcı Adını Değiştir',
         close: 'Kapat',
         close_all_windows_and_log_out: 'Pencereleri Kapat ve Çıkış Yap',
-        change_always_open_with: 'Bu tür dosyaları her zaman şununla açmak istiyor musunuz',
         confirm_account_for_free_referral_storage_c2a: '1 GB ücretsiz depolama alanı kazanmak için bir hesap oluşturun ve e-posta adresinizi onaylayın. Arkadaşınız da 1 GB ücretsiz depolama alanı kazanacak.',
         confirm_code_generic_incorrect: 'Hatalı Kod.',
         confirm_code_generic_too_many_requests: 'Çok fazla istek. Lütfen birkaç dakika bekleyin.',

@@ -38,7 +38,6 @@ const da = {
         change_username: 'Ændre brugernavn',
         close: 'Luk',
         close_all_windows_and_log_out: 'Luk vinduer og log ud',
-        change_always_open_with: 'Vil du altid åbne denne filtype med',
         confirm: 'Bekræft',
         confirm_account_for_free_referral_storage_c2a: 'Opret en konto og bekræft din e-mailadresse for at modtage 1 GB gratis lagerplads. Din ven vil også få 1 GB gratis lagerplads.',
         confirm_code_generic_incorrect: 'Forkert kode.',

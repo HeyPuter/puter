@@ -38,7 +38,6 @@ const it = {
         change_username: 'Modifica Nome Utente',
         close: 'Chiudi',
         close_all_windows_and_log_out: 'Chiudi tutte le finestre e disconnettiti',
-        change_always_open_with: 'Vuoi sempre aprire questo tipo di file con',
         confirm: 'Conferma',
         confirm_account_for_free_referral_storage_c2a:
       'Crea un account e conferma la tua email per ricevere 1 GB di spazio di archiviazione gratuito. Anche il tuo amico riceverà dello spazio extra!',

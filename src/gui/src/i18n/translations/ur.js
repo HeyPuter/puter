@@ -36,7 +36,6 @@ const ur = {
         change_username: 'صارف کا نام تبدیل کریں',
         close: 'بند کریں',
         close_all_windows_and_log_out: 'ونڈوز بند کریں اور لاگ آؤٹ کریں۔',
-        change_always_open_with: 'کیا آپ ہمیشہ اس قسم کی فائل کو کھولنا چاہتے ہیں۔',
         confirm_account_for_free_referral_storage_c2a:
       '1 GB مفت اسٹوریج حاصل کرنے کے لیے ایک اکاؤنٹ بنائیں اور اپنے ای میل ایڈریس کی تصدیق کریں۔ آپ کے دوست کو 1 GB مفت اسٹوریج بھی ملے گا۔',
         confirm_code_generic_incorrect: 'غلط کوڈ۔',

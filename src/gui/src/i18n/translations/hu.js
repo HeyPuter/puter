@@ -38,7 +38,6 @@ const hu = {
         change_username: 'Felhasználónév módosítása',
         close: 'Bezár',
         close_all_windows_and_log_out: 'Ablakok bezárása és kijelentkezés',
-        change_always_open_with: 'Mindig ezzel az alkalmazással nyitja meg ezt a fájlt?',
         confirm: 'Megerősít',
         confirm_account_for_free_referral_storage_c2a: 'Hozz létre egy fiókot és erősítsd meg email címedet, hogy 1 GB ingyenes tárhelyet kapj. A barátod is kap 1 GB ingyenes tárhelyet.',
         confirm_code_generic_incorrect: 'Hibás kód.',

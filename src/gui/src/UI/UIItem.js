@@ -28,7 +28,7 @@ import open_item from '../helpers/openItem.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
 import { can_rename, can_restructure, invalidate_shared_roots } from '../helpers/sharedAccess.js';
-import { is_default_app } from '../helpers/defaultApp.js';
+import build_open_with_items from '../helpers/openWithItems.js';
 import openWithAI from '../helpers/openWithAI.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
 
@@ -1109,7 +1109,6 @@ async function UIItem (options) {
             // Open With
             // -------------------------------------------
             if ( !is_trashed && !is_trash && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
-                let items = [];
                 if ( !options.suggested_apps || options.suggested_apps.length === 0 ) {
                     // try to find suitable apps
                     const suitable_apps = await window.suggest_apps_for_fsentry({
@@ -1121,65 +1120,9 @@ async function UIItem (options) {
                     }
                 }
 
-                if ( options.suggested_apps && options.suggested_apps.length > 0 ) {
-                    for ( let index = 0; index < options.suggested_apps.length; index++ ) {
-                        const suggested_app = options.suggested_apps[index];
-                        if ( ! suggested_app ) {
-                            console.warn('suggested_app is null', options.suggested_apps, index);
-                            continue;
-                        }
-                        items.push({
-                            html: html_encode(suggested_app.title),
-                            icon: `<img src="${html_encode(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
-                            onClick: async function () {
-                                var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
-                                if (
-                                    ! is_default_app(window.user_preferences[`default_apps${extension}`], suggested_app)
-                                    &&
-                                    (
-                                        (!window.user_preferences[`default_apps${extension}`] && index > 0)
-                                        ||
-                                        (window.user_preferences[`default_apps${extension}`])
-                                    )
-                                ) {
-                                    const alert_resp = await UIAlert({
-                                        message: `${i18n('change_always_open_with')} ${ html_encode(suggested_app.title) }?`,
-                                        body_icon: suggested_app.icon,
-                                        buttons: [
-                                            {
-                                                label: i18n('yes'),
-                                                type: 'primary',
-                                                value: 'yes',
-                                            },
-                                            {
-                                                label: i18n('no'),
-                                            },
-                                        ],
-                                    });
-                                    if ( (alert_resp) === 'yes' ) {
-                                        window.user_preferences[`default_apps${ extension}`] = suggested_app.uuid;
-                                        window.mutate_user_preferences(window.user_preferences);
-                                    }
-                                }
-                                launch_app({
-                                    name: suggested_app.name,
-                                    file_path: $(el_item).attr('data-path'),
-                                    window_title: $(el_item).attr('data-name'),
-                                    file_uid: $(el_item).attr('data-uid'),
-                                });
-                            },
-                        });
-                    }
-                } else {
-                    items.push({
-                        html: i18n('no_suitable_apps_found'),
-                        disabled: true,
-                    });
-                }
-                // add all suitable apps
                 menu_items.push({
                     html: i18n('open_with'),
-                    items: items,
+                    items: build_open_with_items(el_item, options.suggested_apps),
                 });
 
                 // -------------------------------------------

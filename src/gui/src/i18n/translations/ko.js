@@ -38,7 +38,6 @@ const ko = {
         change_username: '사용자 이름 변경',
         close: '닫기',
         close_all_windows_and_log_out: '창을 닫고 로그아웃',
-        change_always_open_with: '이 형식의 파일을 항상 이 앱으로 여시겠습니까?',
         confirm: '확인',
         confirm_account_for_free_referral_storage_c2a:
       '계정을 만들고 이메일 주소를 확인하면 1GB의 무료 저장 공간을 드립니다. 친구를 초대하면 친구도 1GB를 받을 수 있습니다.',

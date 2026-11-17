@@ -66,7 +66,6 @@ const cs = {
         "captcha_required": "Dokončete prosím ověření CAPTCHA",
         "change_username": "Změnit uživatelské jméno",
         "change_password": "Změnit heslo",
-        "change_always_open_with": "Chcete tento typ souboru vždy otevírat pomocí",
         "revalidate_flow_notice": "Až budete pokračovat, budete požádáni o přihlášení pomocí propojeného účtu.",
         "reauth_required_message": "Vaše relace byla z důvodu zabezpečení aktualizována – přihlaste se prosím znovu.",
         "close": "Zavřít",

@@ -39,7 +39,6 @@ const ua = {
         change_username: "Змінити Ім\'я Користувача",
         close: 'Закрити',
         close_all_windows_and_log_out: 'Закрити Вікна і Вийти',
-        change_always_open_with: 'Бажаєте завжди відкривати файли цього типу в',
         confirm: 'Підтвердити',
         confirm_account_for_free_referral_storage_c2a: 'Створіть обліковий запис і підтвердіть свою електронну адресу, щоб отримати 1 Гб безкоштовного дискового простору. Ваш друг також отримає 1 Гб безкоштовного дискового простору.',
         confirm_code_generic_incorrect: 'Код невірний',

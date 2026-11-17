@@ -38,8 +38,6 @@ const ta = {
         change_username: 'பயனர் பெயரை மாற்றவும்',
         close: 'மூடு',
         close_all_windows_and_log_out: 'விண்டோஸை மூடிவிட்டு வெளியேறவும்',
-        change_always_open_with:
-      'இந்த வகையான கோப்பை எப்போதும் திறக்க விரும்புகிறீர்களா?',
         confirm_account_for_free_referral_storage_c2a:
       '1 ஜிபி இலவச சேமிப்பிடத்தைப் பெற, கணக்கை உருவாக்கி உங்கள் மின்னஞ்சல் முகவரியை உறுதிப்படுத்தவும். உங்கள் நண்பருக்கு 1 ஜிபி இலவச சேமிப்பகமும் கிடைக்கும்.',
         confirm_code_generic_incorrect: 'தவறான குறியீடு.',

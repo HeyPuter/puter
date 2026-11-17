@@ -38,7 +38,6 @@ const nl = {
         change_username: 'Gebruikersnaam veranderen',
         close: 'Sluiten',
         close_all_windows_and_log_out: 'Vensters sluiten en afmelden',
-        change_always_open_with: 'Wilt u dit bestandstype altijd openen met',
         confirm: 'Bevestig',
         confirm_account_for_free_referral_storage_c2a: 'Maak een account aan en bevestig uw e-mailadres om 1 GB gratis opslag te ontvangen. Uw vriend krijgt ook 1 GB gratis opslag.',
         confirm_code_generic_incorrect: 'Onjuiste code.',

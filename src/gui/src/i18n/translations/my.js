@@ -46,7 +46,6 @@ const my = {
         change_username: 'Tukar Nama Pengguna',
         close: 'Tutup',
         close_all_windows_and_log_out: 'Tutup Tetingkap dan Keluar',
-        change_always_open_with: 'Adakah anda mahu sentiasa membuka jenis fail ini dengan',
         confirm: 'Sahkan',
         // Note: `authenticator` is taken directly from the English language as it is more commonly used than its direct Malay translation `pengesahan`
         confirm_account_for_free_referral_storage_c2a:

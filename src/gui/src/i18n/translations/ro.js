@@ -38,7 +38,6 @@ const ro = {
         change_username: 'Schimbă User-ul',
         close: 'Închide',
         close_all_windows_and_log_out: 'Închide toate ferestrele și delogheză-mă',
-        change_always_open_with: 'Doriți să deschideți acest tip de fișiere cu ',
         confirm: 'Confirmă',
 
         confirm_account_for_free_referral_storage_c2a: 'Creați un cont și confirmați adresa de e-mail pentru a primi 1 GB de spațiu de stocare gratuit. Deasemenea, un prieten de-al tău va primi 1 GB de spațiu de stocare gratuit.',

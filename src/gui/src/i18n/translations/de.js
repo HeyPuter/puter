@@ -38,7 +38,6 @@ const de = {
         change_username: 'Benutzername ändern',
         close: 'Schließen',
         close_all_windows_and_log_out: 'Fenster schließen und abmelden',
-        change_always_open_with: 'Öffnen Sie diesen Dateityp immer mit',
         confirm_account_for_free_referral_storage_c2a: 'Erstellen Sie ein Konto und bestätigen Sie Ihre E-Mail-Adresse, um 1 GB kostenlosen Speicherplatz zu erhalten. Ihr Freund erhält ebenfalls 1 GB kostenlosen Speicherplatz.',
         confirm_code_generic_incorrect: 'Falscher Code.',
         confirm_code_generic_too_many_requests: 'Zu viele Anfragen. Bitte warten Sie ein paar Minuten.',

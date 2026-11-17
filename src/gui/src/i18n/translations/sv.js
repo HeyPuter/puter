@@ -38,7 +38,6 @@ const sv = {
         change_username: 'Byt användarnamn',
         close: 'Stäng',
         close_all_windows_and_log_out: 'Stäng alla fönster och logga ut',
-        change_always_open_with: 'Vill du alltid öppna den här filtypen med',
         confirm: 'Bekräfta',
         confirm_account_for_free_referral_storage_c2a: 'Skapa ett konto och bekräfta din e-postadress för att få 1 GB gratis lagringsutrymme. Din vän får också 1 GB gratis lagringsutrymme.',
         confirm_code_generic_incorrect: 'Felaktig kod.',

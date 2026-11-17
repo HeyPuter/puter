@@ -81,6 +81,20 @@ describe('ContextMenuModal accessibility', () => {
         expect(dialog.querySelectorAll('[aria-haspopup="menu"]')).toHaveLength(1);
     });
 
+    it('marks the checked item of a choice with a checkmark', () => {
+        setTouchViewport(390);
+        const menu = new ContextMenuModal();
+        menu.show([
+            { label: 'Editor', checked: true, action: () => {} },
+            { label: 'Code', checked: false, icon: '<img src="code.svg">', action: () => {} },
+        ], { left: 0, top: 0, width: 10, height: 10 });
+        const buttons = [...document.querySelectorAll('.context-menu-item')];
+        expect(buttons.map(b => [b.getAttribute('role'), b.getAttribute('aria-checked')]))
+            .toEqual([['menuitemradio', 'true'], ['menuitemradio', 'false']]);
+        expect(buttons[0].querySelector('.context-menu-item-icon').textContent.trim()).toBe('✓');
+        expect(buttons[1].querySelector('.context-menu-item-icon img')).not.toBeNull();
+    });
+
     it('takes focus on open and gives it back on close', () => {
         setTouchViewport(390);
         const opener = document.createElement('button');

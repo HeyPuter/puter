@@ -137,7 +137,6 @@ const nn = {
         allow: 'Tillat', // In English: "Allow"
         associated_websites: 'Tilknytte nettstader', // In English: "Associated Websites"
         change: 'Endre', // In English: "Change"
-        change_always_open_with: 'Vil du alltid opne denne filtypen med', // In English: "Do you want to always open this type of file with"
         change_email: 'Endre e-post', // In English: "Change Email"
         close: 'Lukk', // In English: "Close"
         close_all_windows_and_log_out: 'Lukk vindauge og logg ut', // In English: "Close Windows and Log Out"

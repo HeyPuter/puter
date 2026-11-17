@@ -38,7 +38,6 @@ const nb = {
         associated_websites: 'Tilknyttede nettsider',
         cancel: 'Avbryt',
         change: 'Endre',
-        change_always_open_with: 'Vil du alltid åpne denne filtypen med',
         change_email: 'Endre e-post',
         change_language: 'Endre språk',
         change_password: 'Endre passord',
