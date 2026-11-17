@@ -40,26 +40,70 @@ export const psdPreviewResource = ({ jpeg = psdPreviewJpeg(), format = 1 } = {})
     jpeg,
 ));
 
-/** A 1 x 1 RGB document. Version 2 is the large document format (PSB). */
-export const createPsd = ({ version = 1, colorModeData = [], resources = [psdPreviewResource()] } = {}) => {
+// PackBits, as an RLE merged image stores each row: repeated bytes become a count and a value, the rest is copied.
+const packRow = (row) => {
+    const packed = [];
+    for ( let start = 0; start < row.length; ) {
+        let run = 1;
+        while ( start + run < row.length && run < 128 && row[start + run] === row[start] ) run++;
+        if ( run > 1 ) {
+            packed.push(257 - run, row[start]);
+            start += run;
+            continue;
+        }
+        let length = 1;
+        while ( start + length < row.length && length < 128 && row[start + length] !== row[start + length - 1] ) length++;
+        // The byte that stopped the scan starts the next run.
+        if ( start + length < row.length && length < 128 && length > 1 ) length--;
+        packed.push(length - 1, ...row.slice(start, start + length));
+        start += length;
+    }
+    return packed;
+};
+
+/**
+ * A Photoshop document, by default 1 x 1 white RGB. Version 2 is the large document format (PSB).
+ *
+ * `channels` holds one array of samples per channel of the merged image, rows top to bottom. A negative
+ * `layerCount` marks the channel after the colors as transparency. `compression` is 0 (raw) or 1 (RLE).
+ */
+export const createPsd = ({
+    version = 1,
+    colorModeData = [],
+    resources = [psdPreviewResource()],
+    width = 1,
+    height = 1,
+    depth = 8,
+    colorMode = 3,
+    channels = Array.from({ length: 3 }, () => new Uint8Array(width * height * depth / 8).fill(255)),
+    layerCount = 0,
+    compression = 0,
+} = {}) => {
     const resourceBytes = concat(...resources);
+    // Section lengths and RLE row lengths are twice as wide in a PSB.
+    const length = value => (version === 2 ? [...u32(0), ...u32(value)] : u32(value));
+    const rowBytes = width * depth / 8;
+    const rows = channels.flatMap(channel => Array.from({ length: height }, (_, row) =>
+        [...channel.slice(row * rowBytes, (row + 1) * rowBytes)]));
+    const packedRows = rows.map(packRow);
     return concat(
         ascii('8BPS'),
         u16(version),
         new Uint8Array(6),
-        u16(3),
-        u32(1),
-        u32(1),
-        u16(8),
-        u16(3),
+        u16(channels.length),
+        u32(height),
+        u32(width),
+        u16(depth),
+        u16(colorMode),
         u32(colorModeData.length),
         colorModeData,
         u32(resourceBytes.length),
         resourceBytes,
-        // Empty layer and mask section, whose length field is 8 bytes in a PSB.
-        new Uint8Array(version === 2 ? 8 : 4),
-        // Uncompressed composite: one white pixel.
-        u16(0),
-        [255, 255, 255],
+        // Layer and mask section: empty, or a layer info block holding only the layer count.
+        ...(layerCount ? [length(length(0).length + 2), length(2), u16(layerCount & 0xffff)] : [length(0)]),
+        u16(compression),
+        ...(compression === 1
+            ? [...packedRows.map(row => (version === 2 ? u32(row.length) : u16(row.length))), ...packedRows]
+            : channels),
     );
 };

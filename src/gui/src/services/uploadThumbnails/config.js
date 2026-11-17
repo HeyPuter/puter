@@ -8,3 +8,6 @@ export const PDF_THUMBNAIL_DIMENSION = 128;
 export const PDF_THUMBNAIL_MAX_BYTES = 2 * 1024 * 1024;
 export const PSD_PREVIEW_MAX_READ_BYTES = 1024 * 1024;
 export const PSD_PREVIEW_MAX_BYTES = 1024 * 1024;
+export const PSD_COMPOSITE_MAX_READ_BYTES = 16 * 1024 * 1024;
+// Twice the thumbnail's size, so the image generator's downscale smooths the sampled rows.
+export const PSD_COMPOSITE_DIMENSION = 256;

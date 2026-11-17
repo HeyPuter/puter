@@ -13,8 +13,14 @@ Photoshop stores a small JPEG preview in the image resources near the start of
 a PSD or PSB. `psd.js` walks those resources, seeking past each one's data, and
 hands the preview to the image generator above, which scales it like any other
 image. Nothing is rendered, so a document of any size costs a few small reads
-and needs no worker or extra assets. Documents saved without a preview, which
-some other editors write, retain their normal icon.
+and needs no worker or extra assets.
+
+Other editors often save no preview. `psd.js` then scales down the merged image
+stored after the layers, raw or RLE-compressed, into a BMP of at most 256 pixels
+a side for the same image generator. It reads only the rows that BMP samples, so
+the cost follows the document's width, not its size. Transparency is flattened
+onto white. Documents that are not RGB or grayscale at 8 or 16 bits per channel,
+and documents wide enough to exceed the read budget, retain their normal icon.
 
 ## PDF
 
@@ -43,7 +49,7 @@ Run `npm test -- src/services/uploadThumbnails` from `src/gui` for scheduling te
 and Chromium rendering tests (`npx playwright install chromium` if needed).
 The browser tests use the same asset-copy step as production, render real PDF
 fixtures, and check first-page pixels, text, rotation, image delegation, failure
-recovery and termination of CPU-bound work. They also decode the thumbnail made
-from a PSD fixture's preview. The SDK upload suites cover callback
+recovery and termination of CPU-bound work. They also decode the thumbnails made
+from a PSD fixture's preview and from a fixture's merged image. The SDK upload suites cover callback
 compatibility and cancellation; its HTTP transport tests cover thumbnail
 failure, timeout and original-file failure separately.

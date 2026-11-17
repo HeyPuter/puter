@@ -181,39 +181,58 @@ describe('Upload thumbnails in a real browser', () => {
         }
     });
 
-    it.each([false, true])('scales the preview embedded in a PSD (bundled: %s)', async (bundled) => {
+    it.each([false, true])('scales a PSD\'s embedded preview, or else its merged image (bundled: %s)', async (bundled) => {
         const page = await browser.newPage();
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
         try {
             await page.goto(bundled ? `${origin}/bundled` : origin);
             await page.waitForFunction(() => window.createUploadThumbnailGenerator);
-            const result = await page.evaluate(async ({ psd, withoutPreview }) => {
+            const result = await page.evaluate(async ({ psd, withoutPreview, cmyk }) => {
                 const generate = window.createUploadThumbnailGenerator();
                 // The bundled page has no SDK generator to pass, as with an SDK that predates the callback context.
                 const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
-                const [thumbnail, ...skipped] = await Promise.all([
+                const [preview, merged, ...skipped] = await Promise.all([
                     new File([new Uint8Array(psd)], 'art.psd'),
                     new File([new Uint8Array(withoutPreview)], 'flat.psd'),
+                    new File([new Uint8Array(cmyk)], 'print.psd'),
                     new File(['not a Photoshop document'], 'broken.psd', { type: 'image/vnd.adobe.photoshop' }),
                 ].map(file => generate(file, context)));
-                if ( ! thumbnail ) return null;
-                const image = new Image();
-                image.src = thumbnail;
-                await image.decode();
-                const canvas = document.createElement('canvas');
-                canvas.width = image.width;
-                canvas.height = image.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(image, 0, 0);
-                return { width: image.width, height: image.height, pixel: [...ctx.getImageData(5, 5, 1, 1).data], skipped };
-            }, { psd: [...createPsd()], withoutPreview: [...createPsd({ resources: [psdResource(1005, [1, 2])] })] });
-            expect(result).toMatchObject({ width: 128, height: 64, skipped: [undefined, undefined] });
-            const [red, green, blue, alpha] = result.pixel;
-            expect(red).toBeGreaterThan(240);
-            expect(green).toBeLessThan(15);
-            expect(blue).toBeLessThan(15);
-            expect(alpha).toBe(255);
+                const decode = async (thumbnail) => {
+                    if ( ! thumbnail ) return null;
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    const pixel = y => [...ctx.getImageData(5, y, 1, 1).data];
+                    return { width: image.width, height: image.height, top: pixel(5), bottom: pixel(image.height - 5) };
+                };
+                return { preview: await decode(preview), merged: await decode(merged), skipped };
+            }, {
+                psd: [...createPsd()],
+                // 600 x 300, green where it is opaque; the top half is transparent.
+                withoutPreview: [...createPsd({
+                    resources: [psdResource(1005, [1, 2])],
+                    width: 600,
+                    height: 300,
+                    channels: [0, 255, 0].map(value => new Uint8Array(600 * 300).fill(value))
+                        .concat(new Uint8Array(600 * 300).fill(255, 600 * 150)),
+                    layerCount: -1,
+                    compression: 1,
+                })],
+                cmyk: [...createPsd({ resources: [], colorMode: 4, channels: [[0], [0], [0], [0]] })],
+            });
+            const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 15);
+            expect(result.preview).toMatchObject({ width: 128, height: 64 });
+            expect(result.preview.top).toSatisfy(near([255, 0, 0, 255]));
+            expect(result.merged).toMatchObject({ width: 128, height: 64 });
+            expect(result.merged.top).toSatisfy(near([255, 255, 255, 255]));
+            expect(result.merged.bottom).toSatisfy(near([0, 255, 0, 255]));
+            expect(result.skipped).toEqual([undefined, undefined]);
             expect(errors).toEqual([]);
         } finally {
             await page.close();

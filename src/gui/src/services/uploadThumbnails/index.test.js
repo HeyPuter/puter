@@ -140,10 +140,19 @@ describe('GUI upload thumbnail scheduling', () => {
         expect(bundledImageGenerator.mock.calls[0][0].type).toBe('image/jpeg');
     });
 
+    it('hands the image generator the merged image of a PSD saved without a preview', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const file = new File([createPsd({ resources: [psdResource(1005, [1, 2])] })], 'art.psd');
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator).toHaveBeenCalledOnce();
+        expect(defaultGenerator.mock.calls[0][0].type).toBe('image/bmp');
+        expect(workers).toHaveLength(0);
+    });
+
     it.each([
-        createPsd({ resources: [psdResource(1005, [1, 2])] }),
+        createPsd({ resources: [], colorMode: 4, channels: [[0], [0], [0], [0]] }),
         'not a Photoshop document',
-    ])('skips a PSD without a readable preview', async (content) => {
+    ])('skips a PSD with no image it can read', async (content) => {
         const defaultGenerator = vi.fn(async () => thumbnail);
         const generate = createUploadThumbnailGenerator();
         expect(await generate(new File([content], 'art.psd'), { defaultGenerator })).toBeUndefined();

@@ -15,8 +15,9 @@ writer.encrypt('test-only-password')
 writer.write('encrypted.pdf')
 ```
 
-`psd.js` builds 1 × 1 Photoshop documents (PSD and PSB) section by section, with
-any list of image resources. The default document carries a thumbnail resource
-holding a 160 × 80 red JPEG, encoded once with sharp.
+`psd.js` builds Photoshop documents (PSD and PSB) section by section, with any
+list of image resources and any merged image, stored raw or RLE-compressed. The
+default document is 1 × 1 and carries a thumbnail resource holding a 160 × 80
+red JPEG, encoded once with sharp.
 
 These fixtures contain no user documents or production credentials.

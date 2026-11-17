@@ -108,7 +108,7 @@ export const createUploadThumbnailGenerator = () => {
                     ? context.defaultGenerator
                     : defaultThumbnailGenerator;
                 const isPsd = file.type === 'image/vnd.adobe.photoshop' || /\.ps[db]$/i.test(file.name || '');
-                // Browsers can't decode a PSD, so the image generator gets the preview Photoshop embedded in it.
+                // Browsers can't decode a PSD, so the image generator gets its embedded preview or a scaled-down copy.
                 const image = isPsd ? await readPsdPreview(file, context?.signal) : file;
                 return image ? await imageGenerator(image) : undefined;
             }
