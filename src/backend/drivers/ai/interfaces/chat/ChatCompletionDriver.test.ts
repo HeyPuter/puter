@@ -938,6 +938,85 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         }
     });
 
+    describe('when the balance would cut the reply short', () => {
+        // 8192 output tokens at 2000 µ¢ each: ~16.4M µ¢ for the full reply.
+        const capme = async () => {
+            vi.spyOn(
+                FakeChatProvider.prototype,
+                'models',
+            ).mockResolvedValueOnce([
+                {
+                    id: 'capme',
+                    aliases: [],
+                    costs_currency: 'usd-cents',
+                    costs: { input_tokens: 1000, output_tokens: 2000 },
+                    max_tokens: 8192,
+                },
+            ]);
+            return makeDriver();
+        };
+        const completeCapme = async (d: ChatCompletionDriver) => {
+            const completeSpy = vi
+                .spyOn(FakeChatProvider.prototype, 'complete')
+                .mockResolvedValueOnce({
+                    message: {
+                        role: 'assistant',
+                        content: [{ type: 'text', text: 'ok' }],
+                    },
+                    usage: { input_tokens: 1, output_tokens: 1 },
+                    finish_reason: 'stop',
+                } as never);
+            await withTestActor(() =>
+                d.complete({
+                    model: 'capme',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+            return (completeSpy.mock.calls[0]![0] as ICompleteArguments)
+                .max_tokens;
+        };
+
+        it('asks for a top-up and gives the reply its full output limit', async () => {
+            const d = await capme();
+            const headroom = vi
+                .spyOn(server.services.metering, 'getUsageHeadroom')
+                .mockResolvedValueOnce({ balance: 100_000, held: 0 })
+                .mockResolvedValue({ balance: 100_000_000, held: 0 });
+            const refill = vi.fn(
+                (_key: string, refusal: { refilled: boolean }) => {
+                    refusal.refilled = true;
+                },
+            );
+            server.clients.event.on('metering.out-of-credits', refill as never);
+            try {
+                expect(await completeCapme(d)).toBe(8192);
+                expect(refill).toHaveBeenCalledTimes(1);
+                expect(headroom).toHaveBeenCalledTimes(2);
+            } finally {
+                server.clients.event.off(
+                    'metering.out-of-credits',
+                    refill as never,
+                );
+            }
+        });
+
+        it('asks no listener when the balance covers the full reply', async () => {
+            const d = await capme();
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 100_000_000, held: 0 });
+            const refill = vi.fn();
+            server.clients.event.on('metering.out-of-credits', refill);
+            try {
+                expect(await completeCapme(d)).toBe(8192);
+                expect(refill).not.toHaveBeenCalled();
+            } finally {
+                server.clients.event.off('metering.out-of-credits', refill);
+            }
+        });
+    });
+
     it('caps `max_tokens` so output cannot exceed remaining credits', async () => {
         // Inject a model with canonical `output_tokens` cost so the
         // `outputTokenCost > 0` branch triggers (fake-chat:costly uses
