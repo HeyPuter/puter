@@ -535,7 +535,8 @@ describe('OpenAITTSProvider.synthesize on a token-billed model', () => {
             eventResponse(
                 audioEvent('AAA-') +
                     audioEvent('BBB') +
-                    doneEvent({ input_tokens: 3, output_tokens: 40 }),
+                    doneEvent({ input_tokens: 3, output_tokens: 40 }) +
+                    'data: [DONE]\n\n',
             ),
         );
 

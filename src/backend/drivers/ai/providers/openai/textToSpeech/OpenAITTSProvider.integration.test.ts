@@ -26,10 +26,13 @@
  */
 
 import { Readable } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { UsageInput } from '../../../../../services/metering/types.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import {
     INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
+    readStreamResult,
     withTestActor,
 } from '../../../shared/integrationTestUtil.js';
 import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
@@ -67,6 +70,48 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
             }
             const total = chunks.reduce((n, c) => n + c.length, 0);
             expect(total).toBeGreaterThan(0);
+        });
+
+        it('streams gpt-4o-mini-tts audio and bills the tokens OpenAI reports', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+            const billed: UsageInput[][] = [];
+            const metering = {
+                ...makeMeteringStub(),
+                batchIncrementUsages: async (_actor: unknown, usages: UsageInput[]) => {
+                    billed.push(usages);
+                    return [];
+                },
+            } as unknown as AiMeteringService;
+            const provider = new OpenAITTSProvider(metering, {
+                apiKey: optionalEnv(ENV_VAR)!,
+            });
+
+            const audio = await readStreamResult(
+                await withTestActor(() =>
+                    provider.synthesize({
+                        text: 'Hello from Puter.',
+                        model: 'gpt-4o-mini-tts',
+                        voice: 'alloy',
+                        instructions: 'Speak calmly.',
+                    }),
+                ),
+            );
+
+            // MP3: an ID3 tag or a frame sync.
+            expect(
+                audio.subarray(0, 3).toString('latin1') === 'ID3' ||
+                    (audio[0] === 0xff && (audio[1]! & 0xe0) === 0xe0),
+            ).toBe(true);
+            await vi.waitFor(() => expect(billed).toHaveLength(1));
+            const [input, output] = billed[0]!;
+            expect(input).toMatchObject({
+                usageType: 'openai:gpt-4o-mini-tts:input',
+                usageAmount: expect.any(Number),
+            });
+            expect(output).toMatchObject({
+                usageType: 'openai:gpt-4o-mini-tts:output:audio',
+                usageAmount: expect.any(Number),
+            });
+            expect(output!.usageAmount).toBeGreaterThan(0);
         });
     },
 );

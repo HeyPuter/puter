@@ -75,7 +75,7 @@ const speechEventAudio = (
                         .map((line) => line.slice(5).trimStart())
                         .join('\n');
                     pending = pending.slice(end + 2);
-                    if (!data) continue;
+                    if (!data || data === '[DONE]') continue;
                     const event = JSON.parse(data);
                     if (
                         event?.type === 'speech.audio.delta' &&
