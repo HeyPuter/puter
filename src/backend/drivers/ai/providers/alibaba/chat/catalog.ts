@@ -85,6 +85,11 @@ const positiveLimit = (value: unknown): number | undefined =>
 const chatCapabilities = ['TG', 'Reasoning', 'VU'];
 
 const curatedPuterIds = new Set(ALIBABA_MODELS.map((model) => model.puterId));
+const curatedAliasOwners = new Map(
+    ALIBABA_MODELS.flatMap((model) =>
+        (model.aliases ?? []).map((alias) => [alias, model.id] as const),
+    ),
+);
 
 const inferPuterId = (id: string): string => {
     if (id.includes('/')) return `alibaba:${id}`;
@@ -267,11 +272,21 @@ export const fetchAlibabaCatalog = async (
         for (const raw of entries) {
             if (typeof raw.model !== 'string' || !raw.model.trim())
                 throw new Error('Invalid Alibaba model id');
-            seen.add(raw.model.trim());
-            const model = mapAlibabaCatalogModel(
-                raw,
-                models.get(raw.model.trim()),
-            );
+            const id = raw.model.trim();
+            seen.add(id);
+            // A snapshot or -latest name that a curated model carries as an alias
+            // names that model, so its alibaba: spelling becomes one more alias.
+            const owner = models.get(curatedAliasOwners.get(id) ?? '');
+            if (owner) {
+                const name = inferPuterId(id);
+                if (name !== owner.puterId && !owner.aliases?.includes(name))
+                    models.set(owner.id, {
+                        ...owner,
+                        aliases: [...(owner.aliases ?? []), name],
+                    });
+                continue;
+            }
+            const model = mapAlibabaCatalogModel(raw, models.get(id));
             if (model) models.set(model.id, model);
         }
         if (models.size > 20_000)
