@@ -109,6 +109,10 @@ const readObjectStream = async (
     return { objects, inflated };
 };
 
+/** A PDF header within the first 1 KB, where readers look for it. */
+export const isPdf = (bytes: Buffer): boolean =>
+    bytes.subarray(0, 1024).includes('%PDF-');
+
 /**
  * Pages in a PDF, read from its page tree without a full parse: the larger of
  * the tree's `/Count` and the number of page objects, since a crafted file can
@@ -119,7 +123,7 @@ export async function countPdfPages(
     pdf: Buffer,
     limit = Infinity,
 ): Promise<number | null> {
-    if (!pdf.subarray(0, 1024).includes('%PDF-')) return null;
+    if (!isPdf(pdf)) return null;
     const text = pdf.toString('latin1');
     // Zlib bombs are a fixed multiple of their compressed size; scale the
     // ceiling down for small files instead of always allowing the max.

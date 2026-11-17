@@ -1364,13 +1364,10 @@ describe('OCRDriver credit pre-flight', () => {
     it('falls back to 20 pages per MB for documents it cannot count', async () => {
         const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValue({ pages: [] });
-        const unreadablePdf = Buffer.alloc(1024 * 1024, 0xff);
-        unreadablePdf.write('%PDF-1.7\n', 'latin1');
         const docx =
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
         for (const source of [
-            pdfSource(unreadablePdf),
             dataUrl(Buffer.alloc(512 * 1024), docx),
             // Small unreadable input stays at one page.
             pdfSource(Buffer.from('x')),
@@ -1380,7 +1377,57 @@ describe('OCRDriver credit pre-flight', () => {
             );
         }
 
-        expect(checkedCosts()).toEqual([perPage * 20, perPage * 10, perPage]);
+        expect(checkedCosts()).toEqual([perPage * 10, perPage]);
+    });
+
+    describe('a PDF whose pages it cannot count', () => {
+        // A 256 KB PDF whose page tree is hidden in an unreadable stream: its
+        // size suggests 5 pages at 20 per MB.
+        const unreadablePdf = Buffer.alloc(256 * 1024, 0xff);
+        unreadablePdf.write('%PDF-1.7\n', 'latin1');
+        const recognize = (actor: Actor, pages?: number[]) =>
+            withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(unreadablePdf),
+                    provider: 'mistral',
+                    ...(pages ? { pages } : {}),
+                }),
+            );
+        const sentPages = () =>
+            mistralOcrProcessMock.mock.calls.map(([payload]) => payload.pages);
+
+        it('holds the page limit when the balance covers it', async () => {
+            const { actor } = await makeUser();
+            mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+            admitSpy.mockImplementationOnce((who, amount, opts) =>
+                server.services.metering.reserveCredits(who, amount, opts),
+            );
+
+            await recognize(actor);
+
+            expect(checkedCosts()).toEqual([perPage * 1000]);
+            expect(sentPages()).toEqual([undefined]);
+        });
+
+        it('reads only the leading pages its size suggests when the balance does not', async () => {
+            const { actor } = await makeUser();
+            mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+
+            await recognize(actor);
+
+            expect(checkedCosts()).toEqual([perPage * 1000, perPage * 5]);
+            expect(sentPages()).toEqual([[0, 1, 2, 3, 4]]);
+        });
+
+        it('holds only the selected pages', async () => {
+            const { actor } = await makeUser();
+            mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+
+            await recognize(actor, [0, 1, 2]);
+
+            expect(checkedCosts()).toEqual([perPage * 3]);
+            expect(sentPages()).toEqual([[0, 1, 2]]);
+        });
     });
 
     it('counts an image, and any Textract input, as one page', async () => {
