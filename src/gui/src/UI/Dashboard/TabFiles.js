@@ -19,7 +19,7 @@
 
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
-import { createUploadThumbnailGenerator } from '../../services/pdfThumbnails/index.js';
+import { createUploadThumbnailGenerator } from '../../services/uploadThumbnails/index.js';
 import path from '../../lib/path.js';
 import open_item from '../../helpers/openItem.js';
 import UIContextMenu from '../UIContextMenu.js';

@@ -7,6 +7,7 @@ import {
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_BYTES,
 } from './config.js';
+import { readPsdPreview } from './psd.js';
 
 // Capture the bundle URL during evaluation; currentScript is null when an upload starts.
 const bundleUrl = globalThis.document?.currentScript?.src;
@@ -106,7 +107,10 @@ export const createUploadThumbnailGenerator = () => {
                 const imageGenerator = typeof context?.defaultGenerator === 'function'
                     ? context.defaultGenerator
                     : defaultThumbnailGenerator;
-                return await imageGenerator(file);
+                const isPsd = file.type === 'image/vnd.adobe.photoshop' || /\.ps[db]$/i.test(file.name || '');
+                // Browsers can't decode a PSD, so the image generator gets the preview Photoshop embedded in it.
+                const image = isPsd ? await readPsdPreview(file, context?.signal) : file;
+                return image ? await imageGenerator(image) : undefined;
             }
             if ( ! file.size || file.size > PDF_THUMBNAIL_MAX_FILE_BYTES ||
                 typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined' ) {

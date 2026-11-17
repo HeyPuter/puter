@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyPdfThumbnailAssets } from '../../../tools/copyPdfThumbnailAssets.js';
 import { createPdf } from '../../../tests/fixtures/pdf.js';
+import { createPsd, psdResource } from '../../../tests/fixtures/psd.js';
 
 let browser;
 let server;
@@ -27,7 +28,7 @@ beforeAll(async () => {
             output: {
                 path: directory,
                 filename: 'bundle.js',
-                library: { name: 'pdfThumbnails', type: 'window' },
+                library: { name: 'uploadThumbnails', type: 'window' },
             },
         });
         compiler.run((error, stats) => {
@@ -60,9 +61,9 @@ beforeAll(async () => {
     app.use('/src', express.static(fileURLToPath(new URL('../../', import.meta.url))));
     app.get('/bundled', (req, res) => res.send(`<!doctype html><title>Bundled thumbnail test</title>
         <script src="${req.query.cdn ? `${cdnOrigin}/assets` : '/dist'}/bundle.js?v=1"></script>
-        <script>window.createUploadThumbnailGenerator = window.pdfThumbnails.createUploadThumbnailGenerator;</script>`));
+        <script>window.createUploadThumbnailGenerator = window.uploadThumbnails.createUploadThumbnailGenerator;</script>`));
     app.get('/', (_req, res) => res.send(`<!doctype html><title>Thumbnail test</title><script type="module">
-        import { createUploadThumbnailGenerator } from '/src/services/pdfThumbnails/index.js';
+        import { createUploadThumbnailGenerator } from '/src/services/uploadThumbnails/index.js';
         import { defaultThumbnailGenerator } from '/puter-js/src/modules/FileSystem/operations/upload/thumbnails.js';
         window.defaultGenerator = defaultThumbnailGenerator;
         window.createUploadThumbnailGenerator = createUploadThumbnailGenerator;
@@ -81,7 +82,7 @@ afterAll(async () => {
     if ( directory ) await rm(directory, { recursive: true, force: true });
 });
 
-describe('PDF thumbnails in a real browser', () => {
+describe('Upload thumbnails in a real browser', () => {
     it.each([false, true])('loads renderer assets beside the bundle (CDN: %s)', async (cdn) => {
         const page = await browser.newPage();
         const requests = [];
@@ -175,6 +176,45 @@ describe('PDF thumbnails in a real browser', () => {
             expect(result.thumbnails[2]).toBeUndefined();
             expect(result.withoutContext).toMatch(/^data:image\//);
             expect(result.original).toBe(createPdf());
+        } finally {
+            await page.close();
+        }
+    });
+
+    it.each([false, true])('scales the preview embedded in a PSD (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async ({ psd, withoutPreview }) => {
+                const generate = window.createUploadThumbnailGenerator();
+                // The bundled page has no SDK generator to pass, as with an SDK that predates the callback context.
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const [thumbnail, ...skipped] = await Promise.all([
+                    new File([new Uint8Array(psd)], 'art.psd'),
+                    new File([new Uint8Array(withoutPreview)], 'flat.psd'),
+                    new File(['not a Photoshop document'], 'broken.psd', { type: 'image/vnd.adobe.photoshop' }),
+                ].map(file => generate(file, context)));
+                if ( ! thumbnail ) return null;
+                const image = new Image();
+                image.src = thumbnail;
+                await image.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(image, 0, 0);
+                return { width: image.width, height: image.height, pixel: [...ctx.getImageData(5, 5, 1, 1).data], skipped };
+            }, { psd: [...createPsd()], withoutPreview: [...createPsd({ resources: [psdResource(1005, [1, 2])] })] });
+            expect(result).toMatchObject({ width: 128, height: 64, skipped: [undefined, undefined] });
+            const [red, green, blue, alpha] = result.pixel;
+            expect(red).toBeGreaterThan(240);
+            expect(green).toBeLessThan(15);
+            expect(blue).toBeLessThan(15);
+            expect(alpha).toBe(255);
+            expect(errors).toEqual([]);
         } finally {
             await page.close();
         }

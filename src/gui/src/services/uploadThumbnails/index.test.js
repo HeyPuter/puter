@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
 import {
     PDFJS_VERSION,
     PDF_THUMBNAIL_BATCH_TIMEOUT_MS,
@@ -119,6 +120,36 @@ describe('GUI upload thumbnail scheduling', () => {
             expect(bundledImageGenerator).toHaveBeenCalledWith(file);
             expect(workers).toHaveLength(0);
         });
+
+    it.each([
+        new File([createPsd()], 'art.psd'),
+        new File([createPsd({ version: 2 })], 'art.PSB'),
+        new File([createPsd()], 'art', { type: 'image/vnd.adobe.photoshop' }),
+    ])('hands the image generator the preview embedded in a PSD', async (file) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator).toHaveBeenCalledOnce();
+        const [image] = defaultGenerator.mock.calls[0];
+        expect(image.type).toBe('image/jpeg');
+        expect(new Uint8Array(await image.arrayBuffer())).toEqual(psdPreviewJpeg());
+        expect(workers).toHaveLength(0);
+    });
+
+    it('uses the bundled image generator for a PSD when the SDK passes no context', async () => {
+        expect(await createUploadThumbnailGenerator()(new File([createPsd()], 'art.psd'))).toBe(bundledThumbnail);
+        expect(bundledImageGenerator.mock.calls[0][0].type).toBe('image/jpeg');
+    });
+
+    it.each([
+        createPsd({ resources: [psdResource(1005, [1, 2])] }),
+        'not a Photoshop document',
+    ])('skips a PSD without a readable preview', async (content) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        expect(await generate(new File([content], 'art.psd'), { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).not.toHaveBeenCalled();
+        expect(workers).toHaveLength(0);
+    });
 
     it('preserves graceful failure of the image generator', async () => {
         expect(await createUploadThumbnailGenerator()(new File(['x'], 'x.png'), {

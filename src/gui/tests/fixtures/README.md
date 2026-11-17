@@ -1,4 +1,4 @@
-# PDF thumbnail fixtures
+# Upload thumbnail fixtures
 
 `pdf.js` builds small test PDFs with correct cross-reference offsets: a red first
 page with text or an image and a blue second page. It supports page rotation and
@@ -14,5 +14,9 @@ writer.add_blank_page(width=300, height=600)
 writer.encrypt('test-only-password')
 writer.write('encrypted.pdf')
 ```
+
+`psd.js` builds 1 × 1 Photoshop documents (PSD and PSB) section by section, with
+any list of image resources. The default document carries a thumbnail resource
+holding a 160 × 80 red JPEG, encoded once with sharp.
 
 These fixtures contain no user documents or production credentials.
