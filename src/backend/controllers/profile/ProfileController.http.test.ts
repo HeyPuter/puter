@@ -196,7 +196,7 @@ describe('profile routes over HTTP', () => {
                 'private, no-cache',
             );
             const etag = first.headers.get('etag')!;
-            expect(etag).toMatch(/^"[^"]+"$/);
+            expect(etag).toMatch(/^W\/"[^"]+"$/);
 
             const read = vi.spyOn(env.server.services.fs, 'readContent');
             try {
@@ -220,6 +220,70 @@ describe('profile routes over HTTP', () => {
             expect(again.status).toBe(200);
             expect(again.etag).not.toBe(etag);
             expect(JSON.parse(again.body)).toMatchObject({ bio: 'after' });
+        });
+
+        // The file is written before its entry, and an entry can be read
+        // from a cache or replica that has not caught up.
+        describe('while the file entry is behind the file', () => {
+            const profileEntry = async () =>
+                (await env.server.stores.fsEntry.getEntryByPath(
+                    `/system/profiles/${userUuid}.profile`,
+                ))!;
+            const serveEntry = (entry: unknown) => {
+                const getEntryByPath =
+                    env.server.stores.fsEntry.getEntryByPath.bind(
+                        env.server.stores.fsEntry,
+                    );
+                return vi
+                    .spyOn(env.server.stores.fsEntry, 'getEntryByPath')
+                    .mockImplementation(async (path, options) =>
+                        path.startsWith('/system/profiles/')
+                            ? (entry as never)
+                            : getEntryByPath(path, options),
+                    );
+            };
+
+            it('tags a response by the profile it carries', async () => {
+                await post({ bio: 'first' }, env.users.user.token);
+                const firstTag = (
+                    await get('', env.users.user.token)
+                ).headers.get('etag')!;
+                const behind = await profileEntry();
+                await post({ bio: 'second' }, env.users.user.token);
+
+                const spy = serveEntry(behind);
+                try {
+                    const response = await get('', env.users.user.token);
+                    expect(await response.json()).toMatchObject({
+                        bio: 'second',
+                    });
+                    expect(response.headers.get('etag')).not.toBe(firstTag);
+                } finally {
+                    spy.mockRestore();
+                }
+            });
+
+            it('still answers 304 for a profile stored before tags were kept, after reading it', async () => {
+                await post({ bio: 'kept' }, env.users.user.token);
+                const untagged = { ...(await profileEntry()), metadata: null };
+                const spy = serveEntry(untagged);
+                const read = vi.spyOn(env.server.services.fs, 'readContent');
+                try {
+                    const etag = (
+                        await get('', env.users.user.token)
+                    ).headers.get('etag')!;
+                    const again = await revalidate(
+                        '',
+                        etag,
+                        env.users.user.token,
+                    );
+                    expect(again.status).toBe(304);
+                    expect(read).toHaveBeenCalledTimes(2);
+                } finally {
+                    read.mockRestore();
+                    spy.mockRestore();
+                }
+            });
         });
 
         it('tags an account that has stored no profile', async () => {

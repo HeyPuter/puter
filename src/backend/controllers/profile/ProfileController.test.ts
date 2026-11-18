@@ -67,6 +67,7 @@ describe('ProfileController own profile', () => {
         let body: unknown;
         const res = {
             set: () => res,
+            vary: () => res,
             json: (value: unknown) => {
                 body = value;
             },

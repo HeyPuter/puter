@@ -37,12 +37,17 @@ export type ProfileField = (typeof PROFILE_FIELDS)[number];
 /** Every field present; `null` where the user has set nothing. */
 export type UserProfile = Record<ProfileField, string | null>;
 
-/** A stored profile's version, known without reading the file, and its reader. */
+/** A stored profile's tag, known without reading the file, and its reader. */
 export interface OpenedProfile {
-    /** An HTTP entity tag; null for a profile stored before versions were kept. */
+    /** A weak entity tag; null for a profile stored before tags were kept. */
     etag: string | null;
-    read(): Promise<UserProfile>;
+    /**
+     * The profile and the tag of the bytes read, which differs from `etag`
+     * while the file entry is behind the file.
+     */
+    read(): Promise<{ profile: UserProfile; etag: string }>;
 }
+
 /** Fields to change; `null` clears one, an absent field is left alone. */
 export type UserProfilePatch = Partial<UserProfile>;
 
@@ -78,16 +83,30 @@ const FIELDS_TAG = createHash('sha256')
 
 const contentVersion = (buffer: Buffer) =>
     createHash('sha256').update(buffer).digest('base64url').slice(0, 22);
+const NO_PROFILE_VERSION = 'none';
+
+// Weak: the compressed and plain bodies share it.
+const versionEtag = (version: string) => `W/"${version}.${FIELDS_TAG}"`;
 
 const entryEtag = (entry: FSEntry | null): string | null => {
-    if (!entry) return `"none.${FIELDS_TAG}"`;
+    if (!entry) return versionEtag(NO_PROFILE_VERSION);
     let version: unknown;
     try {
         version = JSON.parse(entry.metadata ?? 'null')?.[VERSION_METADATA_KEY];
     } catch {
         return null;
     }
-    return typeof version === 'string' ? `"${version}.${FIELDS_TAG}"` : null;
+    return typeof version === 'string' ? versionEtag(version) : null;
+};
+
+const parseStored = (buffer: Buffer | null): Record<string, unknown> | null => {
+    if (!buffer) return null;
+    try {
+        const parsed: unknown = JSON.parse(buffer.toString('utf8'));
+        return isPlainObject(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
 };
 
 const emptyProfile = (): UserProfile => ({
@@ -189,7 +208,7 @@ export class ProfileService extends PuterService {
 
     /** The profile as stored, with every field present. */
     async getProfile(user: Pick<UserRow, 'uuid'>): Promise<UserProfile> {
-        return (await this.openProfile(user)).read();
+        return (await (await this.openProfile(user)).read()).profile;
     }
 
     /**
@@ -200,7 +219,15 @@ export class ProfileService extends PuterService {
         const entry = await this.#storedEntry(user.uuid);
         return {
             etag: entryEtag(entry),
-            read: async () => this.#normalize(await this.#readEntry(entry)),
+            read: async () => {
+                const bytes = await this.#readBytes(entry);
+                return {
+                    profile: this.#normalize(parseStored(bytes)),
+                    etag: versionEtag(
+                        bytes ? contentVersion(bytes) : NO_PROFILE_VERSION,
+                    ),
+                };
+            },
         };
     }
 
@@ -214,7 +241,9 @@ export class ProfileService extends PuterService {
     ): Promise<UserProfile> {
         const changes = this.validatePatch(patch);
         const current =
-            (await this.#readEntry(await this.#storedEntry(user.uuid))) ?? {};
+            parseStored(
+                await this.#readBytes(await this.#storedEntry(user.uuid)),
+            ) ?? {};
         const next: Record<string, string> = {};
         for (const field of PROFILE_FIELDS) {
             const value =
@@ -340,23 +369,14 @@ export class ProfileService extends PuterService {
         return entry && !entry.isDir ? entry : null;
     }
 
-    async #readEntry(
-        entry: FSEntry | null,
-    ): Promise<Record<string, unknown> | null> {
+    async #readBytes(entry: FSEntry | null): Promise<Buffer | null> {
         if (!entry) return null;
         const { body } = await this.services.fs.readContent(entry);
         const chunks: Buffer[] = [];
         for await (const chunk of body) {
             chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
         }
-        try {
-            const parsed: unknown = JSON.parse(
-                Buffer.concat(chunks).toString('utf8'),
-            );
-            return isPlainObject(parsed) ? parsed : null;
-        } catch {
-            return null;
-        }
+        return Buffer.concat(chunks);
     }
 
     async #writeStored(

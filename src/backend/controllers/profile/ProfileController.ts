@@ -101,6 +101,7 @@ export class ProfileController extends PuterController {
         }
         // Stored and revalidated on every read, by the caller's browser only.
         res.set('Cache-Control', 'private, no-cache');
+        res.vary('Accept-Encoding');
         if (profile.etag) {
             res.set('ETag', profile.etag);
             if (req.fresh) {
@@ -108,7 +109,10 @@ export class ProfileController extends PuterController {
                 return;
             }
         }
-        res.json(await profile.read());
+        // Tagged by what was read; `res.json` answers 304 when that matches.
+        const { profile: body, etag } = await profile.read();
+        res.set('ETag', etag);
+        res.json(body);
     }
 
     /** POST /profile — update the signed-in user's own profile. */
