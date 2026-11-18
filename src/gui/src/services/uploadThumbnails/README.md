@@ -7,6 +7,11 @@ videos delegate to that image generator; when the running SDK predates the callb
 context (it then passes only the file), the GUI's bundled copy of the SDK image
 generator is used instead, so image thumbnails do not depend on deploy order.
 
+A thumbnail of a PDF, a Word document or a spreadsheet is a picture of a page.
+The Files tab shows it in the grid views and shows the file's type icon in list
+rows, where a page would be a blank square. `kinds.js` holds the names that make
+a file a document, for the generator and for the icon helper alike.
+
 ## PSD
 
 Photoshop stores a small JPEG preview in the image resources near the start of

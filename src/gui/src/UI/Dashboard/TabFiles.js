@@ -342,7 +342,7 @@ const TabFiles = {
 
             // A weblink's or app's icon is read from the file. Another folder
             // may have opened meanwhile, or the row arrived another way.
-            const icon = await item_icon(file);
+            const icon = await _this.rowIcon(file);
             if ( _this.renderingDirectory || _this.currentPath !== parentDir ) return;
             if ( _this.$el_window.find(`.files-tab .files .item[data-uid='${file.uid}']`).length > 0 ) return;
 
@@ -1952,7 +1952,7 @@ const TabFiles = {
      */
     followRename ($row, fsentry, oldPath) {
         this.insertAtSortedPosition($row, fsentry);
-        item_icon(fsentry).then(({ image }) => {
+        this.rowIcon(fsentry).then(({ image }) => {
             $row.find('.item-icon > img').first().attr('src', image);
         });
         if ( fsentry.is_dir && oldPath && fsentry.path && fsentry.path !== oldPath ) {
@@ -3302,7 +3302,7 @@ const TabFiles = {
         // theirs from the file) and a row is appended once its icon lands, so
         // resolve every icon first and append in sorted order. allSettled so
         // one failure can't reject the batch and leave renderingDirectory stuck.
-        const iconResults = await Promise.allSettled(sortedContents.map(file => item_icon(file)));
+        const iconResults = await Promise.allSettled(sortedContents.map(file => this.rowIcon(file)));
         if ( seq !== this.renderSeq ) return;
 
         // Same-directory refresh: the stale rows stayed on screen during the
@@ -3503,7 +3503,7 @@ const TabFiles = {
         const is_shortcut = file.is_shortcut ? 1 : 0;
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
-        if ( ! iconResult ) iconResult = await item_icon(file);
+        if ( ! iconResult ) iconResult = await this.rowIcon(file);
         const icon = `<img alt="" src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
         // A dot-file only reaches this point when the preference reveals it;
@@ -3939,7 +3939,7 @@ const TabFiles = {
                 if ( ! _this.applyHiddenRule($(el_item), fsentry.name ?? new_name) ) return;
                 $(el_item).attr('data-type', fsentry.type ?? '');
                 _this.insertAtSortedPosition($(el_item), fsentry);
-                item_icon(fsentry).then(({ image }) => {
+                _this.rowIcon(fsentry).then(({ image }) => {
                     $(el_item).find('.item-icon > img').first().attr('src', image);
                 });
             });
@@ -4754,6 +4754,17 @@ const TabFiles = {
      */
     isGridView () {
         return this.currentView === 'grid' || this.currentView === 'grid-sm';
+    },
+
+    /**
+     * The icon a row shows for an entry in the current view. Thumbnails fill the
+     * grid views; in the list, a document shows its type icon.
+     *
+     * @param {Object} fsentry
+     * @returns {Promise<{ image: string, type: string }>}
+     */
+    rowIcon (fsentry) {
+        return item_icon(fsentry, { listRow: !this.isGridView() });
     },
 
     /**

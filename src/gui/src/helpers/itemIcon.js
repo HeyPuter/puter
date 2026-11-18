@@ -18,6 +18,7 @@
  */
 
 import mime from '../lib/mime.js';
+import { isPageDocument } from '../services/uploadThumbnails/kinds.js';
 import content_type_to_icon from './contentTypeToIcon.js';
 import { getWeblinkIcon } from './weblink.js';
 
@@ -31,9 +32,12 @@ import { getWeblinkIcon } from './weblink.js';
  * @param {Object} fsentry - A filesystem entry object. It may contain various properties
  * like name, type, path, associated_app, thumbnail, is_dir, and metadata, depending on
  * the type of filesystem entry.
+ * @param {Object} [options]
+ * @param {boolean} [options.listRow] - Whether the icon goes in a list row. A document's
+ * thumbnail is a page, which is a blank square at that size, so it gets its type icon there.
  */
 
-const item_icon = async (fsentry) => {
+const item_icon = async (fsentry, { listRow = false } = {}) => {
     // --------------------------------------------------
     // If this file is Trashed then set the name to the original name of the file before it was trashed
     // --------------------------------------------------
@@ -51,7 +55,7 @@ const item_icon = async (fsentry) => {
     // --------------------------------------------------
     // thumbnail
     // --------------------------------------------------
-    if ( fsentry.thumbnail ) {
+    if ( fsentry.thumbnail && !(listRow && !fsentry.is_dir && isPageDocument(fsentry.name)) ) {
         // if thumbnail but a directory under AppData, then it's a thumbnail for an app and must be treated as an icon
         if ( fsentry.path.startsWith(`${window.appdata_path }/`) )
         {

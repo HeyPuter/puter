@@ -11,6 +11,7 @@ import {
 } from './config.js';
 import { readDocPreview } from './doc.js';
 import { readDocxPreview } from './docx.js';
+import { PDF_NAME, SPREADSHEET_NAME, WORD_NAME } from './kinds.js';
 import { readPsdPreview } from './psd.js';
 import { readVideoFrame } from './video.js';
 import { readXlsxPreview } from './xlsx.js';
@@ -151,7 +152,7 @@ export const createUploadThumbnailGenerator = () => {
     return async (file, context) => {
         try {
             if ( context?.signal?.aborted ) return undefined;
-            const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+            const isPdf = file.type === 'application/pdf' || PDF_NAME.test(file.name || '');
             if ( ! isPdf ) {
                 // SDKs that predate the callback context pass only the file; images still need thumbnails then.
                 const imageGenerator = typeof context?.defaultGenerator === 'function'
@@ -162,11 +163,11 @@ export const createUploadThumbnailGenerator = () => {
                 let image = file;
                 if ( file.type === 'image/vnd.adobe.photoshop' || /\.ps[db]$/i.test(name) ) {
                     image = await readPsdPreview(file, context?.signal);
-                } else if ( WORD_TYPE.test(file.type) || /\.do[ct][xm]?$/i.test(name) ) {
+                } else if ( WORD_TYPE.test(file.type) || WORD_NAME.test(name) ) {
                     // A name doesn't settle which of the two formats a document is in. Each reader checks the signature.
                     image = await queueOffice(async signal => await readDocxPreview(file, signal) ??
                         readDocPreview(file, signal), context?.signal);
-                } else if ( SPREADSHEET_TYPE.test(file.type) || /\.xl[st][xm]$/i.test(name) ) {
+                } else if ( SPREADSHEET_TYPE.test(file.type) || SPREADSHEET_NAME.test(name) ) {
                     image = await queueOffice(signal => readXlsxPreview(file, signal), context?.signal);
                 } else if ( VIDEO_TYPE.test(file.type) || /\.(mp4|m4v|mov|webm)$/i.test(name) ) {
                     image = await queueVideo(signal => readVideoFrame(file, signal), context?.signal);
