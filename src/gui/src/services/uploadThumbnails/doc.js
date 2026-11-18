@@ -51,17 +51,20 @@ const openCompoundFile = async (file) => {
         sector = list.getUint32(sectorBytes - 4, true);
     }
 
-    // The first `count` sectors of a chain. The allocation table holds, for each sector, the one that follows it.
+    // The first `count` sectors of a chain, or more. The allocation table holds, for each sector, the one that follows
+    // it. A chain is walked once and continued from where the walk stopped, however many reads go through it.
+    const chains = new Map();
     const chainOf = async (first, count) => {
-        const sectors = [];
-        for ( let sector = first; sectors.length < Math.min(count, sectorCount) && sector <= MAX_SECTOR; ) {
-            sectors.push(sector);
-            const tableSector = tableSectors[Math.floor(sector / perSector)];
+        const chain = chains.get(first) ?? { sectors: [], next: first };
+        chains.set(first, chain);
+        while ( chain.sectors.length < Math.min(count, sectorCount) && chain.next <= MAX_SECTOR ) {
+            const tableSector = tableSectors[Math.floor(chain.next / perSector)];
             const table = tableSector <= MAX_SECTOR && await readTable(positionOf(tableSector), sectorBytes, sectorBytes);
             if ( ! table ) return undefined;
-            sector = table.getUint32(sector % perSector * 4, true);
+            chain.sectors.push(chain.next);
+            chain.next = table.getUint32(chain.next % perSector * 4, true);
         }
-        return sectors;
+        return chain.sectors;
     };
 
     const readChain = async (first, offset, length) => {

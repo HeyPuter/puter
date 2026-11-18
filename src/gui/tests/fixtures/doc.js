@@ -138,16 +138,17 @@ export const createCompoundFile = (streams) => {
 /**
  * A Word document whose text is `pieces`, each `{ text, compressed }`: a compressed piece is stored one byte per
  * character, the others as UTF-16. `small` keeps both streams under 4096 bytes, `flags` are added to the header's,
- * `formatting` puts that many bytes of formatting ahead of the piece table, and `extra` adds more streams.
+ * `formatting` puts that many bytes of formatting ahead of the piece table, `textStart` is where in the main stream
+ * the text begins, and `extra` adds more streams.
  */
 export const createDoc = ({
     pieces = [{ text: 'Hello\r', compressed: true }],
     small = false,
     flags = 0,
     formatting = 0,
+    textStart = 1024,
     extra = {},
 } = {}) => {
-    const textStart = 1024;
     const encoded = pieces.map(({ text, compressed }) => (compressed
         ? Uint8Array.from(text, character => character.charCodeAt(0))
         : new Uint8Array(Uint16Array.from(text, character => character.charCodeAt(0)).buffer)));

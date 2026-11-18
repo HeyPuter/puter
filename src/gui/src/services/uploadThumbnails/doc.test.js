@@ -111,6 +111,19 @@ describe('readDocPreview', () => {
         expect(preview === undefined || preview instanceof File).toBe(true);
     });
 
+    it('follows a stream\'s chain of sectors once, however many pieces of text are read through it', async () => {
+        // Eight thousand pieces of one character each, 2 MiB into the main stream: 4096 sectors down its chain.
+        const pieces = Array.from({ length: 8000 }, (_, index) => compressed(index % 50 === 49 ? '\r' : 'x'));
+        const file = docFile({ pieces, textStart: 2 * 1024 * 1024 });
+        const bytesRead = trackReads();
+        expect(await readDocPreview(file)).toBeInstanceOf(File);
+        // Every line of the page is there: 648 points between the margins hold 45 lines of 14.4 points.
+        const lines = linesOf(drawn);
+        expect(lines).toHaveLength(45);
+        expect(lines.every(line => line.text === 'x'.repeat(49))).toBe(true);
+        expect(bytesRead()).toBeLessThan(300_000);
+    });
+
     it('does not take the size of small streams from the file', async () => {
         const bytes = createDoc({ small: true });
         const view = new DataView(bytes.buffer);
