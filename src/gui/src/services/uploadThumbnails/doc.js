@@ -8,6 +8,8 @@ const DIRECTORY_ENTRY_BYTES = 128;
 const MAX_DIRECTORY_SECTORS = 4096;
 const MAX_DIRECTORY_ENTRIES = 256;
 const MINI_SECTOR_BYTES = 64;
+// Streams shorter than this are kept in the mini stream. The format fixes the value, so the header's copy is not used.
+const MINI_CUTOFF_BYTES = 4096;
 const ENTRY_TYPE_STREAM = 2;
 const WORD_SIGNATURE = 0xa5ec;
 const FLAG_ENCRYPTED = 0x0100;
@@ -34,7 +36,6 @@ const openCompoundFile = async (file) => {
     if ( !header || header.getUint32(0) !== 0xd0cf11e0 || header.getUint32(4) !== 0xa1b11ae1 ) return undefined;
     const sectorBytes = 1 << header.getUint16(30, true);
     if ( sectorBytes !== 512 && sectorBytes !== 4096 ) return undefined;
-    const miniCutoff = header.getUint32(56, true);
     const perSector = sectorBytes / 4;
     const sectorCount = Math.ceil(file.size / sectorBytes);
     const positionOf = sector => (sector + 1) * sectorBytes;
@@ -120,7 +121,7 @@ const openCompoundFile = async (file) => {
 
     const read = async (stream, offset, length) => {
         if ( offset + length > stream.size ) return undefined;
-        const bytes = stream.size < miniCutoff
+        const bytes = stream.size < MINI_CUTOFF_BYTES
             ? (stream.bytes ??= await readSmallStream(stream))?.subarray(offset, offset + length)
             : await readChain(stream.start, offset, length);
         return bytes && new DataView(bytes.buffer, bytes.byteOffset, bytes.length);

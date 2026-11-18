@@ -111,6 +111,22 @@ describe('readDocPreview', () => {
         expect(preview === undefined || preview instanceof File).toBe(true);
     });
 
+    it('does not take the size of small streams from the file', async () => {
+        const bytes = createDoc({ small: true });
+        const view = new DataView(bytes.buffer);
+        // The header claims every stream is a small one, and the main stream claims to be a gigabyte long...
+        view.setUint32(56, 0xffffffff, true);
+        const name = Uint8Array.from('WordDocument', character => character.charCodeAt(0));
+        const entry = bytes.findIndex((_, at) => name.every((code, index) => bytes[at + index * 2] === code && bytes[at + index * 2 + 1] === 0));
+        view.setUint32(entry + 120, 1023 * 1024 * 1024, true);
+        // ...on a chain of small sectors that never ends.
+        const firstSector = view.getUint32(entry + 116, true);
+        view.setUint32((view.getUint32(60, true) + 1) * 512 + firstSector * 4, firstSector, true);
+        const started = performance.now();
+        expect(await readDocPreview(new File([bytes], 'letter.doc'))).toBeUndefined();
+        expect(performance.now() - started).toBeLessThan(1000);
+    });
+
     it.each([
         ['an empty file', new Uint8Array(0)],
         ['a file that is not a compound file', new TextEncoder().encode('not a document, only named like one'.repeat(40))],
