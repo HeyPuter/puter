@@ -308,6 +308,18 @@ describe('PuterHomepageService — gui() parameters', () => {
         expect(params.app_origin).toBe('http://req-host.test');
     });
 
+    it('names the configured AuthMe relays', async () => {
+        expect(
+            guiParamsOf(await render(makeService())).authmeRelayOrigins,
+        ).toEqual([]);
+        const service = makeService({
+            authmeRelayOrigins: ['https://relay.puter.test'],
+        });
+        expect(guiParamsOf(await render(service)).authmeRelayOrigins).toEqual([
+            'https://relay.puter.test',
+        ]);
+    });
+
     it('reports captcha requirements from config', async () => {
         expect(
             guiParamsOf(await render(makeService())).captchaRequired,

@@ -866,6 +866,13 @@ interface IConfigOptional {
      * builds and serves itself.
      */
     first_party_session_origins?: string[];
+    /**
+     * Exact origins of relays that receive an AuthMe grant and pass it on to
+     * the host they name in `forwards_to`, refusing a flow whose host differs.
+     * The authorization dialog names that host only for a redirect to one of
+     * these origins.
+     */
+    authmeRelayOrigins?: string[];
     /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
     url_signature_secret: string;
     /**
