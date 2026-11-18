@@ -93,6 +93,22 @@ describe('shared app browser', () => {
         expect(actions.showAlert).not.toHaveBeenCalled();
     });
 
+    it('takes the saved layout from the boot batch on the first load only', async () => {
+        const reads = [];
+        puter.kv.get = vi.fn(async key => {
+            reads.push(key);
+            return saved.get(typeof key === 'object' ? key.key : key);
+        });
+        const layoutKeys = [APPS_ORDER_KV_KEY, REMOVED_APPS_KV_KEY, APP_GROUPS_KV_KEY];
+        await mount();
+        expect(reads).toEqual(expect.arrayContaining(layoutKeys));
+
+        reads.length = 0;
+        await browser.loadApps($root);
+        expect(reads).toEqual(expect.arrayContaining(layoutKeys.map(key => ({ key }))));
+        expect(reads.filter(key => typeof key === 'string')).toEqual([]);
+    });
+
     it('saves one layout at a time, sending only the newest once the last write lands', async () => {
         await mount({ editable: true });
         const writes = [];
