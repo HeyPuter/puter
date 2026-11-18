@@ -18,6 +18,7 @@
  */
 
 import { AppOriginBlocklistService } from './abuse/AppOriginBlocklistService';
+import { AlarmCallService } from './alarm/AlarmCallService';
 import { ACLService } from './acl/ACLService';
 import { AppIconService } from './appIcon/AppIconService';
 import { AppPermissionService } from './apps/AppPermissionService';
@@ -93,6 +94,7 @@ declare module './types' {
         userAccount: UserAccountService;
         signup: SignupService;
         openaiRealtime: OpenAIRealtimeRelayService;
+        alarmCalls: AlarmCallService;
     }
 }
 
@@ -169,4 +171,5 @@ export const puterServices = {
     localworkerservice: LocalWorkerService,
     // Authenticates through `auth` and meters through `metering`.
     openaiRealtime: OpenAIRealtimeRelayService,
+    alarmCalls: AlarmCallService,
 } satisfies IPuterServiceRegistry;

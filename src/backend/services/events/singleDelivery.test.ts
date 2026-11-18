@@ -1059,8 +1059,8 @@ describe('when a delivery cannot be held', () => {
             'events_pending_enqueue_failed',
             expect.stringMatching(noInfraWording()),
             expect.objectContaining({ subId: expect.any(String) }),
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'platform' },
         );
     });
 
@@ -1074,8 +1074,8 @@ describe('when a delivery cannot be held', () => {
             'events_pending_ceiling',
             expect.stringMatching(noInfraWording()),
             expect.objectContaining({ subId: row.subId }),
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'platform' },
         );
         // What it shed, it was told about: the marker took the delivery's place.
         expect(sent).toHaveLength(1);

@@ -1079,6 +1079,7 @@ describe('MeteringService', () => {
                 expect.stringContaining(actor.user!.email!),
                 expect.objectContaining({ usageType: 'kv:read' }),
                 'info',
+                { channel: 'billing' },
             );
             alarmSpy.mockRestore();
         });
@@ -1616,6 +1617,7 @@ describe('MeteringService', () => {
                 expect.stringContaining(actor.user!.email!),
                 expect.objectContaining({ usageType: 'kv:read' }),
                 'info',
+                { channel: 'billing' },
             );
             alarmSpy.mockRestore();
         });
@@ -4819,6 +4821,7 @@ describe('MeteringService', () => {
                     unchargedCost: 900,
                 }),
                 'info',
+                { channel: 'billing' },
             );
             expect(
                 alarm.mock.calls.some(([id]) =>
@@ -4885,6 +4888,7 @@ describe('MeteringService', () => {
                     expect.any(String),
                     expect.objectContaining({ unchargedCost: 0 }),
                     'info',
+                    { channel: 'billing' },
                 );
                 alarm.mockRestore();
             } finally {

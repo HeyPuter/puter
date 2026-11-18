@@ -19,9 +19,10 @@
 
 import type { ISlackAlertConfig, PagerSeverity } from '../../types';
 import { BoundedTtlMap } from '../../util/boundedTtlMap';
-import type { AlertHandler, AlertPayload } from './types';
+import type { AlertDelivery, AlertHandler, AlertPayload } from './types';
 
 const REQUEST_TIMEOUT_MS = 5000;
+const SLACK_API = 'https://slack.com/api';
 export const DEFAULT_REPEAT_THROTTLE_MS = 15 * 60 * 1000;
 
 /** Beyond this many tracked alarm ids, throttle state is pruned. */
@@ -66,9 +67,9 @@ function truncate(value: string, max: number): string {
 }
 
 /**
- * Render an alert as an incoming-webhook payload: severity-coloured attachment,
- * the alarm's fields as a table, and the stack (when there is one) as a code
- * block. Split out from the handler so the formatting is testable on its own.
+ * Render an alert as a message body (webhook or `chat.postMessage`):
+ * severity-coloured attachment, the alarm's fields as a table, and the stack
+ * (when there is one) as a code block.
  */
 export function buildSlackMessage(
     alert: AlertPayload,
@@ -76,7 +77,10 @@ export function buildSlackMessage(
 ): SlackMessage {
     const style = STYLE[alert.severity] ?? STYLE.info;
     const repeat = alert.isRepeat ? ` (x${alert.repeatCount})` : '';
-    const headline = `${style.emoji} *[${alert.severity.toUpperCase()}]* ${alert.message}${repeat}`;
+    const call = alert.callGroup
+        ? ` :telephone_receiver: calling \`${alert.callGroup}\``
+        : '';
+    const headline = `${style.emoji} *[${alert.severity.toUpperCase()}]* ${alert.message}${repeat}${call}`;
 
     const fields: SlackField[] = [];
     for (const [key, value] of Object.entries(alert.fields)) {
@@ -113,51 +117,141 @@ export function buildSlackMessage(
     };
 }
 
+/** The channel an alert posts to: its key's mapping, else the default. */
+export function resolveSlackChannel(
+    conf: ISlackAlertConfig,
+    key: string | undefined,
+): string | undefined {
+    const mapped =
+        key && conf.channels && Object.hasOwn(conf.channels, key)
+            ? conf.channels[key]
+            : undefined;
+    return mapped || conf.channel;
+}
+
 /**
- * Post alerts to a Slack incoming webhook. Repeats of the same alarm id are
- * throttled so a hot loop doesn't flood the channel — the occurrence count on
- * the next post that gets through tells the reader what they missed.
+ * Post alerts to Slack: through the Web API with a bot token, which can reach
+ * any channel and link to the message, or else to an incoming webhook. Repeats
+ * of the same alarm id are throttled so a hot loop doesn't flood the channel —
+ * the occurrence count on the next post that gets through tells the reader what
+ * they missed.
  */
 export function createSlackAlertHandler(
     conf: ISlackAlertConfig,
     opts: { serverId?: string } = {},
 ): AlertHandler {
-    const webhookUrl = conf.webhookUrl as string;
     const throttleMs = conf.repeatThrottleMs ?? DEFAULT_REPEAT_THROTTLE_MS;
     // A zero or negative throttle expires every entry on arrival.
     const lastPosted = new BoundedTtlMap<string, true>({
         maxEntries: MAX_THROTTLE_ENTRIES,
         ttlMs: throttleMs,
     });
+    const post = conf.botToken
+        ? postWithBot(conf.botToken)
+        : postToWebhook(conf.webhookUrl as string);
 
     return async (alert) => {
         if (!lastPosted.shouldEmit(alert.id)) return;
 
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        const message = buildSlackMessage(alert, {
+            channel: resolveSlackChannel(conf, alert.channel),
+            username: conf.username,
+            serverId: opts.serverId,
+        });
         try {
-            const res = await fetch(webhookUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(
-                    buildSlackMessage(alert, {
-                        channel: conf.channel,
-                        username: conf.username,
-                        serverId: opts.serverId,
-                    }),
-                ),
-                signal: controller.signal,
-            });
-            if (!res.ok) {
-                // A rejected post shouldn't leave the id marked as delivered.
-                lastPosted.delete(alert.id);
-                throw new Error(`Slack webhook returned ${res.status}`);
-            }
+            return await post(message, alert);
         } catch (err) {
+            // A rejected post shouldn't leave the id marked as delivered.
             lastPosted.delete(alert.id);
             throw err;
-        } finally {
-            clearTimeout(timer);
         }
     };
+}
+
+type SlackPost = (
+    message: SlackMessage,
+    alert: AlertPayload,
+) => Promise<AlertDelivery | void>;
+
+function postToWebhook(webhookUrl: string): SlackPost {
+    return (message) =>
+        slackFetch(
+            webhookUrl,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(message),
+            },
+            async (res) => {
+                if (!res.ok)
+                    throw new Error(`Slack webhook returned ${res.status}`);
+            },
+        );
+}
+
+/** Only an alert that calls asks for its permalink; that's a second request. */
+function postWithBot(token: string): SlackPost {
+    const auth = { Authorization: `Bearer ${token}` };
+    return async (message, alert) => {
+        const posted = await slackApi<{ channel: string; ts: string }>(
+            'chat.postMessage',
+            {
+                method: 'POST',
+                headers: {
+                    ...auth,
+                    'Content-Type': 'application/json; charset=utf-8',
+                },
+                body: JSON.stringify(message),
+            },
+        );
+        if (!alert.callGroup) return {};
+
+        const query = new URLSearchParams({
+            channel: posted.channel,
+            message_ts: posted.ts,
+        });
+        // The message is posted either way; a missing link must not repost it.
+        try {
+            const link = await slackApi<{ permalink: string }>(
+                `chat.getPermalink?${query}`,
+                { headers: auth },
+            );
+            return { url: link.permalink };
+        } catch (err) {
+            console.warn(
+                `[alarm] Slack permalink lookup failed: ${(err as Error)?.message}`,
+            );
+            return {};
+        }
+    };
+}
+
+/** Web API methods answer 200 with `ok: false` on failure. */
+function slackApi<T>(method: string, init: RequestInit): Promise<T> {
+    return slackFetch(`${SLACK_API}/${method}`, init, async (res) => {
+        if (!res.ok) throw new Error(`Slack ${method} returned ${res.status}`);
+        const body = (await res.json()) as {
+            ok?: boolean;
+            error?: string;
+        } & T;
+        if (!body.ok) throw new Error(`Slack ${method} failed: ${body.error}`);
+        return body;
+    });
+}
+
+/** The timeout covers `read` as well as the response headers. */
+async function slackFetch<T>(
+    url: string,
+    init: RequestInit,
+    read: (res: Response) => Promise<T>,
+): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+        return await read(
+            await fetch(url, { ...init, signal: controller.signal }),
+        );
+    } finally {
+        clearTimeout(timer);
+    }
 }

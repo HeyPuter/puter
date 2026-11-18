@@ -1076,7 +1076,8 @@ describe('AppPermissionService — cross-app grant withdrawal', () => {
                 expect.stringContaining('app_data_grant_withdrawal_failed'),
                 expect.any(String),
                 expect.objectContaining({ targetAppUid: target.uid }),
-                'warning',
+                'info',
+                { channel: 'platform' },
             );
         } finally {
             spy.mockRestore();
