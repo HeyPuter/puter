@@ -269,18 +269,36 @@ describe('GUI upload thumbnail scheduling', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('keeps reading Word documents after one fails or the upload is cancelled', async () => {
+    it('keeps reading Office documents after one makes its reader throw', async () => {
+        vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        // The main part is stored, and its directory entry says it is deflated, so inflating it fails.
+        const broken = createDocx({ stored: ['word/document.xml'] });
+        const name = new TextEncoder().encode('word/document.xml');
+        broken[broken.findLastIndex((_, index) => name.every((byte, offset) => broken[index + offset] === byte)) - 36] = 8;
+        const { readDocxPreview } = await import('./docx.js');
+        await expect(readDocxPreview(new File([broken], 'broken.docx'))).rejects.toThrow();
+        const results = await Promise.all([
+            generate(new File([broken], 'broken.docx'), { defaultGenerator }),
+            generate(new File([createDocx()], 'report.docx'), { defaultGenerator }),
+        ]);
+        expect(results).toEqual([undefined, thumbnail]);
+    });
+
+    it('skips the Office documents still queued when the upload is cancelled', async () => {
         vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
         const defaultGenerator = vi.fn(async () => thumbnail);
         const generate = createUploadThumbnailGenerator();
         const controller = new AbortController();
+        const read = vi.spyOn(Blob.prototype, 'arrayBuffer');
+        const results = Promise.all(['a.docx', 'b.docx', 'c.docx'].map(name =>
+            generate(new File([createDocx()], name), { defaultGenerator, signal: controller.signal })));
+        // The first document's turn has come, and the others wait for it.
         controller.abort();
-        const results = await Promise.all([
-            generate(new File([createDocx({ flags: 1 })], 'locked.docx'), { defaultGenerator }),
-            generate(new File([createDocx()], 'cancelled.docx'), { defaultGenerator, signal: controller.signal }),
-            generate(new File([createDocx()], 'report.docx'), { defaultGenerator }),
-        ]);
-        expect(results).toEqual([undefined, undefined, thumbnail]);
+        expect(await results).toEqual([undefined, undefined, undefined]);
+        expect(defaultGenerator).not.toHaveBeenCalled();
+        expect(read).not.toHaveBeenCalled();
     });
 
     it.each([
