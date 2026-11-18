@@ -1,5 +1,16 @@
 // Small, deterministic PDFs with real cross-reference tables, generated without a PDF library.
-export const createPdf = ({ rotation = 0, scanned = false, imageSize = 1 } = {}) => {
+import { deflateSync } from 'node:zlib';
+
+/**
+ * A two-page PDF: a red first page with text, or with an image when `scanned`, and a blue second page. The image
+ * states `imageSize` pixels a side. It holds one red pixel of data, or every pixel when `filled`.
+ */
+export const createPdf = ({ rotation = 0, scanned = false, imageSize = 1, filled = false } = {}) => {
+    // Hex text keeps the PDF a plain string. A filled image is deflated first, so it stays small.
+    const pixels = filled
+        ? deflateSync(Buffer.alloc(imageSize * imageSize * 3, Buffer.from([255, 0, 0]))).toString('hex')
+        : 'ff0000';
+    const imageFilter = filled ? '[/ASCIIHexDecode /FlateDecode]' : '/ASCIIHexDecode';
     const content = scanned
         ? 'q 300 0 0 600 0 0 cm /Im1 Do Q'
         : '1 0 0 rg 0 0 300 600 re f BT /F1 36 Tf 1 1 1 rg 20 300 Td (Thumbnail) Tj ET';
@@ -10,7 +21,7 @@ export const createPdf = ({ rotation = 0, scanned = false, imageSize = 1 } = {})
         `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 600] /Rotate ${rotation} /Resources << /Font << /F1 4 0 R >> /XObject << /Im1 6 0 R >> >> /Contents 5 0 R >>`,
         '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
         stream(content),
-        `<< /Type /XObject /Subtype /Image /Width ${imageSize} /Height ${imageSize} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 7 >>\nstream\nff0000>\nendstream`,
+        `<< /Type /XObject /Subtype /Image /Width ${imageSize} /Height ${imageSize} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter ${imageFilter} /Length ${pixels.length + 1} >>\nstream\n${pixels}>\nendstream`,
         '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 600] /Contents 8 0 R >>',
         stream('0 0 1 rg 0 0 300 600 re f'),
     ];

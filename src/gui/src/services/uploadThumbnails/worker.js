@@ -2,6 +2,7 @@
 import { getDocument } from './pdf.mjs';
 import { WorkerMessageHandler } from './pdf.worker.mjs';
 import {
+    PDF_THUMBNAIL_MAX_IMAGE_PIXELS,
     PDF_THUMBNAIL_MAX_PIXELS,
     PDF_THUMBNAIL_DIMENSION,
     PDF_THUMBNAIL_MAX_BYTES,
@@ -50,7 +51,8 @@ self.onmessage = async ({ data: file }) => {
             enableXfa: false,
             stopAtErrors: true,
             verbosity: 0,
-            maxImageSize: PDF_THUMBNAIL_MAX_PIXELS,
+            // An image over the canvas budget is decoded and scaled down to it; one over this is not decoded at all.
+            maxImageSize: PDF_THUMBNAIL_MAX_IMAGE_PIXELS,
             canvasMaxAreaInBytes: PDF_THUMBNAIL_MAX_PIXELS * 4,
             CanvasFactory: ThumbnailCanvasFactory,
         });

@@ -4,8 +4,8 @@ import {
     PSD_PREVIEW_MAX_BYTES,
     PSD_PREVIEW_MAX_READ_BYTES,
 } from './config.js';
+import { createReader } from './reader.js';
 
-const READ_WINDOW_BYTES = 64 * 1024;
 // Needed rows closer together than this share a read; reading the rows between them costs less than another seek.
 const ROW_WINDOW_BYTES = 16 * 1024;
 const FILE_SIGNATURE = 0x38425053; // '8BPS'
@@ -19,24 +19,6 @@ const COLOR_MODE_RGB = 3;
 const COMPRESSION_RAW = 0;
 const COMPRESSION_RLE = 1;
 const BMP_HEADER_BYTES = 54;
-
-// Serves small reads from one buffered window, so skipping a large resource costs a seek instead of its bytes.
-const createReader = (file, maxReadBytes) => {
-    let windowStart = 0;
-    let windowBytes = new Uint8Array(0);
-    let bytesRead = 0;
-    return async (offset, length, windowLength = READ_WINDOW_BYTES) => {
-        if ( offset < windowStart || offset + length > windowStart + windowBytes.length ) {
-            const end = Math.min(file.size, offset + Math.max(length, windowLength));
-            if ( offset + length > end || bytesRead + end - offset > maxReadBytes ) return undefined;
-            windowBytes = new Uint8Array(await file.slice(offset, end).arrayBuffer());
-            windowStart = offset;
-            bytesRead += windowBytes.length;
-            if ( windowBytes.length < length ) return undefined;
-        }
-        return new DataView(windowBytes.buffer, offset - windowStart, length);
-    };
-};
 
 // PackBits: a count byte below 128 copies the next count + 1 bytes, one above 128 repeats the next byte 257 - count times.
 const unpackRow = (packed, row) => {

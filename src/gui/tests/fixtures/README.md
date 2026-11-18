@@ -20,4 +20,31 @@ list of image resources and any merged image, stored raw or RLE-compressed. The
 default document is 1 × 1 and carries a thumbnail resource holding a 160 × 80
 red JPEG, encoded once with sharp.
 
+`docx.js` builds Word documents (DOCX) as ZIP archives, deflated with Node's
+zlib, from a main part's body and optional styles, media and stored thumbnail.
+`doc.js` builds Word 97-2003 documents as OLE compound files, sector by sector,
+with the text in one-byte or UTF-16 pieces. Both were checked against other
+readers when written: `unzip -t` for the archives, and `file` and the Python
+`olefile` package for the compound files.
+
+`xlsx.js` builds spreadsheets (XLSX) the same way, from the content of a
+worksheet and optional shared strings, styles and theme colors. It was checked
+by loading its output with the Python `openpyxl` package.
+
+`pptx.js` builds presentations (PPTX) of one slide on one layout and one
+master, with a theme and optional media. It was checked by loading its output
+with the Python `python-pptx` package.
+
+`video.mp4` is two seconds of 160 × 80 VP9 video: black for the first tenth of a
+second, then green. It was recorded in Chromium, which can play it without
+proprietary codecs, from a canvas:
+
+```js
+const stream = canvas.captureStream(30);
+const recorder = new MediaRecorder(stream, { mimeType: 'video/mp4;codecs=vp9', videoBitsPerSecond: 60000 });
+```
+
+`canvas.js` stands in for OffscreenCanvas in tests that run without a browser,
+recording each piece of text, fill, line and image drawn.
+
 These fixtures contain no user documents or production credentials.

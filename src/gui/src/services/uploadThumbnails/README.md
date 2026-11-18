@@ -2,10 +2,15 @@
 
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
-callback's second argument. Files that are neither PDFs nor PSDs delegate to
-that image generator; when the running SDK predates the callback context (it
-then passes only the file), the GUI's bundled copy of the SDK image generator is
-used instead, so image thumbnails do not depend on deploy order.
+callback's second argument. Files that are not PDFs, Illustrator files, PSDs,
+Office documents or videos delegate to that image generator; when the running SDK predates the callback
+context (it then passes only the file), the GUI's bundled copy of the SDK image
+generator is used instead, so image thumbnails do not depend on deploy order.
+
+A thumbnail of a PDF, a Word document, a spreadsheet or a presentation is a picture of a page.
+The Files tab shows it in the grid views and shows the file's type icon in list
+rows, where a page would be a blank square. `kinds.js` holds the names that make
+a file a document, for the generator and for the icon helper alike.
 
 ## PSD
 
@@ -22,7 +27,97 @@ the cost follows the document's width, not its size. Transparency is flattened
 onto white. Documents that are not RGB or grayscale at 8 or 16 bits per channel,
 and documents wide enough to exceed the read budget, retain their normal icon.
 
+## Word documents
+
+A DOCX is a ZIP archive of XML parts. `ooxml.js` lists the archive from the
+directory at its end, and `docx.js` inflates only the parts it needs. Some
+editors store a JPEG of the first page in the archive; when it is there, it goes
+to the image generator as it is.
+
+Otherwise `docx.js` reads the main part up to the first page break and
+`page.js` draws that page on a canvas of at most 256 pixels a side: paragraphs
+with their font size, weight, color, alignment, indent and spacing, taken from
+the document's styles and direct formatting, table cells side by side, and
+pictures at their stated size. Text wraps to the page's width and margins, and
+paragraphs that start with a right-to-left letter are laid out from the right.
+The result is a likeness of the page, not a rendering of it: every font is drawn
+as the browser's sans-serif, and headers, footers, borders, shading and floating
+positions are not drawn.
+
+`doc.js` reads a Word 97-2003 document, an OLE compound file, by following the
+sector chains of its main and table streams to the text. It draws the text alone
+on a US Letter page; the format's binary formatting is not read.
+
+Both readers are tried on every Word file, because a `.doc` is sometimes a DOCX
+and the reverse; each reader checks the file's signature first. Encrypted
+documents, and documents whose first page is blank, retain their normal icon.
+
+## Spreadsheets
+
+An XLSX is the same kind of archive, and a stored first-page JPEG is used the
+same way. Otherwise `xlsx.js` reads the first visible worksheet and draws the
+480 points at its top-left corner on a square canvas: gridlines, the sheet's
+column widths and row heights, each cell's fill, and each cell's text in its
+font size, weight, color and alignment. Text aligned left runs on over the empty
+cells beside it, and a sheet set to run right to left is laid out from the right
+edge. Colors come from the cell formats: given directly, taken from the
+workbook's theme, or picked from the standard palette. Numbers are drawn as stored, so a date shows as its serial
+number; number formats, merged cells, borders, charts and pictures are not
+drawn. A sheet with nothing in view retains its normal icon.
+
+## Presentations
+
+A PPTX is the same kind of archive again, and PowerPoint stores a first-slide
+JPEG in it by default, which is used as it is. Otherwise `pptx.js` finds the
+first slide the presentation lists, then the layout it builds on, that layout's
+master and the master's theme, and draws the slide on a canvas of its own shape,
+at most 256 pixels a side:
+
+- the background the slide, its layout or its master gives it, a color or a
+  picture;
+- what the master and the layout add to every slide, under the slide's own
+  shapes: everything of theirs that is not a placeholder;
+- each shape's fill, for boxes and ellipses, each picture in its box, and each
+  shape's text, wrapped to the box and set at its top, middle or bottom.
+
+A placeholder that states no position takes its layout's, or else its master's,
+and its text takes its size, weight, color, alignment, indent and list marker
+from the same chain, ending in the master's text styles. Colors named after the
+theme go through the master's map of names, so a dark deck draws dark. Groups
+place their shapes through their own space. A gradient is drawn as its first
+color; lines, tables, charts, shadows, rotation and shapes other than boxes and
+ellipses are not drawn. A slide with nothing to draw retains its normal icon.
+
+A thumbnail stored in the file is whatever its editor last saved there. A deck
+written by a tool that copies a template can carry the template's.
+
+Office documents are read on the desktop thread, in a few milliseconds each. An
+upload reads them one at a time, and the ones still queued when its preparation
+deadline passes retain their normal icon.
+
+## Videos
+
+`video.js` loads an MP4, MOV, M4V or WebM file into a detached `<video>`
+element, seeks a tenth of the way in (at most 10 seconds), and draws that frame
+on a canvas of at most 256 pixels a side. The browser's player does the
+demuxing and decoding, reading only the parts of the file it needs, so the cost
+does not grow with the file.
+
+Two things are there for WebKit. The video is preloaded in full (`auto`),
+because with only the metadata preloaded WebKit holds a seek back for a second.
+And the frame is drawn only once the player has one: WebKit reports the seek
+before it can paint the frame, and a frame drawn then is black. Chromium has the
+frame when the seek ends and presents no other, so it draws at once. A video the browser can't play, a file with only
+sound, and a video that takes longer than its time limit retain their normal
+icon. An upload loads one video at a time, under a preparation deadline of its
+own. When either deadline passes, the file in progress is given up on too. The page's CSP must allow `blob:` in `media-src`.
+
 ## PDF
+
+An Illustrator file (`.ai`) saved with PDF compatibility, which is Illustrator's
+default, starts with a PDF of the artwork and is rendered as one. One saved
+without it starts as PostScript and retains its normal icon; the renderer is not
+loaded for it.
 
 PDF.js and its fonts, CMaps, ICC profiles and WASM decoders are copied into the
 versioned `/dist/pdf-thumbnails/` directory during the GUI build. Deploy that
@@ -39,7 +134,10 @@ Each PDF gets a disposable module worker. PDF.js uses its loopback transport
 inside that worker, so termination stops both parsing and rasterization. Fonts
 use PDF.js's outline renderer and canvases use OffscreenCanvas. PDFs requiring
 unavailable DOM rendering features, a password, or resources beyond the budgets
-retain their normal icon. Empty first pages also retain their normal icon. Browsers lacking the required APIs also skip previews.
+retain their normal icon. A page's image may be up to 16 megapixels, which
+covers a 300 dpi scan and a 12 megapixel photo; PDF.js scales it down to the
+canvas budget to draw it. Decoding one that large takes a few hundred megabytes
+for well under a second, inside the disposable worker. Empty first pages also retain their normal icon. Browsers lacking the required APIs also skip previews.
 
 ## Budgets and tests
 
@@ -50,6 +148,9 @@ and Chromium rendering tests (`npx playwright install chromium` if needed).
 The browser tests use the same asset-copy step as production, render real PDF
 fixtures, and check first-page pixels, text, rotation, image delegation, failure
 recovery and termination of CPU-bound work. They also decode the thumbnails made
-from a PSD fixture's preview and from a fixture's merged image. The SDK upload suites cover callback
+from a PSD fixture's preview and from a fixture's merged image, and check the
+pixels of pages drawn from DOCX and DOC fixtures, of a sheet drawn from an XLSX
+fixture, of a slide drawn from a PPTX fixture, and of a frame taken from a video fixture. The parsers' unit tests draw on a
+recording canvas, so they assert on the words and positions laid out. The SDK upload suites cover callback
 compatibility and cancellation; its HTTP transport tests cover thumbnail
 failure, timeout and original-file failure separately.

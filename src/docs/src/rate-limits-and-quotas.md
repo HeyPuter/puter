@@ -358,7 +358,7 @@ A request over one of the per-request caps fails as a whole before any item is p
 
 An upload is in progress from `startWrite`/`startBatchWrite` (which `puter.fs.upload()` and `puter.fs.write()` use) until it completes, is cancelled, or expires. The count includes uploads by collaborators into the account's folders. Over the limit, new uploads fail with `429 too_many_requests` until some finish.
 
-The Puter desktop makes PDF upload thumbnails locally within these budgets. Going over one skips the preview; the upload itself is unaffected.
+The Puter desktop makes PDF upload thumbnails locally within these budgets. Going over one skips the preview; the upload itself is unaffected. An Illustrator file that holds a PDF of its artwork is rendered the same way, within the same budgets.
 
 | PDF thumbnail | Limit |
 | --- | --- |
@@ -366,7 +366,8 @@ The Puter desktop makes PDF upload thumbnails locally within these budgets. Goin
 | PDF renderers per desktop page | 1 at a time |
 | Preparation per upload, including queued PDFs | 5 seconds from the first eligible PDF |
 | Renderer lifetime per PDF, including loading and cleanup | 4 seconds |
-| Embedded image or intermediate canvas area | 4,194,304 pixels |
+| Embedded image | 16,777,216 pixels |
+| Intermediate canvas area | 4,194,304 pixels |
 | Image resize budget passed to PDF.js | 16 MiB |
 | Output | First page, at most 128 × 128 pixels, aspect ratio preserved |
 | Thumbnail payload | 2 MiB |
@@ -379,6 +380,34 @@ The Puter desktop makes a PSD or PSB upload thumbnail from the preview image sto
 | Data read from the document to find the preview | 1 MiB |
 | Stored preview size | 1 MiB |
 | Data read from the document to scale down its merged image | 16 MiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop makes a Word document, spreadsheet, or presentation upload thumbnail from the first-page thumbnail stored in a DOCX, XLSX, or PPTX, within these budgets. For a DOCX saved without one, the desktop draws the first page from the document's text, styles, tables, and pictures. For a DOC, the desktop draws the first page from the document's text. For an XLSX saved without one, the desktop draws the top-left corner of the first visible worksheet, with its cell text, fills, column widths, and row heights. For a PPTX saved without one, the desktop draws the first slide from its background, shapes, pictures, and text, placed and styled as the slide, its layout, and its master say. A document over a budget keeps its file icon, or is drawn without the content over the budget. An encrypted document, or one with a blank first page, sheet, or slide, keeps its file icon.
+
+| Word, spreadsheet, and presentation thumbnail | Limit |
+| --- | --- |
+| Documents read per upload | 1 at a time |
+| Preparation per upload, including queued documents | 5 seconds from the first document |
+| Data read from the document to find its parts, and to read the text of a DOC | 4 MiB |
+| Stored thumbnail size | 1 MiB |
+| XML read from each part of a DOCX, XLSX, or PPTX, after decompression | 1 MiB |
+| Text laid out from a Word document | 16,384 characters |
+| Pictures drawn from a DOCX | 4, each up to 4 MiB and 16,777,216 pixels |
+| Pictures drawn from a PPTX | 8, each up to 4 MiB and 16,777,216 pixels |
+| Shapes read from each of a slide, its layout, and its master | 256 |
+| Text laid out from each of a slide, its layout, and its master | 4,096 characters |
+| Area drawn from a worksheet | 480 × 480 points, from at most 128 rows and 64 columns |
+| Text drawn from a cell | 256 characters |
+| Output | First page, sheet, or slide, at most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop makes a video upload thumbnail from one frame of an MP4, MOV, M4V, or WebM file, using the browser's video player, within these budgets. A video the browser can't play, or one over a budget, keeps its file icon.
+
+| Video thumbnail | Limit |
+| --- | --- |
+| Videos loaded per upload | 1 at a time |
+| Preparation per upload, including queued videos | 5 seconds from the first video |
+| Loading one video and reaching the frame | 4 seconds |
+| Frame | One tenth of the way into the video, at most 10 seconds in |
 | Output | At most 128 × 128 pixels, aspect ratio preserved |
 
 ### Permissions
