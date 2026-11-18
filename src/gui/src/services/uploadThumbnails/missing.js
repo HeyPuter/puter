@@ -67,25 +67,26 @@ const FAILURES_STORAGE_KEY = 'missing_thumbnail_failures';
 export const createRememberedFailures = (getStorage) => {
     /** @type {Set<string> | undefined} */
     let keys;
-    const load = () => {
-        if ( keys ) return keys;
+    const read = () => {
         try {
             const stored = JSON.parse(getStorage()?.getItem(FAILURES_STORAGE_KEY) ?? '[]');
-            keys = new Set(Array.isArray(stored) ? stored.filter(key => typeof key === 'string') : []);
+            return Array.isArray(stored) ? stored.filter(key => typeof key === 'string') : [];
         } catch {
-            keys = new Set();
+            return [];
         }
-        return keys;
     };
+    const load = () => keys ??= new Set(read());
     return {
         has: key => load().has(key),
         add (key) {
-            const loaded = load();
-            loaded.delete(key);
-            loaded.add(key);
-            while ( loaded.size > MISSING_THUMBNAIL_FAILURES_REMEMBERED ) loaded.delete(loaded.values().next().value);
+            // Read again first: another tab may have added its own since this one loaded, and writing this tab's
+            // list alone would drop them.
+            keys = new Set([...read(), ...load()]);
+            keys.delete(key);
+            keys.add(key);
+            while ( keys.size > MISSING_THUMBNAIL_FAILURES_REMEMBERED ) keys.delete(keys.values().next().value);
             try {
-                getStorage()?.setItem(FAILURES_STORAGE_KEY, JSON.stringify([...loaded]));
+                getStorage()?.setItem(FAILURES_STORAGE_KEY, JSON.stringify([...keys]));
             } catch {
                 // Full or blocked storage only means a later page load tries the file again.
             }

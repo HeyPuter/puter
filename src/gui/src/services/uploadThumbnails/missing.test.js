@@ -666,6 +666,21 @@ describe('createRememberedFailures', () => {
         expect(reloaded.has(`file:${MISSING_THUMBNAIL_FAILURES_REMEMBERED}`)).toBe(true);
     });
 
+    it('keeps what another tab remembered since this one loaded', () => {
+        const storage = new Map();
+        const localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
+        const thisTab = createRememberedFailures(() => localStorage);
+        const otherTab = createRememberedFailures(() => localStorage);
+        expect(thisTab.has('file:1')).toBe(false);
+
+        otherTab.add('file:1');
+        thisTab.add('file:2');
+
+        const reloaded = createRememberedFailures(() => localStorage);
+        expect(reloaded.has('file:1')).toBe(true);
+        expect(reloaded.has('file:2')).toBe(true);
+    });
+
     it('works for this page load when storage is blocked or holds something else', () => {
         const blocked = createRememberedFailures(() => {
             throw new Error('SecurityError');
