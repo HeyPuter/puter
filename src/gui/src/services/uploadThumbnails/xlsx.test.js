@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
 import { createZip } from '../../../tests/fixtures/docx.js';
-import { cell, createXlsx, row, styles } from '../../../tests/fixtures/xlsx.js';
+import { THEME_COLORS, cell, createXlsx, row, styles } from '../../../tests/fixtures/xlsx.js';
 import {
     OFFICE_XML_MAX_BYTES,
     SHEET_CELL_MAX_CHARACTERS,
@@ -279,8 +279,8 @@ describe('readXlsxPreview', () => {
             'xl/worksheets/sheet1.xml': '<worksheet><sheetData><row r="1"><c r="A1" t="s" s="1"><v>0</v></c></row></sheetData></worksheet>',
             'xl/SharedStrings.xml': '<sst><si><t>Invoice</t></si></sst>',
             'xl/look/Styles.xml': '<styleSheet><fonts><font/><font><b/><color theme="4"/></font></fonts><cellXfs><xf/><xf fontId="1"/></cellXfs></styleSheet>',
-            'xl/theme/colors.xml': `<a:theme><a:clrScheme>${['000000', 'FFFFFF', '111111', 'EEEEEE', '336699'].map(color =>
-                `<a:c><a:srgbClr val="${color}"/></a:c>`).join('')}</a:clrScheme></a:theme>`,
+            'xl/theme/colors.xml': `<a:theme><a:clrScheme>${['000000', 'FFFFFF', '111111', 'EEEEEE', '336699'].map((color, index) =>
+                `<a:${THEME_COLORS[index]}><a:srgbClr val="${color}"/></a:${THEME_COLORS[index]}>`).join('')}</a:clrScheme></a:theme>`,
         })], 'budget.xlsx'));
         expect(preview).toBeInstanceOf(File);
         expect(drawn.text.map(({ text: value, font, color }) => [value, font, color])).toEqual([

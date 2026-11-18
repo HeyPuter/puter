@@ -19,8 +19,8 @@ export const OFFICE_MAX_READ_BYTES = 4 * 1024 * 1024;
 export const OFFICE_XML_MAX_BYTES = 1024 * 1024;
 export const WORD_TEXT_MAX_CHARACTERS = 16 * 1024;
 export const OFFICE_THUMBNAIL_MAX_BYTES = 1024 * 1024;
-export const WORD_PICTURE_MAX_BYTES = 4 * 1024 * 1024;
-export const WORD_PICTURE_MAX_PIXELS = 16 * 1024 * 1024;
+export const OFFICE_PICTURE_MAX_BYTES = 4 * 1024 * 1024;
+export const OFFICE_PICTURE_MAX_PIXELS = 16 * 1024 * 1024;
 export const WORD_MAX_PICTURES = 4;
 // Twice the thumbnail's size, so the image generator's downscale smooths the text.
 export const OFFICE_PAGE_DIMENSION = 256;

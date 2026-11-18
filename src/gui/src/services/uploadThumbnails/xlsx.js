@@ -6,7 +6,15 @@ import {
     SHEET_MAX_ROWS,
     SHEET_VIEW_POINTS,
 } from './config.js';
-import { TOKEN, attributesOf, decodeEntities, openArchive, readRelationships, readStoredThumbnail } from './ooxml.js';
+import {
+    TOKEN,
+    attributesOf,
+    decodeEntities,
+    openArchive,
+    readRelationships,
+    readStoredThumbnail,
+    readThemeColors,
+} from './ooxml.js';
 
 const DEFAULT_ROW_HEIGHT = 15;
 const DEFAULT_COLUMN_CHARACTERS = 8.43;
@@ -80,28 +88,8 @@ const colorOf = ({ rgb, theme, indexed, tint }, themeColors) => {
     return `rgb(${channels.join(', ')})`;
 };
 
-/**
- * @param {string} xml The theme part, or an empty string.
- * @returns {string[]} The theme's colors as six hex digits, in the order styles number them.
- */
-const readThemeColors = (xml) => {
-    const colors = [];
-    let inScheme = false;
-    for ( const [, closing, tag, source] of xml.matchAll(TOKEN) ) {
-        const name = localName(tag);
-        if ( name === 'clrScheme' ) {
-            if ( closing ) break;
-            inScheme = true;
-        } else if ( inScheme && !closing && (name === 'srgbClr' || name === 'sysClr') ) {
-            const { val, lastClr } = attributesOf(source);
-            const hex = name === 'srgbClr' ? val : lastClr;
-            colors.push(/^[0-9a-f]{6}$/i.test(hex) ? hex : undefined);
-        }
-    }
-    // The theme lists dark before light; styles number light first.
-    [colors[0], colors[1], colors[2], colors[3]] = [colors[1], colors[0], colors[3], colors[2]];
-    return colors;
-};
+// The order in which a style numbers the theme's colors: light before dark, where the theme lists dark first.
+const THEME_COLOR_ORDER = ['lt1', 'dk1', 'lt2', 'dk2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'];
 
 /**
  * Read the fonts, fills and cell formats a cell's style number selects from.
@@ -407,7 +395,8 @@ export const readXlsxPreview = async (file, signal) => {
         const listed = [...relationships.values()].find(relationship => relationship.type.endsWith(`/${kind}`));
         return await textOf(listed?.target ?? usualName) ?? '';
     };
-    const themeColors = readThemeColors(await textOfPart('theme', 'xl/theme/theme1.xml'));
+    const theme = readThemeColors(await textOfPart('theme', 'xl/theme/theme1.xml'));
+    const themeColors = THEME_COLOR_ORDER.map(name => theme[name]);
     const styleOf = readStyles(await textOfPart('styles', 'xl/styles.xml'), themeColors);
     const strings = readStrings(await textOfPart('sharedStrings', 'xl/sharedStrings.xml'));
     return drawSheet(readSheet(sheet, strings, styleOf));

@@ -4,8 +4,8 @@ import { createRecordingCanvas, linesOf } from '../../../tests/fixtures/canvas.j
 import { createDocx, createZip, paragraph, picture, pngHeader } from '../../../tests/fixtures/docx.js';
 import {
     WORD_MAX_PICTURES,
-    WORD_PICTURE_MAX_BYTES,
-    WORD_PICTURE_MAX_PIXELS,
+    OFFICE_PICTURE_MAX_BYTES,
+    OFFICE_PICTURE_MAX_PIXELS,
     WORD_TEXT_MAX_CHARACTERS,
     OFFICE_THUMBNAIL_MAX_BYTES,
     OFFICE_XML_MAX_BYTES,
@@ -309,7 +309,7 @@ describe('readDocxPreview pictures', () => {
             media: {
                 'drawing.emf': png,
                 'broken.png': new Uint8Array([...pngHeader(10, 10), 0]),
-                'huge.png': new Uint8Array(WORD_PICTURE_MAX_BYTES + 1),
+                'huge.png': new Uint8Array(OFFICE_PICTURE_MAX_BYTES + 1),
             },
         });
         expect(drawn.images).toEqual([]);
@@ -326,10 +326,10 @@ describe('readDocxPreview pictures', () => {
     });
 
     it('reads a picture of the largest size whole, though deflate could only make it larger', async () => {
-        const noise = randomBytes(WORD_PICTURE_MAX_BYTES);
+        const noise = randomBytes(OFFICE_PICTURE_MAX_BYTES);
         noise.set(pngHeader(64, 64));
         await draw({ body: `<w:p>${picture('rId1', 100, 50)}</w:p>`, media: { 'image1.png': noise } });
-        expect(bitmaps[0].bytes).toHaveLength(WORD_PICTURE_MAX_BYTES);
+        expect(bitmaps[0].bytes).toHaveLength(OFFICE_PICTURE_MAX_BYTES);
         expect(bitmaps[0].bytes.subarray(-64)).toEqual(new Uint8Array(noise.subarray(-64)));
     });
 
@@ -346,7 +346,7 @@ describe('readDocxPreview pictures', () => {
     });
 
     it('does not decode a picture of more pixels than the limit, or of a size it cannot tell', async () => {
-        const side = Math.sqrt(WORD_PICTURE_MAX_PIXELS);
+        const side = Math.sqrt(OFFICE_PICTURE_MAX_PIXELS);
         const lines = await draw({
             body: `<w:p>${picture('rId1', 100, 50)}</w:p><w:p>${picture('rId2', 100, 50)}</w:p><w:p>${picture('rId3', 100, 50)}</w:p>` +
                 `<w:p>${picture('rId4', 100, 50)}</w:p>${paragraph('After')}`,

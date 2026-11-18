@@ -4,6 +4,8 @@ import { createZip } from './docx.js';
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const RELATIONSHIPS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+// The colors of a theme, in the order a theme lists them.
+export const THEME_COLORS = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'];
 
 /**
  * A cell. `type` is the cell's `t` attribute: `s` for a position in the shared strings, `inlineStr` for text kept
@@ -71,9 +73,9 @@ export const createXlsx = ({
         ...(styleSheet !== undefined && { 'xl/styles.xml': `${XML}<styleSheet xmlns="${MAIN}">${styleSheet}</styleSheet>` }),
         ...(theme && {
             'xl/theme/theme1.xml': `${XML}<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements>` +
-                `<a:clrScheme name="Test">${theme.map((color, index) => `<a:c${index}>${index < 2
+                `<a:clrScheme name="Test">${theme.map((color, index) => `<a:${THEME_COLORS[index]}>${index < 2
                     ? `<a:sysClr val="windowText" lastClr="${color}"/>`
-                    : `<a:srgbClr val="${color}"/>`}</a:c${index}>`).join('')}</a:clrScheme></a:themeElements></a:theme>`,
+                    : `<a:srgbClr val="${color}"/>`}</a:${THEME_COLORS[index]}>`).join('')}</a:clrScheme></a:themeElements></a:theme>`,
         }),
     }, zipOptions);
 };

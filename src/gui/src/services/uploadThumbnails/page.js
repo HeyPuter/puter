@@ -18,6 +18,8 @@ import { OFFICE_PAGE_DIMENSION } from './config.js';
  * @property {number} spaceBefore In points.
  * @property {number} spaceAfter In points.
  * @property {number} lineSpacing Line height as a multiple of single spacing.
+ * @property {{ text: string, offset: number, size: number, color: string }} [marker] A bullet or number drawn on the
+ *     first line, `offset` points from where the text starts (negative to hang before it).
  */
 
 /**
@@ -58,6 +60,91 @@ export const createPage = () => ({
 });
 
 /**
+ * Lay a paragraph out from `top`, wrapping its text to `width`, and draw the lines that end above `bottom`.
+ *
+ * @param {OffscreenCanvasRenderingContext2D} ctx A context whose units are points.
+ * @param {PageParagraph} paragraph
+ * @param {number} left
+ * @param {number} width
+ * @param {number} top
+ * @param {number} bottom
+ * @param {boolean} [paint] `false` to find where the paragraph ends without drawing it.
+ * @returns {{ bottom: number, drawn: boolean }} Where the paragraph ends, and whether any of its text is above `bottom`.
+ */
+export const drawParagraph = (ctx, paragraph, left, width, top, bottom, paint = true) => {
+    // A paragraph runs right to left when its first letter does.
+    const firstLetter = paragraph.runs.map(run => run.text).join('').match(/\p{L}/u)?.[0] ?? '';
+    const rtl = RTL_LETTER.test(firstLetter);
+    const indent = Math.min(paragraph.indent, width / 2);
+    const available = width - indent;
+    let y = top + paragraph.spaceBefore;
+    let line = [];
+    let lineWidth = 0;
+    let drawn = false;
+    let lines = 0;
+    const endLine = () => {
+        const size = line.reduce((largest, word) => Math.max(largest, word.size), 0) || paragraph.size;
+        const height = size * LINE_HEIGHT * paragraph.lineSpacing;
+        const baseline = y + height - size * 0.25;
+        // Spaces at the end of a line take no part in aligning it.
+        while ( line.length && !line.at(-1).text.trim() ) lineWidth -= line.pop().width;
+        const free = Math.max(0, available - lineWidth);
+        let x = indent + (paragraph.align === 'center' ? free / 2 : paragraph.align === 'end' ? free : 0);
+        // A list item's marker hangs before the first line of its text.
+        const { marker } = paragraph;
+        if ( paint && marker && !lines && line.length && baseline <= bottom ) {
+            ctx.font = `${marker.size}px sans-serif`;
+            ctx.fillStyle = marker.color;
+            const markerWidth = ctx.measureText(marker.text).width;
+            ctx.fillText(marker.text, rtl ? left + width - x - marker.offset - markerWidth : left + x + marker.offset, baseline);
+        }
+        for ( const word of line ) {
+            if ( baseline <= bottom && word.text.trim() ) {
+                if ( paint ) {
+                    ctx.font = word.font;
+                    ctx.fillStyle = word.color;
+                    ctx.fillText(word.text, rtl ? left + width - x - word.width : left + x, baseline);
+                }
+                drawn = true;
+            }
+            x += word.width;
+        }
+        lines++;
+        y += height;
+        line = [];
+        lineWidth = 0;
+    };
+
+    for ( const run of paragraph.runs ) {
+        const font = `${run.italic ? 'italic ' : ''}${run.bold ? 'bold ' : ''}${run.size}px sans-serif`;
+        for ( const part of run.text.match(/\n|\t|[^\S\n\t]+|\S+/g) ?? [] ) {
+            if ( y >= bottom ) return { bottom: y, drawn };
+            if ( part === '\n' ) {
+                endLine();
+                continue;
+            }
+            // Drawing a line leaves the font of its last word behind, which may be another run's.
+            ctx.font = font;
+            const partWidth = part === '\t' ? TAB_WIDTH - lineWidth % TAB_WIDTH : ctx.measureText(part).width;
+            // A word wider than the line, as in text written without spaces, breaks between characters.
+            const breaks = !!part.trim() && partWidth > available;
+            for ( const text of breaks ? [...part] : [part] ) {
+                // Such a word can be most of the document, so it is measured only as far as the page goes.
+                if ( y >= bottom ) return { bottom: y, drawn };
+                ctx.font = font;
+                const wordWidth = breaks ? ctx.measureText(text).width : partWidth;
+                if ( line.length && text.trim() && lineWidth + wordWidth > available ) endLine();
+                line.push({ text, width: wordWidth, font, color: run.color, size: run.size });
+                lineWidth += wordWidth;
+            }
+        }
+    }
+    // A paragraph with no text still takes a line.
+    endLine();
+    return { bottom: y + paragraph.spaceAfter, drawn };
+};
+
+/**
  * Draw a page's blocks top to bottom, wrapping text to the page, until the page is full.
  *
  * @param {Page} page
@@ -78,64 +165,10 @@ export const renderPage = async (page) => {
     ctx.textAlign = 'left';
     let drawn = false;
 
-    const drawParagraph = (paragraph, left, width, top) => {
-        // A paragraph runs right to left when its first letter does.
-        const firstLetter = paragraph.runs.map(run => run.text).join('').match(/\p{L}/u)?.[0] ?? '';
-        const rtl = RTL_LETTER.test(firstLetter);
-        const indent = Math.min(paragraph.indent, width / 2);
-        const available = width - indent;
-        let y = top + paragraph.spaceBefore;
-        let line = [];
-        let lineWidth = 0;
-        const endLine = () => {
-            const size = line.reduce((largest, word) => Math.max(largest, word.size), 0) || paragraph.size;
-            const height = size * LINE_HEIGHT * paragraph.lineSpacing;
-            const baseline = y + height - size * 0.25;
-            // Spaces at the end of a line take no part in aligning it.
-            while ( line.length && !line.at(-1).text.trim() ) lineWidth -= line.pop().width;
-            const free = Math.max(0, available - lineWidth);
-            let x = indent + (paragraph.align === 'center' ? free / 2 : paragraph.align === 'end' ? free : 0);
-            for ( const word of line ) {
-                if ( baseline <= bottom && word.text.trim() ) {
-                    ctx.font = word.font;
-                    ctx.fillStyle = word.color;
-                    ctx.fillText(word.text, rtl ? left + width - x - word.width : left + x, baseline);
-                    drawn = true;
-                }
-                x += word.width;
-            }
-            y += height;
-            line = [];
-            lineWidth = 0;
-        };
-
-        for ( const run of paragraph.runs ) {
-            const font = `${run.italic ? 'italic ' : ''}${run.bold ? 'bold ' : ''}${run.size}px sans-serif`;
-            for ( const part of run.text.match(/\n|\t|[^\S\n\t]+|\S+/g) ?? [] ) {
-                if ( y >= bottom ) return y;
-                if ( part === '\n' ) {
-                    endLine();
-                    continue;
-                }
-                // Drawing a line leaves the font of its last word behind, which may be another run's.
-                ctx.font = font;
-                const partWidth = part === '\t' ? TAB_WIDTH - lineWidth % TAB_WIDTH : ctx.measureText(part).width;
-                // A word wider than the line, as in text written without spaces, breaks between characters.
-                const breaks = !!part.trim() && partWidth > available;
-                for ( const text of breaks ? [...part] : [part] ) {
-                    // Such a word can be most of the document, so it is measured only as far as the page goes.
-                    if ( y >= bottom ) return y;
-                    ctx.font = font;
-                    const wordWidth = breaks ? ctx.measureText(text).width : partWidth;
-                    if ( line.length && text.trim() && lineWidth + wordWidth > available ) endLine();
-                    line.push({ text, width: wordWidth, font, color: run.color, size: run.size });
-                    lineWidth += wordWidth;
-                }
-            }
-        }
-        // A paragraph with no text still takes a line.
-        endLine();
-        return y + paragraph.spaceAfter;
+    const drawParagraphBlock = (paragraph, left, width, top) => {
+        const laidOut = drawParagraph(ctx, paragraph, left, width, top, bottom);
+        drawn ||= laidOut.drawn;
+        return laidOut.bottom;
     };
 
     const drawPicture = (picture, left, width, top) => {
@@ -168,7 +201,7 @@ export const renderPage = async (page) => {
         let y = top;
         for ( const block of blocks ) {
             if ( y >= bottom ) break;
-            const draw = block.cells ? drawRow : block.runs ? drawParagraph : drawPicture;
+            const draw = block.cells ? drawRow : block.runs ? drawParagraphBlock : drawPicture;
             y = draw(block, left, width, y);
         }
         return y;
