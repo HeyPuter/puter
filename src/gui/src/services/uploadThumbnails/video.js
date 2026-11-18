@@ -33,14 +33,21 @@ export const readVideoFrame = (file, signal) => new Promise((resolve) => {
     video.playsInline = true;
     video.preload = 'metadata';
     video.onerror = () => finish();
-    video.onloadedmetadata = () => {
-        // A file with only sound has no size.
-        if ( !video.videoWidth || !video.videoHeight ) return finish();
-        // Videos often open on a black frame, so the frame comes from a little way in.
-        const duration = Number.isFinite(video.duration) ? video.duration : 0;
-        video.currentTime = Math.min(duration / 10, VIDEO_FRAME_MAX_SECONDS);
+    // WebKit reports a seek as done before it can paint the frame it landed on, and a frame drawn then is black.
+    const hasFrame = () => {
+        if ( typeof VideoFrame === 'undefined' ) return true;
+        try {
+            new VideoFrame(video).close();
+            return true;
+        } catch {
+            return false;
+        }
     };
-    video.onseeked = async () => {
+    let seeked = false;
+    let captured = false;
+    const capture = async () => {
+        if ( captured || settled ) return;
+        captured = true;
         try {
             const scale = Math.min(1, VIDEO_FRAME_DIMENSION / Math.max(video.videoWidth, video.videoHeight));
             const canvas = new OffscreenCanvas(Math.max(1, Math.round(video.videoWidth * scale)),
@@ -51,6 +58,24 @@ export const readVideoFrame = (file, signal) => new Promise((resolve) => {
         } catch {
             finish();
         }
+    };
+    // A frame presented while the seek is still under way is not the one wanted, so the callback asks again.
+    const onFrame = () => {
+        if ( seeked ) capture();
+        else if ( ! settled ) video.requestVideoFrameCallback(onFrame);
+    };
+    video.onloadedmetadata = () => {
+        // A file with only sound has no size.
+        if ( !video.videoWidth || !video.videoHeight ) return finish();
+        // Videos often open on a black frame, so the frame comes from a little way in.
+        const duration = Number.isFinite(video.duration) ? video.duration : 0;
+        video.requestVideoFrameCallback?.(onFrame);
+        video.currentTime = Math.min(duration / 10, VIDEO_FRAME_MAX_SECONDS);
+    };
+    // Chromium has the frame by now and presents no other, so waiting for the callback there would never end.
+    video.onseeked = () => {
+        seeked = true;
+        if ( hasFrame() ) return capture();
     };
     video.src = url;
 });

@@ -505,6 +505,52 @@ describe('video thumbnails', () => {
         expect(await result).toBe(thumbnail);
     });
 
+    it('waits for the frame when the browser reports the seek before it can paint', async () => {
+        // WebKit's order: `seeked` first, with no frame to draw until the next one is presented.
+        const frameCallbacks = [];
+        let presented = false;
+        vi.stubGlobal('VideoFrame', class {
+            constructor () {
+                if ( ! presented ) throw new Error('Video element has no video frame');
+            }
+
+            close () {}
+        });
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const result = createUploadThumbnailGenerator()(clip(), { defaultGenerator });
+        await settle();
+        const [video] = videos;
+        video.requestVideoFrameCallback = callback => frameCallbacks.push(callback);
+        video.onloadedmetadata();
+        // A frame from before the seek is not the one wanted.
+        frameCallbacks.shift()();
+        await settle();
+        expect(drawn.images).toEqual([]);
+        await video.onseeked();
+        await settle();
+        expect(drawn.images).toEqual([]);
+        expect(defaultGenerator).not.toHaveBeenCalled();
+        presented = true;
+        frameCallbacks.shift()();
+        expect(await result).toBe(thumbnail);
+        expect(drawn.images).toHaveLength(1);
+        expectReleased(video, 'blob:video-1');
+    });
+
+    it('draws at the seek when the frame is already there, without waiting for another', async () => {
+        // Chromium's order: the frame is ready when `seeked` fires, and no later one is presented.
+        vi.stubGlobal('VideoFrame', class {
+            close () {}
+        });
+        const result = createUploadThumbnailGenerator()(clip(), { defaultGenerator: async () => thumbnail });
+        await settle();
+        videos[0].requestVideoFrameCallback = vi.fn();
+        videos[0].onloadedmetadata();
+        await videos[0].onseeked();
+        expect(await result).toBe(thumbnail);
+        expect(drawn.images).toHaveLength(1);
+    });
+
     it('does not enlarge a small video', async () => {
         const result = createUploadThumbnailGenerator()(clip(), { defaultGenerator: async () => thumbnail });
         await settle();
