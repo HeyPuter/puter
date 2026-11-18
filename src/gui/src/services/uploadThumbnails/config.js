@@ -4,6 +4,8 @@ export const PDF_THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
 export const PDF_THUMBNAIL_BATCH_TIMEOUT_MS = 5000;
 export const PDF_THUMBNAIL_JOB_TIMEOUT_MS = 4000;
 export const PDF_THUMBNAIL_MAX_PIXELS = 4 * 1024 * 1024;
+// A page of a 300 dpi scan is about 8.5 megapixels and a phone photo 12. Decoding takes memory by the pixel.
+export const PDF_THUMBNAIL_MAX_IMAGE_PIXELS = 16 * 1024 * 1024;
 export const PDF_THUMBNAIL_DIMENSION = 128;
 export const PDF_THUMBNAIL_MAX_BYTES = 2 * 1024 * 1024;
 export const PSD_PREVIEW_MAX_READ_BYTES = 1024 * 1024;

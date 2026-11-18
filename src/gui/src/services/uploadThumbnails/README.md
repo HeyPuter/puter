@@ -98,7 +98,10 @@ Each PDF gets a disposable module worker. PDF.js uses its loopback transport
 inside that worker, so termination stops both parsing and rasterization. Fonts
 use PDF.js's outline renderer and canvases use OffscreenCanvas. PDFs requiring
 unavailable DOM rendering features, a password, or resources beyond the budgets
-retain their normal icon. Empty first pages also retain their normal icon. Browsers lacking the required APIs also skip previews.
+retain their normal icon. A page's image may be up to 16 megapixels, which
+covers a 300 dpi scan and a 12 megapixel photo; PDF.js scales it down to the
+canvas budget to draw it. Decoding one that large takes a few hundred megabytes
+for well under a second, inside the disposable worker. Empty first pages also retain their normal icon. Browsers lacking the required APIs also skip previews.
 
 ## Budgets and tests
 

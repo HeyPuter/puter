@@ -366,7 +366,8 @@ The Puter desktop makes PDF upload thumbnails locally within these budgets. Goin
 | PDF renderers per desktop page | 1 at a time |
 | Preparation per upload, including queued PDFs | 5 seconds from the first eligible PDF |
 | Renderer lifetime per PDF, including loading and cleanup | 4 seconds |
-| Embedded image or intermediate canvas area | 4,194,304 pixels |
+| Embedded image | 16,777,216 pixels |
+| Intermediate canvas area | 4,194,304 pixels |
 | Image resize budget passed to PDF.js | 16 MiB |
 | Output | First page, at most 128 × 128 pixels, aspect ratio preserved |
 | Thumbnail payload | 2 MiB |

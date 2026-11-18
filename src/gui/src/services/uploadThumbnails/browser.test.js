@@ -157,6 +157,32 @@ describe('Upload thumbnails in a real browser', () => {
         }
     });
 
+    it('renders a scanned page whose image is larger than the canvas budget', async () => {
+        // 2200 pixels a side is 4.84 megapixels: over what a canvas may hold, so the image is scaled down to be drawn.
+        const page = await browser.newPage();
+        try {
+            await page.goto(origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async (pdf) => {
+                const thumbnail = await window.createUploadThumbnailGenerator()(new File([pdf], 'scan.pdf'));
+                if ( ! thumbnail ) return null;
+                const image = new Image();
+                image.src = thumbnail;
+                await image.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(image, 0, 0);
+                return { width: image.width, height: image.height, pixel: [...ctx.getImageData(32, 64, 1, 1).data] };
+            }, createPdf({ scanned: true, imageSize: 2200, filled: true }));
+            expect(result).toEqual({ width: 64, height: 128, pixel: [255, 0, 0, 255] });
+            await expect.poll(() => page.workers().length).toBe(0);
+        } finally {
+            await page.close();
+        }
+    });
+
     it('retains image thumbnails in mixed uploads and leaves original PDF bytes intact', async () => {
         const page = await browser.newPage();
         try {
@@ -456,7 +482,8 @@ describe('Upload thumbnails in a real browser', () => {
                     new File(['not a PDF'], 'broken.pdf'),
                     new File([oversized], 'oversized.pdf'),
                 ].map(file => generate(file)));
-            }, { encrypted, oversized: createPdf({ scanned: true, imageSize: 4096 }) });
+            // One pixel a side more than the largest image a page may hold.
+            }, { encrypted, oversized: createPdf({ scanned: true, imageSize: 4097 }) });
             expect(result).toEqual([undefined, undefined, undefined]);
             expect(errors).toEqual([]);
         } finally {
