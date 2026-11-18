@@ -120,10 +120,11 @@ export const renderPage = async (page) => {
                 }
                 const partWidth = part === '\t' ? TAB_WIDTH - lineWidth % TAB_WIDTH : ctx.measureText(part).width;
                 // A word wider than the line, as in text written without spaces, breaks between characters.
-                const words = part.trim() && partWidth > available
-                    ? [...part].map(text => ({ text, width: ctx.measureText(text).width }))
-                    : [{ text: part, width: partWidth }];
-                for ( const { text, width: wordWidth } of words ) {
+                const breaks = !!part.trim() && partWidth > available;
+                for ( const text of breaks ? [...part] : [part] ) {
+                    // Such a word can be most of the document, so it is measured only as far as the page goes.
+                    if ( y >= bottom ) return y;
+                    const wordWidth = breaks ? ctx.measureText(text).width : partWidth;
                     if ( line.length && text.trim() && lineWidth + wordWidth > available ) endLine();
                     line.push({ text, width: wordWidth, font, color: run.color, size: run.size });
                     lineWidth += wordWidth;

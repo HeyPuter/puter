@@ -381,8 +381,26 @@ describe('readDocxPreview budgets', () => {
     });
 
     it('lays out text up to the character budget', async () => {
-        await draw({ body: paragraph('x'.repeat(WORD_TEXT_MAX_CHARACTERS)) + paragraph('y') });
+        // At 1 point a page holds half a million characters, so only the budget stops the text.
+        const tiny = text => `<w:p><w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:t>${text}</w:t></w:r></w:p>`;
+        await draw({ body: tiny('x '.repeat(WORD_TEXT_MAX_CHARACTERS / 2)) + tiny('y') });
+        expect(drawn.text.filter(word => word.text === 'x')).toHaveLength(WORD_TEXT_MAX_CHARACTERS / 2);
         expect(drawn.text.some(word => word.text === 'y')).toBe(false);
+    });
+
+    it('applies the character budget inside a single piece of text', async () => {
+        await draw({ body: `<w:p><w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:t>${'x'.repeat(900_000)}</w:t></w:r></w:p>` });
+        // An unbroken word is measured whole and then a character at a time.
+        expect(drawn.measured).toBeLessThanOrEqual(2 * WORD_TEXT_MAX_CHARACTERS);
+        expect(drawn.text.reduce((total, word) => total + word.text.length, 0)).toBe(WORD_TEXT_MAX_CHARACTERS);
+    });
+
+    it('stops measuring a long word once the page is full', async () => {
+        // At 72 points a line holds 13 characters and the page 7 lines.
+        await draw({ body: `<w:p><w:r><w:rPr><w:sz w:val="144"/></w:rPr><w:t>${'x'.repeat(WORD_TEXT_MAX_CHARACTERS)}</w:t></w:r></w:p>` });
+        expect(drawn.text.length).toBeLessThan(200);
+        // The word is measured whole, then a character at a time for the lines that fit.
+        expect(drawn.measured).toBeLessThan(WORD_TEXT_MAX_CHARACTERS + 200);
     });
 
     it('finds its parts in a large archive without reading the rest of it', async () => {

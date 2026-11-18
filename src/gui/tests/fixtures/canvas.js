@@ -3,10 +3,11 @@
 /**
  * `Canvas` replaces OffscreenCanvas. `drawn` collects the canvas size and each call that puts something on it:
  * `fillText` (with the clipping rectangle in force), `fillRect`, `drawImage`, and the line segments of each `stroke`.
- * Positions are in the units the drawing code used. A character measures half its font size wide.
+ * `measured` counts the characters passed to `measureText`. Positions are in the units the drawing code used. A
+ * character measures half its font size wide.
  */
 export const createRecordingCanvas = () => {
-    const drawn = { width: 0, height: 0, text: [], fills: [], images: [], lines: [] };
+    const drawn = { width: 0, height: 0, text: [], fills: [], images: [], lines: [], measured: 0 };
     class Canvas {
         constructor (width, height) {
             Object.assign(this, { width, height });
@@ -48,6 +49,7 @@ export const createRecordingCanvas = () => {
                     drawn.lines.push(...segments);
                 },
                 measureText (text) {
+                    drawn.measured += text.length;
                     return { width: [...text].length * parseFloat(/([\d.]+)px/.exec(this.font)[1]) / 2 };
                 },
                 fillRect (x, y, width, height) {

@@ -189,9 +189,11 @@ const readBody = (xml, formatOf) => {
         }
         if ( ! name ) {
             if ( run && path.at(-1) === 'w:t' ) {
-                run.text += decodeEntities(text);
+                // One piece of text can be as long as the whole part, so the budget cuts it too.
+                const shown = decodeEntities(text).slice(0, WORD_TEXT_MAX_CHARACTERS - characters);
+                run.text += shown;
                 hasContent = true;
-                characters += text.length;
+                characters += shown.length;
                 if ( characters >= WORD_TEXT_MAX_CHARACTERS ) endPage();
             }
             continue;
