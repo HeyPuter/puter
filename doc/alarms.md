@@ -16,21 +16,21 @@ this.clients.alarm.create(
 
 ## Severity is the routing decision
 
-| Severity   | Meaning                                                    | Goes to |
-| ---------- | ---------------------------------------------------------- | ------- |
-| `critical` | An unhandled server error. Someone gets woken up.          | Pager   |
-| `error`    | Same urgency as critical; prefer one of the other two.     | Pager   |
-| `warning`  | For on-call to work through today; nobody is paged.        | Chat    |
-| `info`     | For the area that owns it, in that area's channel.         | Chat    |
+| Severity   | Meaning                                                      | Goes to     |
+| ---------- | ------------------------------------------------------------ | ----------- |
+| `critical` | An unhandled server error. Someone gets woken up.            | Pager       |
+| `error`    | Same urgency as critical; prefer one of the other two.       | Pager       |
+| `warning`  | For on-call to work through today. Nobody is woken up.       | Pager (low) |
+| `info`     | For the area that owns it, in that area's chat channel.      | Chat        |
 
 Each transport declares the severity window it accepts, so the value a call
 site passes is what decides where the alarm lands. The two windows don't
 overlap by default: anything that pages lives in the paging system, and chat
 is the record of what didn't. The bar for `critical` is deliberately high: an
 unhandled 5xx out of the HTTP error handler is the main thing that still
-pages. `warning` is the on-call queue, mostly abuse signals (signup farms,
-usage spikes) someone should look at today. Everything else that isn't urgent
-is `info` with a channel key, so the people who own that area see it.
+pages. `warning` is on-call's low-urgency queue, mostly abuse signals (signup
+farms, usage spikes) someone should look at today. Everything else that isn't
+urgent is `info` with a channel key, so the people who own that area see it.
 
 Omitting the severity takes `pager.defaultSeverity` (itself `critical`), so
 pass one explicitly unless you really mean "page someone".
@@ -66,8 +66,9 @@ own local alarm helper instead of repeating them at every call site.
 
 `{ channel: '<key>' }` names the area that owns an alarm. Config maps each key
 to a chat channel (`pager.slack.channels`); an alarm with no key, or a key the
-map doesn't list, goes to the default channel, which is where on-call reads
-`warning`. A thrown `HttpError` sets its key with `alarmChannel`.
+map doesn't list, goes to the default channel (`pager.slack.channel`). A
+thrown `HttpError` sets its key with `alarmChannel`. Keys only matter for what
+reaches chat; the pager ignores them.
 
 The keys in use:
 
@@ -80,7 +81,7 @@ The keys in use:
 | `email`         | Sending and mailbox infrastructure                         |
 | `platform`      | Jobs, events, KV, and other shared backend machinery       |
 
-Reuse one before adding a new key; a key nobody maps lands in on-call's
+Reuse one before adding a new key; a key nobody maps lands in the default
 channel.
 
 ## One incident per occurrence, unless you say otherwise
@@ -113,7 +114,8 @@ per-request alarm can flood the pager.
 
 ## Phone calls
 
-Some alarms should phone someone whatever their severity. `pager.calls.rules`
+Some alarms should phone someone, whatever their severity and wherever else
+they go. `pager.calls.rules`
 maps alarm ids, or prefixes ending in `*`, to a **call group**; the exact id
 beats a pattern and the longest prefix wins. While an alarm in a group keeps
 firing, it is recorded in the system KV store until it has been quiet for
@@ -123,10 +125,11 @@ An external uptime monitor polls `GET /alarms/calls?group=<group>` on the
 `api` subdomain, sending `pager.calls.secret` in `x-puter-internal-auth`. The
 route answers 200 while nothing in the group is calling and 503 while
 something is, or when it couldn't read the whole listing, so the monitor's own
-escalation policy places the call; leave out `group` to watch every group. The body is short plain text, one line per
-call with a link to its chat message, which needs a Slack `botToken`. An alarm
-that calls is posted to chat even when its severity is above Slack's ceiling,
-so there is always a message to link to.
+escalation policy places the call; leave out `group` to watch every group.
+The body is short plain text, one line per call, with a link to where the
+alarm landed: the PagerDuty incident when `pagerduty.apiToken` is set, or the
+chat message when Slack posts with a `botToken`. A call with no link shows the
+alarm's short id.
 
 A call resolves by going quiet, not by a clear: acknowledge it in the monitor,
 and the route goes back to 200 once the alarm stops firing for `ttlMs`.
@@ -142,14 +145,19 @@ alarms to the console.
 "pager": {
     "defaultSeverity": "critical",
     "severityOverrides": { "cronMonitor:*": "info" },
-    "pagerduty": { "enabled": true, "routingKey": "…", "minSeverity": "error" },
+    "pagerduty": {
+        "enabled": true,
+        "routingKey": "…",
+        "apiToken": "…",
+        "minSeverity": "warning",
+    },
     "slack": {
         "enabled": true,
         "botToken": "xoxb-…",
-        "channel": "#alerts-oncall",
+        "channel": "#alerts",
         "channels": { "billing": "#alerts-billing", "ai_providers": "#alerts-ai" },
         "minSeverity": "info",
-        "maxSeverity": "warning",
+        "maxSeverity": "info",
         "repeatThrottleMs": 900000,
     },
     "calls": {
@@ -163,12 +171,16 @@ alarms to the console.
 Slack posts through the Web API when `botToken` is set (scope `chat:write`;
 invite the bot to each channel, or add `chat:write.public`). `channel` is then
 required. Channels can be names or IDs; IDs survive a rename. `username` needs
-the `chat:write.customize` scope with a bot token, so leave it out otherwise. With only a `webhookUrl`, every alarm lands in the webhook's own
-channel and calls carry no link.
+the `chat:write.customize` scope with a bot token, so leave it out otherwise.
+With only a `webhookUrl`, every alarm lands in the webhook's own channel and
+calls carry no chat link.
 
-Slack's `maxSeverity` defaults to `warning` whenever PagerDuty is configured,
-and to `critical` when it isn't — a node with only Slack still sees
-everything. Raise it to have chat mirror the paging tiers as well.
+PagerDuty's `apiToken` is a REST API key; read-only is enough. It's only used
+to find the incident an alarm that calls just opened.
+
+Slack's `maxSeverity` defaults to `info` whenever PagerDuty is configured, and
+to `critical` when it isn't — a node with only Slack still sees everything.
+Raise it to have chat mirror the paging tiers as well.
 
 ### Retiering without a deploy
 

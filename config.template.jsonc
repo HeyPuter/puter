@@ -400,9 +400,12 @@
         "pagerduty": {
             "enabled": false,
             "routingKey": "",
-            // Lowest severity that reaches PagerDuty. Default "error", which
-            // keeps `warning` and `info` in chat.
-            "minSeverity": "error"
+            // REST API key (read-only is enough). Lets an alarm that calls
+            // link to the incident it opened.
+            "apiToken": "",
+            // Lowest severity that reaches PagerDuty. Default "warning",
+            // which keeps `info` out of the paging system entirely.
+            "minSeverity": "warning"
         },
 
         // Slack — the destination for everything that shouldn't page.
@@ -423,11 +426,11 @@
             // With botToken, needs the chat:write.customize scope.
             "username": "puter-alarms",
             // Severity window posted to Slack. The ceiling defaults to
-            // "warning" when PagerDuty is configured — what pages belongs in
+            // "info" when PagerDuty is configured — what pages belongs in
             // the pager, not in chat — and to "critical" when Slack is the
             // only transport.
             "minSeverity": "info",
-            "maxSeverity": "warning",
+            "maxSeverity": "info",
             // Don't repost the same alarm id within this window. The first
             // occurrence always posts; the next post that gets through
             // reports how many occurrences piled up. 0 disables throttling.

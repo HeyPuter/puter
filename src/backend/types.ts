@@ -103,10 +103,15 @@ export interface IPagerDutyConfig {
     enabled?: boolean;
     routingKey?: string;
     /**
-     * Lowest severity that reaches PagerDuty. Default `error`, which keeps
-     * `warning` and `info` in chat.
+     * Lowest severity that reaches PagerDuty. Default `warning`, which keeps
+     * `info` alarms out of the paging system entirely.
      */
     minSeverity?: PagerSeverity;
+    /**
+     * REST API token (read-only is enough). Lets an alarm that calls link to
+     * the incident it opened.
+     */
+    apiToken?: string;
 }
 
 export interface ISlackAlertConfig {
@@ -130,9 +135,9 @@ export interface ISlackAlertConfig {
     /** Lowest severity posted to Slack. Default `info`. */
     minSeverity?: PagerSeverity;
     /**
-     * Highest severity posted to Slack. Defaults to `warning` when PagerDuty is
-     * configured, so chat gets what doesn't page, and to `critical` when Slack
-     * is the only transport.
+     * Highest severity posted to Slack. Defaults to `info` when PagerDuty is
+     * configured — anything that pages belongs in the paging system, not in
+     * chat — and to `critical` (everything) when Slack is the only transport.
      */
     maxSeverity?: PagerSeverity;
     /**

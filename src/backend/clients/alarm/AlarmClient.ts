@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { event as pdEvent } from '@pagerduty/pdjs';
 import { inspect } from 'node:util';
 import { createHash } from 'node:crypto';
 import type { IConfig, PagerSeverity, SeverityRule } from '../../types';
@@ -28,6 +27,7 @@ import {
     resolveSeverityOverride,
     withinMaxSeverity,
 } from './severity';
+import { createPagerDutyAlertHandler } from './pagerduty';
 import { createSlackAlertHandler } from './slack';
 import type {
     Alarm,
@@ -62,8 +62,6 @@ interface RegisteredHandler {
     minSeverity: PagerSeverity;
     /** Highest severity this transport accepts. */
     maxSeverity: PagerSeverity;
-    /** Also takes alarms that call, whatever their severity. */
-    includeCalls: boolean;
     handler: AlertHandler;
 }
 
@@ -101,13 +99,10 @@ const shouldReportRepeat = (count: number): boolean =>
 const CALL_REFRESH_MS = 60 * 1000;
 /** Longest a call waits on transports for links before it goes out without. */
 const CALL_LINK_WAIT_MS = 15 * 1000;
-/**
- * Keeps `warning` and `info` out of the paging system unless config says
- * otherwise.
- */
-const DEFAULT_PAGERDUTY_MIN_SEVERITY: PagerSeverity = 'error';
+/** Keeps `info` alarms out of the paging system unless config says otherwise. */
+const DEFAULT_PAGERDUTY_MIN_SEVERITY: PagerSeverity = 'warning';
 /** Slack's ceiling once a pager exists: chat gets what doesn't page. */
-const DEFAULT_SLACK_MAX_SEVERITY_WITH_PAGER: PagerSeverity = 'warning';
+const DEFAULT_SLACK_MAX_SEVERITY_WITH_PAGER: PagerSeverity = 'info';
 
 // -- Helpers ----------------------------------------------------------
 
@@ -253,29 +248,15 @@ export class AlarmClient extends PuterClient {
             return false;
         }
 
-        const serverId = this.config.serverId;
         const minSeverity =
             pagerDutyConf.minSeverity ?? DEFAULT_PAGERDUTY_MIN_SEVERITY;
 
         this.addAlertHandler(
-            async (alert) => {
-                await pdEvent({
-                    data: {
-                        routing_key: routingKey,
-                        event_action: 'trigger',
-                        dedup_key: alert.dedupKey,
-                        payload: {
-                            summary: alert.message,
-                            source: alert.source,
-                            severity: alert.severity,
-                            custom_details: {
-                                ...alert.custom,
-                                server_id: serverId,
-                            },
-                        },
-                    },
-                });
-            },
+            createPagerDutyAlertHandler({
+                routingKey,
+                apiToken: pagerDutyConf.apiToken,
+                serverId: this.config.serverId,
+            }),
             { name: 'pagerduty', minSeverity },
         );
 
@@ -301,7 +282,7 @@ export class AlarmClient extends PuterClient {
         }
 
         const minSeverity = slackConf.minSeverity ?? 'info';
-        // With a pager taking everything from `error` up, chat is where the
+        // With a pager taking everything from `warning` up, chat is where the
         // rest is recorded — reposting the paging tiers there only trains
         // people to skim the channel. Without one, Slack is the only place an
         // alarm can land, so it takes all of them.
@@ -313,8 +294,7 @@ export class AlarmClient extends PuterClient {
             createSlackAlertHandler(slackConf, {
                 serverId: this.config.serverId,
             }),
-            // A call needs a message to link to, even for a paging severity.
-            { name: 'slack', minSeverity, maxSeverity, includeCalls: true },
+            { name: 'slack', minSeverity, maxSeverity },
         );
 
         console.log(
@@ -412,8 +392,7 @@ export class AlarmClient extends PuterClient {
      * Register an additional alert handler. Handlers are called for every alarm
      * that isn't suppressed by a known-error rule or muted by config, and whose
      * severity falls inside the handler's own `minSeverity`..`maxSeverity`
-     * window (default: everything). `includeCalls` also hands it every alarm
-     * that calls, outside that window too.
+     * window (default: everything).
      */
     addAlertHandler(
         handler: AlertHandler,
@@ -421,22 +400,20 @@ export class AlarmClient extends PuterClient {
             name?: string;
             minSeverity?: PagerSeverity;
             maxSeverity?: PagerSeverity;
-            includeCalls?: boolean;
         } = {},
     ): void {
         this.alertHandlers.push({
             name: opts.name ?? `handler-${this.alertHandlers.length}`,
             minSeverity: opts.minSeverity ?? 'info',
             maxSeverity: opts.maxSeverity ?? 'critical',
-            includeCalls: opts.includeCalls ?? false,
             handler,
         });
     }
 
     /**
      * Register a handler for alarms `pager.calls.rules` says phone someone. It
-     * runs once the alert handlers settle, with the links they returned. Call
-     * groups aren't resolved until one is registered.
+     * runs once the transports that took the alarm settle, with the links they
+     * returned. Call groups aren't resolved until one is registered.
      */
     addCallHandler(handler: CallHandler): void {
         this.callHandlers.push(handler);
@@ -643,10 +620,8 @@ export class AlarmClient extends PuterClient {
 
         const deliveries: Promise<AlertDelivery | undefined>[] = [];
         for (const registered of this.alertHandlers) {
-            const inWindow =
-                meetsMinSeverity(resolved, registered.minSeverity) &&
-                withinMaxSeverity(resolved, registered.maxSeverity);
-            if (!inWindow && !(callGroup && registered.includeCalls)) continue;
+            if (!meetsMinSeverity(resolved, registered.minSeverity)) continue;
+            if (!withinMaxSeverity(resolved, registered.maxSeverity)) continue;
             deliveries.push(deliver(registered, payload));
         }
 

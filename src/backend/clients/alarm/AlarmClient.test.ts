@@ -196,7 +196,7 @@ describe('AlarmClient transport registration', () => {
         pdEvent.mockClear();
     });
 
-    it('splits info and warning to Slack and everything above to PagerDuty', async () => {
+    it('splits info to Slack and everything above it to PagerDuty', async () => {
         const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
         vi.stubGlobal('fetch', fetchMock);
 
@@ -207,14 +207,14 @@ describe('AlarmClient transport registration', () => {
         await client.onServerStart();
 
         client.create('quiet:thing', 'informational', {}, 'info');
-        client.create('slow:thing', 'look at this today', {}, 'warning');
-        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
         expect(pdEvent).not.toHaveBeenCalled();
 
-        client.create('loud:thing', 'paging', {}, 'error');
-        await vi.waitFor(() => expect(pdEvent).toHaveBeenCalledTimes(1));
-        // The pager has it; chat doesn't repeat it.
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        client.create('slow:thing', 'look at this today', {}, 'warning');
+        client.create('loud:thing', 'paging', {}, 'critical');
+        await vi.waitFor(() => expect(pdEvent).toHaveBeenCalledTimes(2));
+        // The pager has them; chat doesn't repeat them.
+        expect(fetchMock).toHaveBeenCalledTimes(1);
 
         vi.unstubAllGlobals();
     });
@@ -265,8 +265,8 @@ describe('AlarmClient transport registration', () => {
         });
         await client.onServerStart();
 
-        client.create('scan:failed', 'first', {}, 'error');
-        client.create('scan:failed', 'second', {}, 'error');
+        client.create('scan:failed', 'first', {}, 'warning');
+        client.create('scan:failed', 'second', {}, 'warning');
         await vi.waitFor(() => expect(pdEvent).toHaveBeenCalledTimes(2));
 
         const keys = pdEvent.mock.calls.map(
@@ -815,25 +815,29 @@ describe('AlarmClient calls', () => {
         expect(calls).toHaveLength(0);
     });
 
-    it('reaches a call-taking transport outside its severity window', async () => {
+    it('takes links only from transports that took the alarm', async () => {
         const { client, calls } = callClient();
-        const chat: AlertPayload[] = [];
         client.addAlertHandler(
-            async (alert) => {
-                chat.push(alert);
-                return { url: 'https://chat/msg/2' };
+            async () => ({ url: 'https://pager/incident/1' }),
+            {
+                minSeverity: 'warning',
             },
-            { minSeverity: 'info', maxSeverity: 'info', includeCalls: true },
         );
-        const strict = capture(client, 'info', 'info');
+        client.addAlertHandler(async () => ({ url: 'https://chat/msg/2' }), {
+            maxSeverity: 'info',
+        });
 
         client.create('billing:outage', 'billing down', {}, 'critical');
-        client.create('other:outage', 'other down', {}, 'critical');
+        client.create('billing:stuck', 'top-up stuck', {}, 'info');
 
-        await vi.waitFor(() => expect(calls).toHaveLength(1));
-        expect(chat.map((alert) => alert.id)).toEqual(['billing:outage']);
-        expect(strict).toHaveLength(0);
-        expect(calls[0].links).toEqual(['https://chat/msg/2']);
+        await vi.waitFor(() => expect(calls).toHaveLength(2));
+        const linksById = Object.fromEntries(
+            calls.map((call) => [call.alert.id, call.links]),
+        );
+        expect(linksById).toEqual({
+            'billing:outage': ['https://pager/incident/1'],
+            'billing:stuck': ['https://chat/msg/2'],
+        });
     });
 
     it('keeps the last links when a repeat is not delivered again', async () => {
