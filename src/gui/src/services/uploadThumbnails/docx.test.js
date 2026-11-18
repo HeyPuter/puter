@@ -156,8 +156,8 @@ describe('readDocxPreview drawing the first page', () => {
     });
 
     it('decodes character references', async () => {
-        const lines = await draw({ body: paragraph('a &amp; b &lt;c&gt; &#233;&#x4E2D; &quot;&apos; &unknown; &#x110000;') });
-        expect(lines[0].text).toBe('a & b <c> é中 "\' &unknown; &#x110000;');
+        const lines = await draw({ body: paragraph('a &amp; b &lt;c&gt; &#233;&#x4E2D; &quot;&apos; &unknown; &#x110000; &constructor; &toString;') });
+        expect(lines[0].text).toBe('a & b <c> é中 "\' &unknown; &#x110000; &constructor; &toString;');
     });
 
     it.each([

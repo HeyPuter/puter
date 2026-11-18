@@ -105,7 +105,7 @@ export const attributesOf = source => Object.fromEntries(
 );
 
 export const decodeEntities = text => text.replace(/&(?:#(\d+)|#x([0-9a-f]+)|(\w+));/gi, (match, decimal, hex, name) => {
-    if ( name ) return ENTITIES[name] ?? match;
+    if ( name ) return Object.hasOwn(ENTITIES, name) ? ENTITIES[name] : match;
     const codePoint = decimal ? Number(decimal) : parseInt(hex, 16);
     return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : match;
 });
