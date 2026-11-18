@@ -3,7 +3,7 @@
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
 callback's second argument. Files that are not PDFs, Illustrator files, PSDs,
-Office documents or videos delegate to that image generator; when the running SDK predates the callback
+Office documents, videos or audio files delegate to that image generator; when the running SDK predates the callback
 context (it then passes only the file), the GUI's bundled copy of the SDK image
 generator is used instead, so image thumbnails do not depend on deploy order.
 
@@ -139,6 +139,27 @@ covers a 300 dpi scan and a 12 megapixel photo; PDF.js scales it down to the
 canvas budget to draw it. Decoding one that large takes a few hundred megabytes
 for well under a second, inside the disposable worker. Empty first pages also retain their normal icon. Browsers lacking the required APIs also skip previews.
 
+## Audio
+
+`audio.js` finds the cover art an audio file keeps with its tags and hands it to
+the image generator as it is stored, a JPEG or a PNG as a rule:
+
+- an MP3's ID3v2 tag, versions 2.2 to 2.4, in its `APIC` (or `PIC`) frame;
+- a FLAC's picture block, also behind an ID3 tag put in front of the file;
+- an MP4 audio file's `covr` atom, at `moov` / `udta` / `meta` / `ilst`.
+
+The picture marked as the front cover is preferred, and the first one otherwise.
+Only the tags are read: the reader steps over other frames, blocks and the audio
+itself by their stated sizes, and the cover is a slice of the file that is not
+read until it is decoded. What kind of image it is comes from its own first
+bytes, not from the type its tag states. A tag that is unsynchronised, or a
+picture that is compressed or encrypted, is left alone, and a file with no cover
+retains its normal icon.
+
+An album is many files that each hold the same cover, often a large one, so an
+upload finds and scales one cover before it opens the next file, under a
+preparation deadline of its own.
+
 ## Budgets and tests
 
 All budgets are published in the developer docs' rate-limits-and-quotas page.
@@ -150,7 +171,8 @@ fixtures, and check first-page pixels, text, rotation, image delegation, failure
 recovery and termination of CPU-bound work. They also decode the thumbnails made
 from a PSD fixture's preview and from a fixture's merged image, and check the
 pixels of pages drawn from DOCX and DOC fixtures, of a sheet drawn from an XLSX
-fixture, of a slide drawn from a PPTX fixture, and of a frame taken from a video fixture. The parsers' unit tests draw on a
+fixture, of a slide drawn from a PPTX fixture, of a frame taken from a video fixture, and of
+covers stored in MP3, FLAC and MP4 audio fixtures. The parsers' unit tests draw on a
 recording canvas, so they assert on the words and positions laid out. The SDK upload suites cover callback
 compatibility and cancellation; its HTTP transport tests cover thumbnail
 failure, timeout and original-file failure separately.

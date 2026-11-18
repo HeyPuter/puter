@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createFlac, createM4a, createMp3, flacPicture, id3Picture } from '../../../tests/fixtures/audio.js';
 import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx } from '../../../tests/fixtures/docx.js';
@@ -10,6 +11,7 @@ import {
     PDF_THUMBNAIL_BATCH_TIMEOUT_MS,
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_FILE_BYTES,
+    AUDIO_BATCH_TIMEOUT_MS,
     OFFICE_BATCH_TIMEOUT_MS,
     VIDEO_BATCH_TIMEOUT_MS,
     VIDEO_JOB_TIMEOUT_MS,
@@ -723,3 +725,61 @@ describe('video thumbnails', () => {
         expect(videos).toHaveLength(0);
     });
 });
+
+describe('audio cover thumbnails', () => {
+    const jpeg = psdPreviewJpeg();
+    const mp3 = () => createMp3({ frames: [{ name: 'APIC', data: id3Picture({ data: jpeg }) }] });
+
+    it.each([
+        new File([mp3()], 'song.mp3'),
+        new File([mp3()], 'SONG.MP3', { type: 'audio/mpeg' }),
+        new File([mp3()], 'song', { type: 'audio/mpeg' }),
+        new File([createFlac({ blocks: [{ type: 6, data: flacPicture({ data: jpeg }) }] })], 'song.flac'),
+        new File([createM4a({ cover: jpeg })], 'song.m4a'),
+        new File([createM4a({ cover: jpeg })], 'book.m4b'),
+        // An audio file in an MP4 container can carry the name a video would.
+        new File([createM4a({ cover: jpeg })], 'song.mp4', { type: 'audio/mp4' }),
+    ])('hands the image generator the cover stored in an audio file', async (file) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        const [cover] = defaultGenerator.mock.calls[0];
+        expect(cover.type).toBe('image/jpeg');
+        expect(new Uint8Array(await cover.arrayBuffer())).toEqual(jpeg);
+        expect(workers).toHaveLength(0);
+    });
+
+    it.each([
+        ['an audio file with no cover', new File([createMp3({ frames: [{ name: 'TIT2', data: new Uint8Array([0, 65]) }] })], 'song.mp3')],
+        ['text that is only named like an audio file', new File(['not audio'], 'song.flac')],
+    ])('skips %s', async (_label, file) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).not.toHaveBeenCalled();
+    });
+
+    it('finds and scales one cover at a time, and skips the files still queued at the deadline', async () => {
+        let scaling = 0;
+        let most = 0;
+        const finish = [];
+        const defaultGenerator = vi.fn(() => new Promise((resolve) => {
+            most = Math.max(most, ++scaling);
+            finish.push(() => {
+                scaling--;
+                resolve(thumbnail);
+            });
+        }));
+        const generate = createUploadThumbnailGenerator();
+        const results = Promise.all(['a.mp3', 'b.mp3', 'c.mp3', 'd.mp3'].map(name => generate(new File([mp3()], name), { defaultGenerator })));
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        // The third cover is still being scaled when the deadline passes.
+        await vi.advanceTimersByTimeAsync(AUDIO_BATCH_TIMEOUT_MS);
+        expect(await results).toEqual([thumbnail, thumbnail, undefined, undefined]);
+        expect(most).toBe(1);
+        expect(defaultGenerator).toHaveBeenCalledTimes(3);
+    });
+});
+

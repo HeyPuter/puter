@@ -35,6 +35,10 @@ by loading its output with the Python `openpyxl` package.
 master, with a theme and optional media. It was checked by loading its output
 with the Python `python-pptx` package.
 
+`audio.js` builds MP3 files with an ID3v2 tag, FLAC files and MP4 audio files
+that hold cover art, with a few bytes standing in for the audio. Its output was
+checked by reading the tags back with the Python `mutagen` package.
+
 `video.mp4` is two seconds of 160 × 80 VP9 video: black for the first tenth of a
 second, then green. It was recorded in Chromium, which can play it without
 proprietary codecs, from a canvas:

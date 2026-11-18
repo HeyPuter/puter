@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyPdfThumbnailAssets } from '../../../tools/copyPdfThumbnailAssets.js';
+import { createFlac, createM4a, createMp3, flacPicture, id3Picture } from '../../../tests/fixtures/audio.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx, paragraph, picture } from '../../../tests/fixtures/docx.js';
 import { createPdf } from '../../../tests/fixtures/pdf.js';
@@ -541,6 +542,48 @@ describe('Upload thumbnails in a real browser', () => {
             expect(result.saved).toMatchObject({ width: 128, height: 64 });
             expect(result.saved.pixel).toSatisfy(near([255, 0, 0, 255]));
             expect(result.skipped).toEqual([undefined, undefined]);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
+    it.each([false, true])('scales the cover stored in an audio file (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async (files) => {
+                const generate = window.createUploadThumbnailGenerator();
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const thumbnails = await Promise.all(files.map(([name, bytes]) => generate(new File([new Uint8Array(bytes)], name), context)));
+                return Promise.all(thumbnails.map(async (thumbnail) => {
+                    if ( ! thumbnail ) return null;
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    return { width: image.width, height: image.height, pixel: [...ctx.getImageData(5, 5, 1, 1).data] };
+                }));
+            }, [
+                ['song.mp3', [...createMp3({ frames: [{ name: 'APIC', data: id3Picture({ data: psdPreviewJpeg(), description: 'Front', encoding: 1 }) }] })]],
+                ['song.flac', [...createFlac({ blocks: [{ type: 6, data: flacPicture({ data: psdPreviewJpeg() }) }] })]],
+                ['song.m4a', [...createM4a({ cover: psdPreviewJpeg(), audioBytes: 200_000 })]],
+                ['plain.mp3', [...createMp3({ frames: [{ name: 'TIT2', data: new Uint8Array([0, 65]) }] })]],
+            ]);
+            const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 15);
+            // The cover is a 160 x 80 red JPEG.
+            for ( const cover of result.slice(0, 3) ) {
+                expect(cover).toMatchObject({ width: 128, height: 64 });
+                expect(cover.pixel).toSatisfy(near([255, 0, 0, 255]));
+            }
+            expect(result[3]).toBeNull();
             expect(errors).toEqual([]);
         } finally {
             await page.close();

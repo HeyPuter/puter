@@ -400,6 +400,16 @@ The Puter desktop makes a Word document, spreadsheet, or presentation upload thu
 | Text drawn from a cell | 256 characters |
 | Output | First page, sheet, or slide, at most 128 × 128 pixels, aspect ratio preserved |
 
+The Puter desktop makes an audio upload thumbnail from the cover art stored in the tags of an MP3, FLAC, M4A, or M4B file, within these budgets. A file with no cover, or one over a budget, keeps its file icon.
+
+| Audio thumbnail | Limit |
+| --- | --- |
+| Audio files read per upload | 1 at a time |
+| Preparation per upload, including queued files | 5 seconds from the first audio file |
+| Data read from the file to find the cover | 1 MiB |
+| Stored cover size | 16 MiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
 The Puter desktop makes a video upload thumbnail from one frame of an MP4, MOV, M4V, or WebM file, using the browser's video player, within these budgets. A video the browser can't play, or one over a budget, keeps its file icon.
 
 | Video thumbnail | Limit |

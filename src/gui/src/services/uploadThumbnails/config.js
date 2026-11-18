@@ -32,6 +32,10 @@ export const SHEET_CELL_MAX_CHARACTERS = 256;
 export const SLIDE_MAX_SHAPES = 256;
 export const SLIDE_MAX_PICTURES = 8;
 export const SLIDE_TEXT_MAX_CHARACTERS = 4096;
+export const AUDIO_BATCH_TIMEOUT_MS = 5000;
+// Covers finding the cover in an audio file's tags. The cover itself is not read until it is decoded.
+export const AUDIO_MAX_READ_BYTES = 1024 * 1024;
+export const AUDIO_COVER_MAX_BYTES = 16 * 1024 * 1024;
 export const VIDEO_BATCH_TIMEOUT_MS = 5000;
 export const VIDEO_JOB_TIMEOUT_MS = 4000;
 // The frame shown is a tenth of the way into the video, but no later than this.
