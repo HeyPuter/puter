@@ -10,6 +10,7 @@ import { copyPdfThumbnailAssets } from '../../../tools/copyPdfThumbnailAssets.js
 import { createFlac, createM4a, createMp3, flacPicture, id3Picture } from '../../../tests/fixtures/audio.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx, paragraph, picture } from '../../../tests/fixtures/docx.js';
+import { createHeif, createHeifGrid } from '../../../tests/fixtures/heif.js';
 import { createPdf } from '../../../tests/fixtures/pdf.js';
 import { createPptx, paragraph as slideParagraph, pictureShape, shape, solid } from '../../../tests/fixtures/pptx.js';
 import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
@@ -542,6 +543,58 @@ describe('Upload thumbnails in a real browser', () => {
             expect(result.saved).toMatchObject({ width: 128, height: 64 });
             expect(result.saved.pixel).toSatisfy(near([255, 0, 0, 255]));
             expect(result.skipped).toEqual([undefined, undefined]);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
+    it.each([false, true])('shows a HEIC photo where the device can decode it, and keeps its icon where it can\'t (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async (files) => {
+                // The browser this suite installs has no HEVC decoder, and one with a licensed build or a GPU's does.
+                const decodes = typeof VideoDecoder !== 'undefined' &&
+                    (await VideoDecoder.isConfigSupported({ codec: 'hvc1.3.E.L30.B0', codedWidth: 128, codedHeight: 64 }).catch(() => ({}))).supported === true;
+                const generate = window.createUploadThumbnailGenerator();
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const thumbnails = await Promise.all(files.map(([name, bytes]) => generate(new File([new Uint8Array(bytes)], name), context)));
+                const photos = await Promise.all(thumbnails.map(async (thumbnail) => {
+                    if ( ! thumbnail ) return null;
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    const pixel = x => [...ctx.getImageData(x, image.height >> 1, 1, 1).data];
+                    return { width: image.width, height: image.height, left: pixel(8), right: pixel(image.width - 8) };
+                }));
+                return { decodes, photos };
+            }, [
+                ['photo.heic', [...createHeif()]],
+                ['large.heic', [...createHeifGrid({ rows: 2, columns: 2 })]],
+                ['broken.heic', [...new TextEncoder().encode('not a photo')]],
+            ]);
+            if ( result.decodes ) {
+                // The picture is red on its left half and blue on its right, and a grid repeats it.
+                const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 40);
+                expect(result.photos[0]).toMatchObject({ width: 128, height: 64 });
+                expect(result.photos[1]).toMatchObject({ width: 128, height: 64 });
+                for ( const photo of result.photos.slice(0, 2) ) {
+                    expect(photo.left).toSatisfy(near([235, 15, 0, 255]));
+                    expect(photo.right).toSatisfy(near([0, 10, 230, 255]));
+                }
+            } else {
+                expect(result.photos.slice(0, 2)).toEqual([null, null]);
+            }
+            expect(result.photos[2]).toBeNull();
             expect(errors).toEqual([]);
         } finally {
             await page.close();

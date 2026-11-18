@@ -1,17 +1,11 @@
 import { AUDIO_COVER_MAX_BYTES, AUDIO_MAX_READ_BYTES } from './config.js';
+import { findBox, textOf } from './isobmff.js';
 import { createReader } from './reader.js';
 
 const FRONT_COVER = 3;
 // How far into a picture's frame its own header can reach before the image starts.
 const PICTURE_HEADER_BYTES = 1024;
-const MAX_BOXES = 4096;
 const MAX_FLAC_BLOCKS = 1024;
-
-const textOf = (view, at, length) => {
-    let text = '';
-    for ( let index = 0; index < length; index++ ) text += String.fromCharCode(view.getUint8(at + index));
-    return text;
-};
 
 // A size stored seven bits to a byte, so that no byte of it looks like the start of an audio frame.
 const syncsafe = (view, at) => (view.getUint8(at) & 0x7f) << 21 | (view.getUint8(at + 1) & 0x7f) << 14 |
@@ -133,34 +127,6 @@ const readFlacCover = async (file, read, start, signal) => {
         offset += 4 + length;
     }
     return cover;
-};
-
-/**
- * Find a box of an MP4 file among the boxes between `start` and `end`, stepping over the others without reading them.
- *
- * @returns {Promise<{ start: number, end: number } | undefined>} Where the box's content starts and ends.
- */
-const findBox = async (read, start, end, type, signal) => {
-    let offset = start;
-    for ( let box = 0; box < MAX_BOXES && offset + 8 <= end && !signal?.aborted; box++ ) {
-        const header = await read(offset, 8);
-        if ( ! header ) return undefined;
-        let size = header.getUint32(0);
-        let headerBytes = 8;
-        // A size of one means the real size follows in 64 bits, and a size of zero that the box runs to the end.
-        if ( size === 1 ) {
-            const large = await read(offset + 8, 8);
-            if ( ! large ) return undefined;
-            size = Number(large.getBigUint64(0));
-            headerBytes = 16;
-        } else if ( size === 0 ) {
-            size = end - offset;
-        }
-        if ( size < headerBytes || offset + size > end ) return undefined;
-        if ( textOf(header, 4, 4) === type ) return { start: offset + headerBytes, end: offset + size };
-        offset += size;
-    }
-    return undefined;
 };
 
 /** Find the cover an MP4 audio file keeps with its tags, at `moov` / `udta` / `meta` / `ilst` / `covr` / `data`. */

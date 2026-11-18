@@ -35,6 +35,17 @@ by loading its output with the Python `openpyxl` package.
 master, with a theme and optional media. It was checked by loading its output
 with the Python `python-pptx` package.
 
+`heif.js` builds HEIF photos box by box around one real HEVC picture of
+128 × 64 pixels, red on its left half and blue on its right. The picture and its
+decoder configuration were taken from a file written by macOS:
+
+```sh
+sips -s format heic tiny.png --out tiny.heic
+```
+
+A single-picture file it builds was checked by reading and decoding it with
+`sips`, and its grid files by decoding them in Chrome and Safari's engine.
+
 `audio.js` builds MP3 files with an ID3v2 tag, FLAC files and MP4 audio files
 that hold cover art, with a few bytes standing in for the audio. Its output was
 checked by reading the tags back with the Python `mutagen` package.

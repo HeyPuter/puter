@@ -3,7 +3,8 @@
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
 callback's second argument. Files that are not PDFs, Illustrator files, PSDs,
-Office documents, videos or audio files delegate to that image generator; when the running SDK predates the callback
+Office documents, videos, HEIC photos or audio files delegate to that image
+generator; when the running SDK predates the callback
 context (it then passes only the file), the GUI's bundled copy of the SDK image
 generator is used instead, so image thumbnails do not depend on deploy order.
 
@@ -139,6 +140,25 @@ covers a 300 dpi scan and a 12 megapixel photo; PDF.js scales it down to the
 canvas budget to draw it. Decoding one that large takes a few hundred megabytes
 for well under a second, inside the disposable worker. Empty first pages also retain their normal icon. Browsers lacking the required APIs also skip previews.
 
+## HEIC
+
+A HEIC or HEIF photo is an HEVC picture, or a grid of them, in a container of
+boxes. Safari decodes these itself, so the image generator is given the file
+first. Where that fails, `heif.js` reads the file's index (`meta`), takes the
+small copy of the photo that phones store beside it, or else the photo's own
+picture or tiles, and hands the coded data to the browser's `VideoDecoder`,
+which uses the HEVC decoder the device has. The frames are drawn, turned and
+mirrored as the photo's properties say, onto a canvas of at most 256 pixels a
+side.
+
+Nothing is decoded in script and no decoder is shipped. Whether the device can
+decode the photo is asked before any of it is read, so a browser or a device
+with no HEVC decoder costs one small read and the photo retains its normal icon.
+That is the case in Firefox, and in Chrome on a machine whose hardware has none.
+`VideoDecoder` exists only on pages served over HTTPS or from localhost.
+
+An upload decodes one photo at a time, under a preparation deadline of its own.
+
 ## Audio
 
 `audio.js` finds the cover art an audio file keeps with its tags and hands it to
@@ -172,7 +192,10 @@ recovery and termination of CPU-bound work. They also decode the thumbnails made
 from a PSD fixture's preview and from a fixture's merged image, and check the
 pixels of pages drawn from DOCX and DOC fixtures, of a sheet drawn from an XLSX
 fixture, of a slide drawn from a PPTX fixture, of a frame taken from a video fixture, and of
-covers stored in MP3, FLAC and MP4 audio fixtures. The parsers' unit tests draw on a
+covers stored in MP3, FLAC and MP4 audio fixtures. The browser the suite installs has
+no HEVC decoder, so there the HEIC test checks that a photo is skipped without an
+error; in a browser that has one, the same test checks the decoded pixels. `heif.test.js`
+covers the reader against a stand-in for the decoder. The parsers' unit tests draw on a
 recording canvas, so they assert on the words and positions laid out. The SDK upload suites cover callback
 compatibility and cancellation; its HTTP transport tests cover thumbnail
 failure, timeout and original-file failure separately.

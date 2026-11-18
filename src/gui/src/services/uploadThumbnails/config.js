@@ -36,6 +36,16 @@ export const AUDIO_BATCH_TIMEOUT_MS = 5000;
 // Covers finding the cover in an audio file's tags. The cover itself is not read until it is decoded.
 export const AUDIO_MAX_READ_BYTES = 1024 * 1024;
 export const AUDIO_COVER_MAX_BYTES = 16 * 1024 * 1024;
+// A camera roll is hundreds of photos, each a few milliseconds of the device's decoder.
+export const HEIF_BATCH_TIMEOUT_MS = 10000;
+export const HEIF_DECODE_TIMEOUT_MS = 2000;
+export const HEIF_META_MAX_BYTES = 1024 * 1024;
+// Covers the index and the coded pictures of one photo: its stored thumbnail, or else all of its tiles.
+export const HEIF_MAX_READ_BYTES = 16 * 1024 * 1024;
+export const HEIF_MAX_TILES = 64;
+export const HEIF_MAX_PIXELS = 16 * 1024 * 1024;
+// Twice the thumbnail's size, so the image generator's downscale smooths the photo.
+export const HEIF_PICTURE_DIMENSION = 256;
 export const VIDEO_BATCH_TIMEOUT_MS = 5000;
 export const VIDEO_JOB_TIMEOUT_MS = 4000;
 // The frame shown is a tenth of the way into the video, but no later than this.

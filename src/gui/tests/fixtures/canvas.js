@@ -4,11 +4,12 @@
  * `Canvas` replaces OffscreenCanvas. `drawn` collects the canvas size and each call that puts something on it:
  * `fillText` (with the clipping rectangle in force), `fillRect` and `fill` (a path's rectangle, or the box of its
  * ellipse, marked `ellipse`), `drawImage`, and the line segments of each `stroke`.
- * `measured` counts the characters passed to `measureText`. Positions are in the units the drawing code used. A
+ * `transforms` lists each `translate`, `rotate` and `scale` with its arguments. `measured` counts the characters passed
+ * to `measureText`. Positions are in the units the drawing code used. A
  * character measures half its font size wide.
  */
 export const createRecordingCanvas = () => {
-    const drawn = { width: 0, height: 0, text: [], fills: [], images: [], lines: [], measured: 0 };
+    const drawn = { width: 0, height: 0, text: [], fills: [], images: [], lines: [], transforms: [], measured: 0 };
     class Canvas {
         constructor (width, height) {
             Object.assign(this, { width, height });
@@ -24,7 +25,15 @@ export const createRecordingCanvas = () => {
             return {
                 font: '',
                 fillStyle: '',
-                scale () {},
+                scale (...by) {
+                    drawn.transforms.push(['scale', ...by]);
+                },
+                translate (...by) {
+                    drawn.transforms.push(['translate', ...by]);
+                },
+                rotate (angle) {
+                    drawn.transforms.push(['rotate', angle]);
+                },
                 save () {
                     clips.push(clip);
                 },

@@ -2,6 +2,7 @@ import { defaultThumbnailGenerator } from '../../../../puter-js/src/modules/File
 import { readAudioCover } from './audio.js';
 import {
     AUDIO_BATCH_TIMEOUT_MS,
+    HEIF_BATCH_TIMEOUT_MS,
     PDFJS_VERSION,
     PDF_THUMBNAIL_ASSET_PATH,
     PDF_THUMBNAIL_MAX_FILE_BYTES,
@@ -13,6 +14,7 @@ import {
 } from './config.js';
 import { readDocPreview } from './doc.js';
 import { readDocxPreview } from './docx.js';
+import { readHeifPreview } from './heif.js';
 import { ILLUSTRATOR_NAME, PDF_NAME, PRESENTATION_NAME, SPREADSHEET_NAME, WORD_NAME } from './kinds.js';
 import { readPptxPreview } from './pptx.js';
 import { readPsdPreview } from './psd.js';
@@ -108,6 +110,7 @@ const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => 
 const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
 const SPREADSHEET_TYPE = /^application\/vnd\.(ms-excel\.(sheet|template)\.|openxmlformats-officedocument\.spreadsheetml\.)/;
 const PRESENTATION_TYPE = /^application\/vnd\.(ms-powerpoint\.|openxmlformats-officedocument\.presentationml\.)/;
+const HEIF_TYPE = /^image\/hei[cf]$/;
 const AUDIO_TYPE = /^audio\/(mpeg|mp3|mp4|m4a|x-m4a|flac|x-flac)$/;
 // The containers browsers play. Other `video/` types are left alone: a `.ts` source file is reported as one.
 const VIDEO_TYPE = /^video\/(mp4|quicktime|webm|x-m4v)$/;
@@ -155,6 +158,9 @@ export const createUploadThumbnailGenerator = () => {
     const queueOffice = createQueue(OFFICE_BATCH_TIMEOUT_MS);
     const queueVideo = createQueue(VIDEO_BATCH_TIMEOUT_MS);
     const queueAudio = createQueue(AUDIO_BATCH_TIMEOUT_MS);
+    const queueHeif = createQueue(HEIF_BATCH_TIMEOUT_MS);
+    // Whether this browser decodes HEIC photos itself, which is known once it has been given one.
+    let decodesHeif;
     return async (file, context) => {
         try {
             if ( context?.signal?.aborted ) return undefined;
@@ -180,6 +186,20 @@ export const createUploadThumbnailGenerator = () => {
                     image = await queueOffice(signal => readXlsxPreview(file, signal), context?.signal);
                 } else if ( PRESENTATION_TYPE.test(file.type) || PRESENTATION_NAME.test(name) ) {
                     image = await queueOffice(signal => readPptxPreview(file, signal), context?.signal);
+                } else if ( HEIF_TYPE.test(file.type) || /\.(heic|heif|hif)$/i.test(name) ) {
+                    // Safari decodes these itself. The image generator goes by a file's type, and not every browser
+                    // gives these one.
+                    if ( decodesHeif !== false ) {
+                        const typed = HEIF_TYPE.test(file.type) ? file : new File([file], name, { type: 'image/heic' });
+                        const thumbnail = await imageGenerator(typed);
+                        decodesHeif ??= !!thumbnail;
+                        if ( thumbnail ) return thumbnail;
+                    }
+                    // Elsewhere the device's video decoder decodes the picture inside, one photo at a time.
+                    return await queueHeif(async (signal) => {
+                        const picture = await readHeifPreview(file, signal);
+                        return picture ? imageGenerator(picture) : undefined;
+                    }, context?.signal);
                 } else if ( AUDIO_TYPE.test(file.type) || /\.(mp3|m4a|m4b|flac)$/i.test(name) ) {
                     // An album is many files that each hold the same large cover, so one cover is found and scaled
                     // before the next file is opened.
