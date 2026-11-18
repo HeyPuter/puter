@@ -1300,8 +1300,12 @@ export class LegacyFSController extends PuterController {
         }
         if (entry.thumbnail !== event.url) discard(entry.thumbnail);
         // Other open tabs show the new thumbnail instead of each making one.
+        // Read again: a rename that landed during the upload above would
+        // otherwise be announced with the name and path it replaced.
+        const current =
+            (await this.stores.fsEntry.getEntryByUuid(entry.uuid)) ?? entry;
         await this.#emitGuiEvent('outer.gui.item.updated', {
-            ...entry,
+            ...current,
             thumbnail: event.url,
         });
         res.json({ thumbnail: event.url });

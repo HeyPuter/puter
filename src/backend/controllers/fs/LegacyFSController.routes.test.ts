@@ -788,6 +788,44 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
         }
     };
 
+    it('announces the entry as it is after the thumbnail is stored', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/renamed-meanwhile.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'body');
+
+        let updates: unknown[] = [];
+        // A rename that lands while the thumbnail is being uploaded.
+        await duringThumbnailCreated(
+            () =>
+                withActor(actor, () =>
+                    controller.rename(
+                        makeReq({
+                            body: { uid: uuid, new_name: 'new-name.txt' },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+            async () => {
+                updates = await captureEvents('outer.gui.item.updated', () =>
+                    setThumbnail(actor, {
+                        uid: uuid,
+                        thumbnail: 'data:image/png;base64,aGVsbG8=',
+                    }),
+                );
+            },
+        );
+
+        expect(updates.at(-1)).toMatchObject({
+            response: {
+                uid: uuid,
+                name: 'new-name.txt',
+                path: `/${username}/Documents/new-name.txt`,
+                thumbnail: 'data:image/png;base64,aGVsbG8=',
+            },
+        });
+    });
+
     it('keeps the current thumbnail when the new one could not be saved', async () => {
         const { actor, username } = await makeUser();
         const path = `/${username}/Documents/unsaved-thumb.txt`;
