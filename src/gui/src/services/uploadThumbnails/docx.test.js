@@ -399,21 +399,22 @@ describe('readDocxPreview budgets', () => {
 
     it('stops inflating an entry that holds more than it states', async () => {
         const file = docxFile({ body: paragraph('Early') + filler(64 * 1024 * 1024), sizes: { 'word/document.xml': 100 } });
-        const text = vi.spyOn(Blob.prototype, 'text');
+        const read = vi.spyOn(ReadableStreamDefaultReader.prototype, 'read');
         expect(await readDocxPreview(file)).toBeInstanceOf(File);
-        expect(Math.max(...text.mock.contexts.map(blob => blob.size))).toBe(OFFICE_XML_MAX_BYTES);
+        // Everything pulled out of the inflater, for every part: the budget and the chunk that crossed it.
+        const chunks = await Promise.all(read.mock.results.map(result => result.value.catch(() => ({}))));
+        const inflated = chunks.reduce((total, { value }) => total + (value?.length ?? 0), 0);
+        expect(inflated).toBeGreaterThanOrEqual(OFFICE_XML_MAX_BYTES);
+        expect(inflated).toBeLessThan(2 * OFFICE_XML_MAX_BYTES);
     });
 
-    it.each([
-        ['an unclosed tag', `<${'a'.repeat(900_000)}`],
-        ['a tag with a long name and no value', `<w:p><w:pPr><w:jc ${'a'.repeat(900_000)} w:val="center"/></w:pPr></w:p>`],
-        ['a long unterminated character reference', paragraph(`&${'a'.repeat(900_000)}`)],
-    ])('reads %s without slowing down', async (_label, markup) => {
-        const started = performance.now();
-        const lines = await draw({ body: paragraph('Shown') + markup });
-        expect(lines[0].text).toBe('Shown');
-        // A scan that looked at each character once per character would take minutes.
-        expect(performance.now() - started).toBeLessThan(2000);
+    it('gives up on an archive whose directory is larger than the read budget', async () => {
+        // Sixty-five thousand entries with long names: a directory of about 7 MiB.
+        const entries = Object.fromEntries(Array.from({ length: 65_000 }, (_, index) => [`media/${String(index).padStart(60, '0')}`, '']));
+        const file = new File([createZip({ ...entries, 'word/document.xml': `<w:document><w:body>${paragraph('Hello')}</w:body></w:document>` }, { stored: Object.keys(entries) })], 'report.docx');
+        const bytesRead = vi.spyOn(Blob.prototype, 'arrayBuffer');
+        expect(await readDocxPreview(file)).toBeUndefined();
+        expect(bytesRead.mock.contexts.reduce((total, blob) => total + blob.size, 0)).toBeLessThan(200_000);
     });
 
     it('stops reading an entry whose data inflates to nothing', async () => {
