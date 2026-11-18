@@ -211,3 +211,31 @@ Below that, the chat transport won't repost the same alarm id within
 `repeatThrottleMs` (default 15 minutes). The first occurrence always posts,
 and the next one that gets through reports how many piled up in between —
 so a hot loop reads as one message with a count, not a wall of them.
+
+## AI model catalog monitoring
+
+The `aiModelMonitor` extension registers a fleet job automatically at boot.
+The scheduler checks for due work at startup and runs scans every 30 minutes
+until shutdown. It uses the configured provider keys,
+fetches complete upstream model lists, and records snapshots in the system KV
+store. The first successful scan establishes a baseline. A different endpoint
+or API key establishes a fresh baseline because account visibility can differ.
+
+Each added or removed model raises an `info` alarm on `ai_providers`, which can
+map to `#alerts-ai` through `pager.slack.channels`. Unchanged catalogs are quiet.
+A failed, invalid, oversized, or incomplete listing raises a fetch-failure alarm
+and retains the last successful snapshot. Removing a provider's configuration
+doesn't report all of its models as removed.
+
+| Providers | Monitoring |
+| --- | --- |
+| OpenAI, Azure, Claude, Gemini, Groq, DeepSeek, Mistral, Moonshot, MiniMax, Z.ai, BytePlus, Hoonify, Meta, ElevenLabs, Replicate | Model-listing API, including configured OpenAI and Gemini media keys |
+| Alibaba, Infron, Neuralwatt, Ollama, OpenRouter, Together, xAI, Cloudflare | Excluded because their upstream catalogs already refresh automatically |
+| AWS Polly and Textract, Kling, Speechify | No supported model-listing endpoint in this monitor |
+| Fake | Test provider with no upstream endpoint |
+
+The monitor compares identifiers returned by each provider, across all model
+modalities that endpoint exposes. It doesn't modify Puter's model catalogs.
+The scheduler runs once across the fleet when a fleet scheduler is installed,
+and once per region with the built-in scheduler. See the scheduler's deployment
+configuration when running the monitor across regions.
