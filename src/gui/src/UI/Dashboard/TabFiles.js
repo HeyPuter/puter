@@ -37,6 +37,7 @@ import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
 import { openPublishWebsiteDialog, openPublishWorkerDialog } from './UIPublishDialogs.js';
 import { dedupedName } from '../../helpers/dedupedName.js';
+import { readFileAsDataUrl } from '../../helpers/readFileAsDataUrl.js';
 import { runLimited } from '../../helpers/runLimited.js';
 import { compareEntries, compareNames } from './sortEntries.js';
 import { middleTruncate } from './middleTruncate.js';
@@ -1502,7 +1503,13 @@ const TabFiles = {
             this.closeImagePreview();
             return;
         }
-        const imageUrl = URL.createObjectURL(new Blob([blob], { type: mime.getType(fileName) ?? '' }));
+        const image = new Blob([blob], { type: mime.getType(fileName) ?? '' });
+        // Opened in its own tab, an SVG at a blob: URL renders as a page on
+        // this origin; at a data: URL it gets an opaque one.
+        const imageUrl = image.type === 'image/svg+xml'
+            ? await readFileAsDataUrl(image)
+            : URL.createObjectURL(image);
+        if ( seq !== this.previewSeq ) return;
 
         // Remove any existing preview
         $('.image-preview-popover').remove();
