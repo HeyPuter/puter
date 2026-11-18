@@ -11,7 +11,8 @@ import {
 } from './config.js';
 import { readDocPreview } from './doc.js';
 import { readDocxPreview } from './docx.js';
-import { ILLUSTRATOR_NAME, PDF_NAME, SPREADSHEET_NAME, WORD_NAME } from './kinds.js';
+import { ILLUSTRATOR_NAME, PDF_NAME, PRESENTATION_NAME, SPREADSHEET_NAME, WORD_NAME } from './kinds.js';
+import { readPptxPreview } from './pptx.js';
 import { readPsdPreview } from './psd.js';
 import { readVideoFrame } from './video.js';
 import { readXlsxPreview } from './xlsx.js';
@@ -104,6 +105,7 @@ const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => 
 
 const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
 const SPREADSHEET_TYPE = /^application\/vnd\.(ms-excel\.(sheet|template)\.|openxmlformats-officedocument\.spreadsheetml\.)/;
+const PRESENTATION_TYPE = /^application\/vnd\.(ms-powerpoint\.|openxmlformats-officedocument\.presentationml\.)/;
 // The containers browsers play. Other `video/` types are left alone: a `.ts` source file is reported as one.
 const VIDEO_TYPE = /^video\/(mp4|quicktime|webm|x-m4v)$/;
 
@@ -172,6 +174,8 @@ export const createUploadThumbnailGenerator = () => {
                         readDocPreview(file, signal), context?.signal);
                 } else if ( SPREADSHEET_TYPE.test(file.type) || SPREADSHEET_NAME.test(name) ) {
                     image = await queueOffice(signal => readXlsxPreview(file, signal), context?.signal);
+                } else if ( PRESENTATION_TYPE.test(file.type) || PRESENTATION_NAME.test(name) ) {
+                    image = await queueOffice(signal => readPptxPreview(file, signal), context?.signal);
                 } else if ( VIDEO_TYPE.test(file.type) || /\.(mp4|m4v|mov|webm)$/i.test(name) ) {
                     image = await queueVideo(signal => readVideoFrame(file, signal), context?.signal);
                 }

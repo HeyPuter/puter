@@ -2,7 +2,8 @@
 
 /**
  * `Canvas` replaces OffscreenCanvas. `drawn` collects the canvas size and each call that puts something on it:
- * `fillText` (with the clipping rectangle in force), `fillRect`, `drawImage`, and the line segments of each `stroke`.
+ * `fillText` (with the clipping rectangle in force), `fillRect` and `fill` (a path's rectangle, or the box of its
+ * ellipse, marked `ellipse`), `drawImage`, and the line segments of each `stroke`.
  * `measured` counts the characters passed to `measureText`. Positions are in the units the drawing code used. A
  * character measures half its font size wide.
  */
@@ -35,6 +36,12 @@ export const createRecordingCanvas = () => {
                 },
                 rect (x, y, width, height) {
                     pendingRect = { x, y, width, height };
+                },
+                ellipse (x, y, radiusX, radiusY) {
+                    pendingRect = { x: x - radiusX, y: y - radiusY, width: 2 * radiusX, height: 2 * radiusY, ellipse: true };
+                },
+                fill () {
+                    drawn.fills.push({ ...pendingRect, color: this.fillStyle });
                 },
                 clip () {
                     clip = pendingRect;

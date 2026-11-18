@@ -10,6 +10,7 @@ import { copyPdfThumbnailAssets } from '../../../tools/copyPdfThumbnailAssets.js
 import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx, paragraph, picture } from '../../../tests/fixtures/docx.js';
 import { createPdf } from '../../../tests/fixtures/pdf.js';
+import { createPptx, paragraph as slideParagraph, pictureShape, shape, solid } from '../../../tests/fixtures/pptx.js';
 import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
 import { cell, createXlsx, row, styles } from '../../../tests/fixtures/xlsx.js';
 
@@ -449,6 +450,97 @@ describe('Upload thumbnails in a real browser', () => {
             expect(result.text).toBeLessThan(400);
             // Gridlines are light, and the inside of an empty cell is white.
             expect(result.emptyCell).toBeGreaterThan(690);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
+    it.each([false, true])('draws a presentation\'s first slide, or scales the thumbnail stored in it (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async ({ pptx, withThumbnail, empty }) => {
+                const generate = window.createUploadThumbnailGenerator();
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const [drawn, stored, ...skipped] = await Promise.all([
+                    new File([new Uint8Array(pptx)], 'deck.pptx'),
+                    new File([new Uint8Array(withThumbnail)], 'saved.pptx'),
+                    new File([new Uint8Array(empty)], 'empty.pptx'),
+                    new File(['not a presentation'], 'broken.pptx'),
+                ].map(file => generate(file, context)));
+                const decode = async (thumbnail) => {
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    const pixel = (x, y) => [...ctx.getImageData(x, y, 1, 1).data];
+                    // How many pixels of a box are closer to white than to the dark background.
+                    const light = (x, y, width, height) => {
+                        const { data } = ctx.getImageData(x, y, width, height);
+                        let count = 0;
+                        for ( let at = 0; at < data.length; at += 4 ) {
+                            if ( data[at] + data[at + 1] + data[at + 2] > 500 ) count++;
+                        }
+                        return count;
+                    };
+                    return { width: image.width, height: image.height, pixel, light };
+                };
+                const slide = await decode(drawn);
+                const saved = await decode(stored);
+                return {
+                    slide: {
+                        width: slide.width,
+                        height: slide.height,
+                        background: slide.pixel(4, 68),
+                        title: slide.light(8, 6, 110, 16),
+                        band: slide.pixel(64, 36),
+                        picture: slide.pixel(100, 54),
+                        circle: slide.pixel(20, 52),
+                    },
+                    saved: { width: saved.width, height: saved.height, pixel: saved.pixel(5, 5) },
+                    skipped,
+                };
+            }, {
+                // A 16:9 slide: a dark background from the master, a white title placed by the layout, a green band
+                // across the middle, a red picture at the right and a blue circle at the left.
+                pptx: [...createPptx({
+                    size: [960, 540],
+                    slide: {
+                        shapes: shape({ placeholder: 'type="title"', text: slideParagraph('Quarterly review') }) +
+                            shape({ box: [0, 250, 960, 40], fill: solid('00C800') }) +
+                            pictureShape('rId2', [660, 330, 240, 120]) +
+                            shape({ box: [90, 330, 120, 120], fill: solid('0000FF'), geometry: 'ellipse' }),
+                    },
+                    layout: { shapes: shape({ placeholder: 'type="title"', box: [60, 40, 840, 130], text: slideParagraph('Click to add title') }) },
+                    master: {
+                        background: '<p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef>',
+                        colorMap: 'bg1="dk2" tx1="lt1" bg2="dk1" tx2="lt2"',
+                        textStyles: '<p:titleStyle><a:lvl1pPr algn="ctr"><a:defRPr sz="8000" b="1"/></a:lvl1pPr></p:titleStyle>',
+                    },
+                    theme: ['000000', 'FFFFFF', '10203A', 'EEEEEE', '4F81BD', 'C0504D'],
+                    media: { 'image1.jpeg': psdPreviewJpeg() },
+                })],
+                withThumbnail: [...createPptx({ thumbnail: psdPreviewJpeg() })],
+                empty: [...createPptx({ slide: { shapes: '' } })],
+            });
+            const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 20);
+            expect(result.slide).toMatchObject({ width: 128, height: 72 });
+            expect(result.slide.background).toSatisfy(near([16, 32, 58, 255]));
+            expect(result.slide.title).toBeGreaterThan(40);
+            expect(result.slide.band).toSatisfy(near([0, 200, 0, 255]));
+            expect(result.slide.picture).toSatisfy(near([255, 0, 0, 255]));
+            expect(result.slide.circle).toSatisfy(near([0, 0, 255, 255]));
+            expect(result.saved).toMatchObject({ width: 128, height: 64 });
+            expect(result.saved.pixel).toSatisfy(near([255, 0, 0, 255]));
+            expect(result.skipped).toEqual([undefined, undefined]);
             expect(errors).toEqual([]);
         } finally {
             await page.close();

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx } from '../../../tests/fixtures/docx.js';
+import { createPptx } from '../../../tests/fixtures/pptx.js';
 import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
 import { createXlsx } from '../../../tests/fixtures/xlsx.js';
 import {
@@ -316,6 +317,34 @@ describe('GUI upload thumbnail scheduling', () => {
         expect(defaultGenerator.mock.calls[0][0].type).toBe('image/png');
         expect(drawn.text.map(word => word.text)).toEqual(['Hello']);
         expect(workers).toHaveLength(0);
+    });
+
+    it.each([
+        new File([createPptx()], 'deck.pptx'),
+        new File([createPptx()], 'show.PPSX'),
+        new File([createPptx()], 'template.potm'),
+        new File([createPptx()], 'deck', {
+            type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        }),
+    ])('hands the image generator a drawing of a presentation\'s first slide', async (file) => {
+        const { Canvas, drawn } = createRecordingCanvas();
+        vi.stubGlobal('OffscreenCanvas', Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator.mock.calls[0][0].type).toBe('image/png');
+        expect(drawn.text.map(word => word.text)).toEqual(['Hello']);
+        expect(workers).toHaveLength(0);
+    });
+
+    it.each([
+        ['a presentation in the older format', new File([createPptx()], 'deck.ppt', { type: 'application/vnd.ms-powerpoint' })],
+        ['text that is only named like a presentation', new File(['not a presentation'], 'deck.pptx')],
+    ])('does not draw %s', async (_label, file) => {
+        const { Canvas, drawn } = createRecordingCanvas();
+        vi.stubGlobal('OffscreenCanvas', Canvas);
+        const defaultGenerator = vi.fn(async () => undefined);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBeUndefined();
+        expect(drawn.text).toEqual([]);
     });
 
     it('reads spreadsheets and Word documents in one queue, under one deadline', async () => {

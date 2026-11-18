@@ -2,12 +2,12 @@
 
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
-callback's second argument. Files that are not PDFs, PSDs, Office documents or
-videos delegate to that image generator; when the running SDK predates the callback
+callback's second argument. Files that are not PDFs, Illustrator files, PSDs,
+Office documents or videos delegate to that image generator; when the running SDK predates the callback
 context (it then passes only the file), the GUI's bundled copy of the SDK image
 generator is used instead, so image thumbnails do not depend on deploy order.
 
-A thumbnail of a PDF, a Word document or a spreadsheet is a picture of a page.
+A thumbnail of a PDF, a Word document, a spreadsheet or a presentation is a picture of a page.
 The Files tab shows it in the grid views and shows the file's type icon in list
 rows, where a page would be a blank square. `kinds.js` holds the names that make
 a file a document, for the generator and for the icon helper alike.
@@ -64,6 +64,32 @@ edge. Colors come from the cell formats: given directly, taken from the
 workbook's theme, or picked from the standard palette. Numbers are drawn as stored, so a date shows as its serial
 number; number formats, merged cells, borders, charts and pictures are not
 drawn. A sheet with nothing in view retains its normal icon.
+
+## Presentations
+
+A PPTX is the same kind of archive again, and PowerPoint stores a first-slide
+JPEG in it by default, which is used as it is. Otherwise `pptx.js` finds the
+first slide the presentation lists, then the layout it builds on, that layout's
+master and the master's theme, and draws the slide on a canvas of its own shape,
+at most 256 pixels a side:
+
+- the background the slide, its layout or its master gives it, a color or a
+  picture;
+- what the master and the layout add to every slide, under the slide's own
+  shapes: everything of theirs that is not a placeholder;
+- each shape's fill, for boxes and ellipses, each picture in its box, and each
+  shape's text, wrapped to the box and set at its top, middle or bottom.
+
+A placeholder that states no position takes its layout's, or else its master's,
+and its text takes its size, weight, color, alignment, indent and list marker
+from the same chain, ending in the master's text styles. Colors named after the
+theme go through the master's map of names, so a dark deck draws dark. Groups
+place their shapes through their own space. A gradient is drawn as its first
+color; lines, tables, charts, shadows, rotation and shapes other than boxes and
+ellipses are not drawn. A slide with nothing to draw retains its normal icon.
+
+A thumbnail stored in the file is whatever its editor last saved there. A deck
+written by a tool that copies a template can carry the template's.
 
 Office documents are read on the desktop thread, in a few milliseconds each. An
 upload reads them one at a time, and the ones still queued when its preparation
@@ -124,7 +150,7 @@ fixtures, and check first-page pixels, text, rotation, image delegation, failure
 recovery and termination of CPU-bound work. They also decode the thumbnails made
 from a PSD fixture's preview and from a fixture's merged image, and check the
 pixels of pages drawn from DOCX and DOC fixtures, of a sheet drawn from an XLSX
-fixture, and of a frame taken from a video fixture. The parsers' unit tests draw on a
+fixture, of a slide drawn from a PPTX fixture, and of a frame taken from a video fixture. The parsers' unit tests draw on a
 recording canvas, so they assert on the words and positions laid out. The SDK upload suites cover callback
 compatibility and cancellation; its HTTP transport tests cover thumbnail
 failure, timeout and original-file failure separately.

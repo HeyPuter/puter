@@ -382,20 +382,23 @@ The Puter desktop makes a PSD or PSB upload thumbnail from the preview image sto
 | Data read from the document to scale down its merged image | 16 MiB |
 | Output | At most 128 × 128 pixels, aspect ratio preserved |
 
-The Puter desktop makes a Word document or spreadsheet upload thumbnail from the first-page thumbnail stored in a DOCX or XLSX, within these budgets. For a DOCX saved without one, the desktop draws the first page from the document's text, styles, tables, and pictures. For a DOC, the desktop draws the first page from the document's text. For an XLSX saved without one, the desktop draws the top-left corner of the first visible worksheet, with its cell text, fills, column widths, and row heights. A document over a budget keeps its file icon, or is drawn without the content over the budget. An encrypted document, or one with a blank first page or sheet, keeps its file icon.
+The Puter desktop makes a Word document, spreadsheet, or presentation upload thumbnail from the first-page thumbnail stored in a DOCX, XLSX, or PPTX, within these budgets. For a DOCX saved without one, the desktop draws the first page from the document's text, styles, tables, and pictures. For a DOC, the desktop draws the first page from the document's text. For an XLSX saved without one, the desktop draws the top-left corner of the first visible worksheet, with its cell text, fills, column widths, and row heights. For a PPTX saved without one, the desktop draws the first slide from its background, shapes, pictures, and text, placed and styled as the slide, its layout, and its master say. A document over a budget keeps its file icon, or is drawn without the content over the budget. An encrypted document, or one with a blank first page, sheet, or slide, keeps its file icon.
 
-| Word and spreadsheet thumbnail | Limit |
+| Word, spreadsheet, and presentation thumbnail | Limit |
 | --- | --- |
 | Documents read per upload | 1 at a time |
 | Preparation per upload, including queued documents | 5 seconds from the first document |
 | Data read from the document to find its parts, and to read the text of a DOC | 4 MiB |
 | Stored thumbnail size | 1 MiB |
-| XML read from each part of a DOCX or XLSX, after decompression | 1 MiB |
+| XML read from each part of a DOCX, XLSX, or PPTX, after decompression | 1 MiB |
 | Text laid out from a Word document | 16,384 characters |
 | Pictures drawn from a DOCX | 4, each up to 4 MiB and 16,777,216 pixels |
+| Pictures drawn from a PPTX | 8, each up to 4 MiB and 16,777,216 pixels |
+| Shapes read from each of a slide, its layout, and its master | 256 |
+| Text laid out from each of a slide, its layout, and its master | 4,096 characters |
 | Area drawn from a worksheet | 480 × 480 points, from at most 128 rows and 64 columns |
 | Text drawn from a cell | 256 characters |
-| Output | First page or sheet, at most 128 × 128 pixels, aspect ratio preserved |
+| Output | First page, sheet, or slide, at most 128 × 128 pixels, aspect ratio preserved |
 
 The Puter desktop makes a video upload thumbnail from one frame of an MP4, MOV, M4V, or WebM file, using the browser's video player, within these budgets. A video the browser can't play, or one over a budget, keeps its file icon.
 

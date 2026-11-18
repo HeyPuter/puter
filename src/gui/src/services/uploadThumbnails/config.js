@@ -29,6 +29,9 @@ export const SHEET_VIEW_POINTS = 480;
 export const SHEET_MAX_ROWS = 128;
 export const SHEET_MAX_COLUMNS = 64;
 export const SHEET_CELL_MAX_CHARACTERS = 256;
+export const SLIDE_MAX_SHAPES = 256;
+export const SLIDE_MAX_PICTURES = 8;
+export const SLIDE_TEXT_MAX_CHARACTERS = 4096;
 export const VIDEO_BATCH_TIMEOUT_MS = 5000;
 export const VIDEO_JOB_TIMEOUT_MS = 4000;
 // The frame shown is a tenth of the way into the video, but no later than this.

@@ -31,6 +31,10 @@ readers when written: `unzip -t` for the archives, and `file` and the Python
 worksheet and optional shared strings, styles and theme colors. It was checked
 by loading its output with the Python `openpyxl` package.
 
+`pptx.js` builds presentations (PPTX) of one slide on one layout and one
+master, with a theme and optional media. It was checked by loading its output
+with the Python `python-pptx` package.
+
 `video.mp4` is two seconds of 160 × 80 VP9 video: black for the first tenth of a
 second, then green. It was recorded in Chromium, which can play it without
 proprietary codecs, from a canvas:
