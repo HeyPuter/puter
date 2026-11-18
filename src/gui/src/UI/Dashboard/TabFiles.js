@@ -294,6 +294,7 @@ const TabFiles = {
             // keep it current so a remote rename or move doesn't leave them
             // opening, copying or sharing the old path.
             const fsentry = $row.data('fsentry');
+            const thumbnailBefore = fsentry?.thumbnail ?? null;
             if ( fsentry ) {
                 for ( const key of ['name', 'path', 'type', 'size', 'modified', 'metadata', 'thumbnail'] ) {
                     if ( file[key] !== undefined ) fsentry[key] = file[key];
@@ -330,11 +331,15 @@ const TabFiles = {
                 $row.find('.item-modified').text(formatRelativeTime(file.modified * 1000, Date.now(), window.locale));
             }
             // An overwrite clears the thumbnail, and a new one can follow.
-            // The same item in an open file dialog matches too.
+            // Every update carries the key, so the icon is only worked out
+            // again when the thumbnail changed: some icons are read from
+            // the file. The same item in an open file dialog matches too.
             if ( file.thumbnail !== undefined && fsentry ) {
-                _this.rowIcon(fsentry).then(({ image }) => {
-                    $row.find('.item-icon > img').attr('src', image);
-                });
+                if ( (file.thumbnail ?? null) !== thumbnailBefore ) {
+                    _this.rowIcon(fsentry).then(({ image }) => {
+                        $row.find('.item-icon > img').attr('src', image);
+                    });
+                }
                 _this.fillMissingThumbnail($row[0], fsentry);
             }
             if ( displayName && displayName !== oldName && fsentry ) _this.followRename($row, fsentry, oldPath);
