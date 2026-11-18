@@ -9,6 +9,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { extension } from '@heyputer/backend/src/extensions';
 import type { FSEntryStore } from '@heyputer/backend/src/stores/fs/FSEntryStore';
 import { isMissingObjectError } from '@heyputer/backend/src/stores/fs/S3ObjectStore';
+import { BoundedTtlMap } from '@heyputer/backend/src/util/boundedTtlMap.js';
 import crypto from 'node:crypto';
 import type { Readable } from 'node:stream';
 import sharp from 'sharp';
@@ -294,6 +295,43 @@ export const handleThumbnailUploadPrepare = async (
     }
 };
 
+const SIGNING_PERIOD_MS = 3_600_000;
+const SIGNED_URL_CACHE_ENTRIES = 5_000;
+// Read URLs signed this hour, per signing client. A URL is the same all hour,
+// so a repeat listing reuses it; the key names the signing key too, so a
+// credential rotation signs afresh.
+const signedReadUrls = new WeakMap<S3Client, BoundedTtlMap<string, string>>();
+
+const signThumbnailRead = async (
+    client: S3Client,
+    bucket: string,
+    key: string,
+): Promise<string> => {
+    const period = Math.floor(Date.now() / SIGNING_PERIOD_MS);
+    const { accessKeyId } = await client.config.credentials();
+    const cacheKey = `${accessKeyId}\0${period}\0${bucket}\0${key}`;
+    let cache = signedReadUrls.get(client);
+    const cached = cache?.get(cacheKey);
+    if (cached) return cached;
+    const url = await getSignedUrl(
+        client,
+        new GetObjectCommand({ Bucket: bucket, Key: key }),
+        {
+            expiresIn: 604800,
+            signingDate: new Date(period * SIGNING_PERIOD_MS),
+        },
+    );
+    if (!cache) {
+        cache = new BoundedTtlMap({
+            maxEntries: SIGNED_URL_CACHE_ENTRIES,
+            ttlMs: SIGNING_PERIOD_MS,
+        });
+        signedReadUrls.set(client, cache);
+    }
+    cache.set(cacheKey, url);
+    return url;
+};
+
 export const handleThumbnailRead = async (
     entry: Record<string, unknown>,
     deps: {
@@ -307,9 +345,6 @@ export const handleThumbnailRead = async (
     const thumb = entry.thumbnail;
     if (typeof thumb !== 'string' || !thumb) return;
     const presignClient = deps.s3Presign;
-    const signingDate = new Date(
-        Math.floor(Date.now() / 3_600_000) * 3_600_000,
-    );
 
     if (isStoragePointer(thumb, deps.bucketEndpoint)) {
         const key = resolveThumbnailKey(thumb);
@@ -319,10 +354,10 @@ export const handleThumbnailRead = async (
             entry.thumbnail = null;
             return;
         }
-        entry.thumbnail = await getSignedUrl(
+        entry.thumbnail = await signThumbnailRead(
             presignClient,
-            new GetObjectCommand({ Bucket: deps.bucketName, Key: key }),
-            { expiresIn: 604800, signingDate },
+            deps.bucketName,
+            key,
         );
     } else if (thumb.startsWith('data')) {
         // Move an inline thumbnail into storage. The row only takes the new
@@ -373,10 +408,10 @@ export const handleThumbnailRead = async (
             return;
         }
 
-        entry.thumbnail = await getSignedUrl(
+        entry.thumbnail = await signThumbnailRead(
             presignClient,
-            new GetObjectCommand({ Bucket: deps.bucketName, Key: key }),
-            { expiresIn: 604800, signingDate },
+            deps.bucketName,
+            key,
         );
     }
 };

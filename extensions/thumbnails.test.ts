@@ -349,6 +349,46 @@ describe('thumbnails extension — handleThumbnailRead', () => {
         }
     });
 
+    it('reuses a URL signed this hour and signs afresh under a new signing key', async () => {
+        // Short-lived credentials are fetched again on every signing, so a
+        // swapped secret shows whether a read was signed or served from cache.
+        const creds = { accessKeyId: 'AKIDFIRST', secretAccessKey: 'one' };
+        const client = new S3Client({
+            region: 'us-west-2',
+            endpoint: 'http://127.0.0.1:4566',
+            forcePathStyle: true,
+            credentials: async () => ({
+                ...creds,
+                expiration: new Date(Date.now() + 60_000),
+            }),
+        });
+        const key = mintedKey();
+        const read = async () => {
+            const entry: Record<string, unknown> = {
+                thumbnail: `s3://${BUCKET}/${key}`,
+            };
+            await handleThumbnailRead(entry, {
+                s3,
+                s3Presign: client,
+                bucketName: BUCKET,
+                bucketEndpoint: BUCKET_ENDPOINT,
+                fsEntry: server.stores.fsEntry,
+            });
+            return entry.thumbnail as string;
+        };
+
+        const first = await read();
+        creds.secretAccessKey = 'two';
+        expect(await read()).toBe(first);
+
+        creds.accessKeyId = 'AKIDSECOND';
+        const rotated = await read();
+        expect(rotated).not.toBe(first);
+        expect(new URL(rotated).searchParams.get('X-Amz-Credential')).toMatch(
+            /^AKIDSECOND\//,
+        );
+    });
+
     // Thumbnails stored before keys were bound to entries keep displaying.
     it.each([
         ['an entry-bound key', () => mintedKey()],
