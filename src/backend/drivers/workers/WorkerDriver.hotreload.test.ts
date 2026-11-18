@@ -27,8 +27,9 @@ describe('WorkerDriver hot-reload subscription', () => {
         driver.onServerStart();
         driver.onServerStart();
 
-        expect(on).toHaveBeenCalledTimes(6);
+        expect(on).toHaveBeenCalledTimes(7);
         expect(on.mock.calls.map((c) => c[0]).sort()).toEqual([
+            'app.uninstalled',
             'fs.move.node',
             'fs.remove.node',
             'fs.write.file',

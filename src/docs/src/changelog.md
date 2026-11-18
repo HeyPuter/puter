@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 18, 2026
+
+- Changed removing an app from a Puter account to also delete the workers that app deployed there with [`puter.workers.create()`](/Workers/create/). A worker bound to an app the user owns is kept.
+
 ## November 17, 2026
 
 - Fixed [`puter.ui.contextMenu()`](/UI/contextMenu/) menus with a submenu inside a submenu staying open after an item in the inner submenu was chosen. The inner submenu also closes when the submenu it belongs to closes.

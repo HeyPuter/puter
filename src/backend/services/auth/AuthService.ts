@@ -1067,7 +1067,8 @@ export class AuthService extends PuterService {
     /**
      * A user removing an app: every grant they gave it and the sessions of the
      * workers it deployed for them go, then `app.uninstalled` tells listeners,
-     * which delete the app's data in the account when `deleteData` is set.
+     * which take those workers down and delete the app's data in the account
+     * when `deleteData` is set.
      */
     async uninstallApp(
         actor: Actor,
