@@ -65,6 +65,8 @@ export class GuiBootCache {
         }
         this.batch = createDeferred();
         this.init = createDeferred();
+        /** @type {string | null | undefined} The token the batch was requested under. */
+        this.fetchedWith = null;
         (async () => {
             await this.init.promise;
             this.init = null;
@@ -131,15 +133,21 @@ export class GuiBootCache {
      * @param {string} key
      * @returns {Promise<{ hit: true, value: unknown } | { hit: false }>}
      *   `hit: false` when the batch failed, came back malformed, left the key
-     *   out, or the key was written meanwhile — the caller should fall through
-     *   to its own driver call.
+     *   out, the key was written meanwhile, or the auth token changed since the
+     *   batch was requested — the caller should fall through to its own driver
+     *   call.
      */
     async lookup (key) {
-        this.init && this.init.resolve();
+        if ( this.init ) {
+            this.fetchedWith = this.puter.authToken;
+            this.init.resolve();
+        }
         const cache = await this.batch.promise;
         // Written while this read waited: the batch may predate the write.
         // A key the other interface reads was never fetched.
         if ( cache === null || this.written.has(key) || !Object.hasOwn(cache, key) ) return { hit: false };
+        // Another account's values after a sign-in switch.
+        if ( this.puter.authToken !== this.fetchedWith ) return { hit: false };
         // `null`, not `undefined`, to match a normal miss from `kv.get()`.
         return { hit: true, value: cache[key] ?? null };
     }

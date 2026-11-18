@@ -383,6 +383,30 @@ describe('kv.get GUI boot cache', () => {
         });
     });
 
+    describe('after the auth token changes', () => {
+        beforeEach(() => {
+            FakeXHR.respondWith = (body) => ({
+                success: true,
+                result: Array.isArray(body.args.key)
+                    ? body.args.key.map(() => 'first-account')
+                    : 'second-account',
+            });
+        });
+
+        it('reads the store instead of the earlier account\'s batch', async () => {
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('first-account');
+            fakePuter.authToken = 'other-token';
+            await expect(kv.get('sidebar_items')).resolves.toBe('second-account');
+            expect(lastBody().args).toEqual({ key: 'sidebar_items' });
+        });
+
+        it('reads the store when it changes while the batch is in flight', async () => {
+            const pending = kv.get('sidebar_items');
+            fakePuter.authToken = 'other-token';
+            await expect(pending).resolves.toBe('second-account');
+        });
+    });
+
     it('a failed batch makes get(bootKey) issue a normal call', async () => {
         FakeXHR.respondWith = (body) =>
             Array.isArray(body.args.key)
