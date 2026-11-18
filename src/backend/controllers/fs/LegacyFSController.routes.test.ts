@@ -709,7 +709,7 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
             }),
         ).rejects.toMatchObject({
             statusCode: 400,
-            message: '`expectedModified` must be a number',
+            message: '`expectedModified` must be a whole number of seconds',
         });
     });
 
@@ -756,6 +756,23 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
             }),
         ]);
     });
+
+    it.each([1795043242.5, 1e30, -1, 2 ** 31])(
+        'rejects an expectedModified of %s, which no file has',
+        async (expectedModified) => {
+            const { actor, username } = await makeUser();
+            const path = `/${username}/Documents/odd-modified.txt`;
+            const { uuid } = await writeFileEntry(actor, path, 'body');
+
+            await expect(
+                setThumbnail(actor, {
+                    uid: uuid,
+                    thumbnail: 'data:image/png;base64,aGVsbG8=',
+                    expectedModified,
+                }),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
 
     it("refuses to retag another user's entry", async () => {
         const owner = await makeUser();

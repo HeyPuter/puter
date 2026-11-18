@@ -140,6 +140,9 @@ const BATCH_MUTATING_OPS = new Set(['mkdir', 'shortcut', 'move', 'delete']);
 /** Rows per `readdir-subdomains` read; the response pages until done. */
 const SUBDOMAIN_PAGE_SIZE = 500;
 
+/** The largest `fsentries.modified` every database engine's column holds. */
+const MAX_MODIFIED_SECONDS = 2 ** 31 - 1;
+
 // An op's `as` names the path it produced; later ops in the same batch refer
 // to it as `$name` or `$name/rest`, since a deduped mkdir can land elsewhere.
 function resolveBatchRef(raw: string, refs: Map<string, string>): string {
@@ -1218,15 +1221,20 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'bad_request',
             });
         // The `modified` time of the contents the thumbnail was made from, so
-        // a thumbnail of an older version isn't stored on a newer one.
+        // a thumbnail of an older version isn't stored on a newer one. Only a
+        // value the column can hold reaches the query.
         if (
             expectedModified !== undefined &&
             (typeof expectedModified !== 'number' ||
-                !Number.isFinite(expectedModified))
+                !Number.isInteger(expectedModified) ||
+                expectedModified < 0 ||
+                expectedModified > MAX_MODIFIED_SECONDS)
         )
-            throw new HttpError(400, '`expectedModified` must be a number', {
-                legacyCode: 'bad_request',
-            });
+            throw new HttpError(
+                400,
+                '`expectedModified` must be a whole number of seconds',
+                { legacyCode: 'bad_request' },
+            );
 
         const entry = await this.stores.fsEntry.getEntryByUuid(uid);
         if (!entry || !entry.path)
