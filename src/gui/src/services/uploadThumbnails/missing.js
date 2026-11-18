@@ -99,7 +99,8 @@ export const createRememberedFailures = (getStorage) => {
  * @property {(body: { uid: string, thumbnail: string, expectedModified: number }) => Promise<Response>} store
  *     Saves the thumbnail, unless the file changed since `expectedModified`.
  * @property {(file: File) => Promise<string | undefined>} generate A data URL, or `undefined` for none.
- * @property {(row: Element, fsentry: MissingThumbnailEntry, thumbnail: string) => void} onStored
+ * @property {(row: Element, fsentry: MissingThumbnailEntry, thumbnail: string) => void} onStored Called with the
+ *     row's own entry once its thumbnail is stored.
  * @property {RememberedFailures} [failures] Versions that gave no thumbnail before, which are skipped.
  * @property {() => number} [now]
  */
@@ -212,7 +213,9 @@ export const createMissingThumbnailFiller = ({
         // A thumbnail made from a version the file no longer has is refused, so it's safe to send after an abort.
         const stored = await store({ uid: fsentry.uid, thumbnail, expectedModified: fsentry.modified });
         if ( stored.status === 429 ) return 'throttled';
-        if ( stored.ok && active.row ) onStored(active.row, fsentry, thumbnail);
+        // The row's own entry, not the copy: the caller records the thumbnail on it. A row that has moved on to a
+        // newer version meanwhile keeps what it shows.
+        if ( stored.ok && active.row && !active.unwanted ) onStored(active.row, active.fsentry, thumbnail);
         return 'done';
     };
 

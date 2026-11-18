@@ -263,6 +263,9 @@ const TabFiles = {
             generate: file => createUploadThumbnailGenerator()(file),
             failures: createRememberedFailures(() => window.localStorage),
             onStored: (row, fsentry, thumbnail) => {
+                // The update the server announces can get here first, with
+                // the stored thumbnail's own URL.
+                if ( fsentry.thumbnail ) return;
                 fsentry.thumbnail = thumbnail;
                 if ( ! row.isConnected ) return;
                 _this.rowIcon(fsentry).then(({ image }) => {

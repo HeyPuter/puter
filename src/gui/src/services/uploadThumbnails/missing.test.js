@@ -130,6 +130,28 @@ describe('createMissingThumbnailFiller', () => {
         expect(generated).toMatchObject({ name: 'photo.png', type: 'image/png' });
         expect(store).toHaveBeenCalledWith({ uid: file.uid, thumbnail, expectedModified: SAVED });
         expect(onStored).toHaveBeenCalledWith(row, file, thumbnail);
+        // The row's own entry, so the caller can record the thumbnail on it.
+        expect(onStored.mock.calls[0][1]).toBe(file);
+    });
+
+    it('leaves a row alone when its file was saved again while the thumbnail was being stored', async () => {
+        let finishStoring;
+        const { filler, downloads, store, onStored } = setup();
+        store.mockImplementation(() => new Promise((resolve) => {
+            finishStoring = () => resolve(new Response('{}', { status: 200 }));
+        }));
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place);
+        show(row);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(0);
+
+        file.modified = SAVED + 5;
+        filler.observe(row, file, place);
+        finishStoring();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onStored).not.toHaveBeenCalled();
     });
 
     it('stores nothing when the generator makes no thumbnail', async () => {
