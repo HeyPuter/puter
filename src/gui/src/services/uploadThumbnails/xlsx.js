@@ -33,6 +33,9 @@ const GRID_COLOR = '#d4d4d4';
  * @property {Array<{ height?: number, cells: SheetCell[] }>} rows By row, each with its cells by column. May have holes.
  */
 
+// An element's name without its namespace prefix. Most writers use none here, but some put every element under one.
+const localName = name => name?.slice(name.indexOf(':') + 1);
+
 // A column's width counts characters of the default font, about 7 pixels each, plus 5 pixels of padding.
 const columnPoints = characters => (characters * 7 + 5) * 0.75;
 
@@ -71,13 +74,14 @@ const colorOf = ({ rgb, theme, tint }, themeColors) => {
 const readThemeColors = (xml) => {
     const colors = [];
     let inScheme = false;
-    for ( const [, closing, name, source] of xml.matchAll(TOKEN) ) {
-        if ( name === 'a:clrScheme' ) {
+    for ( const [, closing, tag, source] of xml.matchAll(TOKEN) ) {
+        const name = localName(tag);
+        if ( name === 'clrScheme' ) {
             if ( closing ) break;
             inScheme = true;
-        } else if ( inScheme && !closing && (name === 'a:srgbClr' || name === 'a:sysClr') ) {
+        } else if ( inScheme && !closing && (name === 'srgbClr' || name === 'sysClr') ) {
             const { val, lastClr } = attributesOf(source);
-            const hex = name === 'a:srgbClr' ? val : lastClr;
+            const hex = name === 'srgbClr' ? val : lastClr;
             colors.push(/^[0-9a-f]{6}$/i.test(hex) ? hex : undefined);
         }
     }
@@ -99,7 +103,8 @@ const readStyles = (xml, themeColors) => {
     const formats = [];
     const path = [];
     let solid = false;
-    for ( const [, closing, name, source, empty] of xml.matchAll(TOKEN) ) {
+    for ( const [, closing, tag, source, empty] of xml.matchAll(TOKEN) ) {
+        const name = localName(tag);
         if ( ! name ) continue;
         if ( closing ) {
             path.pop();
@@ -145,7 +150,8 @@ const readStrings = (xml) => {
     const strings = [];
     const path = [];
     let current;
-    for ( const [, closing, name, , empty, text] of xml.matchAll(TOKEN) ) {
+    for ( const [, closing, tag, , empty, text] of xml.matchAll(TOKEN) ) {
+        const name = localName(tag);
         if ( ! name ) {
             // A string can come in several runs; its phonetic guide is not part of it.
             if ( current !== undefined && path.at(-1) === 't' && path.at(-2) !== 'rPh' ) current += decodeEntities(text);
@@ -205,7 +211,8 @@ const readSheet = (xml, strings, styleOf) => {
         cell = undefined;
     };
 
-    for ( const [, closing, name, source, empty, text] of xml.matchAll(TOKEN) ) {
+    for ( const [, closing, tag, source, empty, text] of xml.matchAll(TOKEN) ) {
+        const name = localName(tag);
         if ( ! name ) {
             const inside = path.at(-1);
             // `v` holds a cell's value, `t` the text of a string stored in the cell itself.
@@ -358,10 +365,11 @@ export const readXlsxPreview = async (file, signal) => {
     // The workbook lists its sheets in tab order, and its relationships say which part holds each one.
     const relationships = readRelationships(await textOf('xl/_rels/workbook.xml.rels'), 'xl');
     let sheetName;
-    for ( const [, closing, name, source] of workbook.matchAll(TOKEN) ) {
-        if ( name !== 'sheet' || closing ) continue;
-        const { 'r:id': id, state = 'visible' } = attributesOf(source);
-        const relationship = relationships.get(id);
+    for ( const [, closing, tag, source] of workbook.matchAll(TOKEN) ) {
+        if ( localName(tag) !== 'sheet' || closing ) continue;
+        const { state = 'visible', ...attributes } = attributesOf(source);
+        // The relationship id is the one attribute in a namespace, under whatever prefix the writer gave it.
+        const relationship = relationships.get(Object.entries(attributes).find(([key]) => key.endsWith(':id'))?.[1]);
         // Chart sheets have no cells.
         if ( state === 'visible' && relationship?.type.endsWith('/worksheet') ) {
             sheetName = relationship.target;

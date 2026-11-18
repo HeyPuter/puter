@@ -185,6 +185,31 @@ describe('readXlsxPreview', () => {
         expect(texts()).toEqual(Array.from({ length: 32 }, (_, index) => `r${index + 1}`));
     });
 
+    it('reads a workbook whose elements carry a namespace prefix', async () => {
+        // Writers built on the Open XML SDK put every element under `x:`, and some give the relationship id a
+        // prefix of their own.
+        const main = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+        const relationships = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+        const preview = await readXlsxPreview(new File([createZip({
+            'xl/workbook.xml': `<x:workbook xmlns:x="${main}"><x:sheets>` +
+                `<x:sheet name="Data" sheetId="1" d3p1:id="rId1" xmlns:d3p1="${relationships}"/></x:sheets></x:workbook>`,
+            'xl/_rels/workbook.xml.rels': `<Relationships><Relationship Id="rId1" Type="${relationships}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
+            'xl/worksheets/sheet1.xml': `<x:worksheet xmlns:x="${main}"><x:sheetFormatPr defaultRowHeight="20"/><x:cols><x:col min="1" max="1" width="20"/></x:cols>` +
+                '<x:sheetData><x:row r="1"><x:c r="A1" t="s" s="1"><x:v>0</x:v></x:c><x:c r="B1"><x:v>5</x:v></x:c></x:row>' +
+                '<x:row r="2"><x:c r="A2" t="inlineStr"><x:is><x:t>kept</x:t></x:is></x:c></x:row></x:sheetData></x:worksheet>',
+            'xl/sharedStrings.xml': `<x:sst xmlns:x="${main}"><x:si><x:t>Prefixed</x:t></x:si></x:sst>`,
+            'xl/styles.xml': `<x:styleSheet xmlns:x="${main}"><x:fonts><x:font/><x:font><x:b/></x:font></x:fonts>` +
+                '<x:fills><x:fill><x:patternFill patternType="none"/></x:fill>' +
+                '<x:fill><x:patternFill patternType="solid"><x:fgColor rgb="FF00FF00"/></x:patternFill></x:fill></x:fills>' +
+                '<x:cellXfs><x:xf/><x:xf fontId="1" fillId="1"/></x:cellXfs></x:styleSheet>',
+        })], 'budget.xlsx'));
+        expect(preview).toBeInstanceOf(File);
+        expect(drawn.text.map(({ text: value, font }) => [value, font])).toEqual([
+            ['Prefixed', 'bold 11px sans-serif'], ['5', '11px sans-serif'], ['kept', '11px sans-serif'],
+        ]);
+        expect(cellFills()).toEqual([{ color: 'rgb(0, 255, 0)', x: 0, y: 0, width: 108.75, height: 20 }]);
+    });
+
     it('shows the first visible worksheet', async () => {
         const cells = await draw({
             sheets: [
