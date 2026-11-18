@@ -391,7 +391,7 @@ The Puter desktop makes a Word document or spreadsheet upload thumbnail from the
 | Stored thumbnail size | 1 MiB |
 | XML read from each part of a DOCX or XLSX, after decompression | 1 MiB |
 | Text laid out from a Word document | 16,384 characters |
-| Pictures drawn from a DOCX | 4, each up to 4 MiB |
+| Pictures drawn from a DOCX | 4, each up to 4 MiB and 16,777,216 pixels |
 | Area drawn from a worksheet | 480 × 480 points, from at most 128 rows and 64 columns |
 | Text drawn from a cell | 256 characters |
 | Output | First page or sheet, at most 128 × 128 pixels, aspect ratio preserved |

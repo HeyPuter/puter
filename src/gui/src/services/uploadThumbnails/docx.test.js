@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRecordingCanvas, linesOf } from '../../../tests/fixtures/canvas.js';
-import { createDocx, createZip, paragraph, picture } from '../../../tests/fixtures/docx.js';
+import { createDocx, createZip, paragraph, picture, pngHeader } from '../../../tests/fixtures/docx.js';
 import {
     WORD_MAX_PICTURES,
     WORD_PICTURE_MAX_BYTES,
+    WORD_PICTURE_MAX_PIXELS,
     WORD_TEXT_MAX_CHARACTERS,
     OFFICE_THUMBNAIL_MAX_BYTES,
     OFFICE_XML_MAX_BYTES,
@@ -214,14 +215,14 @@ describe('readDocxPreview drawing the first page', () => {
 });
 
 describe('readDocxPreview pictures', () => {
-    const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+    const png = pngHeader(200, 100);
     let bitmaps;
 
     beforeEach(() => {
         bitmaps = [];
-        vi.stubGlobal('createImageBitmap', vi.fn(async (blob) => {
-            if ( (await blob.arrayBuffer()).byteLength === 1 ) throw new Error('not an image');
-            const bitmap = { type: blob.type, bytes: await bytesOf(blob), close: vi.fn() };
+        vi.stubGlobal('createImageBitmap', vi.fn(async (blob, options) => {
+            if ( (await blob.arrayBuffer()).byteLength === pngHeader(1, 1).length + 1 ) throw new Error('not an image');
+            const bitmap = { type: blob.type, bytes: await bytesOf(blob), options, close: vi.fn() };
             bitmaps.push(bitmap);
             return bitmap;
         }));
@@ -252,7 +253,7 @@ describe('readDocxPreview pictures', () => {
                 `<w:p>${picture('rId9', 100, 80)}</w:p>${paragraph('After')}`,
             media: {
                 'drawing.emf': png,
-                'broken.png': new Uint8Array(1),
+                'broken.png': new Uint8Array([...pngHeader(10, 10), 0]),
                 'huge.png': new Uint8Array(WORD_PICTURE_MAX_BYTES + 1),
             },
         });
@@ -271,9 +272,58 @@ describe('readDocxPreview pictures', () => {
 
     it('reads a picture of the largest size whole, though deflate could only make it larger', async () => {
         const noise = randomBytes(WORD_PICTURE_MAX_BYTES);
+        noise.set(pngHeader(64, 64));
         await draw({ body: `<w:p>${picture('rId1', 100, 50)}</w:p>`, media: { 'image1.png': noise } });
         expect(bitmaps[0].bytes).toHaveLength(WORD_PICTURE_MAX_BYTES);
         expect(bitmaps[0].bytes.subarray(-64)).toEqual(new Uint8Array(noise.subarray(-64)));
+    });
+
+    it('decodes a large picture at the size the page needs', async () => {
+        await draw({
+            body: `<w:p>${picture('rId1', 100, 50)}</w:p><w:p>${picture('rId2', 100, 50)}</w:p><w:p>${picture('rId3', 100, 50)}</w:p>`,
+            media: { 'wide.png': pngHeader(4096, 1024), 'tall.png': pngHeader(300, 3000), 'small.png': pngHeader(256, 100) },
+        });
+        expect(bitmaps.map(bitmap => bitmap.options)).toEqual([
+            { resizeWidth: 256, resizeHeight: 64, resizeQuality: 'medium' },
+            { resizeWidth: 26, resizeHeight: 256, resizeQuality: 'medium' },
+            undefined,
+        ]);
+    });
+
+    it('does not decode a picture of more pixels than the limit, or of a size it cannot tell', async () => {
+        const side = Math.sqrt(WORD_PICTURE_MAX_PIXELS);
+        const lines = await draw({
+            body: `<w:p>${picture('rId1', 100, 50)}</w:p><w:p>${picture('rId2', 100, 50)}</w:p><w:p>${picture('rId3', 100, 50)}</w:p>` +
+                `<w:p>${picture('rId4', 100, 50)}</w:p>${paragraph('After')}`,
+            media: {
+                'most.png': pngHeader(side, side),
+                'over.png': pngHeader(side + 1, side),
+                'empty.png': pngHeader(0, 50),
+                'unknown.png': new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]),
+            },
+        });
+        expect(bitmaps).toHaveLength(1);
+        expect(drawn.images).toHaveLength(1);
+        // Each one still takes its space on the page.
+        expect(lines[0].y).toBeGreaterThan(72 + 4 * 50);
+    });
+
+    it.each([
+        ['a GIF', [...Buffer.from('GIF89a'), 0x2c, 0x01, 0x64, 0x00, 0, 0, 0], 'image.gif'],
+        ['a BMP stored top to bottom', (() => {
+            const bmp = new Uint8Array(30);
+            const view = new DataView(bmp.buffer);
+            bmp.set([0x42, 0x4d]);
+            view.setInt32(18, 300, true);
+            view.setInt32(22, -100, true);
+            return bmp;
+        })(), 'image.bmp'],
+        // Start of image, an application segment to step over, then the frame header that holds the size.
+        ['a JPEG', [0xff, 0xd8, 0xff, 0xe0, 0, 4, 1, 2, 0xff, 0xc2, 0, 11, 8, 0, 100, 0x01, 0x2c, 3, 0, 0, 0, 0, 0], 'image.jpg'],
+    ])('reads the pixel size of %s', async (_label, bytes, name) => {
+        // 300 x 100 pixels: over the page dimension, so the size shows in how the picture is decoded.
+        await draw({ body: `<w:p>${picture('rId1', 100, 50)}</w:p>`, media: { [name]: new Uint8Array(bytes) } });
+        expect(bitmaps[0].options).toEqual({ resizeWidth: 256, resizeHeight: 85, resizeQuality: 'medium' });
     });
 
     it('shows a document that holds only a picture', async () => {

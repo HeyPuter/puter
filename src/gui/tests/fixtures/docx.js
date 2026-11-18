@@ -14,6 +14,11 @@ const u16 = (value) => {
     bytes.writeUInt16LE(value);
     return bytes;
 };
+const u32be = (value) => {
+    const bytes = Buffer.alloc(4);
+    bytes.writeUInt32BE(value);
+    return bytes;
+};
 const u32 = (value) => {
     const bytes = Buffer.alloc(4);
     bytes.writeUInt32LE(value);
@@ -87,6 +92,14 @@ export const createZip = (entries, { stored = [], comment = '', sizes = {}, flag
 /** A paragraph of plain text, with optional paragraph properties (`<w:pPr>` content). */
 export const paragraph = (text, properties = '') =>
     `<w:p>${properties && `<w:pPr>${properties}</w:pPr>`}<w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
+
+/** The start of a PNG file that states this pixel size: its signature and header chunk, with no image data. */
+export const pngHeader = (width, height) => {
+    const header = Buffer.concat([Buffer.from('IHDR'), u32be(width), u32be(height), Buffer.from([8, 2, 0, 0, 0])]);
+    return new Uint8Array(Buffer.concat([
+        Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), u32be(13), header, u32be(crc32(header)),
+    ]));
+};
 
 /** An inline picture `width` x `height` points in size, shown from the media file with relationship `id`. */
 export const picture = (id, width, height) => '<w:r><w:drawing><wp:inline>' +

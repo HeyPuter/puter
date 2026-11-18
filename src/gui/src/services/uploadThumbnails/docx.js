@@ -1,7 +1,9 @@
 import {
+    OFFICE_PAGE_DIMENSION,
     OFFICE_XML_MAX_BYTES,
     WORD_MAX_PICTURES,
     WORD_PICTURE_MAX_BYTES,
+    WORD_PICTURE_MAX_PIXELS,
     WORD_TEXT_MAX_CHARACTERS,
 } from './config.js';
 import { TOKEN, attributesOf, decodeEntities, openArchive, readRelationships, readStoredThumbnail } from './ooxml.js';
@@ -311,6 +313,39 @@ const readBody = (xml, formatOf) => {
 };
 
 /**
+ * Read the pixel size a PNG, GIF, BMP or JPEG file states near its start.
+ *
+ * @param {DataView} view The file's bytes.
+ * @returns {{ width: number, height: number } | undefined} `undefined` for any other content.
+ */
+const pixelSizeOf = (view) => {
+    const length = view.byteLength;
+    if ( length >= 24 && view.getUint32(0) === 0x89504e47 ) {
+        return { width: view.getUint32(16), height: view.getUint32(20) };
+    }
+    if ( length >= 10 && view.getUint32(0) === 0x47494638 ) {
+        return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
+    }
+    // A BMP stored top to bottom states a negative height.
+    if ( length >= 26 && view.getUint16(0) === 0x424d ) {
+        return { width: Math.abs(view.getInt32(18, true)), height: Math.abs(view.getInt32(22, true)) };
+    }
+    if ( length < 2 || view.getUint16(0) !== 0xffd8 ) return undefined;
+    // A JPEG is a run of segments, each a marker and a length. The frame header is the one that holds the size.
+    for ( let at = 2; at + 9 <= length; ) {
+        const marker = view.getUint8(at + 1);
+        if ( view.getUint8(at) !== 0xff ) return undefined;
+        if ( marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc ) {
+            return { width: view.getUint16(at + 7), height: view.getUint16(at + 5) };
+        }
+        // A padding byte, a marker that stands alone, or a segment to step over.
+        if ( marker === 0xff ) at++;
+        else at += 2 + (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd9) ? 0 : view.getUint16(at + 2));
+    }
+    return undefined;
+};
+
+/**
  * Get a small image of a DOCX's first page: the thumbnail its editor stored in it, or else a drawing of the page's
  * text, tables and pictures in the document's own sizes, spacing and alignment.
  *
@@ -347,7 +382,18 @@ export const readDocxPreview = async (file, signal) => {
             if ( !type || !entry || entry.size > WORD_PICTURE_MAX_BYTES ) continue;
             try {
                 const content = await contentOf(entry, WORD_PICTURE_MAX_BYTES);
-                block.image = await createImageBitmap(new Blob([content], { type }));
+                const pixels = pixelSizeOf(new DataView(await content.arrayBuffer()));
+                // A small file can state a very large picture, and decoding one takes memory by the pixel.
+                if ( !pixels?.width || !pixels.height || pixels.width * pixels.height > WORD_PICTURE_MAX_PIXELS ) continue;
+                // The page is small, so a large picture is scaled down as it is decoded and little of it is kept.
+                const scale = OFFICE_PAGE_DIMENSION / Math.max(pixels.width, pixels.height);
+                block.image = await createImageBitmap(new Blob([content], { type }), scale < 1
+                    ? {
+                        resizeWidth: Math.max(1, Math.round(pixels.width * scale)),
+                        resizeHeight: Math.max(1, Math.round(pixels.height * scale)),
+                        resizeQuality: 'medium',
+                    }
+                    : undefined);
                 bitmaps.push(block.image);
             } catch {
                 // A picture that can't be decoded leaves its space empty.
