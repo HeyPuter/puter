@@ -5,8 +5,8 @@ import {
     WORD_MAX_PICTURES,
     WORD_PICTURE_MAX_BYTES,
     WORD_TEXT_MAX_CHARACTERS,
-    WORD_THUMBNAIL_MAX_BYTES,
-    WORD_XML_MAX_BYTES,
+    OFFICE_THUMBNAIL_MAX_BYTES,
+    OFFICE_XML_MAX_BYTES,
 } from './config.js';
 import { readDocxPreview } from './docx.js';
 
@@ -46,7 +46,7 @@ describe('readDocxPreview with a stored thumbnail', () => {
     });
 
     it('draws the page instead of using a thumbnail over the size limit', async () => {
-        const preview = await readDocxPreview(docxFile({ thumbnail: new Uint8Array(WORD_THUMBNAIL_MAX_BYTES + 1) }));
+        const preview = await readDocxPreview(docxFile({ thumbnail: new Uint8Array(OFFICE_THUMBNAIL_MAX_BYTES + 1) }));
         expect(preview.type).toBe('image/png');
         expect(linesOf(drawn).map(line => line.text)).toEqual(['Hello']);
     });
@@ -279,16 +279,16 @@ describe('readDocxPreview budgets', () => {
     const filler = bytes => `<w:bookmarkStart w:name="${'a'.repeat(bytes)}"/>`;
 
     it('reads the main part up to the XML budget', async () => {
-        const within = await draw({ body: filler(WORD_XML_MAX_BYTES - 2000) + paragraph('Early') });
+        const within = await draw({ body: filler(OFFICE_XML_MAX_BYTES - 2000) + paragraph('Early') });
         expect(within.map(line => line.text)).toEqual(['Early']);
-        expect(await readDocxPreview(docxFile({ body: filler(WORD_XML_MAX_BYTES) + paragraph('Late') }))).toBeUndefined();
+        expect(await readDocxPreview(docxFile({ body: filler(OFFICE_XML_MAX_BYTES) + paragraph('Late') }))).toBeUndefined();
     });
 
     it('stops inflating an entry that holds more than it states', async () => {
         const file = docxFile({ body: paragraph('Early') + filler(64 * 1024 * 1024), sizes: { 'word/document.xml': 100 } });
         const text = vi.spyOn(Blob.prototype, 'text');
         expect(await readDocxPreview(file)).toBeInstanceOf(File);
-        expect(Math.max(...text.mock.contexts.map(blob => blob.size))).toBe(WORD_XML_MAX_BYTES);
+        expect(Math.max(...text.mock.contexts.map(blob => blob.size))).toBe(OFFICE_XML_MAX_BYTES);
     });
 
     it.each([

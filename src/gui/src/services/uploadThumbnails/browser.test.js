@@ -11,6 +11,7 @@ import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx, paragraph, picture } from '../../../tests/fixtures/docx.js';
 import { createPdf } from '../../../tests/fixtures/pdf.js';
 import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
+import { cell, createXlsx, row, styles } from '../../../tests/fixtures/xlsx.js';
 
 let browser;
 let server;
@@ -324,6 +325,116 @@ describe('Upload thumbnails in a real browser', () => {
             expect(result.stored).toMatchObject({ width: 128, height: 64 });
             expect(result.stored.pixel).toSatisfy(near([255, 0, 0, 255]));
             expect(result.skipped).toEqual([undefined, undefined]);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
+    it.each([false, true])('draws the top-left of a spreadsheet\'s first sheet (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async ({ xlsx, empty }) => {
+                const generate = window.createUploadThumbnailGenerator();
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const [drawn, ...skipped] = await Promise.all([
+                    new File([new Uint8Array(xlsx)], 'budget.xlsx'),
+                    new File([new Uint8Array(empty)], 'empty.xlsx'),
+                    new File(['not a spreadsheet'], 'broken.xlsx'),
+                ].map(file => generate(file, context)));
+                const image = new Image();
+                image.src = drawn;
+                await image.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(image, 0, 0);
+                const pixel = (x, y) => [...ctx.getImageData(x, y, 1, 1).data];
+                // The darkest pixel of a box, as the sum of its channels.
+                const darkest = (x, y, width, height) => {
+                    const { data } = ctx.getImageData(x, y, width, height);
+                    let least = 765;
+                    for ( let at = 0; at < data.length; at += 4 ) least = Math.min(least, data[at] + data[at + 1] + data[at + 2]);
+                    return least;
+                };
+                return {
+                    width: image.width,
+                    height: image.height,
+                    filled: pixel(20, 4),
+                    besideFill: pixel(100, 4),
+                    text: darkest(1, 9, 24, 6),
+                    emptyCell: darkest(70, 54, 8, 3),
+                    skipped,
+                };
+            }, {
+                // Row 1 is 30 points tall, 8 pixels of the thumbnail, with its first three cells filled red.
+                xlsx: [...createXlsx({
+                    styles: styles({
+                        fills: '<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+                            '<fill><patternFill patternType="solid"><fgColor rgb="FFFF0000"/></patternFill></fill>',
+                        fonts: '<font/><font><b/><sz val="20"/></font>',
+                        formats: '<xf/><xf fillId="2"/><xf fontId="1"/>',
+                    }),
+                    sheet: `<sheetData>${row(1, cell('A1', '', { style: 1 }) + cell('B1', '', { style: 1 }) + cell('C1', '', { style: 1 }), ' ht="30"')}${
+                        row(2, cell('A2', 'Totals', { type: 'str', style: 2 }), ' ht="24"')}</sheetData>`,
+                })],
+                empty: [...createXlsx({ sheet: '<sheetData/>' })],
+            });
+            const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 15);
+            expect(result).toMatchObject({ width: 128, height: 128, skipped: [undefined, undefined] });
+            expect(result.filled).toSatisfy(near([255, 0, 0, 255]));
+            expect(result.besideFill).toSatisfy(near([255, 255, 255, 255]));
+            expect(result.text).toBeLessThan(400);
+            // Gridlines are light, and the inside of an empty cell is white.
+            expect(result.emptyCell).toBeGreaterThan(690);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
+    it.each([false, true])('takes a frame from a little way into a video (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const video = [...await readFile(new URL('../../../tests/fixtures/video.mp4', import.meta.url))];
+            const result = await page.evaluate(async (video) => {
+                const generate = window.createUploadThumbnailGenerator();
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const [frame, ...skipped] = await Promise.all([
+                    new File([new Uint8Array(video)], 'clip.mp4', { type: 'video/mp4' }),
+                    new File(['not a video'], 'broken.mp4', { type: 'video/mp4' }),
+                    // Cut off in the middle of its index, so the player can't open it.
+                    new File([new Uint8Array(video.slice(0, 600))], 'short.mp4'),
+                ].map(file => generate(file, context)));
+                const image = new Image();
+                image.src = frame;
+                await image.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(image, 0, 0);
+                return {
+                    width: image.width,
+                    height: image.height,
+                    pixel: [...ctx.getImageData(64, 32, 1, 1).data],
+                    skipped,
+                    videos: document.querySelectorAll('video').length,
+                };
+            }, video);
+            // The video opens on a black frame and is green from 0.1 seconds on.
+            expect(result).toMatchObject({ width: 128, height: 64, skipped: [undefined, undefined], videos: 0 });
+            expect(result.pixel[1]).toBeGreaterThan(150);
+            expect(result.pixel[0] + result.pixel[2]).toBeLessThan(100);
             expect(errors).toEqual([]);
         } finally {
             await page.close();

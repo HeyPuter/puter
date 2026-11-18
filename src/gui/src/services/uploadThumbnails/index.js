@@ -6,11 +6,14 @@ import {
     PDF_THUMBNAIL_BATCH_TIMEOUT_MS,
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_BYTES,
-    WORD_BATCH_TIMEOUT_MS,
+    OFFICE_BATCH_TIMEOUT_MS,
+    VIDEO_BATCH_TIMEOUT_MS,
 } from './config.js';
 import { readDocPreview } from './doc.js';
 import { readDocxPreview } from './docx.js';
 import { readPsdPreview } from './psd.js';
+import { readVideoFrame } from './video.js';
+import { readXlsxPreview } from './xlsx.js';
 
 // Capture the bundle URL during evaluation; currentScript is null when an upload starts.
 const bundleUrl = globalThis.document?.currentScript?.src;
@@ -99,23 +102,35 @@ const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => 
 });
 
 const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
+const SPREADSHEET_TYPE = /^application\/vnd\.(ms-excel\.(sheet|template)\.|openxmlformats-officedocument\.spreadsheetml\.)/;
+// The containers browsers play. Other `video/` types are left alone: a `.ts` source file is reported as one.
+const VIDEO_TYPE = /^video\/(mp4|quicktime|webm|x-m4v)$/;
 
-/** Create one callback per upload so queued PDFs, and queued Word documents, share a preparation deadline. */
+/**
+ * Make a queue that runs one task at a time, and skips the tasks still waiting `timeoutMs` after the first started.
+ *
+ * @param {number} timeoutMs
+ * @returns {<T>(task: () => Promise<T>, signal?: AbortSignal) => Promise<T | undefined>}
+ */
+const createQueue = (timeoutMs) => {
+    let deadline;
+    let last = Promise.resolve();
+    return (task, signal) => {
+        const result = last.then(() => {
+            deadline ??= Date.now() + timeoutMs;
+            return signal?.aborted || Date.now() >= deadline ? undefined : task();
+        });
+        last = result.catch(() => {});
+        return result;
+    };
+};
+
+/** Create one callback per upload so the files of one kind queued in it share a preparation deadline. */
 export const createUploadThumbnailGenerator = () => {
     let deadline;
-    let wordDeadline;
-    let wordQueue = Promise.resolve();
-    // Word documents are read on the desktop thread, so one at a time, and those still queued at the deadline are skipped.
-    const readWordPreview = (file, signal) => {
-        const preview = wordQueue.then(async () => {
-            wordDeadline ??= Date.now() + WORD_BATCH_TIMEOUT_MS;
-            if ( signal?.aborted || Date.now() >= wordDeadline ) return undefined;
-            // A name doesn't settle which of the two formats a document is in. Each reader checks the file's signature.
-            return await readDocxPreview(file, signal) ?? readDocPreview(file, signal);
-        });
-        wordQueue = preview.catch(() => {});
-        return preview;
-    };
+    // Office documents are read on the desktop thread, and a video takes a decoder, so each kind goes one at a time.
+    const queueOffice = createQueue(OFFICE_BATCH_TIMEOUT_MS);
+    const queueVideo = createQueue(VIDEO_BATCH_TIMEOUT_MS);
     return async (file, context) => {
         try {
             if ( context?.signal?.aborted ) return undefined;
@@ -131,7 +146,13 @@ export const createUploadThumbnailGenerator = () => {
                 if ( file.type === 'image/vnd.adobe.photoshop' || /\.ps[db]$/i.test(name) ) {
                     image = await readPsdPreview(file, context?.signal);
                 } else if ( WORD_TYPE.test(file.type) || /\.do[ct][xm]?$/i.test(name) ) {
-                    image = await readWordPreview(file, context?.signal);
+                    // A name doesn't settle which of the two formats a document is in. Each reader checks the signature.
+                    image = await queueOffice(async () => await readDocxPreview(file, context?.signal) ??
+                        readDocPreview(file, context?.signal), context?.signal);
+                } else if ( SPREADSHEET_TYPE.test(file.type) || /\.xl[st][xm]$/i.test(name) ) {
+                    image = await queueOffice(() => readXlsxPreview(file, context?.signal), context?.signal);
+                } else if ( VIDEO_TYPE.test(file.type) || /\.(mp4|m4v|mov|webm)$/i.test(name) ) {
+                    image = await queueVideo(() => readVideoFrame(file, context?.signal), context?.signal);
                 }
                 return image ? await imageGenerator(image) : undefined;
             }

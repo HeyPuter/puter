@@ -1,4 +1,4 @@
-import { WORD_PAGE_DIMENSION } from './config.js';
+import { OFFICE_PAGE_DIMENSION } from './config.js';
 
 /**
  * @typedef {Object} PageRun
@@ -61,10 +61,10 @@ export const createPage = () => ({
  * Draw a page's blocks top to bottom, wrapping text to the page, until the page is full.
  *
  * @param {Page} page
- * @returns {Promise<File | undefined>} A PNG at most `WORD_PAGE_DIMENSION` pixels a side, or `undefined` for a blank page.
+ * @returns {Promise<File | undefined>} A PNG at most `OFFICE_PAGE_DIMENSION` pixels a side, or `undefined` for a blank page.
  */
 export const renderPage = async (page) => {
-    const scale = WORD_PAGE_DIMENSION / Math.max(page.width, page.height);
+    const scale = OFFICE_PAGE_DIMENSION / Math.max(page.width, page.height);
     const canvas = new OffscreenCanvas(Math.max(1, Math.round(page.width * scale)),
                     Math.max(1, Math.round(page.height * scale)));
     const ctx = canvas.getContext('2d');

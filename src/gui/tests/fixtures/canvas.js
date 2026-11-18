@@ -1,29 +1,60 @@
 // A stand-in for OffscreenCanvas that records what is drawn on it, for tests that run without a browser.
 
 /**
- * `Canvas` replaces OffscreenCanvas. `drawn` collects the canvas size, each `fillText` call and each `drawImage`
- * call, with positions in the units the drawing code used. A character measures half its font size wide.
+ * `Canvas` replaces OffscreenCanvas. `drawn` collects the canvas size and each call that puts something on it:
+ * `fillText` (with the clipping rectangle in force), `fillRect`, `drawImage`, and the line segments of each `stroke`.
+ * Positions are in the units the drawing code used. A character measures half its font size wide.
  */
 export const createRecordingCanvas = () => {
-    const drawn = { width: 0, height: 0, text: [], images: [] };
+    const drawn = { width: 0, height: 0, text: [], fills: [], images: [], lines: [] };
     class Canvas {
         constructor (width, height) {
+            Object.assign(this, { width, height });
             Object.assign(drawn, { width, height });
         }
 
         getContext () {
+            let pendingRect;
+            let clip;
+            let from;
+            const clips = [];
+            const segments = [];
             return {
                 font: '',
                 fillStyle: '',
-                fillRect () {},
-                rect () {},
-                clip () {},
                 scale () {},
+                save () {
+                    clips.push(clip);
+                },
+                restore () {
+                    clip = clips.pop();
+                },
+                beginPath () {
+                    segments.length = 0;
+                },
+                rect (x, y, width, height) {
+                    pendingRect = { x, y, width, height };
+                },
+                clip () {
+                    clip = pendingRect;
+                },
+                moveTo (x, y) {
+                    from = { x, y };
+                },
+                lineTo (x, y) {
+                    segments.push({ from, to: { x, y } });
+                },
+                stroke () {
+                    drawn.lines.push(...segments);
+                },
                 measureText (text) {
                     return { width: [...text].length * parseFloat(/([\d.]+)px/.exec(this.font)[1]) / 2 };
                 },
+                fillRect (x, y, width, height) {
+                    drawn.fills.push({ x, y, width, height, color: this.fillStyle });
+                },
                 fillText (text, x, y) {
-                    drawn.text.push({ text, x, y, font: this.font, color: this.fillStyle });
+                    drawn.text.push({ text, x, y, font: this.font, color: this.fillStyle, clip });
                 },
                 drawImage (image, x, y, width, height) {
                     drawn.images.push({ image, x, y, width, height });

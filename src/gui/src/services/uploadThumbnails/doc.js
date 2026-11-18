@@ -1,4 +1,4 @@
-import { WORD_MAX_READ_BYTES, WORD_TEXT_MAX_CHARACTERS } from './config.js';
+import { OFFICE_MAX_READ_BYTES, WORD_TEXT_MAX_CHARACTERS } from './config.js';
 import { createPage, renderPage } from './page.js';
 import { createReader } from './reader.js';
 
@@ -28,8 +28,8 @@ const FONT_SIZE = 12;
  */
 const openCompoundFile = async (file) => {
     // The allocation tables and the data they describe are far apart, so each gets a read window and half the budget.
-    const readTable = createReader(file, WORD_MAX_READ_BYTES / 2);
-    const readData = createReader(file, WORD_MAX_READ_BYTES / 2);
+    const readTable = createReader(file, OFFICE_MAX_READ_BYTES / 2);
+    const readData = createReader(file, OFFICE_MAX_READ_BYTES / 2);
     const header = await readTable(0, 512, 512);
     if ( !header || header.getUint32(0) !== 0xd0cf11e0 || header.getUint32(4) !== 0xa1b11ae1 ) return undefined;
     const sectorBytes = 1 << header.getUint16(30, true);
@@ -103,7 +103,7 @@ const openCompoundFile = async (file) => {
 
     // A stream under the cutoff is kept in 64-byte sectors inside the root entry's stream, with a table of their own.
     const readSmallStream = async (stream) => {
-        const miniTableBytes = Math.min(header.getUint32(64, true) * sectorBytes, WORD_MAX_READ_BYTES / 2);
+        const miniTableBytes = Math.min(header.getUint32(64, true) * sectorBytes, OFFICE_MAX_READ_BYTES / 2);
         const miniTable = await readChain(header.getUint32(60, true), 0, miniTableBytes);
         if ( ! miniTable ) return undefined;
         const next = new DataView(miniTable.buffer);

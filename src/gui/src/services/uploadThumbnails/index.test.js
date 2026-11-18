@@ -3,12 +3,15 @@ import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx } from '../../../tests/fixtures/docx.js';
 import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
+import { createXlsx } from '../../../tests/fixtures/xlsx.js';
 import {
     PDFJS_VERSION,
     PDF_THUMBNAIL_BATCH_TIMEOUT_MS,
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_FILE_BYTES,
-    WORD_BATCH_TIMEOUT_MS,
+    OFFICE_BATCH_TIMEOUT_MS,
+    VIDEO_BATCH_TIMEOUT_MS,
+    VIDEO_JOB_TIMEOUT_MS,
 } from './config.js';
 
 const thumbnail = 'data:image/png;base64,AAAA';
@@ -243,7 +246,7 @@ describe('GUI upload thumbnail scheduling', () => {
         const generate = createUploadThumbnailGenerator();
         const file = () => new File([createDocx()], 'report.docx');
         expect(await generate(file(), { defaultGenerator })).toBe(thumbnail);
-        vi.setSystemTime(Date.now() + WORD_BATCH_TIMEOUT_MS);
+        vi.setSystemTime(Date.now() + OFFICE_BATCH_TIMEOUT_MS);
         expect(await generate(file(), { defaultGenerator })).toBeUndefined();
         expect(defaultGenerator).toHaveBeenCalledOnce();
         // The next upload gets its own deadline.
@@ -262,6 +265,45 @@ describe('GUI upload thumbnail scheduling', () => {
             generate(new File([createDocx()], 'report.docx'), { defaultGenerator }),
         ]);
         expect(results).toEqual([undefined, undefined, thumbnail]);
+    });
+
+    it.each([
+        new File([createXlsx()], 'budget.xlsx'),
+        new File([createXlsx()], 'macros.XLSM'),
+        new File([createXlsx()], 'template.xltx'),
+        new File([createXlsx()], 'budget', {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }),
+    ])('hands the image generator a drawing of a spreadsheet\'s first sheet', async (file) => {
+        const { Canvas, drawn } = createRecordingCanvas();
+        vi.stubGlobal('OffscreenCanvas', Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator.mock.calls[0][0].type).toBe('image/png');
+        expect(drawn.text.map(word => word.text)).toEqual(['Hello']);
+        expect(workers).toHaveLength(0);
+    });
+
+    it('reads spreadsheets and Word documents in one queue, under one deadline', async () => {
+        vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        expect(await generate(new File([createDocx()], 'report.docx'), { defaultGenerator })).toBe(thumbnail);
+        vi.setSystemTime(Date.now() + OFFICE_BATCH_TIMEOUT_MS);
+        expect(await generate(new File([createXlsx()], 'budget.xlsx'), { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        ['text that is only named like a spreadsheet', 'not a spreadsheet'],
+        ['a workbook whose first sheet is empty', createXlsx({ sheet: '<sheetData/>' })],
+        ['a Word document named like a spreadsheet', createDocx()],
+    ])('skips %s', async (_label, content) => {
+        vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        expect(await generate(new File([content], 'budget.xlsx'), { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).not.toHaveBeenCalled();
     });
 
     it('skips a Word document in a browser without OffscreenCanvas', async () => {
@@ -386,5 +428,144 @@ describe('GUI upload thumbnail scheduling', () => {
         expect(await createUploadThumbnailGenerator()(pdf())).toBeUndefined();
         expect(workers[0].terminate).toHaveBeenCalledOnce();
         expect(vi.getTimerCount()).toBe(0);
+    });
+});
+
+describe('video thumbnails', () => {
+    const clip = (name = 'clip.mp4', type = 'video/mp4') => new File(['video'], name, { type });
+    let videos;
+    let revoked;
+    let drawn;
+
+    beforeEach(() => {
+        videos = [];
+        revoked = [];
+        const canvas = createRecordingCanvas();
+        drawn = canvas.drawn;
+        vi.stubGlobal('OffscreenCanvas', canvas.Canvas);
+        // The browser's media element, as far as the reader uses it.
+        vi.stubGlobal('document', {
+            createElement: vi.fn(() => {
+                const video = { videoWidth: 640, videoHeight: 360, duration: 60, removeAttribute: vi.fn(), load: vi.fn() };
+                videos.push(video);
+                return video;
+            }),
+        });
+        vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:video-${videos.length}`);
+        vi.spyOn(URL, 'revokeObjectURL').mockImplementation(url => revoked.push(url));
+    });
+
+    // Let the queue start the next video.
+    const settle = () => vi.advanceTimersByTimeAsync(0);
+    const expectReleased = (video, url) => {
+        expect(video.removeAttribute).toHaveBeenCalledWith('src');
+        expect(video.load).toHaveBeenCalledOnce();
+        expect(revoked).toContain(url);
+    };
+
+    it.each([
+        new File(['video'], 'clip.mp4'),
+        new File(['video'], 'CLIP.MOV'),
+        new File(['video'], 'clip.m4v'),
+        new File(['video'], 'clip.webm'),
+        new File(['video'], 'clip', { type: 'video/mp4' }),
+        new File(['video'], 'clip', { type: 'video/quicktime' }),
+    ])('hands the image generator a frame from a tenth of the way into a video', async (file) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const result = createUploadThumbnailGenerator()(file, { defaultGenerator });
+        await settle();
+        const [video] = videos;
+        expect(video).toMatchObject({ src: 'blob:video-1', muted: true, preload: 'metadata' });
+        expect(URL.createObjectURL).toHaveBeenCalledWith(file);
+        video.onloadedmetadata();
+        expect(video.currentTime).toBe(6);
+        expect(defaultGenerator).not.toHaveBeenCalled();
+        await video.onseeked();
+        expect(await result).toBe(thumbnail);
+        expect(defaultGenerator.mock.calls[0][0]).toMatchObject({ type: 'image/jpeg' });
+        // The frame is scaled to fit the frame dimension, keeping its shape.
+        expect(drawn).toMatchObject({ width: 256, height: 144 });
+        expect(drawn.images).toEqual([{ image: video, x: 0, y: 0, width: 256, height: 144 }]);
+        expectReleased(video, 'blob:video-1');
+        expect(vi.getTimerCount()).toBe(0);
+        expect(workers).toHaveLength(0);
+    });
+
+    it.each([
+        [1200, 10],
+        [Infinity, 0],
+        [NaN, 0],
+    ])('seeks a video %s seconds long to %s seconds', async (duration, time) => {
+        const result = createUploadThumbnailGenerator()(clip(), { defaultGenerator: async () => thumbnail });
+        await settle();
+        videos[0].duration = duration;
+        videos[0].onloadedmetadata();
+        expect(videos[0].currentTime).toBe(time);
+        await videos[0].onseeked();
+        expect(await result).toBe(thumbnail);
+    });
+
+    it('does not enlarge a small video', async () => {
+        const result = createUploadThumbnailGenerator()(clip(), { defaultGenerator: async () => thumbnail });
+        await settle();
+        Object.assign(videos[0], { videoWidth: 90, videoHeight: 160 });
+        videos[0].onloadedmetadata();
+        await videos[0].onseeked();
+        await result;
+        expect(drawn).toMatchObject({ width: 90, height: 160 });
+    });
+
+    it.each(['error', 'no picture', 'timeout', 'cancel', 'canvas failure'])('skips a video on %s and releases it', async (failure) => {
+        const controller = new AbortController();
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const result = createUploadThumbnailGenerator()(clip(), { defaultGenerator, signal: controller.signal });
+        await settle();
+        const [video] = videos;
+        if ( failure === 'error' ) video.onerror();
+        if ( failure === 'no picture' ) {
+            video.videoWidth = 0;
+            video.onloadedmetadata();
+        }
+        if ( failure === 'timeout' ) await vi.advanceTimersByTimeAsync(VIDEO_JOB_TIMEOUT_MS);
+        if ( failure === 'cancel' ) controller.abort();
+        if ( failure === 'canvas failure' ) {
+            vi.stubGlobal('OffscreenCanvas', class { constructor () { throw new Error('no canvas'); } });
+            video.onloadedmetadata();
+            await video.onseeked();
+        }
+        expect(await result).toBeUndefined();
+        expect(defaultGenerator).not.toHaveBeenCalled();
+        expectReleased(video, 'blob:video-1');
+        expect(vi.getTimerCount()).toBe(0);
+        // A frame that arrives late changes nothing.
+        video.onloadedmetadata();
+        await video.onseeked();
+        expect(defaultGenerator).not.toHaveBeenCalled();
+    });
+
+    it('loads one video at a time, and skips the videos still queued at the deadline', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        const results = [clip('a.mp4'), clip('b.mp4'), clip('c.mp4')].map(file => generate(file, { defaultGenerator }));
+        await settle();
+        expect(videos).toHaveLength(1);
+        // The first video never loads and is given up on.
+        await vi.advanceTimersByTimeAsync(VIDEO_JOB_TIMEOUT_MS);
+        expect(videos).toHaveLength(2);
+        // The second one finishes after the deadline, so the third is never started.
+        await vi.advanceTimersByTimeAsync(VIDEO_BATCH_TIMEOUT_MS - VIDEO_JOB_TIMEOUT_MS);
+        videos[1].onloadedmetadata();
+        await videos[1].onseeked();
+        expect(await Promise.all(results)).toEqual([undefined, thumbnail, undefined]);
+        expect(videos).toHaveLength(2);
+    });
+
+    it('leaves other files with a video type to the image generator', async () => {
+        // Browsers report a TypeScript source file as an MPEG transport stream.
+        const file = new File(['export {};'], 'index.ts', { type: 'video/mp2t' });
+        const defaultGenerator = vi.fn(async () => undefined);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).toHaveBeenCalledWith(file);
+        expect(videos).toHaveLength(0);
     });
 });

@@ -2,8 +2,8 @@
 
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
-callback's second argument. Files that are not PDFs, PSDs or Word documents
-delegate to that image generator; when the running SDK predates the callback
+callback's second argument. Files that are not PDFs, PSDs, Office documents or
+videos delegate to that image generator; when the running SDK predates the callback
 context (it then passes only the file), the GUI's bundled copy of the SDK image
 generator is used instead, so image thumbnails do not depend on deploy order.
 
@@ -24,10 +24,10 @@ and documents wide enough to exceed the read budget, retain their normal icon.
 
 ## Word documents
 
-A DOCX is a ZIP archive of XML parts. `docx.js` lists the archive from the
-directory at its end and inflates only the parts it needs. Some editors store a
-JPEG of the first page in the archive; when it is there, it goes to the image
-generator as it is.
+A DOCX is a ZIP archive of XML parts. `ooxml.js` lists the archive from the
+directory at its end, and `docx.js` inflates only the parts it needs. Some
+editors store a JPEG of the first page in the archive; when it is there, it goes
+to the image generator as it is.
 
 Otherwise `docx.js` reads the main part up to the first page break and
 `page.js` draws that page on a canvas of at most 256 pixels a side: paragraphs
@@ -47,9 +47,32 @@ Both readers are tried on every Word file, because a `.doc` is sometimes a DOCX
 and the reverse; each reader checks the file's signature first. Encrypted
 documents, and documents whose first page is blank, retain their normal icon.
 
-Reading happens on the desktop thread, in a few milliseconds per document. An
-upload reads its Word documents one at a time, and the ones still queued when
-its preparation deadline passes retain their normal icon.
+## Spreadsheets
+
+An XLSX is the same kind of archive, and a stored first-page JPEG is used the
+same way. Otherwise `xlsx.js` reads the first visible worksheet and draws the
+480 points at its top-left corner on a square canvas: gridlines, the sheet's
+column widths and row heights, each cell's fill, and each cell's text in its
+font size, weight, color and alignment. Text aligned left runs on over the empty
+cells beside it. Colors come from the cell formats, directly or through the
+workbook's theme. Numbers are drawn as stored, so a date shows as its serial
+number; number formats, merged cells, borders, charts and pictures are not
+drawn. A sheet with nothing in view retains its normal icon.
+
+Office documents are read on the desktop thread, in a few milliseconds each. An
+upload reads them one at a time, and the ones still queued when its preparation
+deadline passes retain their normal icon.
+
+## Videos
+
+`video.js` loads an MP4, MOV, M4V or WebM file into a detached `<video>`
+element, seeks a tenth of the way in (at most 10 seconds), and draws that frame
+on a canvas of at most 256 pixels a side. The browser's player does the
+demuxing and decoding, reading only the parts of the file it needs, so the cost
+does not grow with the file. A video the browser can't play, a file with only
+sound, and a video that takes longer than its time limit retain their normal
+icon. An upload loads one video at a time, under a preparation deadline of its
+own. The page's CSP must allow `blob:` in `media-src`.
 
 ## PDF
 
@@ -80,7 +103,8 @@ The browser tests use the same asset-copy step as production, render real PDF
 fixtures, and check first-page pixels, text, rotation, image delegation, failure
 recovery and termination of CPU-bound work. They also decode the thumbnails made
 from a PSD fixture's preview and from a fixture's merged image, and check the
-pixels of pages drawn from DOCX and DOC fixtures. The parsers' unit tests draw on a
+pixels of pages drawn from DOCX and DOC fixtures, of a sheet drawn from an XLSX
+fixture, and of a frame taken from a video fixture. The parsers' unit tests draw on a
 recording canvas, so they assert on the words and positions laid out. The SDK upload suites cover callback
 compatibility and cancellation; its HTTP transport tests cover thumbnail
 failure, timeout and original-file failure separately.
