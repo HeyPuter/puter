@@ -619,6 +619,144 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
         expect(seen).toEqual([expect.objectContaining({ uuid })]);
     });
 
+    const captureEvents = async (
+        name: 'thumbnail.discarded' | 'outer.gui.item.updated',
+        run: () => Promise<unknown>,
+    ): Promise<unknown[]> => {
+        const seen: unknown[] = [];
+        const listener = (_key: string, data: unknown) => {
+            seen.push(data);
+        };
+        server.clients.event.on(name, listener as never);
+        try {
+            await run();
+        } finally {
+            server.clients.event.off(name, listener as never);
+        }
+        return seen;
+    };
+
+    const setThumbnail = (
+        actor: Actor,
+        body: Record<string, unknown>,
+    ): Promise<unknown> =>
+        withActor(actor, () =>
+            controller.updateFsentryThumbnail(
+                makeReq({ body, actor }),
+                makeRes().res,
+            ),
+        );
+
+    it('stores the thumbnail while the file has the expected modified time', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/expected-modified.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'body');
+        const entry = await server.stores.fsEntry.getEntryByUuid(uuid);
+
+        const thumbnail = 'data:image/png;base64,aGVsbG8=';
+        await setThumbnail(actor, {
+            uid: uuid,
+            thumbnail,
+            expectedModified: entry!.modified,
+        });
+
+        expect(
+            (await server.stores.fsEntry.getEntryByUuidFromPrimary(uuid))
+                ?.thumbnail,
+        ).toBe(thumbnail);
+    });
+
+    it('refuses a thumbnail made from contents the file no longer has', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/changed-since.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'body');
+        const entry = await server.stores.fsEntry.getEntryByUuid(uuid);
+
+        const thumbnail = 'data:image/png;base64,aGVsbG8=';
+        let rejection: unknown;
+        const discarded = await captureEvents('thumbnail.discarded', () =>
+            setThumbnail(actor, {
+                uid: uuid,
+                thumbnail,
+                expectedModified: entry!.modified - 1,
+            }).catch((error: unknown) => {
+                rejection = error;
+            }),
+        );
+
+        expect(rejection).toMatchObject({
+            statusCode: 409,
+            legacyCode: 'conflict',
+        });
+        // The upload the extension made for it is dropped with it.
+        expect(discarded).toEqual([{ uuid, url: thumbnail }]);
+        expect(
+            (await server.stores.fsEntry.getEntryByUuidFromPrimary(uuid))
+                ?.thumbnail ?? null,
+        ).toBeNull();
+    });
+
+    it('rejects an expectedModified that is not a number', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/bad-modified.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'body');
+
+        await expect(
+            setThumbnail(actor, {
+                uid: uuid,
+                thumbnail: 'data:image/png;base64,aGVsbG8=',
+                expectedModified: '123',
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: '`expectedModified` must be a number',
+        });
+    });
+
+    it('discards the thumbnail it replaces, and only that one', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/replaced-thumb.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'body');
+        const first = 'data:image/png;base64,Rmlyc3Q=';
+        const second = 'data:image/png;base64,U2Vjb25k';
+
+        const discardedFirst = await captureEvents('thumbnail.discarded', () =>
+            setThumbnail(actor, { uid: uuid, thumbnail: first }),
+        );
+        const discardedSecond = await captureEvents(
+            'thumbnail.discarded',
+            () => setThumbnail(actor, { uid: uuid, thumbnail: second }),
+        );
+
+        expect(discardedFirst).toEqual([]);
+        expect(discardedSecond).toEqual([{ uuid, url: first }]);
+    });
+
+    it("tells the owner's open clients about the new thumbnail", async () => {
+        const owner = await makeUser();
+        const writer = await makeUser();
+        const path = `/${owner.username}/Documents/announced-thumb.txt`;
+        const { uuid } = await writeFileEntry(owner.actor, path, 'body');
+        await server.services.permission.grantUserUserPermission(
+            owner.actor,
+            writer.username,
+            `fs:${uuid}:write`,
+            {},
+        );
+
+        const thumbnail = 'data:image/png;base64,aGVsbG8=';
+        const updates = await captureEvents('outer.gui.item.updated', () =>
+            setThumbnail(writer.actor, { uid: uuid, thumbnail }),
+        );
+
+        expect(updates).toEqual([
+            expect.objectContaining({
+                user_id_list: [owner.userId],
+                response: expect.objectContaining({ uid: uuid, thumbnail }),
+            }),
+        ]);
+    });
+
     it("refuses to retag another user's entry", async () => {
         const owner = await makeUser();
         const stranger = await makeUser();

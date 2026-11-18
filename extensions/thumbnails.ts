@@ -385,7 +385,7 @@ export const handleThumbnailRead = async (
             migrated = await deps.fsEntry.updateEntryThumbnailByUuid(
                 uuid,
                 `s3://${deps.bucketName}/${key}`,
-                thumb,
+                { thumbnail: thumb },
             );
         } catch (err) {
             // The row may or may not point at the object now, so keep it.
@@ -569,4 +569,18 @@ extension.on('fs.remove.node', async (_key, payload) => {
         bucketName: thumbnailBucketName,
         bucketEndpoint: extensionBucketEndpoint,
     });
+});
+
+// -- thumbnail.discarded ---------------------------------------------
+// An overwrite or a newer thumbnail replaced this one; delete its object.
+
+extension.on('thumbnail.discarded', async (_key, { uuid, url }) => {
+    await handleFsRemoveNodeThumbnail(
+        { target: { uuid, thumbnail: url } },
+        {
+            s3: getClient(),
+            bucketName: thumbnailBucketName,
+            bucketEndpoint: extensionBucketEndpoint,
+        },
+    );
 });

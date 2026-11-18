@@ -52,3 +52,15 @@ export const VIDEO_JOB_TIMEOUT_MS = 4000;
 export const VIDEO_FRAME_MAX_SECONDS = 10;
 // Twice the thumbnail's size, so the image generator's downscale smooths the frame.
 export const VIDEO_FRAME_DIMENSION = 256;
+// The dashboard makes thumbnails for files that have none as it shows them, within these budgets.
+export const MISSING_THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
+export const MISSING_THUMBNAIL_CONCURRENCY = 2;
+export const MISSING_THUMBNAIL_PER_MINUTE = 20;
+// Per page load. Downloads count as the account's egress, so browsing a large photo library stays bounded.
+export const MISSING_THUMBNAIL_SESSION_BYTES = 100 * 1024 * 1024;
+// A file saved within this long waits until it's this old, so an app saving every few seconds isn't chased.
+export const MISSING_THUMBNAIL_SETTLE_MS = 3000;
+export const MISSING_THUMBNAIL_BACKOFF_MS = 60 * 1000;
+export const MISSING_THUMBNAIL_ATTEMPTS_REMEMBERED = 10000;
+// Files that gave no thumbnail, kept across page loads so they aren't downloaded again.
+export const MISSING_THUMBNAIL_FAILURES_REMEMBERED = 1000;

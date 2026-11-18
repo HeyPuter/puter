@@ -1607,6 +1607,52 @@ describe('FSEntryStore entry creation', () => {
         expect(updated?.thumbnail).toBe('data:image/png;base64,AA');
     });
 
+    it('announces the thumbnail an overwrite drops', async () => {
+        const user = await makeUser();
+        const path = `${user.home}/Documents/ow-thumb.txt`;
+        const original = await createFile(user, path, {
+            thumbnail: 's3://puter-local/thumbnails/old',
+        });
+        const kept = await createFile(
+            user,
+            `${user.home}/Documents/ow-kept.txt`,
+            { thumbnail: 's3://puter-local/thumbnails/kept' },
+        );
+        const bare = await createFile(user, `${user.home}/Documents/ow-bare.txt`);
+
+        const discarded: Array<{ uuid: string; url: string }> = [];
+        const listener = (_key: string, data: { uuid: string; url: string }) => {
+            discarded.push(data);
+        };
+        server.clients.event.on('thumbnail.discarded', listener);
+        try {
+            await store.batchCreateEntries(
+                [
+                    { entry: original, thumbnail: undefined },
+                    { entry: kept, thumbnail: kept.thumbnail! },
+                    { entry: bare, thumbnail: undefined },
+                ].map(({ entry, thumbnail }) => ({
+                    userId: user.userId,
+                    uuid: entry.uuid,
+                    path: entry.path,
+                    size: 2,
+                    overwrite: true,
+                    thumbnail,
+                    bucket: 'puter-local',
+                    bucketRegion: 'us-west-2',
+                })),
+            );
+        } finally {
+            server.clients.event.off('thumbnail.discarded', listener);
+        }
+
+        expect(discarded).toEqual([
+            { uuid: original.uuid, url: 's3://puter-local/thumbnails/old' },
+        ]);
+        await expect(store.getEntryByUuidFromPrimary(original.uuid)).resolves
+            .toMatchObject({ thumbnail: null });
+    });
+
     it('leaves the row alone when an overwrite brings a different object key', async () => {
         const user = await makeUser();
         const original = await createFile(
@@ -2084,7 +2130,7 @@ describe('FSEntryStore timestamps and updates', () => {
             store.updateEntryThumbnailByUuid(
                 file.uuid,
                 's3://puter-local/x',
-                'data:image/png;base64,OTHER',
+                { thumbnail: 'data:image/png;base64,OTHER' },
             ),
         ).resolves.toBe(false);
         expect(
@@ -2095,12 +2141,38 @@ describe('FSEntryStore timestamps and updates', () => {
             store.updateEntryThumbnailByUuid(
                 file.uuid,
                 's3://puter-local/x',
-                'data:image/png;base64,OLD',
+                { thumbnail: 'data:image/png;base64,OLD' },
             ),
         ).resolves.toBe(true);
         expect(
             (await store.getEntryByUuidFromPrimary(file.uuid))?.thumbnail,
         ).toBe('s3://puter-local/x');
+    });
+
+    it('updates a thumbnail by uuid only while the row has the expected modified time', async () => {
+        const user = await makeUser();
+        const file = await createFile(
+            user,
+            `${user.home}/Documents/th-modified.txt`,
+        );
+
+        await expect(
+            store.updateEntryThumbnailByUuid(file.uuid, 'data:image/png;base64,AA', {
+                modified: file.modified - 1,
+            }),
+        ).resolves.toBe(false);
+        expect(
+            (await store.getEntryByUuidFromPrimary(file.uuid))?.thumbnail,
+        ).toBeNull();
+
+        await expect(
+            store.updateEntryThumbnailByUuid(file.uuid, 'data:image/png;base64,AA', {
+                modified: file.modified,
+            }),
+        ).resolves.toBe(true);
+        expect(
+            (await store.getEntryByUuidFromPrimary(file.uuid))?.thumbnail,
+        ).toBe('data:image/png;base64,AA');
     });
 
     it('reports a thumbnail update even when the replica has not seen the row', async () => {
@@ -2128,7 +2200,7 @@ describe('FSEntryStore timestamps and updates', () => {
                 store.updateEntryThumbnailByUuid(
                     file.uuid,
                     's3://puter-local/lag',
-                    'data:image/png;base64,OLD',
+                    { thumbnail: 'data:image/png;base64,OLD' },
                 ),
             ).resolves.toBe(true);
         } finally {

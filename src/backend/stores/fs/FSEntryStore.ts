@@ -1759,22 +1759,27 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * Set an entry's thumbnail with no owner check; the caller authorizes. With
-     * `expectedThumbnail`, only a row still holding it changes. Whether a row
-     * changed, whatever the cache refresh after it finds.
+     * Set an entry's thumbnail with no owner check; the caller authorizes. Only
+     * a row that still holds `expected.thumbnail`, or was last modified at
+     * `expected.modified`, changes. Whether a row changed, whatever the cache
+     * refresh after it finds.
      */
     async updateEntryThumbnailByUuid(
         uuid: string,
         thumbnail: string | null,
-        expectedThumbnail?: string,
+        expected: { thumbnail?: string; modified?: number } = {},
     ): Promise<boolean> {
-        const compare = expectedThumbnail !== undefined;
-        const writeResult = await this.clients.db.write(
-            `UPDATE fsentries SET thumbnail = ? WHERE uuid = ?${
-                compare ? ' AND thumbnail = ?' : ''
-            }`,
-            compare ? [thumbnail, uuid, expectedThumbnail] : [thumbnail, uuid],
-        );
+        let sql = 'UPDATE fsentries SET thumbnail = ? WHERE uuid = ?';
+        const params: unknown[] = [thumbnail, uuid];
+        if (expected.thumbnail !== undefined) {
+            sql += ' AND thumbnail = ?';
+            params.push(expected.thumbnail);
+        }
+        if (expected.modified !== undefined) {
+            sql += ' AND COALESCE(modified, 0) = ?';
+            params.push(expected.modified);
+        }
+        const writeResult = await this.clients.db.write(sql, params);
         if (this.#affectedRows(writeResult) === 0) return false;
         await this.#entryAfterPatch(uuid, { thumbnail });
         return true;
@@ -2318,6 +2323,7 @@ export class FSEntryStore extends PuterStore {
                             );
                         }),
                     );
+                    this.#discardReplacedThumbnails(successfulUpdateOperations);
                 }
 
                 const failedUpdate = updateResults.find(
@@ -2611,6 +2617,9 @@ export class FSEntryStore extends PuterStore {
                     );
                     await this.#invalidateEntryCache(existing);
                     await this.#writeEntryToCache(updatedEntry);
+                    this.#discardReplacedThumbnails([
+                        { existingEntry: existing, updatedEntry },
+                    ]);
                     updatedResultsByIndex.set(entry.index, updatedEntry);
                 }
             }
@@ -2656,6 +2665,24 @@ export class FSEntryStore extends PuterStore {
             createdEntries.push(entry);
         }
         return createdEntries;
+    }
+
+    /**
+     * Announce each thumbnail an overwrite dropped, so the thumbnails extension
+     * can delete the object it points at.
+     */
+    #discardReplacedThumbnails(
+        replaced: Array<{ existingEntry: FSEntry; updatedEntry: FSEntry }>,
+    ): void {
+        for (const { existingEntry, updatedEntry } of replaced) {
+            const url = existingEntry.thumbnail;
+            if (!url || url === updatedEntry.thumbnail) continue;
+            this.clients.event.emit(
+                'thumbnail.discarded',
+                { uuid: existingEntry.uuid, url },
+                {},
+            );
+        }
     }
 
     /** The columns a file INSERT sets, exactly as sent. */

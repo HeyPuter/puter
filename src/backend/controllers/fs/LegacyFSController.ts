@@ -90,6 +90,7 @@ import {
     FS_SIGNED_READ_LIMIT,
     FS_SIGNED_WRITE_LIMIT,
     FS_STAT_LIMIT,
+    FS_THUMBNAIL_LIMIT,
 } from './limits.js';
 import {
     asRecord,
@@ -475,7 +476,7 @@ export class LegacyFSController extends PuterController {
         );
         router.post(
             '/update-fsentry-thumbnail',
-            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            { ...apiOptions, rateLimit: FS_THUMBNAIL_LIMIT },
             this.updateFsentryThumbnail,
         );
 
@@ -1195,9 +1196,10 @@ export class LegacyFSController extends PuterController {
         res: Response,
     ): Promise<void> => {
         const actor = this.#requireActor(req);
-        const { uid, thumbnail } = asRecord(req.body) as {
+        const { uid, thumbnail, expectedModified } = asRecord(req.body) as {
             uid?: string;
             thumbnail?: string;
+            expectedModified?: unknown;
         };
         if (!uid)
             throw new HttpError(400, 'Missing `uid`', {
@@ -1213,6 +1215,16 @@ export class LegacyFSController extends PuterController {
         // the server would then sign reads of, and delete, on their behalf.
         if (!thumbnail.startsWith('data:'))
             throw new HttpError(400, '`thumbnail` must be a data: URL', {
+                legacyCode: 'bad_request',
+            });
+        // The `modified` time of the contents the thumbnail was made from, so
+        // a thumbnail of an older version isn't stored on a newer one.
+        if (
+            expectedModified !== undefined &&
+            (typeof expectedModified !== 'number' ||
+                !Number.isFinite(expectedModified))
+        )
+            throw new HttpError(400, '`expectedModified` must be a number', {
                 legacyCode: 'bad_request',
             });
 
@@ -1236,10 +1248,40 @@ export class LegacyFSController extends PuterController {
         await this.clients.event.emitAndWait('thumbnail.created', event, {});
 
         // Not the owner-scoped update: a shared writer passed the check above.
-        await this.stores.fsEntry.updateEntryThumbnailByUuid(
+        const stored = await this.stores.fsEntry.updateEntryThumbnailByUuid(
             entry.uuid,
             event.url,
+            typeof expectedModified === 'number'
+                ? { modified: expectedModified }
+                : {},
         );
+        const discard = (url: string | null) => {
+            if (url) {
+                this.clients.event.emit(
+                    'thumbnail.discarded',
+                    { uuid: entry.uuid, url },
+                    {},
+                );
+            }
+        };
+        if (!stored) {
+            discard(event.url);
+            if (typeof expectedModified !== 'number')
+                throw new HttpError(404, `Entry not found: uid=${uid}`, {
+                    legacyCode: 'subject_does_not_exist',
+                });
+            throw new HttpError(
+                409,
+                'The file changed after this thumbnail was made',
+                { legacyCode: 'conflict' },
+            );
+        }
+        if (entry.thumbnail !== event.url) discard(entry.thumbnail);
+        // Other open tabs show the new thumbnail instead of each making one.
+        await this.#emitGuiEvent('outer.gui.item.updated', {
+            ...entry,
+            thumbnail: event.url,
+        });
         res.json({ thumbnail: event.url });
     };
 

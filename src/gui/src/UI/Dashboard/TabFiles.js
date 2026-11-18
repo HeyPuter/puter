@@ -20,6 +20,7 @@
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
 import { createUploadThumbnailGenerator } from '../../services/uploadThumbnails/index.js';
+import { createMissingThumbnailFiller, createRememberedFailures } from '../../services/uploadThumbnails/missing.js';
 import path from '../../lib/path.js';
 import open_item from '../../helpers/openItem.js';
 import UIContextMenu from '../UIContextMenu.js';
@@ -241,6 +242,35 @@ const TabFiles = {
         // the actual trash contents once known.
         window.refresh_trash_state();
 
+        // A file an app wrote or edited has no thumbnail; make one as its row
+        // comes into view. fetch rather than puter.fs.read() so leaving the
+        // folder can cancel the download.
+        this.missingThumbnails?.reset();
+        this.missingThumbnails = createMissingThumbnailFiller({
+            download: (uid, signal) => fetch(`${window.api_origin}/read?${new URLSearchParams({ file: uid })}`, {
+                headers: { 'Authorization': `Bearer ${window.auth_token}` },
+                cache: 'no-cache',
+                signal,
+            }),
+            store: (body) => fetch(`${window.api_origin}/update-fsentry-thumbnail`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${window.auth_token}`,
+                },
+                body: JSON.stringify(body),
+            }),
+            generate: file => createUploadThumbnailGenerator()(file),
+            failures: createRememberedFailures(() => window.localStorage),
+            onStored: (row, fsentry, thumbnail) => {
+                fsentry.thumbnail = thumbnail;
+                if ( ! row.isConnected ) return;
+                _this.rowIcon(fsentry).then(({ image }) => {
+                    $(row).find('.item-icon > img').first().attr('src', image);
+                });
+            },
+        });
+
         // Refresh an existing row in place from an fs entry. Shared with
         // UIDashboard's item.updated socket handler so the two paths can't
         // drift — e.g. trashed items must show metadata.original_name, not
@@ -262,7 +292,7 @@ const TabFiles = {
             // opening, copying or sharing the old path.
             const fsentry = $row.data('fsentry');
             if ( fsentry ) {
-                for ( const key of ['name', 'path', 'type', 'size', 'modified', 'metadata'] ) {
+                for ( const key of ['name', 'path', 'type', 'size', 'modified', 'metadata', 'thumbnail'] ) {
                     if ( file[key] !== undefined ) fsentry[key] = file[key];
                 }
             }
@@ -296,12 +326,12 @@ const TabFiles = {
                 $row.attr('data-modified', file.modified);
                 $row.find('.item-modified').text(formatRelativeTime(file.modified * 1000, Date.now(), window.locale));
             }
-            if (
-                _this.isGridView() &&
-                typeof file.thumbnail === 'string' &&
-                file.thumbnail.length > 0
-            ) {
-                $row.find('.item-icon img').attr('src', file.thumbnail);
+            // An overwrite clears the thumbnail, and a new one can follow.
+            if ( file.thumbnail !== undefined && fsentry ) {
+                _this.rowIcon(fsentry).then(({ image }) => {
+                    $row.find('.item-icon > img').first().attr('src', image);
+                });
+                _this.fillMissingThumbnail($row[0], fsentry);
             }
             if ( displayName && displayName !== oldName && fsentry ) _this.followRename($row, fsentry, oldPath);
             // The footer's item-count/total-size line is computed from the
@@ -3060,6 +3090,7 @@ const TabFiles = {
         const prevScrollTop = isSameDirRefresh ? $files.scrollTop() : 0;
 
         const clearListing = () => {
+            this.missingThumbnails?.reset();
             $files.html('');
             document.querySelectorAll('.files-tab .row.selected').forEach(r => {
                 r.classList.remove('selected');
@@ -3596,6 +3627,23 @@ const TabFiles = {
         if ( this.currentPath === window.shared_path ) paintAvatars(row);
 
         this.createItemListeners(row, file);
+        this.fillMissingThumbnail(row, file);
+    },
+
+    /**
+     * Makes a thumbnail for a row's file if it has none and the row would
+     * show one, once the row is on screen.
+     *
+     * @param {HTMLElement} row
+     * @param {Object} fsentry - The row's entry
+     * @returns {void}
+     */
+    fillMissingThumbnail (row, fsentry) {
+        this.missingThumbnails?.observe(row, fsentry, {
+            listRow: !this.isGridView(),
+            homePath: window.home_path,
+            excludedPaths: [window.trash_path, window.appdata_path],
+        });
     },
 
     /**

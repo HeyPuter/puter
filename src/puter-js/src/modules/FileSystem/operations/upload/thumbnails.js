@@ -9,7 +9,13 @@ import {
 } from './constants.js';
 import { estimateDataUrlSize, isDataUrl } from './dataUrl.js';
 
-const isLikelyImageFile = (file) => {
+/**
+ * Whether a file looks like an image the browser can decode, by its type or name.
+ *
+ * @param {{ name?: string, type?: string } | undefined} file
+ * @returns {boolean}
+ */
+export const isLikelyImageFile = (file) => {
     if ( ! file ) return false;
     if ( file.type && file.type.startsWith('image/') ) return true;
     const name = (file.name || '').toLowerCase();

@@ -1196,4 +1196,27 @@ describe('thumbnails extension — signed batch upload through /fs', () => {
         });
         expect(await objectExists(s3, copyKey)).toBe(true);
     });
+
+    it('deletes the thumbnail object an overwrite drops', async () => {
+        const { actor, username } = await makeActor();
+        const s3 = server.clients.s3.get();
+        const path = `/${username}/Documents/edited.png`;
+        const { entry } = await upload(actor, path, (s) => s.thumbnailUrl);
+        const key = entry.thumbnail!.slice(`s3://${BUCKET}/`.length);
+        expect(await objectExists(s3, key)).toBe(true);
+
+        // An app saving over the file sends no thumbnail.
+        await server.services.fs.write(actor.user!.id!, {
+            fileMetadata: { path, size: 4, overwrite: true },
+            fileContent: 'efgh',
+        } as never);
+
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(path))?.thumbnail,
+        ).toBeNull();
+        // `thumbnail.discarded` is fire-and-forget.
+        await vi.waitFor(async () => {
+            expect(await objectExists(s3, key)).toBe(false);
+        });
+    });
 });
