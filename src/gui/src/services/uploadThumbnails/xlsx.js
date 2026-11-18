@@ -236,7 +236,9 @@ const readSheet = (xml, strings, styleOf) => {
             if ( characters ) sheet.columnWidth = columnPoints(characters);
         } else if ( name === 'col' ) {
             const { min, max, width, hidden } = attributesOf(source);
-            const points = hidden === '1' || hidden === 'true' ? 0 : columnPoints(within(width, 0, 255) ?? 0);
+            const characters = within(width, 0, 255);
+            // A definition can give its columns a style and leave their width alone.
+            const points = hidden === '1' || hidden === 'true' ? 0 : characters === undefined ? undefined : columnPoints(characters);
             const last = Math.min(Number(max) || 0, SHEET_MAX_COLUMNS);
             for ( let column = Math.max(1, Number(min) || 1); column <= last; column++ ) sheet.widths[column - 1] = points;
         } else if ( name === 'row' ) {

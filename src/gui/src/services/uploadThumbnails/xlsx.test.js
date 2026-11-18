@@ -120,6 +120,13 @@ describe('readXlsxPreview', () => {
         expect(cells.a.y).toBeGreaterThan(20);
     });
 
+    it('gives a column that states a style and no width the default width', async () => {
+        const cells = await draw({
+            sheet: sheetOf(row(1, text('A1', 'a') + text('B1', 'b') + text('C1', 'c')), '<cols><col min="1" max="2" style="1"/></cols>'),
+        });
+        expect(rounded([cells.a.x, cells.b.x, cells.c.x])).toEqual(rounded([2, COLUMN + 2, 2 * COLUMN + 2]));
+    });
+
     it('places cells that state no reference after the one before', async () => {
         const cells = await draw({ sheet: sheetOf(row('', text('', 'a') + text('', 'b')) + row('', text('', 'c'))) });
         expect(rounded([cells.a.x, cells.b.x, cells.c.x])).toEqual(rounded([2, COLUMN + 2, 2]));
