@@ -122,6 +122,14 @@ describe('readDocxPreview drawing the first page', () => {
         expect(lines.map(line => line.x)).toEqual([72 + 36, 72 + 72, 72 + 10]);
     });
 
+    it('does not indent a paragraph that a list number of zero takes out of its list', async () => {
+        const lines = await draw({
+            body: paragraph('Item', '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="3"/></w:numPr>') +
+                paragraph('Plain', '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr>'),
+        });
+        expect(lines.map(line => line.x)).toEqual([72 + 36, 72]);
+    });
+
     it('wraps text to the page width and breaks words longer than a line', async () => {
         // At 10 points a character is 5 wide, so the 468 between the margins fits 93 characters.
         const lines = await draw({ body: paragraph(`${'word '.repeat(30)}${'x'.repeat(200)}`) });

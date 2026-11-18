@@ -209,7 +209,9 @@ const readBody = (xml, formatOf) => {
             size,
             align,
             // A list item whose indent comes from the list's own definition gets a standard one.
-            indent: indent || (paragraph.level === undefined ? 0 : LIST_INDENT * (paragraph.level + 1)),
+            indent: indent || (paragraph.level === undefined || paragraph.listed === false
+                ? 0
+                : LIST_INDENT * (paragraph.level + 1)),
             spaceBefore,
             spaceAfter,
             lineSpacing,
@@ -309,6 +311,9 @@ const readBody = (xml, formatOf) => {
             else readFormat(paragraph.own, name, parent, attributes);
         } else if ( name === 'w:ilvl' && parent === 'w:numPr' && paragraph ) {
             paragraph.level = clamped(attributesOf(source)['w:val'], 1, 0, 8) ?? 0;
+        } else if ( name === 'w:numId' && parent === 'w:numPr' && paragraph ) {
+            // List number zero takes a paragraph out of the list its style would put it in.
+            paragraph.listed = attributesOf(source)['w:val'] !== '0';
         } else if ( name === 'w:tbl' ) {
             tableStyles.push(undefined);
         } else if ( name === 'w:tblStyle' && parent === 'w:tblPr' && tableStyles.length ) {
