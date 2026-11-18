@@ -10,6 +10,35 @@ import { RECEIPT_EVENT } from '../notifications/lib/receipts.js';
 // The last valid time of the local cache.
 const LAST_VALID_TS = 'last_valid_ts';
 
+/**
+ * Drops what the SDK cache holds for one file: its entry and its folder's
+ * listing, under its path and under any other path it's still cached at,
+ * since a rename arrives as an update naming only the new path.
+ *
+ * @param {{ path: string, uid?: string }} file
+ */
+const forgetCachedFile = (file) => {
+    const cache = puter._cache;
+    const forget = (filePath) => {
+        cache.del(puter.fsCacheKey('item', filePath));
+        cache.del(puter.fsCacheKey('readdir', path.dirname(filePath)));
+    };
+    forget(file.path);
+    if ( ! file.uid ) return;
+    const itemPrefix = puter.fsCacheKey('item', '');
+    const listingPrefix = puter.fsCacheKey('readdir', '');
+    for ( const key of cache.keys('*') ) {
+        if ( key.startsWith(itemPrefix) ) {
+            if ( cache.get(key)?.uid === file.uid ) forget(key.slice(itemPrefix.length));
+        } else if ( key.startsWith(listingPrefix) ) {
+            const listing = cache.get(key);
+            if ( Array.isArray(listing) && listing.some((entry) => entry?.uid === file.uid) ) {
+                cache.del(key);
+            }
+        }
+    }
+};
+
 // Operations
 import FSItem from '../FSItem.js';
 import copy from './operations/copy.js';
@@ -158,7 +187,12 @@ export class PuterJSFileSystemModule extends PuterModule {
         });
 
         this.socket.on('item.updated', (item) => {
-            puter._cache.flushall();
+            // A directory's change reaches what's cached under it.
+            if ( item?.is_dir !== false || !item.path ) {
+                puter._cache.flushall();
+                return;
+            }
+            forgetCachedFile(item);
         });
 
         this.socket.on('item.moved', (item) => {
