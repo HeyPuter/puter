@@ -381,6 +381,30 @@ describe('GUI upload thumbnail scheduling', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
+    it.each([
+        new File(['%PDF-1.6\n%\xe2\xe3\xcf\xd3\n1 0 obj'], 'logo.ai'),
+        new File(['%PDF-1.6'], 'LOGO.AI', { type: 'application/postscript' }),
+        // The marker can come after a few bytes of other data.
+        new File([new Uint8Array(200), '%PDF-1.4'], 'logo.ai'),
+    ])('renders an Illustrator file that holds a PDF as a PDF', async (file) => {
+        const result = createUploadThumbnailGenerator()(file);
+        await vi.waitFor(() => expect(workers).toHaveLength(1));
+        expect(workers[0].postMessage).toHaveBeenCalledWith(file);
+        workers[0].complete();
+        expect(await result).toBe(thumbnail);
+        expect(workers[0].terminate).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        ['an Illustrator file saved without a PDF inside', new File(['%!PS-Adobe-3.0 \n%%Creator: Adobe Illustrator'], 'logo.ai')],
+        ['an empty Illustrator file', new File([], 'logo.ai')],
+        ['a PostScript file that is not an Illustrator file', new File(['%PDF-1.6'], 'figure.eps', { type: 'application/postscript' })],
+    ])('does not start the PDF renderer for %s', async (_label, file) => {
+        const defaultGenerator = vi.fn(async () => undefined);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBeUndefined();
+        expect(workers).toHaveLength(0);
+    });
+
     it('ignores PDF.js readiness messages until the thumbnail is ready', async () => {
         const result = createUploadThumbnailGenerator()(pdf());
         workers[0].onmessage({ data: { action: 'ready', targetName: 'main' } });

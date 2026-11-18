@@ -1,5 +1,7 @@
 // Which files are documents, by name. A document's thumbnail is a picture of its first page.
 export const PDF_NAME = /\.pdf$/i;
+// Illustrator saves a PDF of the artwork inside its files, unless told not to. Such a file is artwork, not a page.
+export const ILLUSTRATOR_NAME = /\.ai$/i;
 export const WORD_NAME = /\.do[ct][xm]?$/i;
 export const SPREADSHEET_NAME = /\.xl[st][xm]$/i;
 

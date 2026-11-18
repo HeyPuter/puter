@@ -11,7 +11,7 @@ import {
 } from './config.js';
 import { readDocPreview } from './doc.js';
 import { readDocxPreview } from './docx.js';
-import { PDF_NAME, SPREADSHEET_NAME, WORD_NAME } from './kinds.js';
+import { ILLUSTRATOR_NAME, PDF_NAME, SPREADSHEET_NAME, WORD_NAME } from './kinds.js';
 import { readPsdPreview } from './psd.js';
 import { readVideoFrame } from './video.js';
 import { readXlsxPreview } from './xlsx.js';
@@ -152,7 +152,10 @@ export const createUploadThumbnailGenerator = () => {
     return async (file, context) => {
         try {
             if ( context?.signal?.aborted ) return undefined;
-            const isPdf = file.type === 'application/pdf' || PDF_NAME.test(file.name || '');
+            // An Illustrator file goes to the PDF renderer only when it starts as a PDF does, since loading the
+            // renderer for a file it can't read would be wasted.
+            const isPdf = file.type === 'application/pdf' || PDF_NAME.test(file.name || '') ||
+                (ILLUSTRATOR_NAME.test(file.name || '') && (await file.slice(0, 1024).text()).includes('%PDF-'));
             if ( ! isPdf ) {
                 // SDKs that predate the callback context pass only the file; images still need thumbnails then.
                 const imageGenerator = typeof context?.defaultGenerator === 'function'

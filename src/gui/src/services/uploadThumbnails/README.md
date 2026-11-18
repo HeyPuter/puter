@@ -88,6 +88,11 @@ own. When either deadline passes, the file in progress is given up on too. The p
 
 ## PDF
 
+An Illustrator file (`.ai`) saved with PDF compatibility, which is Illustrator's
+default, starts with a PDF of the artwork and is rendered as one. One saved
+without it starts as PostScript and retains its normal icon; the renderer is not
+loaded for it.
+
 PDF.js and its fonts, CMaps, ICC profiles and WASM decoders are copied into the
 versioned `/dist/pdf-thumbnails/` directory during the GUI build. Deploy that
 directory with the GUI. `PDFJS_VERSION` must match the exact GUI dependency;

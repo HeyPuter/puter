@@ -358,7 +358,7 @@ A request over one of the per-request caps fails as a whole before any item is p
 
 An upload is in progress from `startWrite`/`startBatchWrite` (which `puter.fs.upload()` and `puter.fs.write()` use) until it completes, is cancelled, or expires. The count includes uploads by collaborators into the account's folders. Over the limit, new uploads fail with `429 too_many_requests` until some finish.
 
-The Puter desktop makes PDF upload thumbnails locally within these budgets. Going over one skips the preview; the upload itself is unaffected.
+The Puter desktop makes PDF upload thumbnails locally within these budgets. Going over one skips the preview; the upload itself is unaffected. An Illustrator file that holds a PDF of its artwork is rendered the same way, within the same budgets.
 
 | PDF thumbnail | Limit |
 | --- | --- |

@@ -183,6 +183,37 @@ describe('Upload thumbnails in a real browser', () => {
         }
     });
 
+    it('renders the PDF inside an Illustrator file, and loads no renderer for one without', async () => {
+        const page = await browser.newPage();
+        const requests = [];
+        page.on('request', request => {
+            if ( request.url().includes('/pdf-thumbnails/') ) requests.push(request.url());
+        });
+        try {
+            await page.goto(origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const generate = (content, name) => page.evaluate(async ([content, name]) => {
+                const thumbnail = await window.createUploadThumbnailGenerator()(new File([content], name));
+                if ( ! thumbnail ) return null;
+                const image = new Image();
+                image.src = thumbnail;
+                await image.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(image, 0, 0);
+                return { width: image.width, height: image.height, pixel: [...ctx.getImageData(5, 5, 1, 1).data] };
+            }, [content, name]);
+            expect(await generate('%!PS-Adobe-3.0\n%%Creator: Adobe Illustrator(R) 8.0\n', 'old.ai')).toBeNull();
+            expect(requests).toEqual([]);
+            expect(await generate(createPdf(), 'logo.ai')).toEqual({ width: 64, height: 128, pixel: [255, 0, 0, 255] });
+            expect(requests.some(url => url.endsWith('/worker.js'))).toBe(true);
+        } finally {
+            await page.close();
+        }
+    });
+
     it('retains image thumbnails in mixed uploads and leaves original PDF bytes intact', async () => {
         const page = await browser.newPage();
         try {
