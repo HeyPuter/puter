@@ -205,6 +205,69 @@ describe('createMissingThumbnailFiller', () => {
         expect(downloads[0].signal.aborted).toBe(true);
     });
 
+    it('drops a waiting file that got a thumbnail from somewhere else', async () => {
+        const { filler, downloads } = setup();
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place);
+
+        // Another tab stored one: the row's entry is updated in place and passed in again.
+        file.thumbnail = 'https://storage.example/thumbnail';
+        filler.observe(row, file, place);
+        show(row);
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_SETTLE_MS);
+        expect(downloads).toHaveLength(0);
+    });
+
+    it('drops a waiting file whose entry stopped being eligible without being passed in again', async () => {
+        const { filler, downloads } = setup();
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place);
+
+        file.name = 'photo.txt';
+        file.type = 'text/plain';
+        show(row);
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_SETTLE_MS);
+        expect(downloads).toHaveLength(0);
+    });
+
+    it('cancels a download when the file is saved again as one too large to read', async () => {
+        const { filler, downloads } = setup();
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place);
+        show(row);
+
+        file.modified = SAVED + 5;
+        file.size = MISSING_THUMBNAIL_MAX_FILE_BYTES + 1;
+        filler.observe(row, file, place);
+        expect(downloads[0].signal.aborted).toBe(true);
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_SETTLE_MS);
+        expect(downloads).toHaveLength(1);
+    });
+
+    it('stores nothing for a file that got a thumbnail from somewhere else while its own was made', async () => {
+        let finishGenerating;
+        const { filler, downloads, generate, store, onStored } = setup();
+        generate.mockImplementation(() => new Promise((resolve) => {
+            finishGenerating = resolve;
+        }));
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place);
+        show(row);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(0);
+
+        file.thumbnail = 'https://storage.example/thumbnail';
+        filler.observe(row, file, place);
+        finishGenerating(thumbnail);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(store).not.toHaveBeenCalled();
+        expect(onStored).not.toHaveBeenCalled();
+    });
+
     it('sends the modified time of the version it downloaded when the file changes meanwhile', async () => {
         let finishGenerating;
         const { filler, downloads, generate, store } = setup();

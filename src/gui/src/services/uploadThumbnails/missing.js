@@ -123,9 +123,16 @@ export const createMissingThumbnailFiller = ({
     failures = createRememberedFailures(() => undefined),
     now = () => Date.now(),
 }) => {
-    /** @type {Map<string, { row: Element, fsentry: MissingThumbnailEntry, readyAt: number }>} */
+    /**
+     * @typedef {Object} Job
+     * @property {Element} row
+     * @property {MissingThumbnailEntry} fsentry The row's own entry, which is updated in place when the file changes.
+     * @property {MissingThumbnailPlace} place
+     * @property {number} readyAt
+     */
+    /** @type {Map<string, Job>} */
     const pending = new Map();
-    /** @type {Map<string, { controller: AbortController, modified: number }>} */
+    /** @type {Map<string, { controller: AbortController, modified: number, unwanted: boolean }>} */
     const running = new Map();
     /** @type {Set<Element>} */
     const visible = new Set();
@@ -167,7 +174,8 @@ export const createMissingThumbnailFiller = ({
         let job;
         let wakeAt = Infinity;
         for ( const [uid, candidate] of pending ) {
-            if ( ! candidate.row.isConnected ) {
+            // The entry may have changed since it was queued: renamed, moved, or given a thumbnail by another tab.
+            if ( !candidate.row.isConnected || !wantsThumbnail(candidate.fsentry, candidate.place) ) {
                 forget(uid, candidate.row);
                 continue;
             }
@@ -181,8 +189,8 @@ export const createMissingThumbnailFiller = ({
         return { job, wakeAt };
     };
 
-    const run = async ({ row, fsentry }, signal) => {
-        const response = await download(fsentry.uid, signal);
+    const run = async ({ row, fsentry }, active) => {
+        const response = await download(fsentry.uid, active.controller.signal);
         if ( response.status === 429 ) return 'throttled';
         if ( response.status === 402 ) return 'out_of_credit';
         if ( ! response.ok ) return 'done';
@@ -190,6 +198,7 @@ export const createMissingThumbnailFiller = ({
         if ( blob.size > MISSING_THUMBNAIL_MAX_FILE_BYTES ) return 'failed';
         const thumbnail = await generate(new File([blob], fsentry.name, { type: fsentry.type || blob.type }));
         if ( ! thumbnail ) return 'failed';
+        if ( active.unwanted ) return 'aborted';
         // A thumbnail made from a version the file no longer has is refused, so it's safe to send after an abort.
         const stored = await store({ uid: fsentry.uid, thumbnail, expectedModified: fsentry.modified });
         if ( stored.status === 429 ) return 'throttled';
@@ -207,8 +216,9 @@ export const createMissingThumbnailFiller = ({
         starts.push(now());
         bytesLeft -= fsentry.size;
         const controller = new AbortController();
-        running.set(fsentry.uid, { controller, modified: fsentry.modified });
-        run({ row, fsentry }, controller.signal)
+        const active = { controller, modified: fsentry.modified, unwanted: false };
+        running.set(fsentry.uid, active);
+        run({ row, fsentry }, active)
             .catch(() => controller.signal.aborted ? 'aborted' : 'done')
             .then((outcome) => {
                 if ( outcome === 'failed' ) failures.add(key);
@@ -222,7 +232,7 @@ export const createMissingThumbnailFiller = ({
                 if ( outcome === 'throttled' ) {
                     pausedUntil = now() + MISSING_THUMBNAIL_BACKOFF_MS;
                     if ( ! pending.has(fsentry.uid) ) {
-                        pending.set(fsentry.uid, { row, fsentry: job.fsentry, readyAt: pausedUntil });
+                        pending.set(fsentry.uid, { ...job, readyAt: pausedUntil });
                         observer?.observe(row);
                     }
                 }
@@ -268,17 +278,29 @@ export const createMissingThumbnailFiller = ({
 
     return {
         observe (row, fsentry, place) {
-            if ( !observer || bytesLeft <= 0 || globalThis.navigator?.connection?.saveData ) return;
+            if ( ! observer ) return;
             const key = keyOf(fsentry);
-            if ( !wantsThumbnail(fsentry, place) || attempted.has(key) || failures.has(key) ) return;
-            // A download of an older version would only be refused.
+            const wanted = wantsThumbnail(fsentry, place);
+            // A download of an older version would only be refused, and one for a file that has a thumbnail now, or
+            // can't have one any more, is wasted.
             const current = running.get(fsentry.uid);
-            if ( current && current.modified !== fsentry.modified ) current.controller.abort();
+            if ( current && (!wanted || current.modified !== fsentry.modified) ) {
+                current.unwanted = true;
+                current.controller.abort();
+            }
+            if ( !wanted || bytesLeft <= 0 || globalThis.navigator?.connection?.saveData ||
+                attempted.has(key) || failures.has(key) ) {
+                // Whatever is queued is for a state the file is no longer in.
+                const queued = pending.get(fsentry.uid);
+                if ( queued ) forget(fsentry.uid, queued.row);
+                return;
+            }
             const time = now();
             const settled = fsentry.modified * 1000 + MISSING_THUMBNAIL_SETTLE_MS;
             pending.set(fsentry.uid, {
                 row,
                 fsentry,
+                place,
                 readyAt: Math.min(time + MISSING_THUMBNAIL_SETTLE_MS, Math.max(time, settled)),
             });
             observer.observe(row);
