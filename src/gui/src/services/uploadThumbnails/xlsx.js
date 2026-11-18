@@ -38,6 +38,7 @@ const INDEXED_COLORS = (
 /**
  * @typedef {Object} Sheet The top-left of a worksheet. Lengths are in points.
  * @property {boolean} gridlines
+ * @property {boolean} rightToLeft Whether column A is the rightmost column.
  * @property {number} rowHeight Height of a row that states none.
  * @property {number} columnWidth Width of a column that states none.
  * @property {number[]} widths Stated column widths, by column. May have holes.
@@ -192,6 +193,7 @@ const readStrings = (xml) => {
 const readSheet = (xml, strings, styleOf) => {
     const sheet = {
         gridlines: true,
+        rightToLeft: false,
         rowHeight: DEFAULT_ROW_HEIGHT,
         columnWidth: columnPoints(DEFAULT_COLUMN_CHARACTERS),
         widths: [],
@@ -217,7 +219,8 @@ const readSheet = (xml, strings, styleOf) => {
         const style = styleOf(cell.style);
         const align = ['left', 'center', 'right'].includes(style.align)
             ? style.align
-            : numeric ? 'right' : type === 'b' || type === 'e' ? 'center' : 'left';
+            // Text starts at the side the sheet starts at.
+            : numeric ? 'right' : type === 'b' || type === 'e' ? 'center' : sheet.rightToLeft ? 'right' : 'left';
         if ( text || style.fill ) {
             row.cells[cell.column] = { ...style, text: text.slice(0, SHEET_CELL_MAX_CHARACTERS), align };
         }
@@ -240,8 +243,9 @@ const readSheet = (xml, strings, styleOf) => {
         }
         if ( ! empty ) path.push(name);
         if ( name === 'sheetView' ) {
-            const { showGridLines } = attributesOf(source);
+            const { showGridLines, rightToLeft } = attributesOf(source);
             if ( showGridLines === '0' || showGridLines === 'false' ) sheet.gridlines = false;
+            if ( rightToLeft === '1' || rightToLeft === 'true' ) sheet.rightToLeft = true;
         } else if ( name === 'sheetFormatPr' ) {
             const attributes = attributesOf(source);
             sheet.rowHeight = within(attributes.defaultRowHeight, 1, 409) ?? sheet.rowHeight;
@@ -300,17 +304,20 @@ const drawSheet = async (sheet) => {
     };
     const xs = edgesOf(column => sheet.widths[column] ?? sheet.columnWidth, SHEET_MAX_COLUMNS);
     const ys = edgesOf(row => sheet.rows[row]?.height ?? sheet.rowHeight, SHEET_MAX_ROWS);
+    // The left edge of the columns from `first` up to `end`. A right-to-left sheet counts its columns from the right.
+    const leftOf = (first, end) => (sheet.rightToLeft ? SHEET_VIEW_POINTS - xs[end] : xs[first]);
     if ( sheet.gridlines ) {
         ctx.strokeStyle = GRID_COLOR;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        for ( const x of xs ) {
+        for ( let column = 0; column < xs.length; column++ ) {
+            const x = leftOf(column, column);
             ctx.moveTo(x, 0);
             ctx.lineTo(x, ys.at(-1));
         }
         for ( const y of ys ) {
-            ctx.moveTo(0, y);
-            ctx.lineTo(xs.at(-1), y);
+            ctx.moveTo(leftOf(0, xs.length - 1), y);
+            ctx.lineTo(leftOf(0, xs.length - 1) + xs.at(-1), y);
         }
         ctx.stroke();
     }
@@ -330,25 +337,27 @@ const drawSheet = async (sheet) => {
     eachCell((cell, _cells, column, row, width, height) => {
         if ( ! cell.fill ) return;
         ctx.fillStyle = cell.fill;
-        ctx.fillRect(xs[column], ys[row], width, height);
+        ctx.fillRect(leftOf(column, column + 1), ys[row], width, height);
         drawn = true;
     });
     eachCell((cell, cells, column, row, width, height) => {
         if ( ! cell.text ) return;
         ctx.font = `${cell.bold ? 'bold ' : ''}${cell.size}px sans-serif`;
         const textWidth = ctx.measureText(cell.text).width;
-        // Text aligned left runs on over the empty cells to its right; other text is cut off at its cell.
+        // Text aligned to the side the sheet starts at runs on over the empty cells after it; other text is cut off at
+        // its cell.
         let end = column + 1;
-        while ( cell.align === 'left' && end < xs.length - 1 && !cells[end]?.text &&
+        while ( cell.align === (sheet.rightToLeft ? 'right' : 'left') && end < xs.length - 1 && !cells[end]?.text &&
             xs[end] - xs[column] < textWidth + 2 * CELL_PADDING ) {
             end++;
         }
+        const left = leftOf(column, column + 1);
         const x = cell.align === 'right'
-            ? xs[column + 1] - CELL_PADDING - textWidth
-            : cell.align === 'center' ? xs[column] + (width - textWidth) / 2 : xs[column] + CELL_PADDING;
+            ? left + width - CELL_PADDING - textWidth
+            : cell.align === 'center' ? left + (width - textWidth) / 2 : left + CELL_PADDING;
         ctx.save();
         ctx.beginPath();
-        ctx.rect(xs[column], ys[row], xs[end] - xs[column], height);
+        ctx.rect(leftOf(column, end), ys[row], xs[end] - xs[column], height);
         ctx.clip();
         ctx.fillStyle = cell.color;
         ctx.fillText(cell.text, x, ys[row + 1] - CELL_PADDING - cell.size * 0.2);

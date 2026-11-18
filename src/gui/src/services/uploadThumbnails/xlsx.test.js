@@ -201,6 +201,31 @@ describe('readXlsxPreview', () => {
         expect(rounded(clipped)).toEqual(rounded([4 * COLUMN, 2 * COLUMN, COLUMN, COLUMN]));
     });
 
+    it('lays a right-to-left sheet out from the right edge', async () => {
+        const cells = await draw({
+            styles: styles({
+                fills: '<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+                    '<fill><patternFill patternType="solid"><fgColor rgb="FFFF0000"/></patternFill></fill>',
+                formats: '<xf/><xf fillId="2"/><xf><alignment horizontal="left"/></xf>',
+            }),
+            sheet: sheetOf(
+                row(1, text('A1', 'ab') + cell('B1', '12') + cell('C1', '', { style: 1 })) +
+                row(2, text('A2', 'c'.repeat(30))) +
+                row(3, text('A3', 'd'.repeat(30), { style: 2 })),
+                '<sheetViews><sheetView rightToLeft="1" workbookViewId="0"/></sheetViews>',
+            ),
+        });
+        // Column A is the rightmost one. Text starts at its right edge, and a number still ends at its cell's right.
+        expect(rounded([cells.ab.x, cells['12'].x])).toEqual(rounded([480 - 2 - 11, 480 - COLUMN - 2 - 11]));
+        expect(cellFills()).toEqual([{ color: 'rgb(255, 0, 0)', x: Math.round((480 - 3 * COLUMN) * 100) / 100, y: 0, width: 48.01, height: ROW }]);
+        expect(drawn.lines[1]).toEqual({ from: { x: 480 - COLUMN, y: 0 }, to: { x: 480 - COLUMN, y: 480 } });
+        // Text runs on toward the left, over the empty cells that follow it. Text aligned the other way does not.
+        const long = cells['c'.repeat(30)];
+        expect(rounded([long.x, long.clip.x, long.clip.width])).toEqual(rounded([480 - 2 - 165, 480 - 4 * COLUMN, 4 * COLUMN]));
+        const left = cells['d'.repeat(30)];
+        expect(rounded([left.x, left.clip.x, left.clip.width])).toEqual(rounded([480 - COLUMN + 2, 480 - COLUMN, COLUMN]));
+    });
+
     it('draws gridlines around the columns and rows in view, unless the sheet hides them', async () => {
         await draw({});
         // 480 points hold 10 columns and 32 rows, so 11 and 33 lines.
