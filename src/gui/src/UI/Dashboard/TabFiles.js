@@ -330,9 +330,10 @@ const TabFiles = {
                 $row.find('.item-modified').text(formatRelativeTime(file.modified * 1000, Date.now(), window.locale));
             }
             // An overwrite clears the thumbnail, and a new one can follow.
+            // The same item in an open file dialog matches too.
             if ( file.thumbnail !== undefined && fsentry ) {
                 _this.rowIcon(fsentry).then(({ image }) => {
-                    $row.find('.item-icon > img').first().attr('src', image);
+                    $row.find('.item-icon > img').attr('src', image);
                 });
                 _this.fillMissingThumbnail($row[0], fsentry);
             }
