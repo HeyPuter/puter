@@ -113,6 +113,57 @@ describe('postUserProtected', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
+    it('asks the server where to sign in when the cached user has no sign-in URL', async () => {
+        window.user = { oidc_only: true };
+        fetch
+            .mockResolvedValueOnce(reply(403, { code: 'oidc_revalidation_required', revalidate_url: 'https://puter.test/r3' }))
+            .mockResolvedValueOnce(reply(200, { success: true }));
+
+        const result = await postUserProtected('delete-own-user', {});
+
+        expect(openRevalidatePopup).toHaveBeenCalledWith('https://puter.test/r3');
+        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(result.ok).toBe(true);
+    });
+
+    it('says there is nothing to sign in with when the server offers no sign-in URL', async () => {
+        window.user = { oidc_only: true };
+        fetch.mockResolvedValueOnce(reply(403, { code: 'oidc_revalidation_required', message: 'OIDC revalidation required' }));
+
+        const result = await postUserProtected('change-username', { new_username: 'bob' });
+
+        expect(openRevalidatePopup).not.toHaveBeenCalled();
+        expect(result).toMatchObject({ ok: false, message: 'revalidate_unavailable' });
+    });
+
+    it('says the popup was blocked when the browser blocks it', async () => {
+        window.user = { oidc_only: true, oidc_revalidate_url: 'https://puter.test/revalidate' };
+        openRevalidatePopup.mockRejectedValueOnce(Object.assign(new Error('Popup blocked'), { code: 'popup_blocked' }));
+
+        const result = await postUserProtected('delete-own-user', {});
+
+        expect(result).toMatchObject({ ok: false, message: 'revalidate_popup_blocked' });
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    // A popup opened after a round trip can fall outside the click that
+    // allowed it, so the next try has to open it straight away.
+    it('opens the popup first on the next try once the server asked for a sign-in', async () => {
+        fetch.mockResolvedValueOnce(reply(403, { code: 'oidc_revalidation_required', revalidate_url: 'https://puter.test/r4' }));
+        openRevalidatePopup.mockRejectedValueOnce(Object.assign(new Error('Popup blocked'), { code: 'popup_blocked' }));
+
+        const first = await postUserProtected('change-username', { new_username: 'bob' }, { password: 'pw' });
+        expect(first).toMatchObject({ ok: false, message: 'revalidate_popup_blocked' });
+
+        fetch.mockResolvedValueOnce(reply(200));
+        const second = await postUserProtected('change-username', { new_username: 'bob' }, { password: 'pw' });
+
+        expect(openRevalidatePopup).toHaveBeenLastCalledWith('https://puter.test/r4');
+        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(bodyOf(1)).toEqual({ new_username: 'bob' });
+        expect(second.ok).toBe(true);
+    });
+
     it('says the current password is wrong in the reader\'s language', async () => {
         fetch.mockResolvedValueOnce(reply(400, { message: 'Password mismatch', code: 'password_mismatch' }));
 

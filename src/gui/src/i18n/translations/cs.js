@@ -70,7 +70,6 @@ const cs = {
         "reauth_required_message": "Vaše relace byla z důvodu zabezpečení aktualizována – přihlaste se prosím znovu.",
         "close": "Zavřít",
         "change_email": "Změnit e-mail",
-        "revalidated": "Znovu ověřeno.",
         "confirm": "Potvrdit",
         "revalidate_sign_in_popup": "Ve vyskakovacím okně se přihlaste pomocí svého propojeného účtu.",
         "confirm_code_generic_incorrect": "Nesprávný kód.",

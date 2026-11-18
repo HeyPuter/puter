@@ -1430,6 +1430,7 @@ export class PuterServer {
                         userStore: this.stores.user,
                         oidcService: this.services.oidc,
                         tokenService: this.services.token,
+                        eventClient: this.clients.event,
                     },
                     opts.userProtected === true ? {} : opts.userProtected,
                 ),

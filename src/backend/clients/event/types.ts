@@ -375,6 +375,16 @@ export type EventMap = {
         // null when it sent none.
         dispatch_id: string | null;
     };
+    /**
+     * Where a password-less account signs in again before a protected action,
+     * emitted via `emitAndWait`. An SSO listener sets `revalidateUrl`; core
+     * falls back to its own OIDC route when none does.
+     */
+    'auth.reauth.options': {
+        userId: number;
+        userUuid: string;
+        revalidateUrl: string | null;
+    };
     'user.phone-verified': {
         user_id: number;
         user_uid: string;
@@ -1150,11 +1160,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1165,10 +1174,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    | 'received'
-    | 'unreceived'
-    | 'no-socket'
-    | 'remote-only';
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {
