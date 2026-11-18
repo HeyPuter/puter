@@ -249,7 +249,7 @@ const TabFiles = {
         this.missingThumbnails = createMissingThumbnailFiller({
             download: (uid, signal) => fetch(`${window.api_origin}/read?${new URLSearchParams({ file: uid })}`, {
                 headers: { 'Authorization': `Bearer ${window.auth_token}` },
-                cache: 'no-cache',
+                cache: 'no-store',
                 signal,
             }),
             store: (body) => fetch(`${window.api_origin}/update-fsentry-thumbnail`, {
