@@ -222,6 +222,27 @@ describe('readXlsxPreview', () => {
         expect(cellFills()).toEqual([{ color: 'rgb(0, 255, 0)', x: 0, y: 0, width: 108.75, height: 20 }]);
     });
 
+    it('finds the strings, styles and theme through the workbook\'s relationships', async () => {
+        // Some writers name these parts differently, such as `SharedStrings.xml` with a capital.
+        const type = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+        const relationship = (id, kind, target) => `<Relationship Id="${id}" Type="${type}/${kind}" Target="${target}"/>`;
+        const preview = await readXlsxPreview(new File([createZip({
+            'xl/workbook.xml': `<workbook xmlns:r="${type}"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+            'xl/_rels/workbook.xml.rels': `<Relationships>${relationship('rId1', 'worksheet', 'worksheets/sheet1.xml')}${
+                relationship('rId2', 'sharedStrings', 'SharedStrings.xml')}${relationship('rId3', 'styles', '/xl/look/Styles.xml')}${
+                relationship('rId4', 'theme', 'theme/colors.xml')}</Relationships>`,
+            'xl/worksheets/sheet1.xml': '<worksheet><sheetData><row r="1"><c r="A1" t="s" s="1"><v>0</v></c></row></sheetData></worksheet>',
+            'xl/SharedStrings.xml': '<sst><si><t>Invoice</t></si></sst>',
+            'xl/look/Styles.xml': '<styleSheet><fonts><font/><font><b/><color theme="4"/></font></fonts><cellXfs><xf/><xf fontId="1"/></cellXfs></styleSheet>',
+            'xl/theme/colors.xml': `<a:theme><a:clrScheme>${['000000', 'FFFFFF', '111111', 'EEEEEE', '336699'].map(color =>
+                `<a:c><a:srgbClr val="${color}"/></a:c>`).join('')}</a:clrScheme></a:theme>`,
+        })], 'budget.xlsx'));
+        expect(preview).toBeInstanceOf(File);
+        expect(drawn.text.map(({ text: value, font, color }) => [value, font, color])).toEqual([
+            ['Invoice', 'bold 11px sans-serif', 'rgb(51, 102, 153)'],
+        ]);
+    });
+
     it('shows the first visible worksheet', async () => {
         const cells = await draw({
             sheets: [

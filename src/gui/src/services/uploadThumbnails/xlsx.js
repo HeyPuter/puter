@@ -381,7 +381,13 @@ export const readXlsxPreview = async (file, signal) => {
     }
     const sheet = await textOf(sheetName);
     if ( !sheet || signal?.aborted ) return undefined;
-    const styleOf = readStyles(await textOf('xl/styles.xml') ?? '', readThemeColors(await textOf('xl/theme/theme1.xml') ?? ''));
-    const strings = readStrings(await textOf('xl/sharedStrings.xml') ?? '');
+    // The workbook's other parts are found the same way, or by their usual names when it doesn't list them.
+    const textOfPart = async (kind, usualName) => {
+        const listed = [...relationships.values()].find(relationship => relationship.type.endsWith(`/${kind}`));
+        return await textOf(listed?.target ?? usualName) ?? '';
+    };
+    const themeColors = readThemeColors(await textOfPart('theme', 'xl/theme/theme1.xml'));
+    const styleOf = readStyles(await textOfPart('styles', 'xl/styles.xml'), themeColors);
+    const strings = readStrings(await textOfPart('sharedStrings', 'xl/sharedStrings.xml'));
     return drawSheet(readSheet(sheet, strings, styleOf));
 };
