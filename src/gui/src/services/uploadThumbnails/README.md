@@ -54,8 +54,9 @@ same way. Otherwise `xlsx.js` reads the first visible worksheet and draws the
 480 points at its top-left corner on a square canvas: gridlines, the sheet's
 column widths and row heights, each cell's fill, and each cell's text in its
 font size, weight, color and alignment. Text aligned left runs on over the empty
-cells beside it. Colors come from the cell formats, directly or through the
-workbook's theme. Numbers are drawn as stored, so a date shows as its serial
+cells beside it, and a sheet set to run right to left is laid out from the right
+edge. Colors come from the cell formats: given directly, taken from the
+workbook's theme, or picked from the standard palette. Numbers are drawn as stored, so a date shows as its serial
 number; number formats, merged cells, borders, charts and pictures are not
 drawn. A sheet with nothing in view retains its normal icon.
 
@@ -69,10 +70,16 @@ deadline passes retain their normal icon.
 element, seeks a tenth of the way in (at most 10 seconds), and draws that frame
 on a canvas of at most 256 pixels a side. The browser's player does the
 demuxing and decoding, reading only the parts of the file it needs, so the cost
-does not grow with the file. A video the browser can't play, a file with only
+does not grow with the file.
+
+Two things are there for WebKit. The video is preloaded in full (`auto`),
+because with only the metadata preloaded WebKit holds a seek back for a second.
+And the frame is drawn only once the player has one: WebKit reports the seek
+before it can paint the frame, and a frame drawn then is black. Chromium has the
+frame when the seek ends and presents no other, so it draws at once. A video the browser can't play, a file with only
 sound, and a video that takes longer than its time limit retain their normal
 icon. An upload loads one video at a time, under a preparation deadline of its
-own. The page's CSP must allow `blob:` in `media-src`.
+own. When either deadline passes, the file in progress is given up on too. The page's CSP must allow `blob:` in `media-src`.
 
 ## PDF
 
