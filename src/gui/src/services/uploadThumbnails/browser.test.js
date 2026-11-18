@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { copyPdfThumbnailAssets } from '../../../tools/copyPdfThumbnailAssets.js';
 import { createFlac, createM4a, createMp3, flacPicture, id3Picture } from '../../../tests/fixtures/audio.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
-import { createDocx, paragraph, picture } from '../../../tests/fixtures/docx.js';
+import { createDocx, createZip, paragraph, picture } from '../../../tests/fixtures/docx.js';
+import { createEpub } from '../../../tests/fixtures/packages.js';
 import { createHeif, createHeifGrid } from '../../../tests/fixtures/heif.js';
 import { createPdf } from '../../../tests/fixtures/pdf.js';
 import { createPptx, paragraph as slideParagraph, pictureShape, shape, solid } from '../../../tests/fixtures/pptx.js';
@@ -595,6 +596,51 @@ describe('Upload thumbnails in a real browser', () => {
                 expect(result.photos.slice(0, 2)).toEqual([null, null]);
             }
             expect(result.photos[2]).toBeNull();
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
+    it.each([false, true])('scales the picture a packaged document carries of itself (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async (files) => {
+                const generate = window.createUploadThumbnailGenerator();
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const thumbnails = await Promise.all(files.map(([name, bytes]) => generate(new File([new Uint8Array(bytes)], name), context)));
+                return Promise.all(thumbnails.map(async (thumbnail) => {
+                    if ( ! thumbnail ) return null;
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    return { width: image.width, height: image.height, pixel: [...ctx.getImageData(5, 5, 1, 1).data] };
+                }));
+            }, [
+                // Each holds the same 160 x 80 red JPEG where its format keeps its picture.
+                ['letter.pages', [...createZip({ 'Index/Document.iwa': 'x', 'preview-web.jpg': psdPreviewJpeg(), 'preview.jpg': psdPreviewJpeg() })]],
+                ['old.key', [...createZip({ 'index.apxl': '<x/>', 'QuickLook/Thumbnail.jpg': psdPreviewJpeg() })]],
+                ['letter.odt', [...createZip({ 'content.xml': '<x/>', 'Thumbnails/thumbnail.jpg': psdPreviewJpeg() })]],
+                ['app.sketch', [...createZip({ 'document.json': '{}', 'previews/preview.png': psdPreviewJpeg() })]],
+                ['book.epub', [...createEpub({ cover: psdPreviewJpeg(), declare: 'meta' })]],
+                ['empty.numbers', [...createZip({ 'Index/Document.iwa': 'x' })]],
+                ['server.key', [...new TextEncoder().encode('-----BEGIN PRIVATE KEY-----')]],
+            ]);
+            const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 15);
+            for ( const shown of result.slice(0, 5) ) {
+                expect(shown).toMatchObject({ width: 128, height: 64 });
+                expect(shown.pixel).toSatisfy(near([255, 0, 0, 255]));
+            }
+            expect(result.slice(5)).toEqual([null, null]);
             expect(errors).toEqual([]);
         } finally {
             await page.close();

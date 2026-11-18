@@ -14,8 +14,18 @@ import {
 } from './config.js';
 import { readDocPreview } from './doc.js';
 import { readDocxPreview } from './docx.js';
+import { readEmbeddedPreview } from './embedded.js';
 import { readHeifPreview } from './heif.js';
-import { ILLUSTRATOR_NAME, PDF_NAME, PRESENTATION_NAME, SPREADSHEET_NAME, WORD_NAME } from './kinds.js';
+import {
+    ARTWORK_PACKAGE_NAME,
+    ILLUSTRATOR_NAME,
+    IWORK_NAME,
+    OPEN_DOCUMENT_NAME,
+    PDF_NAME,
+    PRESENTATION_NAME,
+    SPREADSHEET_NAME,
+    WORD_NAME,
+} from './kinds.js';
 import { readPptxPreview } from './pptx.js';
 import { readPsdPreview } from './psd.js';
 import { readVideoFrame } from './video.js';
@@ -110,6 +120,8 @@ const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => 
 const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
 const SPREADSHEET_TYPE = /^application\/vnd\.(ms-excel\.(sheet|template)\.|openxmlformats-officedocument\.spreadsheetml\.)/;
 const PRESENTATION_TYPE = /^application\/vnd\.(ms-powerpoint\.|openxmlformats-officedocument\.presentationml\.)/;
+// Pages, Numbers and Keynote under either of the names their types go by, OpenDocument files and EPUBs.
+const PACKAGE_TYPE = /^application\/(vnd\.apple\.(pages|numbers|keynote)|x-iwork-|vnd\.oasis\.opendocument\.(text|spreadsheet|presentation)$|epub\+zip$)/;
 const HEIF_TYPE = /^image\/hei[cf]$/;
 const AUDIO_TYPE = /^audio\/(mpeg|mp3|mp4|m4a|x-m4a|flac|x-flac)$/;
 // The containers browsers play. Other `video/` types are left alone: a `.ts` source file is reported as one.
@@ -186,6 +198,10 @@ export const createUploadThumbnailGenerator = () => {
                     image = await queueOffice(signal => readXlsxPreview(file, signal), context?.signal);
                 } else if ( PRESENTATION_TYPE.test(file.type) || PRESENTATION_NAME.test(name) ) {
                     image = await queueOffice(signal => readPptxPreview(file, signal), context?.signal);
+                } else if ( PACKAGE_TYPE.test(file.type) ||
+                    [IWORK_NAME, OPEN_DOCUMENT_NAME, ARTWORK_PACKAGE_NAME].some(pattern => pattern.test(name)) ) {
+                    // These carry a picture of themselves, made by the editor that saved them.
+                    image = await queueOffice(signal => readEmbeddedPreview(file, signal), context?.signal);
                 } else if ( HEIF_TYPE.test(file.type) || /\.(heic|heif|hif)$/i.test(name) ) {
                     // Safari decodes these itself. The image generator goes by a file's type, and not every browser
                     // gives these one.
