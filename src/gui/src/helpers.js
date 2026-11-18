@@ -690,6 +690,11 @@ window.update_auth_data = async (auth_token, user) => {
     window.user = user;
     localStorage.setItem('user', JSON.stringify(to_storable_user(user)));
 
+    // puter.js doesn't read the user again for the token it already holds, so
+    // its copy takes what changed here (a saved account's new username).
+    if ( puter.whoami && puter.authToken === auth_token ) {
+        puter.whoami = { ...puter.whoami, ...user };
+    }
     // re-initialize the Puter.js objects with the new auth token
     puter.setAuthToken(auth_token, window.api_origin);
 

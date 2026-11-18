@@ -255,7 +255,8 @@ describe('/get-gui-token at boot', () => {
         expect(puter.authToken).toBe(STORED);
         // The FS socket opened with the stored token at load is the only one.
         expect(apiSockets().map((s) => s.token)).toEqual([STORED]);
-        expect(count('GET api/whoami')).toBe(2);
+        // The boot's own read; handing puter.js the same token reads nothing.
+        expect(count('GET api/whoami')).toBe(1);
         expect(count('GET api/cache/last-change-timestamp')).toBe(1);
         // A cookie boot still renders from an empty FS cache.
         expect(dashboard.calls.map((c) => c.staleDesktopCached)).toEqual([false]);
