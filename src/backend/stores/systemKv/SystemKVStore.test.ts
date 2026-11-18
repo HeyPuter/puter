@@ -3973,6 +3973,181 @@ describe('SystemKVStore', () => {
                 's',
             );
         });
+
+        // DynamoDB returns the refusing item (undecoded) when asked; the local
+        // emulator ignores the request, so this adds it the way DynamoDB does.
+        describe('when the refusal carries the refusing item', () => {
+            const attributeValue = (value: unknown) =>
+                value === null
+                    ? { NULL: true }
+                    : typeof value === 'number'
+                      ? { N: String(value) }
+                      : typeof value === 'boolean'
+                        ? { BOOL: value }
+                        : { S: String(value) };
+
+            const recordCalls = () => {
+                const dynamo = server.clients.dynamo;
+                const realPut = dynamo.put.bind(dynamo);
+                const realDel = dynamo.del.bind(dynamo);
+                const realGet = dynamo.get.bind(dynamo);
+                const calls: string[] = [];
+                const withItem = async (
+                    err: unknown,
+                    table: string,
+                    key: { namespace: unknown; key: unknown },
+                    asked: boolean | undefined,
+                ) => {
+                    if (
+                        !asked ||
+                        (err as { name?: string })?.name !==
+                            'ConditionalCheckFailedException'
+                    )
+                        return err;
+                    const stored = (await realGet(table, key, true)).Item;
+                    if (stored) {
+                        (err as { Item?: unknown }).Item = {
+                            namespace: { S: String(stored.namespace) },
+                            key: { S: String(stored.key) },
+                            ...(stored.ttl === undefined
+                                ? {}
+                                : { ttl: attributeValue(stored.ttl) }),
+                        };
+                    }
+                    return err;
+                };
+                const spies = [
+                    vi.spyOn(dynamo, 'put').mockImplementation((async (
+                        table: string,
+                        item: Record<string, unknown>,
+                        o?: { returnOldOnRefusal?: boolean },
+                    ) => {
+                        calls.push('put');
+                        try {
+                            return await realPut(table, item, o as never);
+                        } catch (e) {
+                            throw await withItem(
+                                e,
+                                table,
+                                { namespace: item.namespace, key: item.key },
+                                o?.returnOldOnRefusal,
+                            );
+                        }
+                    }) as never),
+                    vi.spyOn(dynamo, 'del').mockImplementation((async (
+                        table: string,
+                        key: { namespace: unknown; key: unknown },
+                        o?: { returnOldOnRefusal?: boolean },
+                    ) => {
+                        calls.push('del');
+                        try {
+                            return await realDel(table, key, o as never);
+                        } catch (e) {
+                            throw await withItem(
+                                e,
+                                table,
+                                key,
+                                o?.returnOldOnRefusal,
+                            );
+                        }
+                    }) as never),
+                    vi.spyOn(dynamo, 'get').mockImplementation(((
+                        ...args: Parameters<typeof realGet>
+                    ) => {
+                        calls.push('get');
+                        return realGet(...args);
+                    }) as never),
+                ];
+                return {
+                    calls,
+                    restore: () => spies.forEach((spy) => spy.mockRestore()),
+                };
+            };
+
+            it('answers false for a live key with the one refused write', async () => {
+                await target.set({ key: 'held', value: 'a' }, opts);
+                const recorded = recordCalls();
+                try {
+                    const res = await target.set(
+                        { key: 'held', value: 'b', onlyIfAbsent: true },
+                        opts,
+                    );
+                    expect(res.res).toBe(false);
+                    expect(res.usage.write).toBe(1);
+                    expect(recorded.calls).toEqual(['put']);
+                } finally {
+                    recorded.restore();
+                }
+                expect((await target.get({ key: 'held' }, opts)).res).toBe('a');
+            });
+
+            it('answers false for a key with a future expiry the same way', async () => {
+                await target.set(
+                    {
+                        key: 'heldUntil',
+                        value: 'a',
+                        expireAt: Math.floor(Date.now() / 1000) + 3600,
+                    },
+                    opts,
+                );
+                const recorded = recordCalls();
+                try {
+                    const res = await target.set(
+                        { key: 'heldUntil', value: 'b', onlyIfAbsent: true },
+                        opts,
+                    );
+                    expect(res.res).toBe(false);
+                    expect(recorded.calls).toEqual(['put']);
+                } finally {
+                    recorded.restore();
+                }
+            });
+
+            it('still settles a legacy text ttl reads treat as expired', async () => {
+                await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                    namespace: namespaceOf(actor),
+                    key: 'legacyLapsed',
+                    value: 'old',
+                    ttl: String(Math.floor(Date.now() / 1000) - 3600),
+                });
+                const recorded = recordCalls();
+                try {
+                    const res = await target.set(
+                        { key: 'legacyLapsed', value: 'new', onlyIfAbsent: true },
+                        opts,
+                    );
+                    expect(res.res).toBe(true);
+                } finally {
+                    recorded.restore();
+                }
+                expect(
+                    (await target.get({ key: 'legacyLapsed' }, opts)).res,
+                ).toBe('new');
+            });
+
+            it('refuses a foreign delete of a live private entry with one call', async () => {
+                const own = { actor, appUuid: 'app-other' };
+                await target.set(
+                    { key: 'private-held', value: 's', disableSharing: true },
+                    own,
+                );
+                const recorded = recordCalls();
+                try {
+                    await expect(
+                        target.del(
+                            { key: 'private-held' },
+                            { actor, namespaceAppUuid: 'app-other' },
+                        ),
+                    ).rejects.toMatchObject({ statusCode: 403 });
+                    expect(recorded.calls).toEqual(['del']);
+                } finally {
+                    recorded.restore();
+                }
+                expect(
+                    (await target.get({ key: 'private-held' }, own)).res,
+                ).toBe('s');
+            });
+        });
     });
 
     describe('list within a key prefix', () => {

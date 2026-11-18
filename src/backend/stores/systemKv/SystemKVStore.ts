@@ -165,6 +165,17 @@ export const KV_MAX_KEY_BYTES = 1024;
  */
 const isConditionRefused = (err: unknown): boolean =>
     (err as { name?: string })?.name === 'ConditionalCheckFailedException';
+/**
+ * A refusal that returned its item (`returnOldOnRefusal`) with a `ttl` the
+ * condition already judged as reads do: none, null, or a number. A text or
+ * boolean `ttl`, or no item, may still need settling.
+ */
+const isSettledRefusal = (err: unknown): boolean => {
+    const item = (err as { Item?: Record<string, object> }).Item;
+    if (!item) return false;
+    const ttl = item.ttl;
+    return ttl === undefined || 'N' in ttl || 'NULL' in ttl;
+};
 const MAX_VALUE_BYTES = 399 * 1024;
 // A number anywhere inside a value is bounded too, to the IEEE-754 safe
 // integer range — past that it cannot round-trip, so it is clamped to the
@@ -2140,6 +2151,7 @@ export class SystemKVStore extends PuterStore {
      * A write whose condition may refuse it, retried once after settling a row
      * the condition reads as live but reads treat as expired (a legacy text or
      * boolean `ttl`). `response` is `null` when the condition still refuses.
+     * `write` should ask for the refusing item, so a plain refusal ends here.
      */
     async #writeUnlessRefused<R>(
         namespace: string,
@@ -2150,8 +2162,11 @@ export class SystemKVStore extends PuterStore {
             return { response: await write(), usage: emptyUsage() };
         } catch (e) {
             if (!isConditionRefused(e)) throw e;
+            // A refused conditional write still consumes capacity.
+            if (isSettledRefusal(e)) {
+                return { response: null, usage: writeUsage(1) };
+            }
         }
-        // A refused conditional write still consumes capacity.
         const usage = addUsage(
             writeUsage(1),
             await this.#dropIfExpired(namespace, key),
@@ -2336,7 +2351,7 @@ export class SystemKVStore extends PuterStore {
                     ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
                     ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
                 },
-                condition ? { condition } : undefined,
+                condition ? { condition, returnOldOnRefusal: true } : undefined,
             );
         let response: Awaited<ReturnType<typeof put>> | null;
         let settleUsage = emptyUsage();
@@ -2492,7 +2507,9 @@ export class SystemKVStore extends PuterStore {
                 { namespace, key },
                 {
                     returnOld: !isSystemActor(actor),
-                    ...(condition ? { condition } : {}),
+                    ...(condition
+                        ? { condition, returnOldOnRefusal: true }
+                        : {}),
                 },
             );
         const { response, usage: settleUsage } = condition
