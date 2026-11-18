@@ -597,6 +597,57 @@ describe('whoami extension — handleWhoami', () => {
         ).toBe('fp_NESTED');
     });
 
+    describe('an actor token auth built from the account row', () => {
+        const answerFor = async (
+            password: string | null,
+            email: string | null,
+        ) => {
+            const slug = Math.random().toString(36).slice(2, 8);
+            const row = await server.stores.user.create({
+                username: `wrow_${slug}`,
+                uuid: uuidv4(),
+                password,
+                email,
+            });
+            const actor = server.services.auth.buildPasswordActor(row);
+            const getById = vi.spyOn(server.stores.user, 'getById');
+            const { res, captured } = makeRes();
+            try {
+                await runWithContext({ actor }, () =>
+                    handleWhoami(makeReq(), res),
+                );
+                return {
+                    body: captured.body as Record<string, unknown>,
+                    reads: getById.mock.calls.length,
+                };
+            } finally {
+                getById.mockRestore();
+            }
+        };
+
+        it('answers from that row without reading it again', async () => {
+            const { body, reads } = await answerFor(
+                'hashedpw',
+                'row@example.com',
+            );
+            expect(reads).toBe(0);
+            expect(body.username).toMatch(/^wrow_/);
+            expect(body.oidc_only).toBe(false);
+            expect(body.is_temp).toBe(false);
+            expect(body).not.toHaveProperty('password');
+        });
+
+        it('still tells a passwordless account and a temp account apart', async () => {
+            const oidc = await answerFor(null, 'oidc-row@example.com');
+            expect(oidc.body.oidc_only).toBe(true);
+            expect(oidc.body.is_temp).toBe(false);
+
+            const temp = await answerFor(null, null);
+            expect(temp.body.oidc_only).toBe(true);
+            expect(temp.body.is_temp).toBe(true);
+        });
+    });
+
     it('marks the user as oidc_only when password is null', async () => {
         const slug = Math.random().toString(36).slice(2, 8);
         const oidcUser = await server.stores.user.create({

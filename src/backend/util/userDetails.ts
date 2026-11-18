@@ -118,13 +118,17 @@ export const toUnixSeconds = (value: unknown): number | undefined => {
  * caller's job. Not scrubbed: run `scrubSensitive` on the final payload.
  */
 export async function buildUserDetails(
-    user: UserRow,
+    user: UserRow & { hasPassword?: boolean },
     deps: UserDetailsDeps,
     opts: { isUser: boolean },
 ): Promise<Record<string, unknown>> {
     const { config, clients, stores, services } = deps;
     const { isUser } = opts;
-    const oidcOnly = user.password === null;
+    // An actor's copy of the row carries `hasPassword` instead of the hash.
+    const oidcOnly =
+        user.hasPassword === undefined
+            ? user.password === null
+            : !user.hasPassword;
 
     // Non-boolean values (e.g. `"true"`) are coerced so the client never has
     // to guess.
@@ -166,7 +170,7 @@ export async function buildUserDetails(
                   cardFallbackDepsFrom(clients),
               )
             : false,
-        is_temp: user.password === null && user.email === null,
+        is_temp: oidcOnly && user.email === null,
         is_user_token: true,
         // Null until the account asks for a code; never minted here.
         referral_code: user.referral_code,
