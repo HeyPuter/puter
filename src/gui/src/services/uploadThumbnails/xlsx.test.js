@@ -167,6 +167,26 @@ describe('readXlsxPreview', () => {
         })));
     });
 
+    it('resolves colors given as positions in the standard palette', async () => {
+        // Workbooks converted from the older format use these in place of theme colors.
+        const cells = await draw({
+            styles: styles({
+                fonts: '<font/><font><color indexed="10"/></font><font><color indexed="64"/></font><font><color indexed="99"/></font>',
+                fills: '<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+                    '<fill><patternFill patternType="solid"><fgColor indexed="13"/><bgColor indexed="64"/></patternFill></fill>' +
+                    '<fill><patternFill patternType="solid"><fgColor indexed="22" tint="-0.5"/></patternFill></fill>' +
+                    '<fill><patternFill patternType="solid"><fgColor indexed="64"/></patternFill></fill>',
+                formats: '<xf/><xf fontId="1" fillId="2"/><xf fontId="2" fillId="3"/><xf fontId="3" fillId="4"/>',
+            }),
+            sheet: sheetOf(row(1, text('A1', 'red', { style: 1 }) + text('B1', 'system', { style: 2 }) + text('C1', 'unknown', { style: 3 }))),
+        });
+        expect(cells.red.color).toBe('rgb(255, 0, 0)');
+        // Positions 64 and up are the system's colors, which are left at the default.
+        expect(cells.system.color).toBe('#000');
+        expect(cells.unknown.color).toBe('#000');
+        expect(cellFills().map(fill => fill.color)).toEqual(['rgb(255, 255, 0)', 'rgb(96, 96, 96)']);
+    });
+
     it('lets text aligned left run on over empty cells, and cuts other text off at its cell', async () => {
         const cells = await draw({
             // At 11 points, 30 characters are 165 wide: more than three columns.

@@ -13,6 +13,17 @@ const DEFAULT_COLUMN_CHARACTERS = 8.43;
 const DEFAULT_FONT = { size: 11, bold: false, color: '#000' };
 const CELL_PADDING = 2;
 const GRID_COLOR = '#d4d4d4';
+// The standard palette that a color given as a position refers to, eight colors to a line.
+const INDEXED_COLORS = (
+    '000000FFFFFFFF000000FF000000FFFFFF00FF00FF00FFFF' +
+    '000000FFFFFFFF000000FF000000FFFFFF00FF00FF00FFFF' +
+    '800000008000000080808000800080008080C0C0C0808080' +
+    '9999FF993366FFFFCCCCFFFF660066FF80800066CCCCCCFF' +
+    '000080FF00FFFFFF0000FFFF8000808000000080800000FF' +
+    '00CCFFCCFFFFCCFFCCFFFF9999CCFFFF99CCCC99FFFFCC99' +
+    '3366FF33CCCC99CC00FFCC00FF9900FF6600666699969696' +
+    '003366339966003300333300993300993366333399333333'
+).match(/.{6}/g);
 
 /**
  * @typedef {Object} SheetCell
@@ -55,9 +66,10 @@ const columnOf = (reference) => {
     return column - 1;
 };
 
-// A color as a style states it: ARGB, or one of the theme's colors, lightened or darkened by a tint.
-const colorOf = ({ rgb, theme, tint }, themeColors) => {
-    const hex = /^(?:[0-9a-f]{2})?[0-9a-f]{6}$/i.test(rgb) ? rgb.slice(-6) : themeColors[theme];
+// A color as a style states it: ARGB, one of the theme's colors or one of the palette's, lightened or darkened by a
+// tint.
+const colorOf = ({ rgb, theme, indexed, tint }, themeColors) => {
+    const hex = /^(?:[0-9a-f]{2})?[0-9a-f]{6}$/i.test(rgb) ? rgb.slice(-6) : themeColors[theme] ?? INDEXED_COLORS[indexed];
     if ( ! hex ) return undefined;
     const amount = within(tint, -1, 1) ?? 0;
     const channels = [0, 2, 4].map((at) => {
