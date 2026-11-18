@@ -3290,7 +3290,9 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             // one — the in-memory record still covers this session, and the
             // next write retries the lot.
             this._removedWriteChain = (this._removedWriteChain || Promise.resolve()).then(async () => {
-                const names = parseRemovedApps(await puter.kv.get(REMOVED_APPS_KV_KEY));
+                // The object form skips the boot batch, which may predate
+                // another window's write.
+                const names = parseRemovedApps(await puter.kv.get({ key: REMOVED_APPS_KV_KEY }));
                 for ( const [name, isRemoved] of this._removedLocal ) {
                     if ( isRemoved ) names.add(name);
                     else names.delete(name);

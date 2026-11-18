@@ -40,7 +40,7 @@ beforeEach(() => {
     })));
     vi.stubGlobal('puter', {
         authToken: 'test-session',
-        kv: { get: async key => saved.get(key), set: vi.fn() },
+        kv: { get: async key => saved.get(typeof key === 'object' ? key.key : key), set: vi.fn() },
     });
     onLaunch.mockClear();
 });

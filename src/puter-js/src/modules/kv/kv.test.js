@@ -339,6 +339,50 @@ describe('kv.get GUI boot cache', () => {
         expect(lastBody().args.key).not.toContain('desktop_item_positions');
     });
 
+    describe('the keys the booted interface reads', () => {
+        afterEach(() => {
+            delete globalThis.is_dashboard_mode;
+        });
+
+        it('batches the dashboard tabs\' keys on a dashboard boot', async () => {
+            globalThis.is_dashboard_mode = true;
+            kv = new KV(fakePuter);
+            FakeXHR.respondWith = (body) => ({
+                success: true,
+                result: body.args.key.map((key) => `${key}-value`),
+            });
+            await expect(kv.get('view_mode')).resolves.toBe('view_mode-value');
+            await expect(kv.get('dashboard_apps_order')).resolves.toBe('dashboard_apps_order-value');
+            await expect(kv.get('user_preferences.language')).resolves.toBe('user_preferences.language-value');
+            expect(FakeXHR.requests).toHaveLength(1);
+            const keys = lastBody().args.key;
+            expect(keys).toEqual(expect.arrayContaining([
+                'view_mode',
+                'sort_column',
+                'sort_direction',
+                'column_widths',
+                'dashboard_apps_order',
+                'dashboard_removed_apps',
+                'dashboard_app_groups',
+            ]));
+            expect(keys).not.toContain('sidebar_items');
+            expect(keys).not.toContain('window_sidebar_width');
+        });
+
+        it('leaves the dashboard\'s keys out of a desktop boot and reads them on their own', async () => {
+            FakeXHR.respondWith = (body) => ({
+                success: true,
+                result: Array.isArray(body.args.key)
+                    ? body.args.key.map((key) => `${key}-batched`)
+                    : `${body.args.key}-single`,
+            });
+            await kv.get('sidebar_items');
+            expect(lastBody().args.key).not.toContain('view_mode');
+            await expect(kv.get('view_mode')).resolves.toBe('view_mode-single');
+            expect(lastBody().args).toEqual({ key: 'view_mode' });
+        });
+    });
+
     it('a failed batch makes get(bootKey) issue a normal call', async () => {
         FakeXHR.respondWith = (body) =>
             Array.isArray(body.args.key)
