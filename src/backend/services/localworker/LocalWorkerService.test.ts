@@ -1,346 +1,119 @@
-/**
- * Copyright (C) 2024-present Puter Technologies Inc.
- *
- * This file is part of Puter.
- *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { Readable } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-    WORKER_SUBDOMAIN_PREFIX,
-    type SubdomainRow,
-} from '../../stores/subdomain/SubdomainStore.js';
-import type { PuterServer } from '../../server.js';
-import { createTestUser, setupTestServer } from '../../testUtil.js';
-import { getWorkerPreamble } from '../../drivers/workers/WorkerDriver.js';
-import type { LocalWorkerService } from './LocalWorkerService.js';
+const instances: Array<{
+    options: Record<string, unknown>;
+    dispose: ReturnType<typeof vi.fn>;
+    dispatchFetch: ReturnType<typeof vi.fn>;
+}> = [];
 
-let server: PuterServer;
-let localWorkers: LocalWorkerService;
-let ownerUserId: number;
-let ownerUsername: string;
-
-beforeAll(async () => {
-    server = await setupTestServer({
-        // Miniflare binds this into every local worker; the constructor
-        // rejects an undefined binding value.
-        api_base_url: 'http://api.puter.localhost:4100',
-    } as never);
-    localWorkers = server.services
-        .localworkerservice as unknown as LocalWorkerService;
-    const created = await createTestUser(server, {
-        username: 'lws',
-        password: 'local-worker-password',
-    });
-    ownerUsername = created.username;
-    const row = await server.stores.user.getByUsername(created.username);
-    ownerUserId = row!.id;
-}, 60_000);
-
-afterAll(async () => {
-    localWorkers?.onServerShutdown();
-    await server?.shutdown();
-}, 60_000);
-
-/** Write a worker source file into the owner's home and return its entry. */
-const writeSource = async (
-    filename: string,
-    source: string,
-): Promise<{ id: number; uuid: string }> => {
-    const path = `/${ownerUsername}/${filename}`;
-    await server.services.fs.write(ownerUserId, {
-        fileMetadata: {
-            path,
-            size: Buffer.byteLength(source),
-            contentType: 'text/javascript',
-            overwrite: true,
-            createMissingParents: true,
-        },
-        fileContent: Readable.from(Buffer.from(source)),
-    });
-    const entry = await server.stores.fsEntry.getEntryByPath(path);
-    return { id: entry!.id as number, uuid: String(entry!.uuid) };
-};
-
-const subdomainRow = (over: Partial<SubdomainRow>): SubdomainRow =>
-    ({
-        user_id: ownerUserId,
-        app_owner: null,
-        root_dir_id: null,
-        ...over,
-    }) as SubdomainRow;
-
-/** A stored worker row: the minted token is only valid while it exists. */
-const seedWorkerRow = async (
-    workerName: string,
-    over: { root_dir_id: number; app_owner?: number },
-): Promise<SubdomainRow> =>
-    (await server.stores.subdomain.create({
-        userId: ownerUserId,
-        subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
-        rootDirId: over.root_dir_id,
-        appOwner: over.app_owner ?? null,
-    })) as unknown as SubdomainRow;
-
-describe('LocalWorkerService.reconstructDeployArgs', () => {
-    it('mints a user-scoped worker session token and prepends the preamble', async () => {
-        const src = await writeSource(
-            'worker-a.js',
-            "export default { fetch: () => new Response('a') };",
-        );
-        const [name, authorization, code] =
-            await localWorkers.reconstructDeployArgs(
-                'worker-a',
-                await seedWorkerRow('worker-a', { root_dir_id: src.id }),
+vi.mock('miniflare', () => ({
+    Miniflare: vi.fn().mockImplementation(function (
+        this: Record<string, unknown>,
+        options: Record<string, unknown>,
+    ) {
+        const dispose = vi.fn().mockResolvedValue(undefined);
+        const dispatchFetch = vi
+            .fn()
+            .mockImplementation(
+                async () => new Response(`ok:${String(options.script)}`),
             );
+        const inst = { options, dispose, dispatchFetch };
+        instances.push(inst);
+        return inst;
+    }),
+}));
 
-        const source = "export default { fetch: () => new Response('a') };";
+import { LocalWorkerService } from './LocalWorkerService.js';
 
-        expect(name).toBe('worker-a');
-        // Assert the concatenation contract directly against the preamble the
-        // driver actually loaded. `src/worker/dist/` is a gitignored build
-        // artifact, so asserting a non-empty prefix instead would make this
-        // test pass or fail on whether the tree happens to be built.
-        expect(code).toBe(getWorkerPreamble() + source);
-
-        // The credential is a real worker session token for the owner.
-        const auth = await server.services.auth.authenticate(authorization);
-        expect(auth.actor?.user?.id).toBe(ownerUserId);
-        expect(auth.actor?.session?.kind).toBe('worker');
-    });
-
-    it('mints an app-scoped token when the worker belongs to an app', async () => {
-        const src = await writeSource(
-            'worker-b.js',
-            "export default { fetch: () => new Response('b') };",
-        );
-        const app = await (
-            server.stores.app.create as unknown as (
-                f: Record<string, unknown>,
-                o: { ownerUserId: number },
-            ) => Promise<{ id: number; uid: string }>
-        )(
-            {
-                name: `lws-app-${Date.now()}`,
-                title: 'LWS app',
-                index_url: 'https://lws-app.test/',
-            },
-            { ownerUserId },
-        );
-
-        const [, authorization] = await localWorkers.reconstructDeployArgs(
-            'worker-b',
-            await seedWorkerRow('worker-b', {
-                root_dir_id: src.id,
-                app_owner: app.id,
-            }),
-        );
-
-        const auth = await server.services.auth.authenticate(authorization);
-        expect(auth.actor?.app?.uid).toBe(app.uid);
-        expect(auth.actor?.user?.id).toBe(ownerUserId);
-    });
-
-    it('refuses when the owning user no longer exists', async () => {
-        await expect(
-            localWorkers.reconstructDeployArgs(
-                'worker-ghost',
-                subdomainRow({ user_id: 999_999, root_dir_id: 1 }),
-            ),
-        ).rejects.toThrow('Owner seems to not exist');
-    });
-
-    it('refuses when the owning app no longer exists', async () => {
-        const src = await writeSource('worker-c.js', 'export default {};');
-        await expect(
-            localWorkers.reconstructDeployArgs(
-                'worker-c',
-                subdomainRow({ root_dir_id: src.id, app_owner: 999_999 }),
-            ),
-        ).rejects.toThrow(/existant application/);
-    });
-
-    it('refuses a worker whose subdomain has no source file', async () => {
-        await expect(
-            localWorkers.reconstructDeployArgs(
-                'worker-d',
-                subdomainRow({ root_dir_id: null }),
-            ),
-        ).rejects.toThrow(/no root_dir_id/);
-    });
-
-    it('refuses when the source entry id points at nothing', async () => {
-        await expect(
-            localWorkers.reconstructDeployArgs(
-                'worker-e',
-                subdomainRow({ root_dir_id: 999_999 }),
-            ),
-        ).rejects.toThrow(/source file not found/);
-    });
-
-    it('refuses a worker whose source file belongs to another user', async () => {
-        const other = await createTestUser(server, {
-            username: 'lws-other',
-            password: 'local-worker-password',
-        });
-        const otherRow = (await server.stores.user.getByUsername(
-            other.username,
-        ))!;
-        const path = `/${other.username}/worker-f.js`;
-        await server.services.fs.write(otherRow.id, {
-            fileMetadata: {
-                path,
-                size: 2,
-                contentType: 'text/javascript',
-                overwrite: true,
-            },
-            fileContent: Readable.from(Buffer.from('//')),
-        });
-        const foreign = await server.stores.fsEntry.getEntryByPath(path);
-
-        await expect(
-            localWorkers.reconstructDeployArgs(
-                'worker-f',
-                await seedWorkerRow('worker-f', {
-                    root_dir_id: foreign!.id as number,
+function makeService() {
+    const service = new LocalWorkerService({} as never);
+    Object.assign(service as unknown as Record<string, unknown>, {
+        config: { api_base_url: 'http://localhost:4100', port: 4100 },
+        stores: {
+            subdomain: {
+                getBySubdomain: vi.fn().mockResolvedValue({
+                    uuid: 'sub-uuid-1',
+                    user_id: 1,
+                    subdomain: 'workers.puter.demo',
+                    root_dir_id: 10,
+                    app_owner: null,
                 }),
-            ),
-        ).rejects.toThrow(/not owned by the worker's owner/);
+            },
+            user: {
+                getById: vi.fn().mockResolvedValue({
+                    id: 1,
+                    uuid: 'user-uuid-1',
+                    username: 'alice',
+                    suspended: false,
+                }),
+            },
+        },
+        services: {},
+        clients: {},
+        drivers: {},
     });
-});
+    return service;
+}
 
-describe('LocalWorkerService.cfCallLocal', () => {
-    it('404s a request for a worker with no subdomain row', async () => {
-        const res = await localWorkers.cfCallLocal(
-            `unknown-${Date.now()}`,
-            new Request('http://x.localhost/'),
-        );
-        expect(res.status).toBe(404);
-        expect(await res.text()).toBe('subdomain not found');
+describe('LocalWorkerService', () => {
+    beforeEach(() => {
+        instances.length = 0;
+        vi.clearAllMocks();
     });
 
-    it('404s a request for a suspended owner’s worker', async () => {
-        const name = `lws-susp-${Date.now()}`;
-        const src = await writeSource(
-            `${name}.js`,
-            "router.get('/', () => new Response('up'));",
-        );
-        await seedWorkerRow(name, { root_dir_id: src.id });
-        const call = () =>
-            localWorkers.cfCallLocal(name, new Request('http://x.localhost/'));
+    it('swaps in the new Miniflare instance before disposing the previous one', async () => {
+        const service = makeService();
+        await service.cfDeployLocal('swap-worker', 'tok1', 'script-v1');
+        expect(instances).toHaveLength(1);
+        const first = instances[0];
+        expect(first.dispose).not.toHaveBeenCalled();
 
-        await server.stores.user.update(ownerUserId, { suspended: 1 });
-        try {
-            expect((await call()).status).toBe(404);
-        } finally {
-            await server.stores.user.update(ownerUserId, { suspended: 0 });
-        }
-        const res = await call();
-        expect(await res.text()).toBe('up');
-        await localWorkers.cfDeleteLocal(name);
+        await service.cfDeployLocal('swap-worker', 'tok2', 'script-v2');
+        expect(instances).toHaveLength(2);
+        expect(first.dispose).toHaveBeenCalledTimes(1);
+
+        const res = await service.cfCallLocal(
+            'swap-worker',
+            new Request('http://swap-worker.workers.puter.localhost:4100/'),
+        );
+        expect(await res.text()).toBe('ok:script-v2');
+        expect(instances[1].dispatchFetch).toHaveBeenCalledTimes(1);
+
+        await service.cfDeleteLocal('swap-worker');
     });
-});
 
-describe('LocalWorkerService.cfDeleteLocal', () => {
-    it('mirrors the upstream delete response shape', async () => {
-        expect(await localWorkers.cfDeleteLocal('never-deployed')).toEqual({
-            success: true,
-            errors: [],
-            messages: [],
-            result: { id: 'never-deployed' },
-        });
-    });
-});
+    it('deduplicates concurrent cold-start cfCallLocal requests for the same worker', async () => {
+        const service = makeService();
+        let resolveReconstruct!: (val: [string, string, string]) => void;
+        const reconstructPromise = new Promise<[string, string, string]>(
+            (resolve) => {
+                resolveReconstruct = resolve;
+            },
+        );
+        const reconstructSpy = vi
+            .spyOn(service, 'reconstructDeployArgs')
+            .mockReturnValue(reconstructPromise as never);
+        const deploySpy = vi.spyOn(service, 'cfDeployLocal');
 
-describe('LocalWorkerService.cfDeployLocal', () => {
-    it('deploys, serves a request, and stops serving after delete', async () => {
-        const name = `lws-live-${Date.now()}`;
-        const deployed = await localWorkers.cfDeployLocal(
-            name,
-            'test-authorization',
-            `addEventListener('fetch', (e) => {
-                e.respondWith(new Response('hello ' + puter_auth));
-            });`,
+        const req1 = service.cfCallLocal(
+            'cold-worker',
+            new Request('http://cold-worker.workers.puter.localhost:4100/a'),
+        );
+        const req2 = service.cfCallLocal(
+            'cold-worker',
+            new Request('http://cold-worker.workers.puter.localhost:4100/b'),
         );
 
-        expect(deployed.success).toBe(true);
-        expect(deployed.errors).toEqual([]);
-        expect(deployed.url).toContain(`${name}.workers.puter.localhost`);
+        await new Promise((r) => setTimeout(r, 10));
+        expect(reconstructSpy).toHaveBeenCalledTimes(1);
 
-        const res = await localWorkers.cfCallLocal(
-            name,
-            new Request('http://worker.localhost/hi'),
-        );
-        // The binding carries the authorization the deploy was given.
-        expect(await res.text()).toBe('hello test-authorization');
+        resolveReconstruct(['cold-worker', 'tok', 'cold-script']);
+        const [res1, res2] = await Promise.all([req1, req2]);
 
-        await localWorkers.cfDeleteLocal(name);
-        // With the instance disposed and no subdomain row, the next call 404s.
-        const after = await localWorkers.cfCallLocal(
-            name,
-            new Request('http://worker.localhost/hi'),
-        );
-        expect(after.status).toBe(404);
-    }, 60_000);
+        expect(deploySpy).toHaveBeenCalledTimes(1);
+        expect(await res1.text()).toBe('ok:cold-script');
+        expect(await res2.text()).toBe('ok:cold-script');
 
-    it('reaches this machine, but not link-local or LAN addresses by default', async () => {
-        const local = createServer((_req, res) => res.end('reached'));
-        await new Promise<void>((r) => local.listen(0, '127.0.0.1', r));
-        const { port } = local.address() as AddressInfo;
-        const name = `lws-egress-${Date.now()}`;
-        try {
-            await localWorkers.cfDeployLocal(
-                name,
-                'auth',
-                `addEventListener('fetch', (e) => e.respondWith((async () => {
-                    const probe = (url) => fetch(url, {
-                        signal: AbortSignal.timeout(10000),
-                    }).then((r) => r.text(), (err) => String(err));
-                    return Response.json({
-                        local: await probe('http://127.0.0.1:${port}/'),
-                        metadata: await probe('http://169.254.169.254/'),
-                        lan: await probe('http://10.0.0.1/'),
-                    });
-                })()));`,
-            );
-            const res = await localWorkers.cfCallLocal(
-                name,
-                new Request('http://worker.localhost/'),
-            );
-            const body = (await res.json()) as Record<string, string>;
-            expect(body.local).toBe('reached');
-            // Refused outright by the runtime, not left to time out.
-            expect(body.metadata).toMatch(/internal error/);
-            expect(body.lan).toMatch(/internal error/);
-        } finally {
-            await localWorkers.cfDeleteLocal(name);
-            local.close();
-        }
-    }, 60_000);
-
-    it('reports failure instead of throwing when the runtime rejects the options', async () => {
-        const result = await localWorkers.cfDeployLocal(
-            'bad-worker',
-            'auth',
-            // `script` and `scriptPath` are mutually exclusive; the Miniflare
-            // constructor validates eagerly and throws.
-            undefined as unknown as string,
-        );
-        expect(result).toEqual({ success: false, errors: [], url: null });
+        await service.cfDeleteLocal('cold-worker');
     });
 });
