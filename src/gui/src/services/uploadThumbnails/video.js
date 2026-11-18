@@ -31,7 +31,8 @@ export const readVideoFrame = (file, signal) => new Promise((resolve) => {
 
     video.muted = true;
     video.playsInline = true;
-    video.preload = 'metadata';
+    // WebKit holds a seek back for a second unless it was told to load more than the metadata.
+    video.preload = 'auto';
     video.onerror = () => finish();
     // WebKit reports a seek as done before it can paint the frame it landed on, and a frame drawn then is black.
     const hasFrame = () => {

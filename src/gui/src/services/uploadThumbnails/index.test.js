@@ -475,7 +475,8 @@ describe('video thumbnails', () => {
         const result = createUploadThumbnailGenerator()(file, { defaultGenerator });
         await settle();
         const [video] = videos;
-        expect(video).toMatchObject({ src: 'blob:video-1', muted: true, preload: 'metadata' });
+        // With `metadata`, WebKit takes a second to finish each seek.
+        expect(video).toMatchObject({ src: 'blob:video-1', muted: true, preload: 'auto' });
         expect(URL.createObjectURL).toHaveBeenCalledWith(file);
         video.onloadedmetadata();
         expect(video.currentTime).toBe(6);
