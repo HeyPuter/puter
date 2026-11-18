@@ -130,6 +130,12 @@ export const createMissingThumbnailFiller = ({
      * @property {MissingThumbnailEntry} fsentry The row's own entry, which is updated in place when the file changes.
      * @property {MissingThumbnailPlace} place
      * @property {number} readyAt
+     * @property {Made} [made] A thumbnail made earlier that couldn't be stored yet.
+     */
+    /**
+     * @typedef {Object} Made
+     * @property {number} modified The version of the file the thumbnail shows.
+     * @property {string} thumbnail
      */
     /** @type {Map<string, Job>} */
     const pending = new Map();
@@ -139,6 +145,7 @@ export const createMissingThumbnailFiller = ({
      * @property {number} modified The version being downloaded.
      * @property {boolean} unwanted The file changed, or has a thumbnail now, so nothing is stored.
      * @property {number} received Bytes of the file downloaded so far.
+     * @property {Made} [made]
      * @property {Element} [row]
      * @property {MissingThumbnailEntry} fsentry
      * @property {MissingThumbnailPlace} place
@@ -234,7 +241,31 @@ export const createMissingThumbnailFiller = ({
         }
     };
 
+    /** The thumbnail a job already has for the version its file is at, so it needs no download. */
+    const madeFor = job => job.made?.modified === job.fsentry.modified ? job.made : undefined;
+
+    /** Store a made thumbnail. A refusal to wait out, or a failed connection, leaves it to be sent again. */
+    const send = async (fsentry, active) => {
+        let stored;
+        try {
+            // A thumbnail made from a version the file no longer has is refused, so it's safe to send after an abort.
+            stored = await store({
+                uid: fsentry.uid,
+                thumbnail: active.made.thumbnail,
+                expectedModified: fsentry.modified,
+            });
+        } catch {
+            return 'throttled';
+        }
+        if ( stored.status === 429 ) return 'throttled';
+        // The row's own entry, not the copy: the caller records the thumbnail on it. A row that has moved on to a
+        // newer version meanwhile keeps what it shows.
+        if ( stored.ok && active.row && !active.unwanted ) onStored(active.row, active.fsentry, active.made.thumbnail);
+        return 'done';
+    };
+
     const run = async (fsentry, active) => {
+        if ( active.made ) return send(fsentry, active);
         let blob;
         try {
             const response = await download(fsentry.uid, active.controller.signal);
@@ -255,13 +286,8 @@ export const createMissingThumbnailFiller = ({
         const thumbnail = await generate(new File([blob], fsentry.name, { type: fsentry.type || blob.type }));
         if ( ! thumbnail ) return 'failed';
         if ( active.unwanted ) return 'aborted';
-        // A thumbnail made from a version the file no longer has is refused, so it's safe to send after an abort.
-        const stored = await store({ uid: fsentry.uid, thumbnail, expectedModified: fsentry.modified });
-        if ( stored.status === 429 ) return 'throttled';
-        // The row's own entry, not the copy: the caller records the thumbnail on it. A row that has moved on to a
-        // newer version meanwhile keeps what it shows.
-        if ( stored.ok && active.row && !active.unwanted ) onStored(active.row, active.fsentry, thumbnail);
-        return 'done';
+        active.made = { modified: fsentry.modified, thumbnail };
+        return send(fsentry, active);
     };
 
     const start = (job) => {
@@ -272,7 +298,10 @@ export const createMissingThumbnailFiller = ({
         forget(fsentry.uid, row);
         remember(key);
         starts.push(now());
-        bytesLeft -= fsentry.size;
+        const made = madeFor(job);
+        // Set aside until the download ends, then settled against what arrived.
+        const reserved = made ? 0 : fsentry.size;
+        bytesLeft -= reserved;
         const controller = new AbortController();
         /** @type {Download} */
         const active = {
@@ -280,6 +309,7 @@ export const createMissingThumbnailFiller = ({
             modified: fsentry.modified,
             unwanted: false,
             received: 0,
+            made,
             row,
             fsentry: job.fsentry,
             place: job.place,
@@ -291,7 +321,7 @@ export const createMissingThumbnailFiller = ({
                 if ( outcome === 'failed' ) failures.add(key);
                 // The budget is charged what was downloaded, which for a download that was cancelled or refused is
                 // less than the size set aside for it.
-                bytesLeft += fsentry.size - active.received;
+                bytesLeft += reserved - active.received;
                 // Downloads are billed to the account, so none start once it's out of credit.
                 if ( outcome === 'out_of_credit' ) bytesLeft = 0;
                 // A file left before its download finished, or one the server asked to wait for, is tried again.
@@ -306,6 +336,7 @@ export const createMissingThumbnailFiller = ({
                         fsentry: active.fsentry,
                         place: active.place,
                         readyAt: Math.max(now(), pausedUntil),
+                        made: active.made,
                     });
                     observer?.observe(active.row);
                 }
@@ -337,7 +368,7 @@ export const createMissingThumbnailFiller = ({
                     break;
                 }
                 // Over the download budget, the rest of the page load goes without.
-                if ( next.job.fsentry.size > bytesLeft ) {
+                if ( !madeFor(next.job) && next.job.fsentry.size > bytesLeft ) {
                     forget(next.job.fsentry.uid, next.job.row);
                     continue;
                 }
@@ -380,6 +411,7 @@ export const createMissingThumbnailFiller = ({
                 fsentry,
                 place,
                 readyAt: Math.min(time + MISSING_THUMBNAIL_SETTLE_MS, Math.max(time, settled)),
+                made: pending.get(fsentry.uid)?.made,
             });
             observer.observe(row);
             schedule();

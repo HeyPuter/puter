@@ -355,12 +355,48 @@ describe('createMissingThumbnailFiller', () => {
 
         status = 200;
         await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_BACKOFF_MS - 1);
-        expect(downloads).toHaveLength(1);
+        expect(store).toHaveBeenCalledTimes(1);
         await vi.advanceTimersByTimeAsync(1);
+        // The thumbnail it made is sent again; the file isn't downloaded a second time.
+        expect(store).toHaveBeenCalledTimes(2);
+        expect(downloads).toHaveLength(1);
+        expect(onStored).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends a made thumbnail again when storing it could not reach the server', async () => {
+        const { filler, downloads, store, onStored } = setup();
+        store.mockImplementationOnce(async () => {
+            throw new TypeError('Failed to fetch');
+        });
+        const row = makeRow();
+        filler.observe(row, entry(), place);
+        show(row);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_BACKOFF_MS);
+
+        expect(store).toHaveBeenCalledTimes(2);
+        expect(downloads).toHaveLength(1);
+        expect(onStored).toHaveBeenCalledTimes(1);
+    });
+
+    it('downloads the file again when it was saved again before its made thumbnail could be stored', async () => {
+        let status = 429;
+        const { filler, downloads, store } = setup({ storeStatus: () => status });
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place);
+        show(row);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(0);
+
+        status = 200;
+        file.modified = SAVED + 5;
+        filler.observe(row, file, place);
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_BACKOFF_MS);
         expect(downloads).toHaveLength(2);
         downloads[1].finish();
         await vi.advanceTimersByTimeAsync(0);
-        expect(onStored).toHaveBeenCalledTimes(1);
+        expect(store).toHaveBeenLastCalledWith({ uid: file.uid, thumbnail, expectedModified: SAVED + 5 });
     });
 
     it('waits and tries again when the server could not be reached', async () => {
