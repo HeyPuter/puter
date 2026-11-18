@@ -585,6 +585,27 @@ describe('createMissingThumbnailFiller', () => {
         expect(after.downloads).toHaveLength(1);
     });
 
+    it('does not download a version again whose thumbnail the server refused as unusable', async () => {
+        const storage = new Map();
+        const localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
+        const file = entry();
+
+        const before = setup({ storeStatus: 400, failures: createRememberedFailures(() => localStorage) });
+        const row = makeRow();
+        before.filler.observe(row, file, place);
+        show(row);
+        before.downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(before.onStored).not.toHaveBeenCalled();
+
+        const after = setup({ failures: createRememberedFailures(() => localStorage) });
+        const again = makeRow();
+        after.filler.observe(again, file, place);
+        show(again);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(after.downloads).toHaveLength(0);
+    });
+
     it('downloads nothing more once the account is out of credit', async () => {
         const { filler, downloads } = setup();
         const first = makeRow();

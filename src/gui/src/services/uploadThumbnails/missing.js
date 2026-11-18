@@ -258,6 +258,8 @@ export const createMissingThumbnailFiller = ({
             return 'throttled';
         }
         if ( stored.status === 429 ) return 'throttled';
+        // The server can't use the image, and would refuse the same one made from this version again.
+        if ( stored.status === 400 ) return 'failed';
         // The row's own entry, not the copy: the caller records the thumbnail on it. A row that has moved on to a
         // newer version meanwhile keeps what it shows.
         if ( stored.ok && active.row && !active.unwanted ) onStored(active.row, active.fsentry, active.made.thumbnail);
