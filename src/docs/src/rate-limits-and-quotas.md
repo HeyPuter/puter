@@ -439,7 +439,7 @@ The Puter desktop also makes a thumbnail for a file in the user's own folders th
 | Missing thumbnail | Limit |
 | --- | --- |
 | File size | 20 MiB |
-| Files downloaded at a time | 2 |
+| Files downloaded at a time | 1 |
 | Files started per minute | 20 |
 | Data downloaded per page load | 100 MiB |
 | Wait after the file was last saved | 3 seconds |

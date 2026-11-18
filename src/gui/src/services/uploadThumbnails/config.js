@@ -54,7 +54,9 @@ export const VIDEO_FRAME_MAX_SECONDS = 10;
 export const VIDEO_FRAME_DIMENSION = 256;
 // The dashboard makes thumbnails for files that have none as it shows them, within these budgets.
 export const MISSING_THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
-export const MISSING_THUMBNAIL_CONCURRENCY = 2;
+// One at a time: a download holds one of the account's concurrent file reads, and a temporary account has three for
+// everything its apps do.
+export const MISSING_THUMBNAIL_CONCURRENCY = 1;
 export const MISSING_THUMBNAIL_PER_MINUTE = 20;
 // Per page load. Downloads count as the account's egress, so browsing a large photo library stays bounded.
 export const MISSING_THUMBNAIL_SESSION_BYTES = 100 * 1024 * 1024;

@@ -445,13 +445,11 @@ describe('createMissingThumbnailFiller', () => {
         const { filler, downloads, onStored } = setup();
         const row = makeRow();
         const file = entry();
-        const gone = entry();
         filler.observe(row, file, place);
-        filler.observe(makeRow(), gone, place);
-        rows.forEach(show);
-        expect(downloads).toHaveLength(2);
+        show(row);
+        expect(downloads).toHaveLength(1);
 
-        // A refresh clears the rows and draws the listing again in one go. One file is no longer in it.
+        // A refresh clears the rows and draws the listing again in one go.
         filler.reset();
         row.isConnected = false;
         const again = makeRow();
@@ -459,12 +457,26 @@ describe('createMissingThumbnailFiller', () => {
         show(again);
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(downloads).toHaveLength(2);
+        expect(downloads).toHaveLength(1);
         expect(downloads[0].signal.aborted).toBe(false);
-        expect(downloads[1].signal.aborted).toBe(true);
         downloads[0].finish();
         await vi.advanceTimersByTimeAsync(0);
         expect(onStored).toHaveBeenCalledWith(again, file, thumbnail);
+    });
+
+    it('cancels the download of a file that is gone when the folder on screen is drawn again', async () => {
+        const { filler, downloads } = setup();
+        const row = makeRow();
+        filler.observe(row, entry(), place);
+        show(row);
+
+        filler.reset();
+        row.isConnected = false;
+        const other = makeRow();
+        filler.observe(other, entry(), place);
+        show(other);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(downloads[0].signal.aborted).toBe(true);
     });
 
     it('downloads a file again when its row comes back while the cancelled download is still ending', async () => {
@@ -556,14 +568,12 @@ describe('createMissingThumbnailFiller', () => {
 
     it('drops a row that left the page before its turn', async () => {
         const { filler, downloads } = setup();
-        const first = makeRow();
-        const second = makeRow();
-        const third = makeRow();
-        for ( const row of [first, second, third] ) {
+        for ( let i = 0; i <= MISSING_THUMBNAIL_CONCURRENCY; i++ ) {
+            const row = makeRow();
             filler.observe(row, entry(), place);
             show(row);
         }
-        third.isConnected = false;
+        rows.at(-1).isConnected = false;
         downloads[0].finish();
         await vi.advanceTimersByTimeAsync(0);
         expect(downloads).toHaveLength(MISSING_THUMBNAIL_CONCURRENCY);
