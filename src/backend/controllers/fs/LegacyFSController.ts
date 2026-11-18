@@ -1253,16 +1253,8 @@ export class LegacyFSController extends PuterController {
         // `event.url` from a data URL to an `s3://` pointer, and the DB
         // write below needs to see that rewrite.
         const event = { url: thumbnail, uuid: entry.uuid };
-        await this.clients.event.emitAndWait('thumbnail.created', event, {});
-
-        // Not the owner-scoped update: a shared writer passed the check above.
-        const stored = await this.stores.fsEntry.updateEntryThumbnailByUuid(
-            entry.uuid,
-            event.url,
-            typeof expectedModified === 'number'
-                ? { modified: expectedModified }
-                : {},
-        );
+        const meta: import('../../clients/event/types.js').EventMetadata = {};
+        await this.clients.event.emitAndWait('thumbnail.created', event, meta);
         const discard = (url: string | null) => {
             if (url) {
                 this.clients.event.emit(
@@ -1272,6 +1264,28 @@ export class LegacyFSController extends PuterController {
                 );
             }
         };
+        // Storing a pointer whose upload failed, or the null left for an image
+        // that can't be decoded, would replace a thumbnail that works.
+        if (meta.listener_failed) {
+            if (event.url !== thumbnail) discard(event.url);
+            throw new HttpError(500, 'The thumbnail could not be saved', {
+                legacyCode: 'internal_error',
+            });
+        }
+        // The listener's rewrite isn't bound by the event's declared type.
+        if (typeof event.url !== 'string' || !event.url)
+            throw new HttpError(400, '`thumbnail` is not a usable image', {
+                legacyCode: 'bad_request',
+            });
+
+        // Not the owner-scoped update: a shared writer passed the check above.
+        const stored = await this.stores.fsEntry.updateEntryThumbnailByUuid(
+            entry.uuid,
+            event.url,
+            typeof expectedModified === 'number'
+                ? { modified: expectedModified }
+                : {},
+        );
         if (!stored) {
             discard(event.url);
             if (typeof expectedModified !== 'number')

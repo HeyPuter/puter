@@ -774,6 +774,86 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
         },
     );
 
+    const duringThumbnailCreated = async (
+        listener: (data: { url: string | null; uuid: string }) => unknown,
+        run: () => Promise<unknown>,
+    ): Promise<void> => {
+        const wrapped = (_key: string, data: unknown) =>
+            listener(data as { url: string | null; uuid: string });
+        server.clients.event.on('thumbnail.created', wrapped as never);
+        try {
+            await run();
+        } finally {
+            server.clients.event.off('thumbnail.created', wrapped as never);
+        }
+    };
+
+    it('keeps the current thumbnail when the new one could not be saved', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/unsaved-thumb.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'body');
+        const current = 'data:image/png;base64,Rmlyc3Q=';
+        await setThumbnail(actor, { uid: uuid, thumbnail: current });
+
+        let rejection: unknown;
+        let updates: unknown[] = [];
+        await duringThumbnailCreated(
+            (data) => {
+                data.url = 's3://bucket/thumbnails/never-uploaded';
+                throw new Error('storage is down');
+            },
+            async () => {
+                updates = await captureEvents('outer.gui.item.updated', () =>
+                    setThumbnail(actor, {
+                        uid: uuid,
+                        thumbnail: 'data:image/png;base64,U2Vjb25k',
+                    }).catch((error: unknown) => {
+                        rejection = error;
+                    }),
+                );
+            },
+        );
+
+        expect(rejection).toMatchObject({ statusCode: 500 });
+        expect(updates).toEqual([]);
+        expect(
+            (await server.stores.fsEntry.getEntryByUuidFromPrimary(uuid))
+                ?.thumbnail,
+        ).toBe(current);
+    });
+
+    it('keeps the current thumbnail when the new one is not a usable image', async () => {
+        const { actor, username } = await makeUser();
+        const path = `/${username}/Documents/unusable-thumb.txt`;
+        const { uuid } = await writeFileEntry(actor, path, 'body');
+        const current = 'data:image/png;base64,Rmlyc3Q=';
+        await setThumbnail(actor, { uid: uuid, thumbnail: current });
+
+        let rejection: unknown;
+        // What the thumbnails extension does with an image it can't decode.
+        await duringThumbnailCreated(
+            (data) => {
+                data.url = null;
+            },
+            () =>
+                setThumbnail(actor, {
+                    uid: uuid,
+                    thumbnail: 'data:image/png;base64,U2Vjb25k',
+                }).catch((error: unknown) => {
+                    rejection = error;
+                }),
+        );
+
+        expect(rejection).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+        expect(
+            (await server.stores.fsEntry.getEntryByUuidFromPrimary(uuid))
+                ?.thumbnail,
+        ).toBe(current);
+    });
+
     it("refuses to retag another user's entry", async () => {
         const owner = await makeUser();
         const stranger = await makeUser();
