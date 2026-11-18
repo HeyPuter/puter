@@ -21,8 +21,8 @@ import type { Request, Response } from 'express';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type {
+    OpenedProfile,
     ProfileService,
-    UserProfile,
 } from '../../services/profile/ProfileService.js';
 import { PuterController } from '../types.js';
 
@@ -42,7 +42,8 @@ const notFound = () =>
 export class ProfileController extends PuterController {
     /**
      * GET /profile?username=<name> — a user's profile. Without `username`, the
-     * signed-in user's own.
+     * signed-in user's own. Answers 304 to a request holding the current tag
+     * without reading the stored profile.
      */
     @Get('/', {
         subdomain: 'api',
@@ -59,17 +60,17 @@ export class ProfileController extends PuterController {
         const username = req.query.username;
 
         let target;
-        let ownProfile: PromiseSettledResult<UserProfile> | undefined;
+        let ownProfile: PromiseSettledResult<OpenedProfile> | undefined;
         if (username === undefined) {
             if (!caller?.uuid) {
                 throw new HttpError(401, 'Sign in, or pass a username', {
                     legacyCode: 'unauthorized',
                 });
             }
-            // Read alongside the account; discarded if there's no account.
+            // Opened alongside the account; discarded if there's no account.
             const [found, profile] = await Promise.allSettled([
                 this.stores.user.getByUuid(caller.uuid),
-                service.getProfile({ uuid: caller.uuid }),
+                service.openProfile({ uuid: caller.uuid }),
             ]);
             if (found.status === 'rejected') throw found.reason;
             target = found.value;
@@ -91,12 +92,23 @@ export class ProfileController extends PuterController {
         if (!isOwner && !(await service.isPubliclyVisible(target))) {
             throw notFound();
         }
+        let profile: OpenedProfile;
         if (ownProfile && isOwner) {
             if (ownProfile.status === 'rejected') throw ownProfile.reason;
-            res.json(ownProfile.value);
-            return;
+            profile = ownProfile.value;
+        } else {
+            profile = await service.openProfile(target);
         }
-        res.json(await service.getProfile(target));
+        // Stored and revalidated on every read, by the caller's browser only.
+        res.set('Cache-Control', 'private, no-cache');
+        if (profile.etag) {
+            res.set('ETag', profile.etag);
+            if (req.fresh) {
+                res.status(304).end();
+                return;
+            }
+        }
+        res.json(await profile.read());
     }
 
     /** POST /profile — update the signed-in user's own profile. */

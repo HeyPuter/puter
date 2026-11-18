@@ -66,12 +66,17 @@ describe('ProfileController own profile', () => {
     const getOwn = async (uuid: string) => {
         let body: unknown;
         const res = {
+            set: () => res,
             json: (value: unknown) => {
                 body = value;
             },
         } as unknown as Response;
         await controller.get(
-            { query: {}, actor: { user: { uuid } } } as unknown as Request,
+            {
+                query: {},
+                fresh: false,
+                actor: { user: { uuid } },
+            } as unknown as Request,
             res,
         );
         return body;

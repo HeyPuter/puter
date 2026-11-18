@@ -17,7 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import http from 'node:http';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 
 const PICTURE =
@@ -148,5 +149,99 @@ describe('profile routes over HTTP', () => {
             body: JSON.stringify({ bio: 'x' }),
         });
         expect(anonymous.status).toBe(401);
+    });
+
+    describe('revalidation', () => {
+        // `fetch` adds `cache-control: no-cache` beside If-None-Match, which
+        // rules out a 304; this sends what a browser revalidating its copy does.
+        const revalidate = (query: string, etag: string, token?: string) =>
+            new Promise<{ status: number; etag?: string; body: string }>(
+                (resolve, reject) => {
+                    const url = new URL(`/profile${query}`, env.apiOrigin);
+                    const req = http.request(
+                        {
+                            host: url.hostname,
+                            port: url.port,
+                            path: `${url.pathname}${url.search}`,
+                            headers: {
+                                host: url.host,
+                                'if-none-match': etag,
+                                ...(token
+                                    ? { authorization: `Bearer ${token}` }
+                                    : {}),
+                            },
+                        },
+                        (res) => {
+                            let body = '';
+                            res.setEncoding('utf8');
+                            res.on('data', (chunk) => (body += chunk));
+                            res.on('end', () =>
+                                resolve({
+                                    status: res.statusCode!,
+                                    etag: res.headers.etag,
+                                    body,
+                                }),
+                            );
+                        },
+                    );
+                    req.on('error', reject);
+                    req.end();
+                },
+            );
+
+        it('answers 304 to the current tag without reading the stored profile', async () => {
+            await post({ bio: 'tagged' }, env.users.user.token);
+            const first = await get('', env.users.user.token);
+            expect(first.headers.get('cache-control')).toBe(
+                'private, no-cache',
+            );
+            const etag = first.headers.get('etag')!;
+            expect(etag).toMatch(/^"[^"]+"$/);
+
+            const read = vi.spyOn(env.server.services.fs, 'readContent');
+            try {
+                const again = await revalidate('', etag, env.users.user.token);
+                expect(again.status).toBe(304);
+                expect(again.body).toBe('');
+                expect(read).not.toHaveBeenCalled();
+            } finally {
+                read.mockRestore();
+            }
+        });
+
+        it('sends the new profile once it changes', async () => {
+            await post({ bio: 'before' }, env.users.user.token);
+            const etag = (await get('', env.users.user.token)).headers.get(
+                'etag',
+            )!;
+            await post({ bio: 'after' }, env.users.user.token);
+
+            const again = await revalidate('', etag, env.users.user.token);
+            expect(again.status).toBe(200);
+            expect(again.etag).not.toBe(etag);
+            expect(JSON.parse(again.body)).toMatchObject({ bio: 'after' });
+        });
+
+        it('tags an account that has stored no profile', async () => {
+            const first = await get('', env.users.other.token);
+            expect(await first.json()).toEqual({
+                picture: null,
+                displayName: null,
+                bio: null,
+            });
+            const etag = first.headers.get('etag')!;
+            const again = await revalidate('', etag, env.users.other.token);
+            expect(again.status).toBe(304);
+        });
+
+        it('still hides a profile whose owner left their plan, whatever tag the reader holds', async () => {
+            const query = `?username=${env.users.user.username}`;
+            const etag = await withSubscription('business', async () => {
+                const shown = await get(query);
+                expect(shown.status).toBe(200);
+                return shown.headers.get('etag')!;
+            });
+            expect((await revalidate(query, etag)).status).toBe(404);
+        });
     });
 });
