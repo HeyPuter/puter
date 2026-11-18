@@ -4,6 +4,7 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 
 ## November 17, 2026
 
+- Added URL lookups to [`puter.apps.get()`](/Apps/get/). Pass a URL such as `https://my-app.puter.site/about` instead of a name to get the app at that URL's origin. See [Getting an app by URL](/Apps/get/#getting-an-app-by-url).
 - Fixed [`puter.ui.contextMenu()`](/UI/contextMenu/) menus with a submenu inside a submenu staying open after an item in the inner submenu was chosen. The inner submenu also closes when the submenu it belongs to closes.
 
 ## November 16, 2026
