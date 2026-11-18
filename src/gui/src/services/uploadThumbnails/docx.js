@@ -24,6 +24,7 @@ const BASE_FORMAT = {
     spaceBefore: 0,
     spaceAfter: 0,
     lineSpacing: 1,
+    pageBreakBefore: false,
 };
 
 // An on/off property is on when it is present, unless its value says otherwise.
@@ -54,7 +55,9 @@ const readFormat = (format, name, parent, attributes) => {
         else if ( name === 'w:sz' ) set('size', clamped(value, 2, 1, 400));
         else if ( name === 'w:color' ) format.color = /^[0-9a-f]{6}$/i.test(value) ? `#${value}` : BASE_FORMAT.color;
     } else if ( parent === 'w:pPr' ) {
-        if ( name === 'w:jc' ) {
+        if ( name === 'w:pageBreakBefore' ) {
+            format.pageBreakBefore = isOn(attributes);
+        } else if ( name === 'w:jc' ) {
             format.align = value === 'center' ? 'center' : value === 'right' || value === 'end' ? 'end' : 'start';
         } else if ( name === 'w:ind' ) {
             set('indent', clamped(attributes['w:left'] ?? attributes['w:start'], TWIPS_PER_POINT, 0, 400));
@@ -118,6 +121,33 @@ const readStyles = (xml) => {
 };
 
 /**
+ * Get the section properties that start at or after `from`, up to their end or to their record of an earlier version.
+ * Each lookup is one pass: a pattern that could fail late would start over at every tag in unclosed markup.
+ *
+ * @param {string} xml
+ * @param {number} from
+ * @returns {string | undefined}
+ */
+const sectionFrom = (xml, from) => {
+    const opening = /<w:sectPr[\s/>]/g;
+    opening.lastIndex = from;
+    const start = opening.exec(xml)?.index;
+    if ( start === undefined ) return undefined;
+    // Section properties with nothing in them are a single tag.
+    const tagEnd = xml.indexOf('>', start);
+    if ( xml[tagEnd - 1] === '/' ) return xml.slice(start, tagEnd + 1);
+    const ends = ['</w:sectPr>', '<w:sectPrChange'].map(mark => xml.indexOf(mark, start)).filter(at => at >= 0);
+    return xml.slice(start, Math.min(xml.length, ...ends));
+};
+
+// The attributes of the first `name` tag in a stretch of markup.
+const attributesIn = (markup, name) => {
+    const at = markup.search(new RegExp(`<${name}\\s`));
+    const end = markup.indexOf('>', at);
+    return attributesOf(at < 0 || end < 0 ? '' : markup.slice(at, end));
+};
+
+/**
  * Collect the first page of the document's main part: its paragraphs, table rows and pictures, in reading order.
  *
  * @param {string} xml
@@ -144,6 +174,7 @@ const readBody = (xml, formatOf) => {
     let characters = 0;
     let hasContent = false;
     let ended = false;
+    let lastSection = false;
 
     const formatOfParagraph = paragraph => paragraph.format ??= {
         ...formatOf(paragraph.style, tableStyles.at(-1)),
@@ -156,9 +187,20 @@ const readBody = (xml, formatOf) => {
         }
         run = undefined;
     };
+    // A break before any content doesn't end the page.
+    const endPage = () => {
+        ended = hasContent;
+    };
+    // A paragraph can be set, by itself or by its style, to start a page. Its formatting is known once its text starts.
+    const startParagraph = (paragraph) => {
+        if ( paragraph.started ) return;
+        paragraph.started = true;
+        if ( formatOfParagraph(paragraph).pageBreakBefore ) endPage();
+    };
     const closeParagraph = () => {
         const paragraph = paragraphs.pop();
         if ( ! paragraph ) return;
+        startParagraph(paragraph);
         const { size, align, indent, spaceBefore, spaceAfter, lineSpacing } = formatOfParagraph(paragraph);
         containers.at(-1).push({
             runs: paragraph.runs,
@@ -170,17 +212,21 @@ const readBody = (xml, formatOf) => {
             spaceAfter,
             lineSpacing,
         });
+        // A paragraph that holds section properties is the last of its section. How the next section starts is in
+        // that section's own properties: on a new page, unless they say otherwise.
+        if ( paragraph.sectionEnd === undefined || lastSection ) return;
+        const next = sectionFrom(xml, paragraph.sectionEnd);
+        // With no section after this one, there is none after any later paragraph either.
+        lastSection = next === undefined;
+        if ( next !== undefined && !['continuous', 'nextColumn'].includes(attributesIn(next, 'w:type')['w:val']) ) endPage();
     };
     const closeRow = () => {
         const row = rows.pop();
         if ( row ) row.container.push({ cells: row.cells });
     };
-    // A break before any content doesn't end the page.
-    const endPage = () => {
-        ended = hasContent;
-    };
 
-    for ( const [, closing, name, source, empty, text] of xml.matchAll(TOKEN) ) {
+    for ( const match of xml.matchAll(TOKEN) ) {
+        const [, closing, name, source, empty, text] = match;
         if ( ended ) break;
         if ( skipped ) {
             if ( name === skipped && !empty ) skipDepth += closing ? -1 : 1;
@@ -238,7 +284,8 @@ const readBody = (xml, formatOf) => {
         } else if ( name === 'w:r' ) {
             // A run inside a text box starts before the run that holds the text box ends.
             closeRun();
-            if ( paragraph ) run = { text: '', format: {}, paragraph };
+            if ( paragraph ) startParagraph(paragraph);
+            if ( paragraph && !ended ) run = { text: '', format: {}, paragraph };
         } else if ( name === 'w:drawing' ) {
             drawing = {};
         } else if ( parent === 'w:r' && run ) {
@@ -257,7 +304,7 @@ const readBody = (xml, formatOf) => {
             const attributes = attributesOf(source);
             if ( name === 'w:pStyle' ) paragraph.style = attributes['w:val'];
             else if ( name === 'w:numPr' ) paragraph.level ??= 0;
-            else if ( name === 'w:pageBreakBefore' && isOn(attributes) ) endPage();
+            else if ( name === 'w:sectPr' ) paragraph.sectionEnd = match.index + match[0].length;
             else readFormat(paragraph.own, name, parent, attributes);
         } else if ( name === 'w:ilvl' && parent === 'w:numPr' && paragraph ) {
             paragraph.level = clamped(attributesOf(source)['w:val'], 1, 0, 8) ?? 0;
@@ -290,17 +337,9 @@ const readBody = (xml, formatOf) => {
     while ( rows.length ) closeRow();
 
     // The first section's properties give the first page its size. They can come long after the page's content.
-    // Each lookup is one pass: a pattern that could fail late would start over at every tag in unclosed markup.
-    const start = xml.search(/<w:sectPr[\s>]/);
-    const ends = ['</w:sectPr>', '<w:sectPrChange'].map(mark => xml.indexOf(mark, start)).filter(at => at >= 0);
-    const section = start < 0 ? '' : xml.slice(start, Math.min(xml.length, ...ends));
-    const tagOf = (name) => {
-        const at = section.search(new RegExp(`<${name}\\s`));
-        const end = section.indexOf('>', at);
-        return at < 0 || end < 0 ? '' : section.slice(at, end);
-    };
-    const size = attributesOf(tagOf('w:pgSz'));
-    const margins = attributesOf(tagOf('w:pgMar'));
+    const section = sectionFrom(xml, 0) ?? '';
+    const size = attributesIn(section, 'w:pgSz');
+    const margins = attributesIn(section, 'w:pgMar');
     for ( const [side, attribute] of [['width', 'w:w'], ['height', 'w:h']] ) {
         const length = Number(size[attribute]) / TWIPS_PER_POINT;
         if ( length >= 72 && length <= 4000 ) page[side] = length;

@@ -164,8 +164,31 @@ describe('readDocxPreview drawing the first page', () => {
         ['a page break', `<w:p>${run('Shown')}<w:r><w:br w:type="page"/></w:r>${run('Hidden')}</w:p>${paragraph('Later')}`],
         ['the place Word last broke the page', `${paragraph('Shown')}<w:p><w:r><w:lastRenderedPageBreak/><w:t>Hidden</w:t></w:r></w:p>`],
         ['a paragraph that starts a page', paragraph('Shown') + paragraph('Hidden', '<w:pageBreakBefore/>')],
+        ['a paragraph whose style starts a page', paragraph('Shown') + paragraph('Hidden', '<w:pStyle w:val="Chapter"/>')],
+        // A section's own properties say how it starts, and they come at its end.
+        ['the end of a section, when the next one starts a page', paragraph('Shown', '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>') +
+            paragraph('Hidden') + paragraph('Later', '<w:sectPr><w:type w:val="nextPage"/></w:sectPr>')],
+        ['the end of a section, when the next one states no type', paragraph('Shown', '<w:sectPr/>') + paragraph('Hidden')],
     ])('stops at %s', async (_label, body) => {
-        expect((await draw({ body })).map(line => line.text)).toEqual(['Shown']);
+        const styles = '<w:style w:type="paragraph" w:styleId="Chapter"><w:pPr><w:pageBreakBefore/></w:pPr></w:style>';
+        expect((await draw({ body, styles })).map(line => line.text)).toEqual(['Shown']);
+    });
+
+    it('goes on past the end of a section when the next one continues on the same page', async () => {
+        const lines = await draw({
+            body: paragraph('One', '<w:sectPr><w:type w:val="nextPage"/></w:sectPr>') +
+                paragraph('Two', '<w:sectPr><w:type w:val="continuous"/></w:sectPr>') + paragraph('Three'),
+            section: '<w:type w:val="continuous"/><w:pgSz w:w="12240" w:h="15840"/>',
+        });
+        expect(lines.map(line => line.text)).toEqual(['One', 'Two', 'Three']);
+    });
+
+    it('lets a paragraph turn off the page break its style asks for', async () => {
+        const lines = await draw({
+            styles: '<w:style w:type="paragraph" w:styleId="Chapter"><w:pPr><w:pageBreakBefore/></w:pPr></w:style>',
+            body: paragraph('One') + paragraph('Two', '<w:pStyle w:val="Chapter"/><w:pageBreakBefore w:val="0"/>'),
+        });
+        expect(lines.map(line => line.text)).toEqual(['One', 'Two']);
     });
 
     it('does not stop at a page break that comes before any content', async () => {
@@ -390,6 +413,16 @@ describe('readDocxPreview budgets', () => {
         expect(preview).toBeInstanceOf(File);
         expect(linesOf(drawn).map(line => line.text)).toEqual(['Shown']);
         expect(performance.now() - started).toBeLessThan(1000);
+    });
+
+    it('looks past each section\'s end once, however many sections there are', async () => {
+        // Every paragraph ends a section that continues on the same page, and the last one has nothing after it.
+        const sections = '<w:p><w:pPr><w:sectPr><w:type w:val="continuous"/></w:sectPr></w:pPr></w:p>'.repeat(4000) +
+            '<w:p><w:pPr><w:sectPr/></w:pPr></w:p>'.repeat(20_000);
+        const started = performance.now();
+        const preview = await readDocxPreview(new File([createZip({ 'word/document.xml': `<w:document><w:body>${paragraph('Shown')}${sections}` })], 'report.docx'));
+        expect(preview).toBeInstanceOf(File);
+        expect(performance.now() - started).toBeLessThan(1500);
     });
 
     it('lays out text up to the character budget', async () => {
