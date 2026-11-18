@@ -566,6 +566,21 @@ describe('createMissingThumbnailFiller', () => {
         expect(downloads).toHaveLength(count);
     });
 
+    it('does not go through the whole queue for each row of a folder as it is drawn', () => {
+        const { filler } = setup();
+        let looks = 0;
+        const first = {
+            onScreen: false,
+            get isConnected () {
+                looks++;
+                return true;
+            },
+        };
+        filler.observe(first, entry(), place);
+        for ( let i = 0; i < 500; i++ ) filler.observe(makeRow(), entry(), place);
+        expect(looks).toBeLessThan(5);
+    });
+
     it('drops a row that left the page before its turn', async () => {
         const { filler, downloads } = setup();
         for ( let i = 0; i <= MISSING_THUMBNAIL_CONCURRENCY; i++ ) {

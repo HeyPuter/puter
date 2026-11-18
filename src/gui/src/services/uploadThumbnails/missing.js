@@ -193,12 +193,16 @@ export const createMissingThumbnailFiller = ({
         let job;
         let wakeAt = Infinity;
         for ( const [uid, candidate] of pending ) {
-            // The entry may have changed since it was queued: renamed, moved, or given a thumbnail by another tab.
-            if ( !candidate.row.isConnected || !wantsThumbnail(candidate.fsentry, candidate.place) ) {
+            if ( ! candidate.row.isConnected ) {
                 forget(uid, candidate.row);
                 continue;
             }
             if ( !visible.has(candidate.row) || running.has(uid) ) continue;
+            // The entry may have changed since it was queued: renamed, moved, or given a thumbnail by another tab.
+            if ( ! wantsThumbnail(candidate.fsentry, candidate.place) ) {
+                forget(uid, candidate.row);
+                continue;
+            }
             if ( candidate.readyAt <= time ) {
                 job = candidate;
                 break;
@@ -416,7 +420,9 @@ export const createMissingThumbnailFiller = ({
                 made: pending.get(fsentry.uid)?.made,
             });
             observer.observe(row);
-            schedule();
+            // A row not on screen yet has nothing to start, and the observer's first report on it schedules. Going
+            // through the queue for each row of a large folder as it's drawn would take the square of its length.
+            if ( visible.has(row) ) schedule();
         },
         /**
          * Stop for rows that are gone, such as when the folder changes. A download is cancelled unless its file's row
