@@ -362,8 +362,8 @@ describe('thumbnails extension — handleThumbnailRead', () => {
                 expiration: new Date(Date.now() + 60_000),
             }),
         });
-        const key = mintedKey();
-        const read = async () => {
+        const keys = [mintedKey(), mintedKey(), mintedKey()];
+        const read = async (key: string) => {
             const entry: Record<string, unknown> = {
                 thumbnail: `s3://${BUCKET}/${key}`,
             };
@@ -376,17 +376,25 @@ describe('thumbnails extension — handleThumbnailRead', () => {
             });
             return entry.thumbnail as string;
         };
+        const listing = () => Promise.all(keys.map(read));
 
-        const first = await read();
-        creds.secretAccessKey = 'two';
-        expect(await read()).toBe(first);
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(Date.UTC(2026, 9, 26, 10, 30));
+            // A cold client's first listing signs its entries concurrently.
+            const first = await listing();
+            creds.secretAccessKey = 'two';
+            expect(await listing()).toEqual(first);
 
-        creds.accessKeyId = 'AKIDSECOND';
-        const rotated = await read();
-        expect(rotated).not.toBe(first);
-        expect(new URL(rotated).searchParams.get('X-Amz-Credential')).toMatch(
-            /^AKIDSECOND\//,
-        );
+            creds.accessKeyId = 'AKIDSECOND';
+            const rotated = await read(keys[0]);
+            expect(rotated).not.toBe(first[0]);
+            expect(
+                new URL(rotated).searchParams.get('X-Amz-Credential'),
+            ).toMatch(/^AKIDSECOND\//);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     // Thumbnails stored before keys were bound to entries keep displaying.

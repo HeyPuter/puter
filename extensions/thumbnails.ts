@@ -307,11 +307,19 @@ const signThumbnailRead = async (
     bucket: string,
     key: string,
 ): Promise<string> => {
+    // Registered before any await, so a listing's concurrent signings share it.
+    let cache = signedReadUrls.get(client);
+    if (!cache) {
+        cache = new BoundedTtlMap({
+            maxEntries: SIGNED_URL_CACHE_ENTRIES,
+            ttlMs: SIGNING_PERIOD_MS,
+        });
+        signedReadUrls.set(client, cache);
+    }
     const period = Math.floor(Date.now() / SIGNING_PERIOD_MS);
     const { accessKeyId } = await client.config.credentials();
     const cacheKey = `${accessKeyId}\0${period}\0${bucket}\0${key}`;
-    let cache = signedReadUrls.get(client);
-    const cached = cache?.get(cacheKey);
+    const cached = cache.get(cacheKey);
     if (cached) return cached;
     const url = await getSignedUrl(
         client,
@@ -321,13 +329,6 @@ const signThumbnailRead = async (
             signingDate: new Date(period * SIGNING_PERIOD_MS),
         },
     );
-    if (!cache) {
-        cache = new BoundedTtlMap({
-            maxEntries: SIGNED_URL_CACHE_ENTRIES,
-            ttlMs: SIGNING_PERIOD_MS,
-        });
-        signedReadUrls.set(client, cache);
-    }
     cache.set(cacheKey, url);
     return url;
 };
