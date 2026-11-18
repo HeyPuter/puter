@@ -235,14 +235,22 @@ export const createMissingThumbnailFiller = ({
     };
 
     const run = async (fsentry, active) => {
-        const response = await download(fsentry.uid, active.controller.signal);
-        if ( ! response.ok ) {
-            // Nothing reads the error's body, and the connection is held until something does.
-            response.body?.cancel().catch(() => {});
-            if ( response.status === 429 ) return 'throttled';
-            return response.status === 402 ? 'out_of_credit' : 'done';
+        let blob;
+        try {
+            const response = await download(fsentry.uid, active.controller.signal);
+            if ( ! response.ok ) {
+                // Nothing reads the error's body, and the connection is held until something does.
+                response.body?.cancel().catch(() => {});
+                if ( response.status === 429 ) return 'throttled';
+                return response.status === 402 ? 'out_of_credit' : 'done';
+            }
+            blob = await readContents(response, active);
+        } catch ( error ) {
+            if ( active.controller.signal.aborted ) throw error;
+            // The server wasn't reached, or the connection dropped. That says nothing about the file, so it waits
+            // like a file the server asked to slow down for.
+            return 'throttled';
         }
-        const blob = await readContents(response, active);
         if ( ! blob ) return 'failed';
         const thumbnail = await generate(new File([blob], fsentry.name, { type: fsentry.type || blob.type }));
         if ( ! thumbnail ) return 'failed';

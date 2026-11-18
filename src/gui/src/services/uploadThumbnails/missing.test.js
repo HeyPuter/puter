@@ -363,6 +363,25 @@ describe('createMissingThumbnailFiller', () => {
         expect(onStored).toHaveBeenCalledTimes(1);
     });
 
+    it('waits and tries again when the server could not be reached', async () => {
+        const { filler, download, downloads, onStored } = setup();
+        download.mockImplementationOnce(async () => {
+            throw new TypeError('Failed to fetch');
+        });
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place);
+        show(row);
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_BACKOFF_MS - 1);
+        expect(download).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(download).toHaveBeenCalledTimes(2);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onStored).toHaveBeenCalledWith(row, file, thumbnail);
+    });
+
     it('cancels downloads when the folder changes, and tries them again later', async () => {
         const { filler, downloads } = setup();
         const row = makeRow();

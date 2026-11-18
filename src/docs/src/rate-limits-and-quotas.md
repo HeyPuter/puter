@@ -443,7 +443,7 @@ The Puter desktop also makes a thumbnail for a file in the user's own folders th
 | Files started per minute | 20 |
 | Data downloaded per page load | 100 MiB |
 | Wait after the file was last saved | 3 seconds |
-| Pause after a `429` response | 60 seconds |
+| Pause after a `429` response or a failed connection | 60 seconds |
 
 ### Permissions
 
