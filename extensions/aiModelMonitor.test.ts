@@ -415,3 +415,59 @@ it('diffs bogus models across reordered, changed, failed, and recovered catalogs
     expect(alerts[3].fields.model).toBe("'bogus-new'");
     expect(requests).toHaveLength(6);
 });
+
+it.each(['read', 'write'] as const)(
+    'does not emit model changes when a snapshot %s fails and recovers without replaying alerts',
+    async (operation) => {
+        const alarm = new AlarmClient({} as IConfig);
+        alarm.addAlertHandler(async (alert) => {
+            alerts.push(alert);
+        });
+        const monitor = new AIModelMonitorService(
+            {
+                providers: {
+                    openai: {
+                        apiKey: `kv-failure-${++seq}`,
+                        apiBaseUrl: origin,
+                    },
+                },
+            } as IConfig,
+            { ...backend.clients, alarm },
+            backend.stores,
+            backend.services,
+        );
+        await monitor.scan(ctx());
+        expect(alerts).toHaveLength(0);
+        body = { data: [{ id: 'kept' }, { id: 'new' }] };
+        const failure = vi
+            .spyOn(backend.clients.dynamo, operation === 'read' ? 'get' : 'put')
+            .mockRejectedValueOnce(
+                new Error('Injected storage failure with internal details'),
+            );
+        try {
+            await monitor.scan(ctx());
+        } finally {
+            failure.mockRestore();
+        }
+        expect(alerts).toHaveLength(1);
+        expect(alerts[0].message).toBe(
+            'AI provider model catalog snapshot failed',
+        );
+        expect(alerts[0].fields.operation).toBe(`'${operation}'`);
+        expect(alerts[0].channel).toBe('ai_providers');
+        expect(JSON.stringify(alerts)).not.toContain('internal details');
+        const { res } = await backend.stores.kv.get(
+            { key: 'openai', consistentRead: true },
+            { systemPartition: 'aiModelMonitor' },
+        );
+        expect((res as { models: string[] }).models).toEqual(['kept', 'old']);
+        await monitor.scan(ctx());
+        expect(alerts.map((alert) => alert.message)).toEqual([
+            'AI provider model catalog snapshot failed',
+            'AI provider model added',
+            'AI provider model removed',
+        ]);
+        await monitor.scan(ctx());
+        expect(alerts).toHaveLength(3);
+    },
+);

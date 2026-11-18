@@ -147,59 +147,84 @@ export class AIModelMonitorService extends PuterService {
                 .digest('hex');
             const key = endpoint.configKey;
             const opts = { systemPartition: 'aiModelMonitor' };
+            let operation: 'readSnapshot' | 'fetch' | 'writeSnapshot' =
+                'readSnapshot';
+            let old: Snapshot | null;
+            let models: string[];
             try {
-                const [{ res }, models] = await Promise.all([
+                const [stored, catalog] = await Promise.allSettled([
                     this.stores.kv.get({ key, consistentRead: true }, opts),
                     fetchModels(url, apiKey, format, signal),
                 ]);
-                const old = res as Snapshot | null;
+                signal.throwIfAborted();
+                if (stored.status === 'rejected') throw stored.reason;
+                old = stored.value.res as Snapshot | null;
+                operation = 'fetch';
+                if (catalog.status === 'rejected') throw catalog.reason;
+                models = catalog.value;
                 const snapshot = { source, models };
                 if (Buffer.byteLength(JSON.stringify(snapshot)) > 350 * 1024)
                     throw new Error('Model snapshot too large');
-                signal.throwIfAborted();
-                if (old?.source === source) {
-                    const transition = createHash('sha256')
-                        .update(JSON.stringify([source, old.models, models]))
-                        .digest('hex');
-                    const before = new Set(old.models);
-                    const after = new Set(models);
-                    for (const [change, ids] of [
-                        ['added', models.filter((id) => !before.has(id))],
-                        ['removed', old.models.filter((id) => !after.has(id))],
-                    ] as const) {
-                        for (const model of ids) {
-                            const signature = createHash('sha256')
-                                .update(
-                                    JSON.stringify([transition, change, model]),
-                                )
-                                .digest('hex');
-                            this.clients.alarm.create(
-                                `ai_model_catalog_change:${endpoint.provider}:${signature}`,
-                                `AI provider model ${change}`,
-                                {
-                                    provider: endpoint.provider,
-                                    configKey: key,
-                                    model,
-                                    change,
-                                },
-                                'info',
-                                { channel: 'ai_providers' },
-                            );
-                        }
-                    }
-                }
-                signal.throwIfAborted();
+                operation = 'writeSnapshot';
+                // Persist before notifying so a rejected write cannot replay a change.
                 await this.stores.kv.set({ key, value: snapshot }, opts);
             } catch {
                 signal.throwIfAborted();
-                // Upstream errors can embed credentials or response bodies.
+                // Upstream and storage errors can embed private response details.
+                const fetchFailed = operation === 'fetch';
                 this.clients.alarm.create(
-                    `ai_model_catalog_fetch_failed:${endpoint.provider}`,
-                    'AI provider model catalog fetch failed',
-                    { provider: endpoint.provider },
+                    fetchFailed
+                        ? `ai_model_catalog_fetch_failed:${endpoint.provider}`
+                        : `ai_model_catalog_snapshot_failed:${endpoint.provider}:${key}`,
+                    fetchFailed
+                        ? 'AI provider model catalog fetch failed'
+                        : 'AI provider model catalog snapshot failed',
+                    {
+                        provider: endpoint.provider,
+                        configKey: key,
+                        ...(!fetchFailed
+                            ? {
+                                  operation:
+                                      operation === 'readSnapshot'
+                                          ? 'read'
+                                          : 'write',
+                              }
+                            : {}),
+                    },
                     'info',
                     { channel: 'ai_providers' },
                 );
+                return;
+            }
+            signal.throwIfAborted();
+            if (old?.source === source) {
+                const transition = createHash('sha256')
+                    .update(JSON.stringify([source, old.models, models]))
+                    .digest('hex');
+                const before = new Set(old.models);
+                const after = new Set(models);
+                for (const [change, ids] of [
+                    ['added', models.filter((id) => !before.has(id))],
+                    ['removed', old.models.filter((id) => !after.has(id))],
+                ] as const) {
+                    for (const model of ids) {
+                        const signature = createHash('sha256')
+                            .update(JSON.stringify([transition, change, model]))
+                            .digest('hex');
+                        this.clients.alarm.create(
+                            `ai_model_catalog_change:${endpoint.provider}:${signature}`,
+                            `AI provider model ${change}`,
+                            {
+                                provider: endpoint.provider,
+                                configKey: key,
+                                model,
+                                change,
+                            },
+                            'info',
+                            { channel: 'ai_providers' },
+                        );
+                    }
+                }
             }
         });
         signal.throwIfAborted();

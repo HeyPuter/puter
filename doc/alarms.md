@@ -224,7 +224,12 @@ or API key establishes a fresh baseline because account visibility can differ.
 Each added or removed model raises an `info` alarm on `ai_providers`, which can
 map to `#alerts-ai` through `pager.slack.channels`. Unchanged catalogs are quiet.
 A failed, invalid, oversized, or incomplete listing raises a fetch-failure alarm
-and retains the last successful snapshot. Removing a provider's configuration
+and retains the last successful snapshot. Snapshot read or write failures raise
+a separate snapshot-failure alarm without emitting model changes. The monitor
+saves the new snapshot before emitting change alerts, so a failed save can be
+retried without replaying alerts. This isn't a durable alert queue. A process
+that stops after saving and before emitting can miss those alerts.
+Removing a provider's configuration
 doesn't report all of its models as removed.
 
 | Providers | Monitoring |
