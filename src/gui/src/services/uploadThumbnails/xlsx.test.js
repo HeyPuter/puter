@@ -127,6 +127,11 @@ describe('readXlsxPreview', () => {
         expect(rounded([cells.a.x, cells.b.x, cells.c.x])).toEqual(rounded([2, COLUMN + 2, 2 * COLUMN + 2]));
     });
 
+    it('leaves a shared-string cell with no value empty', async () => {
+        await draw({ strings: ['first string'], sheet: sheetOf(row(1, '<c r="A1" t="s"/><c r="B1" t="s"><v></v></c>' + text('C1', 'c'))) });
+        expect(texts()).toEqual(['c']);
+    });
+
     it('places cells that state no reference after the one before', async () => {
         const cells = await draw({ sheet: sheetOf(row('', text('', 'a') + text('', 'b')) + row('', text('', 'c'))) });
         expect(rounded([cells.a.x, cells.b.x, cells.c.x])).toEqual(rounded([2, COLUMN + 2, 2]));

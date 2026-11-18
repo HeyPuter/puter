@@ -196,7 +196,8 @@ const readSheet = (xml, strings, styleOf) => {
         const number = Number(value);
         const numeric = !type || type === 'n';
         let text = value;
-        if ( type === 's' ) text = strings[number] ?? '';
+        // A cell that refers to no string is empty, not the first string.
+        if ( type === 's' ) text = value ? strings[number] ?? '' : '';
         else if ( type === 'b' ) text = value === '1' ? 'TRUE' : 'FALSE';
         // A number is shown to the 15 digits a spreadsheet keeps, which drops the noise of its binary form. Its number
         // format is not applied.
