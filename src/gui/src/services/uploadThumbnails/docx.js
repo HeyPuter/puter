@@ -168,6 +168,8 @@ const readBody = (xml, formatOf) => {
     // A text box puts paragraphs inside a paragraph.
     const paragraphs = [];
     let run;
+    // A text box puts runs inside a run too. The runs around the current one wait here.
+    const outerRuns = [];
     let drawing;
     let skipped;
     let skipDepth = 0;
@@ -185,7 +187,7 @@ const readBody = (xml, formatOf) => {
             const { size, bold, italic, color } = { ...formatOfParagraph(run.paragraph), ...run.format };
             run.paragraph.runs.push({ text: run.text, size, bold, italic, color });
         }
-        run = undefined;
+        run = outerRuns.pop();
     };
     // A break before any content doesn't end the page.
     const endPage = () => {
@@ -282,10 +284,9 @@ const readBody = (xml, formatOf) => {
             paragraphs.push({ own: {}, runs: [] });
             if ( empty ) closeParagraph();
         } else if ( name === 'w:r' ) {
-            // A run inside a text box starts before the run that holds the text box ends.
-            closeRun();
             if ( paragraph ) startParagraph(paragraph);
-            if ( paragraph && !ended ) run = { text: '', format: {}, paragraph };
+            outerRuns.push(run);
+            run = paragraph && !ended ? { text: '', format: {}, paragraph } : undefined;
         } else if ( name === 'w:drawing' ) {
             drawing = {};
         } else if ( parent === 'w:r' && run ) {
@@ -332,7 +333,7 @@ const readBody = (xml, formatOf) => {
         }
     }
     // The page can end, or the XML run out, inside a paragraph or a table.
-    closeRun();
+    while ( run || outerRuns.length ) closeRun();
     while ( paragraphs.length ) closeParagraph();
     while ( rows.length ) closeRow();
 

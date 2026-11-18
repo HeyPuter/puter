@@ -240,6 +240,13 @@ describe('readDocxPreview drawing the first page', () => {
         expect(lines.find(line => line.text === 'Kept').x).toBe(72);
     });
 
+    it('keeps the text that follows a text box in the same run', async () => {
+        const lines = await draw({
+            body: `<w:p><w:r><w:t xml:space="preserve">Before </w:t><w:drawing><w:txbxContent>${paragraph('Boxed')}</w:txbxContent></w:drawing><w:t>After</w:t></w:r></w:p>`,
+        });
+        expect(lines.map(line => line.text).sort()).toEqual(['Before After', 'Boxed']);
+    });
+
     it('returns nothing for a document with a blank first page', async () => {
         expect(await readDocxPreview(docxFile({ body: '<w:p/><w:p><w:r><w:t xml:space="preserve">   </w:t></w:r></w:p>' }))).toBeUndefined();
     });
