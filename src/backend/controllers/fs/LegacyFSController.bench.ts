@@ -5,12 +5,17 @@ import { useBenchEnv, type BenchEnv } from '../../benchUtil.js';
 describe('legacy fs', () => {
     const home = () => `/${env.users.user.username}`;
 
+    let openedUid = '';
+    // A 1x1 PNG, which is what the thumbnails extension will accept.
+    const thumbnail =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
     const seed = async (env: BenchEnv) => {
         const owner = await env.server.stores.user.getByUsername(
             env.users.user.username,
         );
         const content = Buffer.from('opened by a benchmark');
-        await env.server.services.fs.write(owner!.id, {
+        const { fsEntry } = await env.server.services.fs.write(owner!.id, {
             fileMetadata: {
                 path: `${home()}/Documents/opened.txt`,
                 size: content.byteLength,
@@ -18,6 +23,7 @@ describe('legacy fs', () => {
             },
             fileContent: content,
         });
+        openedUid = fsEntry.uuid;
     };
 
     const env = useBenchEnv({ seed });
@@ -35,6 +41,12 @@ describe('legacy fs', () => {
     env.scenario('open a file from the desktop', async () => {
         await env.request('/open_item', {
             json: { path: `${home()}/Documents/opened.txt` },
+        });
+    });
+
+    env.scenario("set a file's thumbnail from the dashboard", async () => {
+        await env.request('/update-fsentry-thumbnail', {
+            json: { uid: openedUid, thumbnail },
         });
     });
 
