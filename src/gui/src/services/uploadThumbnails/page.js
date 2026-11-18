@@ -111,19 +111,21 @@ export const renderPage = async (page) => {
 
         for ( const run of paragraph.runs ) {
             const font = `${run.italic ? 'italic ' : ''}${run.bold ? 'bold ' : ''}${run.size}px sans-serif`;
-            ctx.font = font;
             for ( const part of run.text.match(/\n|\t|[^\S\n\t]+|\S+/g) ?? [] ) {
                 if ( y >= bottom ) return y;
                 if ( part === '\n' ) {
                     endLine();
                     continue;
                 }
+                // Drawing a line leaves the font of its last word behind, which may be another run's.
+                ctx.font = font;
                 const partWidth = part === '\t' ? TAB_WIDTH - lineWidth % TAB_WIDTH : ctx.measureText(part).width;
                 // A word wider than the line, as in text written without spaces, breaks between characters.
                 const breaks = !!part.trim() && partWidth > available;
                 for ( const text of breaks ? [...part] : [part] ) {
                     // Such a word can be most of the document, so it is measured only as far as the page goes.
                     if ( y >= bottom ) return y;
+                    ctx.font = font;
                     const wordWidth = breaks ? ctx.measureText(text).width : partWidth;
                     if ( line.length && text.trim() && lineWidth + wordWidth > available ) endLine();
                     line.push({ text, width: wordWidth, font, color: run.color, size: run.size });

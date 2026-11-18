@@ -130,6 +130,18 @@ describe('readDocxPreview drawing the first page', () => {
         expect(lines.every(line => line.x === 72)).toBe(true);
     });
 
+    it('measures each word in its own run\'s font after a line ends in another run\'s', async () => {
+        // A title and a subtitle in one paragraph, and a small note before large text.
+        await draw({
+            body: `<w:p>${run('Title', '<w:b/><w:sz w:val="48"/>')}<w:r><w:rPr><w:sz w:val="24"/></w:rPr><w:br/><w:t>aaa bbb ccc</w:t></w:r></w:p>` +
+                `<w:p>${run('note', '<w:sz w:val="16"/>')}<w:r><w:rPr><w:sz w:val="48"/></w:rPr><w:br/><w:t>ddd eee fff</w:t></w:r></w:p>`,
+        });
+        const xOf = Object.fromEntries(drawn.text.map(word => [word.text, word.x]));
+        // At 12 points a three-letter word and its space are 24 wide, and at 24 points they are 48.
+        expect([xOf.aaa, xOf.bbb, xOf.ccc]).toEqual([72, 96, 120]);
+        expect([xOf.ddd, xOf.eee, xOf.fff]).toEqual([72, 120, 168]);
+    });
+
     it('starts a new line at a line break and moves to the next tab stop at a tab', async () => {
         const lines = await draw({ body: '<w:p><w:r><w:t>ab</w:t><w:tab/><w:t>cd</w:t><w:br/><w:t>ef</w:t><w:cr/><w:t>gh</w:t></w:r></w:p>' });
         expect(lines.map(line => line.text)).toEqual(['ab cd', 'ef', 'gh']);
