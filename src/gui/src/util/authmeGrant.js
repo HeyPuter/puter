@@ -96,30 +96,38 @@ export const isLoopbackTarget = (url) => {
  */
 export const FORWARDS_TO_PARAM = 'forwards_to';
 
-const isHostOrSubdomainOf = (host, domain) =>
-    !!domain && (host === domain || host.endsWith(`.${domain}`));
+const originOf = (value) => {
+    try {
+        return new URL(value).origin;
+    } catch {
+        return null;
+    }
+};
+
+const isListedOrigin = (url, origins) => {
+    const target = originOf(url);
+    return !!target && Array.isArray(origins)
+        && origins.some(entry => originOf(entry) === target);
+};
 
 /**
- * The host a relay on this deployment's own domain passes the grant on to, or
- * null when the redirect is the final destination.
+ * The host a relay passes the grant on to, or null when the redirect is the
+ * final destination.
  *
- * Read only off a redirect to this deployment's domain: such a relay refuses
- * to complete a grant whose named host is not the one it delivers to, so the
- * name can be shown as fact. Anywhere else it would be an unverified claim
- * sitting beside the real destination, so it is ignored — as it is on the
- * hosting domain, where the pages are user content.
+ * Read only off a redirect to one of the deployment's relay origins
+ * (`gui_params.authmeRelayOrigins`): such a relay refuses to complete a grant
+ * whose named host is not the one it delivers to, so the name can be shown as
+ * fact. Anywhere else it would be an unverified claim sitting beside the real
+ * destination, so it is ignored.
  *
  * @param {string} redirectURL
- * @param {string} [deploymentDomain] - The domain this deployment is served under.
- * @param {string} [hostingDomain] - `window.hosting_domain`.
+ * @param {string[]} [relayOrigins] - Exact origins of the configured relays.
  * @returns {string | null} A lowercased `host[:port]`.
  */
-export const forwardedDestination = (redirectURL, deploymentDomain, hostingDomain) => {
+export const forwardedDestination = (redirectURL, relayOrigins) => {
     if ( ! isDeliverableRedirect(redirectURL) ) return null;
+    if ( ! isListedOrigin(redirectURL, relayOrigins) ) return null;
     const url = new URL(redirectURL);
-    const relayHost = url.hostname.toLowerCase();
-    if ( ! isHostOrSubdomainOf(relayHost, deploymentDomain?.toLowerCase()) ) return null;
-    if ( isHostOrSubdomainOf(relayHost, hostingDomain?.toLowerCase()) ) return null;
 
     // Taken as written, never re-parsed: the relay compares this exact string,
     // so a value normalized here could differ from the one it accepts. A URL's
@@ -128,6 +136,20 @@ export const forwardedDestination = (redirectURL, deploymentDomain, hostingDomai
     if ( !named || named.length > 255 || /\s/.test(named) ) return null;
     return named === url.host.toLowerCase() ? null : named;
 };
+
+/**
+ * Does the redirect land back on the GUI itself?
+ *
+ * GUI pages pass their query on to what they open (`/app/<name>` hands it to
+ * that app), so a grant delivered there reaches whatever the URL opens rather
+ * than the page the dialog names. A grant is never delivered to the GUI.
+ *
+ * @param {string} redirectURL
+ * @param {string[]} guiOrigins - The origins this GUI is served on.
+ * @returns {boolean}
+ */
+export const isGuiRedirect = (redirectURL, guiOrigins) =>
+    isListedOrigin(redirectURL, guiOrigins);
 
 /**
  * Was a full account session explicitly requested?

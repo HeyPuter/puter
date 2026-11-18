@@ -404,6 +404,7 @@ export class PuterHomepageService extends PuterService {
             ...(popupFrame ? { embed_host_origin: popupFrame.hostOrigin } : {}),
             first_party_session_origins:
                 this.config.first_party_session_origins ?? [],
+            authmeRelayOrigins: this.config.authmeRelayOrigins ?? [],
         };
         // Only ever this request's; without one the GUI asks for its token as
         // it always has.

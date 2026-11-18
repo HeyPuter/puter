@@ -158,9 +158,9 @@ export type EventMap = {
     'app.new-icon': { app_uid: string; data_url: string };
     'app.opened': { app_uid: string; user_id: number; ts: number };
     /**
-     * A user removed an app: its grants and worker sessions are gone. With
-     * `deleteData`, the user asked for the app's data in their account to go
-     * too. Awaited by the emitter.
+     * A user removed an app: its grants and worker sessions are gone, and its
+     * workers in the account are taken down. With `deleteData`, the user asked
+     * for the app's data in their account to go too. Awaited by the emitter.
      */
     'app.uninstalled': {
         userId: number;

@@ -74,6 +74,7 @@ import {
     forwardedDestination,
     fullTokenAllowed,
     isDeliverableRedirect,
+    isGuiRedirect,
     shouldUseRemoteAuthme,
     urlTokenParam,
     wantsFullToken,
@@ -209,6 +210,10 @@ const postAuthActions = async (action) => {
             await UIAlert({ message: i18n('authme_bad_redirect_url') });
             return;
         }
+        if ( redirectURL && isGuiRedirect(redirectURL, [window.location.origin, window.gui_origin]) ) {
+            await UIAlert({ message: i18n('authme_gui_redirect_url') });
+            return;
+        }
         // A full account session is only ever *offered* when the caller names
         // it. Without `token_type=session` this flow can hand over nothing but
         // the restricted API token, so an ordinary AuthMe link can't be
@@ -228,12 +233,9 @@ const postAuthActions = async (action) => {
             );
         }
         if ( redirectURL ) {
-            // The configured domain, not the host this page was reached on:
-            // an alias of the GUI is still the same deployment.
             const forwards_to = forwardedDestination(
                 redirectURL,
-                window.gui_params?.domain || window.app_domain,
-                window.hosting_domain,
+                window.gui_params?.authmeRelayOrigins,
             );
             const approved = await UIWindowAuthMe({
                 redirect_url: redirectURL,

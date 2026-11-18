@@ -230,7 +230,9 @@ Two ways, both running as the caller — the Worker holds no credentials of its 
    `?action=authme` page and catches the returned token on its `/oauth/callback`;
    the `client_id` (carrying its registered redirect URIs) and the short-lived
    flow/code blobs are AES-GCM sealed with `OAUTH_SECRET`, so the Worker stays
-   stateless.
+   stateless. List the Worker's origin in the Puter server's
+   `authmeRelayOrigins` config so the approval dialog names the client the
+   token goes to rather than the Worker.
 2. **Bearer token** (copy/paste). Get it from a logged-in Puter browser tab's
    devtools console: `puter.authToken`. Treat it like a password. Pass it as an
    `Authorization: Bearer <token>` header (or the `.mcpb` token field).

@@ -698,6 +698,8 @@ export class Puter {
         this.whoamiCache_ = null;
         /** @internal The boot `/whoami` while in flight, for `getUser()` to join. */
         this.whoamiInFlight_ = null;
+        /** @internal The token and API origin `whoami` was read with. */
+        this.whoamiFor_ = null;
 
         // A user session token must never be adopted from storage, and an
         // earlier boot may have left one behind.
@@ -1014,8 +1016,8 @@ export class Puter {
             }
             const body = await resp.json();
             // The answer belongs to the token that asked for it.
-            if (this.authToken !== issuedUnder) return null;
-            this.whoami = body;
+            if (!this.rememberWhoami_(body, issuedUnder, inFlight.origin))
+                return null;
             settle(body);
             return this.whoami;
         } catch (e) {
@@ -1025,6 +1027,23 @@ export class Puter {
             settle(null);
             if (this.whoamiInFlight_ === inFlight) this.whoamiInFlight_ = null;
         }
+    }
+
+    /**
+     * Keeps `user` as `whoami` if it was read with the current token and API
+     * origin.
+     *
+     * @internal
+     * @param {import('./modules/Auth.js').User} user
+     * @param {string} token
+     * @param {string} origin
+     * @returns {boolean} Whether it was kept.
+     */
+    rememberWhoami_(user, token, origin) {
+        if (token !== this.authToken || origin !== this.APIOrigin) return false;
+        this.whoami = user;
+        this.whoamiFor_ = { token, origin };
+        return true;
     }
 
     /**
@@ -1151,6 +1170,18 @@ export class Puter {
         // rao
         this.request_rao_();
 
+        // The desktop hands back the token it holds after every user
+        // refresh, right after reading the user with it.
+        const readWith = (f) =>
+            f?.token === normalizedAuthToken && f?.origin === this.APIOrigin;
+        if (this.env === 'gui') {
+            if (readWith(this.whoamiInFlight_)) return;
+            if (this.whoami && readWith(this.whoamiFor_)) {
+                this.whoamiCache_ = Promise.resolve(this.whoami);
+                return;
+            }
+        }
+
         // perform whoami and cache results
         this.whoamiCache_ = this.cacheWhoami_();
     };
@@ -1249,6 +1280,7 @@ export class Puter {
     /** Nothing read as one identity may answer for the next. */
     _dropIdentityCaches = function () {
         this.whoami = undefined;
+        this.whoamiFor_ = null;
         this.whoamiCache_ = null;
         this.whoamiInFlight_ = null;
         try {

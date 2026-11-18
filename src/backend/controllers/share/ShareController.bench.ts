@@ -7,6 +7,11 @@ describe('sharing', () => {
     // The share scenario takes a fresh recipient each run, so no run reads
     // what the run before it wrote.
     const recipients: string[] = [];
+    // One standing share per run of the withdraw scenario, from an owner of
+    // its own so the other scenarios' listings stay as they were.
+    let revocable = '';
+    let revoker = '';
+    const holders: string[] = [];
 
     const dir = () => `/${env.users.user.username}/Documents/shared`;
 
@@ -46,6 +51,41 @@ describe('sharing', () => {
                 items: [{ uid: kept }, { uid: folder.uuid }],
                 mode: 'read',
             },
+        });
+        const revokerUser = await createTestUser(env.server, {
+            username: 'sharebenchrevoker',
+            password: 'share-bench-password',
+        });
+        revoker = revokerUser.token;
+        const content = Buffer.from('share bench');
+        const revokerRow = await env.server.stores.user.getByUsername(
+            revokerUser.username,
+        );
+        ({
+            fsEntry: { uuid: revocable },
+        } = await fs.write(revokerRow!.id, {
+            fileMetadata: {
+                path: `/${revokerUser.username}/Documents/revocable.txt`,
+                size: content.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: content,
+        }));
+        // Two warm-up runs and seven recorded ones.
+        for (let i = 0; i < 9; i++) {
+            const { username } = await createTestUser(env.server, {
+                username: `sharebenchholder${i}`,
+                password: 'share-bench-password',
+            });
+            holders.push(username);
+        }
+        await env.request('/share', {
+            json: {
+                recipients: holders,
+                items: [{ uid: revocable }],
+                mode: 'read',
+            },
+            token: revoker,
         });
     };
 
@@ -87,6 +127,17 @@ describe('sharing', () => {
                 items: [{ uid: shareable }],
                 mode: 'read',
             },
+        });
+    });
+
+    let withdrawals = 0;
+    env.scenario('withdraw a file share from a user', async () => {
+        await env.request('/share/revoke', {
+            json: {
+                recipients: [holders[withdrawals++]],
+                items: [{ uid: revocable }],
+            },
+            token: revoker,
         });
     });
 });

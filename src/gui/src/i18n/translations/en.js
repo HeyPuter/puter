@@ -1025,6 +1025,7 @@ const en = {
         authme_full_token_confirm_phrase: 'grant full access',
         remote_backend_signin_failed: 'Could not sign in to {{origin}}. Reload this page to try again, or check that you are signed in at {{origin}}.',
         authme_bad_redirect_url: 'This authorization request was cancelled because its destination is not a valid web address. Nothing has been shared with it.',
+        authme_gui_redirect_url: 'This authorization request was cancelled because its destination is a Puter page, not an app or site. Nothing has been shared with it.',
     },
 };
 

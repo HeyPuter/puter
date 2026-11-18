@@ -61,6 +61,7 @@ vi.mock('./UI/Dashboard/UIDashboard.js', () => ({
 vi.mock('./UI/Dashboard/TabApps.js', () => ({ default: {} }));
 vi.mock('./UI/UIDesktop.js', () => ({ default: vi.fn(async () => null) }));
 vi.mock('./UI/UIAlert.js', () => ({ default: vi.fn(async () => undefined) }));
+vi.mock('./UI/UIWindowAuthMe.js', () => ({ default: vi.fn(async () => false) }));
 vi.mock('./UI/UIItem.js', () => ({ default: vi.fn() }));
 vi.mock('./UI/UIWindow.js', () => ({ default: vi.fn(async () => null) }));
 vi.mock('./UI/UIWindowProgress.js', () => ({ default: vi.fn() }));
@@ -158,7 +159,7 @@ const apiSockets = () => sockets.filter((s) => s.origin === API);
  * `navigation` is the page's Navigation Timing entry; `guiParams` what the
  * shell rendered.
  */
-const boot = async ({ guiParams = {}, navigation = { type: 'navigate', transferSize: 4096 }, beforeInit } = {}) => {
+const boot = async ({ guiParams = {}, navigation = { type: 'navigate', transferSize: 4096 }, beforeInit, url = '/' } = {}) => {
     // The previous test's page keeps its timers; they write the local cache mark.
     globalThis.puter?.fs?.stopCacheUpdateTimer?.();
     clearInterval(globalThis.puter?.guiFSCacheTimer_);
@@ -167,7 +168,7 @@ const boot = async ({ guiParams = {}, navigation = { type: 'navigate', transferS
     sockets.length = 0;
     dashboard.calls.length = 0;
     dashboard.timestampAnswered = false;
-    history.replaceState(null, '', '/');
+    history.replaceState(null, '', url);
 
     globalThis.$ = jQuery;
     globalThis.jQuery = jQuery;
@@ -254,7 +255,8 @@ describe('/get-gui-token at boot', () => {
         expect(puter.authToken).toBe(STORED);
         // The FS socket opened with the stored token at load is the only one.
         expect(apiSockets().map((s) => s.token)).toEqual([STORED]);
-        expect(count('GET api/whoami')).toBe(2);
+        // The boot's own read; handing puter.js the same token reads nothing.
+        expect(count('GET api/whoami')).toBe(1);
         expect(count('GET api/cache/last-change-timestamp')).toBe(1);
         // A cookie boot still renders from an empty FS cache.
         expect(dashboard.calls.map((c) => c.staleDesktopCached)).toEqual([false]);
@@ -353,5 +355,43 @@ describe('a boot that keeps the persisted FS cache', () => {
 
         expect(count('GET gui/get-gui-token')).toBe(0);
         expect(dashboard.calls).toEqual([{ staleDesktopCached: false, timestampAnswered: true }]);
+    });
+});
+
+describe('AuthMe at boot', () => {
+    const authme = (redirectURL) => `/?action=authme&redirectURL=${encodeURIComponent(redirectURL)}`;
+    const RELAY = 'https://relay.puter.test';
+
+    it('refuses a redirect back onto the GUI before asking', async () => {
+        const { default: UIAlert } = await import('./UI/UIAlert.js');
+        const { default: UIWindowAuthMe } = await import('./UI/UIWindowAuthMe.js');
+        UIAlert.mockClear();
+        UIWindowAuthMe.mockClear();
+        await boot({
+            url: authme(`${GUI}/app/some-app?forwards_to=client.example`),
+            guiParams: { authmeRelayOrigins: [RELAY] },
+        });
+
+        expect(UIAlert.mock.calls.map(([o]) => o?.message)).toEqual([
+            'This authorization request was cancelled because its destination is a Puter page, not an app or site. Nothing has been shared with it.',
+        ]);
+        expect(UIWindowAuthMe).not.toHaveBeenCalled();
+        expect(count('POST api/auth/create-access-token')).toBe(0);
+    });
+
+    it('names the forwarded host only for a configured relay', async () => {
+        const { default: UIWindowAuthMe } = await import('./UI/UIWindowAuthMe.js');
+        UIWindowAuthMe.mockClear();
+        await boot({
+            url: authme(`${RELAY}/cb?forwards_to=client.example`),
+            guiParams: { authmeRelayOrigins: [RELAY] },
+        });
+        await boot({
+            url: authme('https://other.puter.test/cb?forwards_to=client.example'),
+            guiParams: { authmeRelayOrigins: [RELAY] },
+        });
+
+        expect(UIWindowAuthMe.mock.calls.map(([o]) => o.forwards_to)).toEqual(['client.example', null]);
+        expect(count('POST api/auth/create-access-token')).toBe(0);
     });
 });
