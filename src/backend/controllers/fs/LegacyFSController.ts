@@ -1279,13 +1279,19 @@ export class LegacyFSController extends PuterController {
             });
 
         // Not the owner-scoped update: a shared writer passed the check above.
-        const stored = await this.stores.fsEntry.updateEntryThumbnailByUuid(
-            entry.uuid,
-            event.url,
-            typeof expectedModified === 'number'
-                ? { modified: expectedModified }
-                : {},
-        );
+        // The entry is read again alongside it: a rename that landed during
+        // the upload would otherwise be announced below with the name and
+        // path it replaced.
+        const [stored, current] = await Promise.all([
+            this.stores.fsEntry.updateEntryThumbnailByUuid(
+                entry.uuid,
+                event.url,
+                typeof expectedModified === 'number'
+                    ? { modified: expectedModified }
+                    : {},
+            ),
+            this.stores.fsEntry.getEntryByUuid(entry.uuid),
+        ]);
         if (!stored) {
             discard(event.url);
             if (typeof expectedModified !== 'number')
@@ -1300,12 +1306,8 @@ export class LegacyFSController extends PuterController {
         }
         if (entry.thumbnail !== event.url) discard(entry.thumbnail);
         // Other open tabs show the new thumbnail instead of each making one.
-        // Read again: a rename that landed during the upload above would
-        // otherwise be announced with the name and path it replaced.
-        const current =
-            (await this.stores.fsEntry.getEntryByUuid(entry.uuid)) ?? entry;
         await this.#emitGuiEvent('outer.gui.item.updated', {
-            ...current,
+            ...(current ?? entry),
             thumbnail: event.url,
         });
         res.json({ thumbnail: event.url });
