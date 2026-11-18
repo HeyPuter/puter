@@ -20,7 +20,7 @@
 import { createHash } from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import type { TransformCallback } from 'node:stream';
-import { pipeline, Readable, Transform } from 'node:stream';
+import { finished, Readable, Transform } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
 import type { EventKey, EventMap } from '../../clients/event/types.js';
 import {
@@ -96,6 +96,7 @@ import type {
     BatchWritePrepareRequest,
     NormalizedWriteInput,
     PreparedBatchWrite,
+    UploadByteBudget,
     UploadedBatchWriteItem,
     UploadPayload,
     UploadPreparedBatchItemInput,
@@ -154,6 +155,52 @@ const foreignAppDataOwner = (
     const appUid = appDataOwnerOf(path);
     if (!appUid || appUid === ownAppUid) return null;
     return appUid;
+};
+
+const storageLimitError = () =>
+    new HttpError(413, 'Storage limit reached', {
+        legacyCode: 'storage_limit_reached',
+    });
+
+/**
+ * What a streamed body may take: its declared size when it has one, else the
+ * owner's free storage. A size of 0 is how streamed writes say "unknown".
+ */
+const streamBudgetFor = (
+    declaredSize: number,
+    storageBudget: UploadByteBudget | undefined,
+): UploadByteBudget | undefined => {
+    if (declaredSize > 0) {
+        return {
+            remaining: declaredSize,
+            overflow: () =>
+                new HttpError(
+                    400,
+                    'File content is longer than its declared size',
+                    { legacyCode: 'bad_request' },
+                ),
+        };
+    }
+    if (storageBudget?.remaining === Infinity) return undefined;
+    return storageBudget ?? { remaining: 0, overflow: storageLimitError };
+};
+
+/**
+ * Takes the bytes a body of known length adds past its declared size out of the
+ * owner's free storage, before any of it is uploaded.
+ */
+const drawKnownLength = (
+    uploadBody: UploadPayload,
+    declaredSize: number,
+    storageBudget: UploadByteBudget | undefined,
+): void => {
+    if (uploadBody.contentLength === undefined) return;
+    const extra = uploadBody.contentLength - declaredSize;
+    if (extra <= 0) return;
+    if (!storageBudget || extra > storageBudget.remaining) {
+        throw storageLimitError();
+    }
+    storageBudget.remaining -= extra;
 };
 
 /** `name` under `parentPath` as stored: no trimming or normalizing. */
@@ -1092,20 +1139,20 @@ export class FSService extends PuterService {
     /**
      * The shared allowance check: usage plus pending bytes against the max,
      * from a replica. Only settled bytes can make this stricter than a plain
-     * replica check, so only then is the primary consulted. Returns whether a
-     * limit was actually enforced and throws the existing 413 when `delta`
-     * doesn't fit.
+     * replica check, so only then is the primary consulted. Returns the bytes
+     * still free after `delta` (Infinity when no limit applies) and throws the
+     * existing 413 when `delta` doesn't fit.
      */
     async #checkStorageAllowance(
         userId: number,
         delta: number,
         storageAllowanceMaxOverride?: number,
         pending?: PendingUploadBytes,
-    ): Promise<boolean> {
+    ): Promise<number> {
         // Skip the allowance lookup entirely for unmetered writes — it costs
         // a query plus a quota-bonus round trip whose answer can't matter.
         if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
-            return false;
+            return Infinity;
         }
 
         const [fast, resolvedPending] = await Promise.all([
@@ -1117,18 +1164,16 @@ export class FSService extends PuterService {
             storageAllowanceMaxOverride,
         );
         if (fastMax === UNLIMITED_STORAGE_ALLOWANCE) {
-            return false;
+            return Infinity;
         }
 
         const { activeBytes, settledBytes } = resolvedPending;
         const fastProjected = fast.curr + activeBytes + settledBytes + delta;
         if (!(fastProjected > fastMax)) {
-            return true;
+            return fastMax - fastProjected;
         }
         if (settledBytes === 0) {
-            throw new HttpError(413, 'Storage limit reached', {
-                legacyCode: 'storage_limit_reached',
-            });
+            throw storageLimitError();
         }
 
         const exact = await this.stores.fsEntry.getUserStorageAllowance(
@@ -1140,25 +1185,25 @@ export class FSService extends PuterService {
             storageAllowanceMaxOverride,
         );
         if (exactMax === UNLIMITED_STORAGE_ALLOWANCE) {
-            return false;
+            return Infinity;
         }
-        if (!(exact.curr + activeBytes + delta > exactMax)) {
-            return true;
+        const exactProjected = exact.curr + activeBytes + delta;
+        if (!(exactProjected > exactMax)) {
+            return exactMax - exactProjected;
         }
 
-        throw new HttpError(413, 'Storage limit reached', {
-            legacyCode: 'storage_limit_reached',
-        });
+        throw storageLimitError();
     }
 
+    /** Returns the bytes still free once `incomingSize` is stored. */
     async #assertStorageAllowance(
         userId: number,
         incomingSize: number,
         existingSize = 0,
         storageAllowanceMaxOverride?: number,
         pending?: PendingUploadBytes,
-    ): Promise<void> {
-        await this.#checkStorageAllowance(
+    ): Promise<number> {
+        return this.#checkStorageAllowance(
             userId,
             incomingSize - existingSize,
             storageAllowanceMaxOverride,
@@ -1167,17 +1212,17 @@ export class FSService extends PuterService {
     }
 
     /**
-     * Same check for a batch's combined delta. Returns whether a limit was
-     * actually enforced.
+     * Same check for a batch's combined delta. Returns the bytes still free
+     * after it, Infinity when no limit applies.
      */
     async #assertStorageAllowanceForBatch(
         userId: number,
         sizeChanges: Array<{ incomingSize: number; existingSize: number }>,
         storageAllowanceMaxOverride?: number,
         pending?: PendingUploadBytes,
-    ): Promise<boolean> {
+    ): Promise<number> {
         if (sizeChanges.length === 0) {
-            return false;
+            return Infinity;
         }
 
         const delta = sizeChanges.reduce(
@@ -1285,7 +1330,7 @@ export class FSService extends PuterService {
                       }
                     : { activeBytes: 0, settledBytes: 0 };
 
-                const enforced = await this.#assertStorageAllowanceForBatch(
+                const headroom = await this.#assertStorageAllowanceForBatch(
                     owner,
                     ownerClaims.map((claim) => ({
                         incomingSize: claim.incomingSize,
@@ -1294,7 +1339,7 @@ export class FSService extends PuterService {
                     override,
                     pending,
                 );
-                if (!enforced && ownerHeld.length > 0) {
+                if (headroom === Infinity && ownerHeld.length > 0) {
                     // Nothing to guard for this owner — give the leases back
                     // rather than holding bytes no check will ever read.
                     await this.stores.uploadReservation.release(
@@ -1463,15 +1508,25 @@ export class FSService extends PuterService {
         );
     }
 
+    /**
+     * With a `budget`, a body that outgrows it fails with `budget.overflow()`,
+     * which aborts the upload. The latest chunk is held back until the next one
+     * arrives or the body ends, so the store never receives a body of the
+     * expected length that then turns out to be longer.
+     */
     #createCountingStream(
         source: Readable,
         uploadTracker?: UploadProgressTrackerLike,
+        budget?: UploadByteBudget,
     ): {
         stream: Readable;
         uploadedSize: () => number;
         contentHashSha256: () => string;
+        overflowError: () => Error | null;
     } {
         let uploadedBytes = 0;
+        let overflowError: Error | null = null;
+        let held: Buffer | Uint8Array | string | null = null;
         const hash = createHash('sha256');
         const countingStream = new Transform({
             transform(
@@ -1488,37 +1543,69 @@ export class FSService extends PuterService {
                     hash.update(chunk);
                 }
                 uploadedBytes += chunkLength;
+                if (budget) {
+                    budget.remaining -= chunkLength;
+                    if (budget.remaining < 0) {
+                        overflowError = budget.overflow();
+                        callback(overflowError);
+                        return;
+                    }
+                }
                 if (chunkLength > 0 && uploadTracker) {
                     uploadTracker.add(chunkLength);
                 }
-                callback(null, chunk as Buffer | Uint8Array | string);
+                if (!budget) {
+                    callback(null, chunk as Buffer | Uint8Array | string);
+                    return;
+                }
+                if (held !== null) this.push(held);
+                held = chunk as Buffer | Uint8Array | string;
+                callback();
+            },
+            flush(callback: TransformCallback) {
+                if (held !== null) this.push(held);
+                held = null;
+                callback();
             },
         });
 
-        // `pipeline` rather than `pipe` plus a hand-rolled 'error' forward: it
-        // keeps an 'error' listener attached to `countingStream` for the whole
-        // lifetime of the stream, and tears down both ends whichever one fails.
-        // The consumer is an object-store upload that may not have subscribed
-        // yet when a client disconnects mid-request, and destroying a Transform
-        // that nobody is listening to raises an unhandled 'error' event — which
-        // ends the process rather than just the request.
-        pipeline(source, countingStream, (error) => {
-            if (error) {
-                console.warn('upload stream ended early:', error.message);
+        // `finished` keeps an 'error' listener attached to `countingStream` for
+        // its whole lifetime: the consumer is an object-store upload that may
+        // not have subscribed yet when a client disconnects mid-request, and an
+        // unheard 'error' ends the process. Any other failure tears down the
+        // source too. An overflow leaves it running and drains it instead, so a
+        // request body (or the multipart parser feeding this part) still
+        // finishes and the request can be answered.
+        source.on('error', (error) => countingStream.destroy(error));
+        finished(countingStream, (error) => {
+            if (!error) return;
+            if (error === overflowError) {
+                source.unpipe(countingStream);
+                source.resume();
+                return;
             }
+            console.warn('upload stream ended early:', error.message);
+            source.destroy(error);
         });
+        source.pipe(countingStream);
 
         return {
             stream: countingStream,
             uploadedSize: () => uploadedBytes,
             contentHashSha256: () => hash.digest('hex'),
+            overflowError: () => overflowError,
         };
     }
 
+    /**
+     * `streamBudget` caps a body of unknown length; one of known length is the
+     * caller's to check against storage before it uploads.
+     */
     async #toUploadBody(
         content: WriteRequest['fileContent'],
         encoding: WriteRequest['encoding'],
         uploadTracker?: UploadProgressTrackerLike,
+        streamBudget?: UploadByteBudget,
     ): Promise<UploadPayload> {
         if (Buffer.isBuffer(content)) {
             const hash = createHash('sha256');
@@ -1588,6 +1675,7 @@ export class FSService extends PuterService {
             const streamPayload = this.#createCountingStream(
                 content,
                 uploadTracker,
+                streamBudget,
             );
             return {
                 body: streamPayload.stream,
@@ -1595,6 +1683,7 @@ export class FSService extends PuterService {
                 contentHashSha256: null,
                 finalizeContentHashSha256: () =>
                     streamPayload.contentHashSha256(),
+                overflowError: streamPayload.overflowError,
             };
         }
         if (this.#isWebReadableStream(content)) {
@@ -1619,6 +1708,7 @@ export class FSService extends PuterService {
             const streamPayload = this.#createCountingStream(
                 Readable.from(asyncIterable),
                 uploadTracker,
+                streamBudget,
             );
             return {
                 body: streamPayload.stream,
@@ -1626,6 +1716,7 @@ export class FSService extends PuterService {
                 contentHashSha256: null,
                 finalizeContentHashSha256: () =>
                     streamPayload.contentHashSha256(),
+                overflowError: streamPayload.overflowError,
             };
         }
         if (content instanceof Blob) {
@@ -1676,6 +1767,8 @@ export class FSService extends PuterService {
         try {
             await this.stores.s3Object.uploadFromServer(input, region);
         } catch (error) {
+            const overflow = uploadBody.overflowError?.();
+            if (overflow) throw overflow;
             // A stream is sent with the caller's declared size as its length,
             // so a body that ends short of it is a bad request.
             if (
@@ -1690,6 +1783,8 @@ export class FSService extends PuterService {
             }
             throw error;
         }
+        const overflow = uploadBody.overflowError?.();
+        if (overflow) throw overflow;
     }
 
     async #cleanupPreparedBatchUploads(
@@ -1742,6 +1837,21 @@ export class FSService extends PuterService {
             console.error(
                 'prodfsv2 failed to clean up batch upload objects',
                 cleanupFailures,
+            );
+        }
+    }
+
+    async #deleteUploadedObject(
+        bucket: string,
+        objectKey: string,
+        region: string,
+    ): Promise<void> {
+        try {
+            await this.stores.s3Object.deleteObject(bucket, objectKey, region);
+        } catch (error) {
+            console.error(
+                "failed to clean up a write's uploaded object",
+                error,
             );
         }
     }
@@ -2005,8 +2115,9 @@ export class FSService extends PuterService {
 
         const storageAllowanceMax =
             storageAllowanceMaxOverride ?? preparedBatch.storageAllowanceMax;
+        const budgetByOwner = new Map<number, UploadByteBudget>();
         for (const [owner, sizeChanges] of sizeChangesByOwner) {
-            await this.#assertStorageAllowanceForBatch(
+            const headroom = await this.#assertStorageAllowanceForBatch(
                 owner,
                 sizeChanges,
                 this.#allowanceOverrideFor(
@@ -2014,6 +2125,22 @@ export class FSService extends PuterService {
                     preparedBatch.userId,
                     storageAllowanceMax,
                 ),
+            );
+            budgetByOwner.set(owner, {
+                remaining: headroom,
+                overflow: storageLimitError,
+            });
+        }
+        // Checked before the uploads: what the owner has left caps them.
+        if (!uploadedItems) {
+            preparedBatch.storageBudgets = new Map(
+                preparedBatch.items.map((item) => [
+                    item.index,
+                    budgetByOwner.get(
+                        owners.get(item.normalizedInput.path) ??
+                            preparedBatch.userId,
+                    )!,
+                ]),
             );
         }
     }
@@ -2032,11 +2159,17 @@ export class FSService extends PuterService {
             );
         }
 
+        const storageBudget = input.preparedBatch.storageBudgets?.get(
+            preparedItem.index,
+        );
+        const declaredSize = preparedItem.normalizedInput.size;
         const uploadBody = await this.#toUploadBody(
             input.fileContent,
             input.encoding,
             input.uploadTracker,
+            streamBudgetFor(declaredSize, storageBudget),
         );
+        drawKnownLength(uploadBody, declaredSize, storageBudget);
 
         await this.#uploadContent(
             {
@@ -3636,60 +3769,80 @@ export class FSService extends PuterService {
             userId,
             storageAllowanceMax,
         );
-        await this.#assertStorageAllowance(
+        const headroom = await this.#assertStorageAllowance(
             storageOwner,
             normalizedInput.size,
             existingSize,
             ownerAllowanceMax,
         );
+        const storageBudget: UploadByteBudget = {
+            remaining: headroom,
+            overflow: storageLimitError,
+        };
 
         const uploadBody = await this.#toUploadBody(
             writeRequest.fileContent,
             writeRequest.encoding,
             uploadTracker,
+            streamBudgetFor(normalizedInput.size, storageBudget),
         );
+        drawKnownLength(uploadBody, normalizedInput.size, storageBudget);
         const objectKey = existingEntry?.uuid ?? uuidv4();
-        await this.#uploadContent(
-            {
-                bucket: normalizedInput.bucket,
-                objectKey,
-                contentType: normalizedInput.contentType,
-                body: uploadBody.body,
-                ...(uploadBody.contentLength !== undefined
-                    ? { contentLength: uploadBody.contentLength }
-                    : {}),
-                ...(Number.isFinite(normalizedInput.size)
-                    ? { sizeHint: normalizedInput.size }
-                    : {}),
-            },
-            normalizedInput.bucketRegion,
-            uploadBody,
-        );
-
-        const uploadedSize = uploadBody.uploadedSize();
-        if (uploadTracker) {
-            const currentTrackedSize = Number(uploadTracker.progress ?? 0);
-            if (uploadedSize > currentTrackedSize) {
-                uploadTracker.add(uploadedSize - currentTrackedSize);
-            }
-        }
-        if (uploadedSize > normalizedInput.size) {
-            await this.#assertStorageAllowance(
-                storageOwner,
-                uploadedSize,
-                existingSize,
-                ownerAllowanceMax,
+        let contentHashSha256: string | null;
+        let fsEntry: FSEntry | undefined;
+        try {
+            await this.#uploadContent(
+                {
+                    bucket: normalizedInput.bucket,
+                    objectKey,
+                    contentType: normalizedInput.contentType,
+                    body: uploadBody.body,
+                    ...(uploadBody.contentLength !== undefined
+                        ? { contentLength: uploadBody.contentLength }
+                        : {}),
+                    ...(Number.isFinite(normalizedInput.size)
+                        ? { sizeHint: normalizedInput.size }
+                        : {}),
+                },
+                normalizedInput.bucketRegion,
+                uploadBody,
             );
-        }
-        normalizedInput.size = uploadedSize;
-        const contentHashSha256 = uploadBody.finalizeContentHashSha256
-            ? uploadBody.finalizeContentHashSha256()
-            : uploadBody.contentHashSha256;
 
-        const createInput = this.#toCreateInput(normalizedInput, objectKey);
-        const [fsEntry] = await this.#createUploadedEntries([createInput]);
-        if (!fsEntry) {
-            throw new Error('Failed to create entry');
+            const uploadedSize = uploadBody.uploadedSize();
+            if (uploadTracker) {
+                const currentTrackedSize = Number(uploadTracker.progress ?? 0);
+                if (uploadedSize > currentTrackedSize) {
+                    uploadTracker.add(uploadedSize - currentTrackedSize);
+                }
+            }
+            if (uploadedSize > normalizedInput.size) {
+                await this.#assertStorageAllowance(
+                    storageOwner,
+                    uploadedSize,
+                    existingSize,
+                    ownerAllowanceMax,
+                );
+            }
+            normalizedInput.size = uploadedSize;
+            contentHashSha256 = uploadBody.finalizeContentHashSha256
+                ? uploadBody.finalizeContentHashSha256()
+                : uploadBody.contentHashSha256;
+
+            const createInput = this.#toCreateInput(normalizedInput, objectKey);
+            [fsEntry] = await this.#createUploadedEntries([createInput]);
+            if (!fsEntry) {
+                throw new Error('Failed to create entry');
+            }
+        } catch (error) {
+            // An overwrite's key is the live object; a new key is ours to drop.
+            if (!existingEntry) {
+                await this.#deleteUploadedObject(
+                    normalizedInput.bucket,
+                    objectKey,
+                    normalizedInput.bucketRegion,
+                );
+            }
+            throw error;
         }
 
         this.#emitFsEvent(

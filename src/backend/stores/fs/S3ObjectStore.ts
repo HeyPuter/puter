@@ -458,23 +458,36 @@ export class S3ObjectStore extends PuterStore {
 
         if (!shouldUseMultipart) {
             recordStorageOps('write');
-            await client.send(
-                new PutObjectCommand({
-                    Bucket: input.bucket,
-                    Key: input.objectKey,
-                    ContentType: input.contentType,
-                    Body: input.body,
-                    // Use the *resolved* length (input.contentLength → sizeHint →
-                    // Buffer.byteLength). Without this, a Readable body whose
-                    // length we know only via `sizeHint` falls into the SDK's
-                    // chunked-streaming path and emits
-                    // `x-amz-decoded-content-length: undefined`, which the HTTP
-                    // layer rejects as an invalid header value.
-                    ...(resolvedContentLength !== undefined
-                        ? { ContentLength: resolvedContentLength }
-                        : {}),
-                }),
-            );
+            // The SDK doesn't watch a streamed body for errors, so a body that
+            // fails part way would leave the request waiting for bytes that
+            // never come.
+            const abort = new AbortController();
+            const onBodyError = (error: unknown) => abort.abort(error);
+            const streamed = input.body instanceof Readable ? input.body : null;
+            streamed?.once('error', onBodyError);
+            try {
+                await client.send(
+                    new PutObjectCommand({
+                        Bucket: input.bucket,
+                        Key: input.objectKey,
+                        ContentType: input.contentType,
+                        Body: input.body,
+                        // Use the *resolved* length (input.contentLength →
+                        // sizeHint → Buffer.byteLength). Without this, a
+                        // Readable body whose length we know only via
+                        // `sizeHint` falls into the SDK's chunked-streaming
+                        // path and emits `x-amz-decoded-content-length:
+                        // undefined`, which the HTTP layer rejects as an
+                        // invalid header value.
+                        ...(resolvedContentLength !== undefined
+                            ? { ContentLength: resolvedContentLength }
+                            : {}),
+                    }),
+                    { abortSignal: abort.signal },
+                );
+            } finally {
+                streamed?.off('error', onBodyError);
+            }
             return;
         }
 
