@@ -400,6 +400,29 @@ The Puter desktop makes a Word document, spreadsheet, or presentation upload thu
 | Text drawn from a cell | 256 characters |
 | Output | First page, sheet, or slide, at most 128 × 128 pixels, aspect ratio preserved |
 
+The Puter desktop makes a HEIC or HEIF photo upload thumbnail with the browser's own decoder where it has one, as Safari does. In other browsers the desktop reads the photo's stored thumbnail, or else the photo itself, and decodes it with the device's HEVC video decoder, within these budgets. A photo over a budget, or one on a device with no HEVC decoder, keeps its file icon.
+
+| HEIC thumbnail | Limit |
+| --- | --- |
+| Photos decoded per upload | 1 at a time |
+| Preparation per upload, including queued photos | 10 seconds from the first photo |
+| Decoding one photo | 2 seconds |
+| Index read from the photo | 1 MiB |
+| Coded data read from the photo | 16 MiB |
+| Photo or tile size | 16,777,216 pixels |
+| Tiles in a photo stored as a grid | 64 |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop makes an audio upload thumbnail from the cover art stored in the tags of an MP3, FLAC, M4A, or M4B file, within these budgets. A file with no cover, or one over a budget, keeps its file icon.
+
+| Audio thumbnail | Limit |
+| --- | --- |
+| Audio files read per upload | 1 at a time |
+| Preparation per upload, including queued files | 5 seconds from the first audio file |
+| Data read from the file to find the cover | 1 MiB |
+| Stored cover size | 16 MiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
 The Puter desktop makes a video upload thumbnail from one frame of an MP4, MOV, M4V, or WebM file, using the browser's video player, within these budgets. A video the browser can't play, or one over a budget, keeps its file icon.
 
 | Video thumbnail | Limit |

@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createFlac, createM4a, createMp3, flacPicture, id3Picture } from '../../../tests/fixtures/audio.js';
 import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx } from '../../../tests/fixtures/docx.js';
+import { createHeif } from '../../../tests/fixtures/heif.js';
 import { createPptx } from '../../../tests/fixtures/pptx.js';
 import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
 import { createXlsx } from '../../../tests/fixtures/xlsx.js';
@@ -10,6 +12,8 @@ import {
     PDF_THUMBNAIL_BATCH_TIMEOUT_MS,
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_FILE_BYTES,
+    AUDIO_BATCH_TIMEOUT_MS,
+    HEIF_BATCH_TIMEOUT_MS,
     OFFICE_BATCH_TIMEOUT_MS,
     VIDEO_BATCH_TIMEOUT_MS,
     VIDEO_JOB_TIMEOUT_MS,
@@ -723,3 +727,159 @@ describe('video thumbnails', () => {
         expect(videos).toHaveLength(0);
     });
 });
+
+describe('audio cover thumbnails', () => {
+    const jpeg = psdPreviewJpeg();
+    const mp3 = () => createMp3({ frames: [{ name: 'APIC', data: id3Picture({ data: jpeg }) }] });
+
+    it.each([
+        new File([mp3()], 'song.mp3'),
+        new File([mp3()], 'SONG.MP3', { type: 'audio/mpeg' }),
+        new File([mp3()], 'song', { type: 'audio/mpeg' }),
+        new File([createFlac({ blocks: [{ type: 6, data: flacPicture({ data: jpeg }) }] })], 'song.flac'),
+        new File([createM4a({ cover: jpeg })], 'song.m4a'),
+        new File([createM4a({ cover: jpeg })], 'book.m4b'),
+        // An audio file in an MP4 container can carry the name a video would.
+        new File([createM4a({ cover: jpeg })], 'song.mp4', { type: 'audio/mp4' }),
+    ])('hands the image generator the cover stored in an audio file', async (file) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        const [cover] = defaultGenerator.mock.calls[0];
+        expect(cover.type).toBe('image/jpeg');
+        expect(new Uint8Array(await cover.arrayBuffer())).toEqual(jpeg);
+        expect(workers).toHaveLength(0);
+    });
+
+    it.each([
+        ['an audio file with no cover', new File([createMp3({ frames: [{ name: 'TIT2', data: new Uint8Array([0, 65]) }] })], 'song.mp3')],
+        ['text that is only named like an audio file', new File(['not audio'], 'song.flac')],
+    ])('skips %s', async (_label, file) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).not.toHaveBeenCalled();
+    });
+
+    it('finds and scales one cover at a time, and skips the files still queued at the deadline', async () => {
+        let scaling = 0;
+        let most = 0;
+        const finish = [];
+        const defaultGenerator = vi.fn(() => new Promise((resolve) => {
+            most = Math.max(most, ++scaling);
+            finish.push(() => {
+                scaling--;
+                resolve(thumbnail);
+            });
+        }));
+        const generate = createUploadThumbnailGenerator();
+        const results = Promise.all(['a.mp3', 'b.mp3', 'c.mp3', 'd.mp3'].map(name => generate(new File([mp3()], name), { defaultGenerator })));
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        // The third cover is still being scaled when the deadline passes.
+        await vi.advanceTimersByTimeAsync(AUDIO_BATCH_TIMEOUT_MS);
+        expect(await results).toEqual([thumbnail, thumbnail, undefined, undefined]);
+        expect(most).toBe(1);
+        expect(defaultGenerator).toHaveBeenCalledTimes(3);
+    });
+});
+
+describe('HEIC photo thumbnails', () => {
+    const heic = (name = 'photo.heic', type = '') => new File([createHeif()], name, { type });
+    let decoded;
+
+    beforeEach(() => {
+        decoded = [];
+        vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
+        // A device with an HEVC decoder.
+        vi.stubGlobal('VideoDecoder', class {
+            static isConfigSupported = async () => ({ supported: true });
+            state = 'configured';
+            chunks = [];
+            constructor (init) {
+                this.init = init;
+            }
+
+            configure () {}
+            decode (chunk) {
+                this.chunks.push(chunk);
+            }
+
+            async flush () {
+                decoded.push(this.chunks.length);
+                for ( const chunk of this.chunks ) this.init.output({ timestamp: chunk.timestamp, close () {} });
+            }
+
+            close () {
+                this.state = 'closed';
+            }
+        });
+        vi.stubGlobal('EncodedVideoChunk', class {
+            constructor (init) {
+                Object.assign(this, init);
+            }
+        });
+    });
+
+    it.each([
+        heic(),
+        heic('PHOTO.HEIF'),
+        heic('photo.hif'),
+        heic('photo', 'image/heic'),
+        heic('photo', 'image/heif'),
+    ])('uses the thumbnail of a browser that decodes the photo itself', async (file) => {
+        // Safari does. The generator is given the file with a type it will try, even when the browser gave it none.
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator).toHaveBeenCalledOnce();
+        expect(defaultGenerator.mock.calls[0][0].type).toMatch(/^image\/hei[cf]$/);
+        expect(new Uint8Array(await defaultGenerator.mock.calls[0][0].arrayBuffer())).toEqual(createHeif());
+        expect(decoded).toEqual([]);
+    });
+
+    it('decodes the photo with the device\'s decoder in a browser that can\'t, and tries that first from then on', async () => {
+        // The generator fails on the photo itself and scales the JPEG made from it.
+        const defaultGenerator = vi.fn(async image => (image.type === 'image/jpeg' ? thumbnail : undefined));
+        const generate = createUploadThumbnailGenerator();
+        expect(await generate(heic('a.heic'), { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator.mock.calls.map(([image]) => image.type)).toEqual(['image/heic', 'image/jpeg']);
+        expect(await generate(heic('b.heic'), { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator.mock.calls.map(([image]) => image.type)).toEqual(['image/heic', 'image/jpeg', 'image/jpeg']);
+        expect(decoded).toEqual([1, 1]);
+    });
+
+    it('keeps the icon of a photo the device has no decoder for', async () => {
+        VideoDecoder.isConfigSupported = async () => ({ supported: false });
+        const defaultGenerator = vi.fn(async () => undefined);
+        expect(await createUploadThumbnailGenerator()(heic(), { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).toHaveBeenCalledOnce();
+        expect(decoded).toEqual([]);
+    });
+
+    it('decodes one photo at a time, and skips the photos still queued at the deadline', async () => {
+        let scaling = 0;
+        let most = 0;
+        const finish = [];
+        const defaultGenerator = vi.fn(image => (image.type === 'image/jpeg'
+            ? new Promise((resolve) => {
+                most = Math.max(most, ++scaling);
+                finish.push(() => {
+                    scaling--;
+                    resolve(thumbnail);
+                });
+            })
+            : undefined));
+        const generate = createUploadThumbnailGenerator();
+        const results = Promise.all(['a.heic', 'b.heic', 'c.heic'].map(name => generate(heic(name), { defaultGenerator })));
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        // The second photo is still being scaled when the deadline passes.
+        await vi.advanceTimersByTimeAsync(HEIF_BATCH_TIMEOUT_MS);
+        expect(await results).toEqual([thumbnail, undefined, undefined]);
+        expect(most).toBe(1);
+        expect(decoded).toEqual([1, 1]);
+    });
+});
+
