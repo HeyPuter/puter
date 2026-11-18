@@ -930,6 +930,9 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
         _loadPromise: null,
         // Set by init: the open's first load joins Home's /get-launch-apps.
         _joinHomeLaunchApps: false,
+        // Set by init: the open's first load may take its saved layout from
+        // the SDK's boot batch; later loads read the store.
+        _bootKvRead: false,
         _pendingLoad: null,
         _savedOrderNames: null,
         _orderSavedAtSeq: 0,
@@ -992,6 +995,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             this._arriving = null;
 
             this._joinHomeLaunchApps = true;
+            this._bootKvRead = true;
             this.loadApps($el_window);
 
             const self = this;
@@ -3290,7 +3294,9 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             // one — the in-memory record still covers this session, and the
             // next write retries the lot.
             this._removedWriteChain = (this._removedWriteChain || Promise.resolve()).then(async () => {
-                const names = parseRemovedApps(await puter.kv.get(REMOVED_APPS_KV_KEY));
+                // The object form skips the boot batch, which may predate
+                // another window's write.
+                const names = parseRemovedApps(await puter.kv.get({ key: REMOVED_APPS_KV_KEY }));
                 for ( const [name, isRemoved] of this._removedLocal ) {
                     if ( isRemoved ) names.add(name);
                     else names.delete(name);
@@ -3420,7 +3426,11 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                     return { apps: all, complete: true };
                 };
 
-                const readKv = key => guestApps ? null : puter.kv.get(key).catch(() => KV_READ_FAILED);
+                // A refresh exists to pick up another tab's changes, which the
+                // boot batch may predate; the object form skips it.
+                const fromBoot = this._bootKvRead;
+                this._bootKvRead = false;
+                const readKv = key => guestApps ? null : puter.kv.get(fromBoot ? key : { key }).catch(() => KV_READ_FAILED);
                 const [installedResult, fetchedLaunchData, savedOrderRaw, removedAppsRaw, groupsRaw] = await Promise.all([
                     guestApps ? { apps: [], complete: true } : fetchAllInstalledApps(),
                     // The recommended list only adds tiles: if it fails (network,

@@ -55,7 +55,11 @@ export interface ActorAccessToken {
 }
 
 export interface Actor {
-    user: Partial<UserRow>;
+    /**
+     * The account. Token auth builds it from the user's row without the
+     * password hash, and sets `hasPassword` in its place.
+     */
+    user: Partial<UserRow> & { hasPassword?: boolean };
     /**
      * The app this actor carries _directly_, empty on an access token an app
      * issued. Answers "is this an app acting as itself" — `isAppActor` is

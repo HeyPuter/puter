@@ -17,9 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { makeActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { ensureSystemSite, PROFILES_SUBDOMAIN } from '../../util/systemSite.js';
 import { UNLIMITED_STORAGE_ALLOWANCE } from '../fs/FSService.js';
@@ -34,6 +36,18 @@ export type ProfileField = (typeof PROFILE_FIELDS)[number];
 
 /** Every field present; `null` where the user has set nothing. */
 export type UserProfile = Record<ProfileField, string | null>;
+
+/** A stored profile's tag, known without reading the file, and its reader. */
+export interface OpenedProfile {
+    /** A weak entity tag; null for a profile stored before tags were kept. */
+    etag: string | null;
+    /**
+     * The profile and the tag of the bytes read, which differs from `etag`
+     * while the file entry is behind the file.
+     */
+    read(): Promise<{ profile: UserProfile; etag: string }>;
+}
+
 /** Fields to change; `null` clears one, an absent field is left alone. */
 export type UserProfilePatch = Partial<UserProfile>;
 
@@ -58,6 +72,42 @@ const profileFileName = (userUuid: string) =>
     `${userUuid}${PROFILE_FILE_SUFFIX}`;
 const profilePath = (userUuid: string) =>
     `${PROFILES_PATH_PREFIX}/${profileFileName(userUuid)}`;
+
+// File metadata key holding a hash of the stored JSON, written with it.
+const VERSION_METADATA_KEY = 'profileVersion';
+// Part of every tag, so a change to the field list changes every answer's tag.
+const FIELDS_TAG = createHash('sha256')
+    .update(PROFILE_FIELDS.join(','))
+    .digest('base64url')
+    .slice(0, 8);
+
+const contentVersion = (buffer: Buffer) =>
+    createHash('sha256').update(buffer).digest('base64url').slice(0, 22);
+const NO_PROFILE_VERSION = 'none';
+
+// Weak: the compressed and plain bodies share it.
+const versionEtag = (version: string) => `W/"${version}.${FIELDS_TAG}"`;
+
+const entryEtag = (entry: FSEntry | null): string | null => {
+    if (!entry) return versionEtag(NO_PROFILE_VERSION);
+    let version: unknown;
+    try {
+        version = JSON.parse(entry.metadata ?? 'null')?.[VERSION_METADATA_KEY];
+    } catch {
+        return null;
+    }
+    return typeof version === 'string' ? versionEtag(version) : null;
+};
+
+const parseStored = (buffer: Buffer | null): Record<string, unknown> | null => {
+    if (!buffer) return null;
+    try {
+        const parsed: unknown = JSON.parse(buffer.toString('utf8'));
+        return isPlainObject(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+};
 
 const emptyProfile = (): UserProfile => ({
     picture: null,
@@ -158,7 +208,27 @@ export class ProfileService extends PuterService {
 
     /** The profile as stored, with every field present. */
     async getProfile(user: Pick<UserRow, 'uuid'>): Promise<UserProfile> {
-        return this.#normalize(await this.#readStored(user.uuid));
+        return (await (await this.openProfile(user)).read()).profile;
+    }
+
+    /**
+     * The profile's entity tag, from its file entry alone, and a reader for the
+     * profile, so a caller holding the current version skips the read.
+     */
+    async openProfile(user: Pick<UserRow, 'uuid'>): Promise<OpenedProfile> {
+        const entry = await this.#storedEntry(user.uuid);
+        return {
+            etag: entryEtag(entry),
+            read: async () => {
+                const bytes = await this.#readBytes(entry);
+                return {
+                    profile: this.#normalize(parseStored(bytes)),
+                    etag: versionEtag(
+                        bytes ? contentVersion(bytes) : NO_PROFILE_VERSION,
+                    ),
+                };
+            },
+        };
     }
 
     /**
@@ -170,7 +240,10 @@ export class ProfileService extends PuterService {
         patch: unknown,
     ): Promise<UserProfile> {
         const changes = this.validatePatch(patch);
-        const current = (await this.#readStored(user.uuid)) ?? {};
+        const current =
+            parseStored(
+                await this.#readBytes(await this.#storedEntry(user.uuid)),
+            ) ?? {};
         const next: Record<string, string> = {};
         for (const field of PROFILE_FIELDS) {
             const value =
@@ -287,28 +360,23 @@ export class ProfileService extends PuterService {
         return this.#ownerUserId;
     }
 
-    async #readStored(
-        userUuid: string,
-    ): Promise<Record<string, unknown> | null> {
+    async #storedEntry(userUuid: string): Promise<FSEntry | null> {
         // Profiles are only written through `fs.write`, which stores a path.
         const entry = await this.stores.fsEntry.getEntryByPath(
             profilePath(userUuid),
             { lineage: false },
         );
-        if (!entry || entry.isDir) return null;
+        return entry && !entry.isDir ? entry : null;
+    }
+
+    async #readBytes(entry: FSEntry | null): Promise<Buffer | null> {
+        if (!entry) return null;
         const { body } = await this.services.fs.readContent(entry);
         const chunks: Buffer[] = [];
         for await (const chunk of body) {
             chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
         }
-        try {
-            const parsed: unknown = JSON.parse(
-                Buffer.concat(chunks).toString('utf8'),
-            );
-            return isPlainObject(parsed) ? parsed : null;
-        } catch {
-            return null;
-        }
+        return Buffer.concat(chunks);
     }
 
     async #writeStored(
@@ -326,6 +394,9 @@ export class ProfileService extends PuterService {
                     path: profilePath(userUuid),
                     size: buffer.length,
                     contentType: 'application/json',
+                    metadata: {
+                        [VERSION_METADATA_KEY]: contentVersion(buffer),
+                    },
                     overwrite: true,
                     createMissingParents: true,
                 },

@@ -50,6 +50,7 @@ const sequentialAuthenticate = async (
         const { password: _password, ...rest } = user;
         return {
             ...rest,
+            hasPassword: user.password !== null,
             email: user.email ?? null,
             suspended: user.suspended ?? false,
             email_confirmed: user.email_confirmed ?? false,

@@ -349,6 +349,54 @@ describe('thumbnails extension — handleThumbnailRead', () => {
         }
     });
 
+    it('reuses a URL signed this hour and signs afresh under a new signing key', async () => {
+        // Short-lived credentials are fetched again on every signing, so a
+        // swapped secret shows whether a read was signed or served from cache.
+        const creds = { accessKeyId: 'AKIDFIRST', secretAccessKey: 'one' };
+        const client = new S3Client({
+            region: 'us-west-2',
+            endpoint: 'http://127.0.0.1:4566',
+            forcePathStyle: true,
+            credentials: async () => ({
+                ...creds,
+                expiration: new Date(Date.now() + 60_000),
+            }),
+        });
+        const keys = [mintedKey(), mintedKey(), mintedKey()];
+        const read = async (key: string) => {
+            const entry: Record<string, unknown> = {
+                thumbnail: `s3://${BUCKET}/${key}`,
+            };
+            await handleThumbnailRead(entry, {
+                s3,
+                s3Presign: client,
+                bucketName: BUCKET,
+                bucketEndpoint: BUCKET_ENDPOINT,
+                fsEntry: server.stores.fsEntry,
+            });
+            return entry.thumbnail as string;
+        };
+        const listing = () => Promise.all(keys.map(read));
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(Date.UTC(2026, 9, 26, 10, 30));
+            // A cold client's first listing signs its entries concurrently.
+            const first = await listing();
+            creds.secretAccessKey = 'two';
+            expect(await listing()).toEqual(first);
+
+            creds.accessKeyId = 'AKIDSECOND';
+            const rotated = await read(keys[0]);
+            expect(rotated).not.toBe(first[0]);
+            expect(
+                new URL(rotated).searchParams.get('X-Amz-Credential'),
+            ).toMatch(/^AKIDSECOND\//);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     // Thumbnails stored before keys were bound to entries keep displaying.
     it.each([
         ['an entry-bound key', () => mintedKey()],
