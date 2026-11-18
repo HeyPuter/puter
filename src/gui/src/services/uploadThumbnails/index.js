@@ -107,18 +107,35 @@ const SPREADSHEET_TYPE = /^application\/vnd\.(ms-excel\.(sheet|template)\.|openx
 const VIDEO_TYPE = /^video\/(mp4|quicktime|webm|x-m4v)$/;
 
 /**
- * Make a queue that runs one task at a time, and skips the tasks still waiting `timeoutMs` after the first started.
+ * Make a queue that runs one task at a time, until `timeoutMs` after the first one started. At that deadline the task
+ * under way is given up on and the ones still waiting are skipped, so the upload waits no longer than that.
  *
  * @param {number} timeoutMs
- * @returns {<T>(task: () => Promise<T>, signal?: AbortSignal) => Promise<T | undefined>}
+ * @returns {<T>(task: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal) => Promise<T | undefined>} A task
+ *     gets a signal that aborts at the deadline, or when the caller's signal does.
  */
 const createQueue = (timeoutMs) => {
     let deadline;
     let last = Promise.resolve();
     return (task, signal) => {
-        const result = last.then(() => {
+        const result = last.then(async () => {
             deadline ??= Date.now() + timeoutMs;
-            return signal?.aborted || Date.now() >= deadline ? undefined : task();
+            const remaining = deadline - Date.now();
+            if ( signal?.aborted || remaining <= 0 ) return undefined;
+            const controller = new AbortController();
+            const abort = () => controller.abort();
+            const timer = setTimeout(abort, remaining);
+            signal?.addEventListener('abort', abort, { once: true });
+            try {
+                // A task can be waiting on a read or a decoder that never answers, so its own end is not waited for.
+                return await Promise.race([
+                    task(controller.signal),
+                    new Promise(resolve => controller.signal.addEventListener('abort', () => resolve(undefined), { once: true })),
+                ]);
+            } finally {
+                clearTimeout(timer);
+                signal?.removeEventListener('abort', abort);
+            }
         });
         last = result.catch(() => {});
         return result;
@@ -147,12 +164,12 @@ export const createUploadThumbnailGenerator = () => {
                     image = await readPsdPreview(file, context?.signal);
                 } else if ( WORD_TYPE.test(file.type) || /\.do[ct][xm]?$/i.test(name) ) {
                     // A name doesn't settle which of the two formats a document is in. Each reader checks the signature.
-                    image = await queueOffice(async () => await readDocxPreview(file, context?.signal) ??
-                        readDocPreview(file, context?.signal), context?.signal);
+                    image = await queueOffice(async signal => await readDocxPreview(file, signal) ??
+                        readDocPreview(file, signal), context?.signal);
                 } else if ( SPREADSHEET_TYPE.test(file.type) || /\.xl[st][xm]$/i.test(name) ) {
-                    image = await queueOffice(() => readXlsxPreview(file, context?.signal), context?.signal);
+                    image = await queueOffice(signal => readXlsxPreview(file, signal), context?.signal);
                 } else if ( VIDEO_TYPE.test(file.type) || /\.(mp4|m4v|mov|webm)$/i.test(name) ) {
-                    image = await queueVideo(() => readVideoFrame(file, context?.signal), context?.signal);
+                    image = await queueVideo(signal => readVideoFrame(file, signal), context?.signal);
                 }
                 return image ? await imageGenerator(image) : undefined;
             }

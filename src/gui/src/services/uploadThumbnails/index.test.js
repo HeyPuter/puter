@@ -253,6 +253,22 @@ describe('GUI upload thumbnail scheduling', () => {
         expect(await createUploadThumbnailGenerator()(file(), { defaultGenerator })).toBe(thumbnail);
     });
 
+    it('gives up at the deadline on an Office document whose read has not come back', async () => {
+        vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        // A file on a drive that has stopped answering.
+        const stalled = { name: 'stalled.docx', type: '', size: 4096, slice: () => ({ arrayBuffer: () => new Promise(() => {}) }) };
+        const results = Promise.all([
+            generate(stalled, { defaultGenerator }),
+            generate(new File([createXlsx()], 'budget.xlsx'), { defaultGenerator }),
+        ]);
+        await vi.advanceTimersByTimeAsync(OFFICE_BATCH_TIMEOUT_MS);
+        expect(await results).toEqual([undefined, undefined]);
+        expect(defaultGenerator).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
     it('keeps reading Word documents after one fails or the upload is cancelled', async () => {
         vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
         const defaultGenerator = vi.fn(async () => thumbnail);
@@ -590,21 +606,41 @@ describe('video thumbnails', () => {
         expect(defaultGenerator).not.toHaveBeenCalled();
     });
 
-    it('loads one video at a time, and skips the videos still queued at the deadline', async () => {
+    it('loads one video at a time', async () => {
         const defaultGenerator = vi.fn(async () => thumbnail);
         const generate = createUploadThumbnailGenerator();
-        const results = [clip('a.mp4'), clip('b.mp4'), clip('c.mp4')].map(file => generate(file, { defaultGenerator }));
+        const results = [clip('a.mp4'), clip('b.mp4')].map(file => generate(file, { defaultGenerator }));
         await settle();
         expect(videos).toHaveLength(1);
-        // The first video never loads and is given up on.
-        await vi.advanceTimersByTimeAsync(VIDEO_JOB_TIMEOUT_MS);
+        videos[0].onloadedmetadata();
+        await videos[0].onseeked();
+        await settle();
         expect(videos).toHaveLength(2);
-        // The second one finishes after the deadline, so the third is never started.
-        await vi.advanceTimersByTimeAsync(VIDEO_BATCH_TIMEOUT_MS - VIDEO_JOB_TIMEOUT_MS);
         videos[1].onloadedmetadata();
         await videos[1].onseeked();
-        expect(await Promise.all(results)).toEqual([undefined, thumbnail, undefined]);
+        expect(await Promise.all(results)).toEqual([thumbnail, thumbnail]);
+    });
+
+    it('gives up at the deadline on the video still loading and on the videos still queued', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        const results = Promise.all([clip('a.mp4'), clip('b.mp4'), clip('c.mp4')].map(file => generate(file, { defaultGenerator })));
+        let prepared = false;
+        results.then(() => {
+            prepared = true;
+        });
+        await settle();
+        // The first video never loads and is given up on, which leaves the second a second before the deadline.
+        await vi.advanceTimersByTimeAsync(VIDEO_JOB_TIMEOUT_MS);
         expect(videos).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(VIDEO_BATCH_TIMEOUT_MS - VIDEO_JOB_TIMEOUT_MS - 1);
+        expect(prepared).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(prepared).toBe(true);
+        expect(await results).toEqual([undefined, undefined, undefined]);
+        expect(videos).toHaveLength(2);
+        expectReleased(videos[1], 'blob:video-2');
+        expect(vi.getTimerCount()).toBe(0);
     });
 
     it('leaves other files with a video type to the image generator', async () => {
