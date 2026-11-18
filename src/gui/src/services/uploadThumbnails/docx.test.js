@@ -130,6 +130,11 @@ describe('readDocxPreview drawing the first page', () => {
         expect(lines.map(line => line.x)).toEqual([72 + 36, 72]);
     });
 
+    it('leaves out hidden text', async () => {
+        const lines = await draw({ body: `<w:p>${run('Shown ')}${run('secret ', '<w:vanish/>')}${run('too', '<w:vanish w:val="0"/>')}</w:p>` });
+        expect(lines.map(line => line.text)).toEqual(['Shown too']);
+    });
+
     it('wraps text to the page width and breaks words longer than a line', async () => {
         // At 10 points a character is 5 wide, so the 468 between the margins fits 93 characters.
         const lines = await draw({ body: paragraph(`${'word '.repeat(30)}${'x'.repeat(200)}`) });

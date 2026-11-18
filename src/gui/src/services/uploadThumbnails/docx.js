@@ -25,6 +25,7 @@ const BASE_FORMAT = {
     spaceAfter: 0,
     lineSpacing: 1,
     pageBreakBefore: false,
+    hidden: false,
 };
 
 // An on/off property is on when it is present, unless its value says otherwise.
@@ -50,6 +51,7 @@ const readFormat = (format, name, parent, attributes) => {
     };
     if ( parent === 'w:rPr' ) {
         if ( name === 'w:b' ) format.bold = isOn(attributes);
+        else if ( name === 'w:vanish' ) format.hidden = isOn(attributes);
         else if ( name === 'w:i' ) format.italic = isOn(attributes);
         // Sizes are in half-points.
         else if ( name === 'w:sz' ) set('size', clamped(value, 2, 1, 400));
@@ -184,8 +186,8 @@ const readBody = (xml, formatOf) => {
     };
     const closeRun = () => {
         if ( run?.text ) {
-            const { size, bold, italic, color } = { ...formatOfParagraph(run.paragraph), ...run.format };
-            run.paragraph.runs.push({ text: run.text, size, bold, italic, color });
+            const { size, bold, italic, color, hidden } = { ...formatOfParagraph(run.paragraph), ...run.format };
+            if ( ! hidden ) run.paragraph.runs.push({ text: run.text, size, bold, italic, color });
         }
         run = outerRuns.pop();
     };
