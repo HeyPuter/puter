@@ -286,9 +286,17 @@ const readBody = (xml, formatOf) => {
     while ( rows.length ) closeRow();
 
     // The first section's properties give the first page its size. They can come long after the page's content.
-    const section = xml.match(/<w:sectPr[\s>][^]*?(?:<\/w:sectPr>|<w:sectPrChange|$)/)?.[0] ?? '';
-    const size = attributesOf(section.match(/<w:pgSz\s[^>]*>/)?.[0] ?? '');
-    const margins = attributesOf(section.match(/<w:pgMar\s[^>]*>/)?.[0] ?? '');
+    // Each lookup is one pass: a pattern that could fail late would start over at every tag in unclosed markup.
+    const start = xml.search(/<w:sectPr[\s>]/);
+    const ends = ['</w:sectPr>', '<w:sectPrChange'].map(mark => xml.indexOf(mark, start)).filter(at => at >= 0);
+    const section = start < 0 ? '' : xml.slice(start, Math.min(xml.length, ...ends));
+    const tagOf = (name) => {
+        const at = section.search(new RegExp(`<${name}\\s`));
+        const end = section.indexOf('>', at);
+        return at < 0 || end < 0 ? '' : section.slice(at, end);
+    };
+    const size = attributesOf(tagOf('w:pgSz'));
+    const margins = attributesOf(tagOf('w:pgMar'));
     for ( const [side, attribute] of [['width', 'w:w'], ['height', 'w:h']] ) {
         const length = Number(size[attribute]) / TWIPS_PER_POINT;
         if ( length >= 72 && length <= 4000 ) page[side] = length;

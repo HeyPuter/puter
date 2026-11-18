@@ -320,6 +320,16 @@ describe('readDocxPreview budgets', () => {
         expect(largest).toBeLessThan(OFFICE_XML_MAX_BYTES * 1.1);
     });
 
+    it.each(['w:pgSz', 'w:pgMar'])('looks for the page setup in section properties that never end without slowing down: %s', async (name) => {
+        // No tag after the section properties open is ever closed.
+        const main = `<w:document><w:body>${paragraph('Shown')}<w:sectPr ${`<${name} `.repeat(40_000)}`;
+        const started = performance.now();
+        const preview = await readDocxPreview(new File([createZip({ 'word/document.xml': main })], 'report.docx'));
+        expect(preview).toBeInstanceOf(File);
+        expect(linesOf(drawn).map(line => line.text)).toEqual(['Shown']);
+        expect(performance.now() - started).toBeLessThan(1000);
+    });
+
     it('lays out text up to the character budget', async () => {
         await draw({ body: paragraph('x'.repeat(WORD_TEXT_MAX_CHARACTERS)) + paragraph('y') });
         expect(drawn.text.some(word => word.text === 'y')).toBe(false);
