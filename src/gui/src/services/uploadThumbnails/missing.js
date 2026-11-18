@@ -132,7 +132,16 @@ export const createMissingThumbnailFiller = ({
      */
     /** @type {Map<string, Job>} */
     const pending = new Map();
-    /** @type {Map<string, { controller: AbortController, modified: number, unwanted: boolean }>} */
+    /**
+     * @typedef {Object} Download A job under way. It has no `row` once its row is gone.
+     * @property {AbortController} controller
+     * @property {number} modified The version being downloaded.
+     * @property {boolean} unwanted The file changed, or has a thumbnail now, so nothing is stored.
+     * @property {Element} [row]
+     * @property {MissingThumbnailEntry} fsentry
+     * @property {MissingThumbnailPlace} place
+     */
+    /** @type {Map<string, Download>} */
     const running = new Map();
     /** @type {Set<Element>} */
     const visible = new Set();
@@ -143,6 +152,7 @@ export const createMissingThumbnailFiller = ({
     let bytesLeft = MISSING_THUMBNAIL_SESSION_BYTES;
     let pausedUntil = 0;
     let timer;
+    let orphanTimer;
 
     const observer = typeof IntersectionObserver === 'function'
         ? new IntersectionObserver((entries) => {
@@ -189,7 +199,7 @@ export const createMissingThumbnailFiller = ({
         return { job, wakeAt };
     };
 
-    const run = async ({ row, fsentry }, active) => {
+    const run = async (fsentry, active) => {
         const response = await download(fsentry.uid, active.controller.signal);
         if ( response.status === 429 ) return 'throttled';
         if ( response.status === 402 ) return 'out_of_credit';
@@ -202,7 +212,7 @@ export const createMissingThumbnailFiller = ({
         // A thumbnail made from a version the file no longer has is refused, so it's safe to send after an abort.
         const stored = await store({ uid: fsentry.uid, thumbnail, expectedModified: fsentry.modified });
         if ( stored.status === 429 ) return 'throttled';
-        if ( stored.ok ) onStored(row, fsentry, thumbnail);
+        if ( stored.ok && active.row ) onStored(active.row, fsentry, thumbnail);
         return 'done';
     };
 
@@ -216,9 +226,17 @@ export const createMissingThumbnailFiller = ({
         starts.push(now());
         bytesLeft -= fsentry.size;
         const controller = new AbortController();
-        const active = { controller, modified: fsentry.modified, unwanted: false };
+        /** @type {Download} */
+        const active = {
+            controller,
+            modified: fsentry.modified,
+            unwanted: false,
+            row,
+            fsentry: job.fsentry,
+            place: job.place,
+        };
         running.set(fsentry.uid, active);
-        run({ row, fsentry }, active)
+        run(fsentry, active)
             .catch(() => controller.signal.aborted ? 'aborted' : 'done')
             .then((outcome) => {
                 if ( outcome === 'failed' ) failures.add(key);
@@ -229,12 +247,18 @@ export const createMissingThumbnailFiller = ({
                     attempted.delete(key);
                     bytesLeft += fsentry.size;
                 }
-                if ( outcome === 'throttled' ) {
-                    pausedUntil = now() + MISSING_THUMBNAIL_BACKOFF_MS;
-                    if ( ! pending.has(fsentry.uid) ) {
-                        pending.set(fsentry.uid, { ...job, readyAt: pausedUntil });
-                        observer?.observe(row);
-                    }
+                if ( outcome === 'throttled' ) pausedUntil = now() + MISSING_THUMBNAIL_BACKOFF_MS;
+                // Queued again for the row that has it now: after the pause, or at once for a row that came back
+                // after its download was cancelled.
+                if ( (outcome === 'aborted' || outcome === 'throttled') && active.row && !active.unwanted &&
+                    !pending.has(fsentry.uid) ) {
+                    pending.set(fsentry.uid, {
+                        row: active.row,
+                        fsentry: active.fsentry,
+                        place: active.place,
+                        readyAt: Math.max(now(), pausedUntil),
+                    });
+                    observer?.observe(active.row);
                 }
             })
             .finally(() => {
@@ -284,7 +308,12 @@ export const createMissingThumbnailFiller = ({
             // A download of an older version would only be refused, and one for a file that has a thumbnail now, or
             // can't have one any more, is wasted.
             const current = running.get(fsentry.uid);
-            if ( current && (!wanted || current.modified !== fsentry.modified) ) {
+            if ( current && !current.unwanted ) {
+                if ( wanted && current.modified === fsentry.modified ) {
+                    // Already being made: a row drawn again takes over the download its old one started.
+                    Object.assign(current, { row, fsentry, place });
+                    return;
+                }
                 current.unwanted = true;
                 current.controller.abort();
             }
@@ -306,9 +335,18 @@ export const createMissingThumbnailFiller = ({
             observer.observe(row);
             schedule();
         },
-        /** Stop for rows that are gone, such as when the folder changes. */
+        /**
+         * Stop for rows that are gone, such as when the folder changes. A download is cancelled unless its file's row
+         * is passed in again within this task, as a refresh of the folder on screen does.
+         */
         reset () {
-            for ( const { controller } of running.values() ) controller.abort();
+            for ( const active of running.values() ) active.row = undefined;
+            clearTimeout(orphanTimer);
+            orphanTimer = setTimeout(() => {
+                for ( const active of running.values() ) {
+                    if ( ! active.row ) active.controller.abort();
+                }
+            }, 0);
             pending.clear();
             visible.clear();
             observer?.disconnect();

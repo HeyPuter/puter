@@ -348,13 +348,64 @@ describe('createMissingThumbnailFiller', () => {
         show(row);
 
         filler.reset();
-        expect(downloads[0].signal.aborted).toBe(true);
         await vi.advanceTimersByTimeAsync(0);
+        expect(downloads[0].signal.aborted).toBe(true);
 
         const again = makeRow();
         filler.observe(again, file, place);
         show(again);
         expect(downloads).toHaveLength(2);
+    });
+
+    it('keeps a download going when the folder on screen is drawn again', async () => {
+        const { filler, downloads, onStored } = setup();
+        const row = makeRow();
+        const file = entry();
+        const gone = entry();
+        filler.observe(row, file, place);
+        filler.observe(makeRow(), gone, place);
+        rows.forEach(show);
+        expect(downloads).toHaveLength(2);
+
+        // A refresh clears the rows and draws the listing again in one go. One file is no longer in it.
+        filler.reset();
+        row.isConnected = false;
+        const again = makeRow();
+        filler.observe(again, file, place);
+        show(again);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(downloads).toHaveLength(2);
+        expect(downloads[0].signal.aborted).toBe(false);
+        expect(downloads[1].signal.aborted).toBe(true);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onStored).toHaveBeenCalledWith(again, file, thumbnail);
+    });
+
+    it('downloads a file again when its row comes back while the cancelled download is still ending', async () => {
+        const rejections = [];
+        const { filler, download } = setup();
+        // A download that takes a moment to end after it's cancelled.
+        download.mockImplementation((_uid, signal) => new Promise((_resolve, reject) => {
+            rejections.push(() => reject(new DOMException('aborted', 'AbortError')));
+            signal.addEventListener('abort', () => {});
+        }));
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place);
+        show(row);
+
+        filler.reset();
+        await vi.advanceTimersByTimeAsync(0);
+        const again = makeRow();
+        filler.observe(again, file, place);
+        show(again);
+        expect(download).toHaveBeenCalledTimes(1);
+
+        rejections[0]();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(download).toHaveBeenCalledTimes(2);
     });
 
     it('drops a row that left the page before its turn', async () => {
