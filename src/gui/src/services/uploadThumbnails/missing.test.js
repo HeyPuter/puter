@@ -5,6 +5,7 @@ import {
     MISSING_THUMBNAIL_FAILURES_REMEMBERED,
     MISSING_THUMBNAIL_MAX_FILE_BYTES,
     MISSING_THUMBNAIL_PER_MINUTE,
+    MISSING_THUMBNAIL_SESSION_BYTES,
     MISSING_THUMBNAIL_SETTLE_MS,
 } from './config.js';
 import { createMissingThumbnailFiller, createRememberedFailures, wantsThumbnail } from './missing.js';
@@ -428,6 +429,68 @@ describe('createMissingThumbnailFiller', () => {
         rejections[0]();
         await vi.advanceTimersByTimeAsync(0);
         expect(download).toHaveBeenCalledTimes(2);
+    });
+
+    /** A download that delivers `bytes` and then stays open until it's cancelled. */
+    const stalledAfter = (bytes) => (_uid, signal) => Promise.resolve(new Response(new ReadableStream({
+        start (controller) {
+            controller.enqueue(new Uint8Array(bytes));
+            signal.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+        },
+    })));
+
+    it('counts what a cancelled download had already received against the download budget', async () => {
+        const { filler, download } = setup();
+        const size = MISSING_THUMBNAIL_MAX_FILE_BYTES;
+        download.mockImplementation(stalledAfter(size - 1));
+        const affordable = Math.floor(MISSING_THUMBNAIL_SESSION_BYTES / size);
+
+        for ( let i = 0; i < affordable + 1; i++ ) {
+            const row = makeRow();
+            filler.observe(row, entry({ size }), place);
+            show(row);
+            await vi.advanceTimersByTimeAsync(0);
+            // The folder changes with the download nearly done.
+            filler.reset();
+            row.isConnected = false;
+            await vi.advanceTimersByTimeAsync(0);
+        }
+        expect(download).toHaveBeenCalledTimes(affordable);
+    });
+
+    it('stops reading a file that turns out to be larger than its listed size allows', async () => {
+        let cancelled = false;
+        const { filler, download, generate } = setup();
+        let chunksLeft = 4;
+        download.mockImplementation(async () => new Response(new ReadableStream({
+            pull (controller) {
+                if ( chunksLeft-- > 0 ) controller.enqueue(new Uint8Array(MISSING_THUMBNAIL_MAX_FILE_BYTES / 2 + 1));
+                else controller.close();
+            },
+            cancel () {
+                cancelled = true;
+            },
+        })));
+        const row = makeRow();
+        filler.observe(row, entry(), place);
+        show(row);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(cancelled).toBe(true);
+        expect(generate).not.toHaveBeenCalled();
+    });
+
+    it('gives back the budget set aside for a download the server refused', async () => {
+        const { filler, downloads } = setup();
+        const size = MISSING_THUMBNAIL_MAX_FILE_BYTES;
+        const count = Math.floor(MISSING_THUMBNAIL_SESSION_BYTES / size) + 1;
+        for ( let i = 0; i < count; i++ ) {
+            const row = makeRow();
+            filler.observe(row, entry({ size }), place);
+            show(row);
+            downloads[i]?.finish(500);
+            await vi.advanceTimersByTimeAsync(0);
+        }
+        expect(downloads).toHaveLength(count);
     });
 
     it('drops a row that left the page before its turn', async () => {

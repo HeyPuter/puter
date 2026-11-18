@@ -138,6 +138,7 @@ export const createMissingThumbnailFiller = ({
      * @property {AbortController} controller
      * @property {number} modified The version being downloaded.
      * @property {boolean} unwanted The file changed, or has a thumbnail now, so nothing is stored.
+     * @property {number} received Bytes of the file downloaded so far.
      * @property {Element} [row]
      * @property {MissingThumbnailEntry} fsentry
      * @property {MissingThumbnailPlace} place
@@ -200,13 +201,49 @@ export const createMissingThumbnailFiller = ({
         return { job, wakeAt };
     };
 
+    /**
+     * Read a file's contents, counting the bytes as they arrive. The listed size can be out of date, so reading stops
+     * once the file turns out to be over the size cap.
+     *
+     * @param {Response} response
+     * @param {Download} active
+     * @returns {Promise<Blob | undefined>} `undefined` for a file over the cap.
+     */
+    const readContents = async (response, active) => {
+        if ( Number(response.headers.get('Content-Length')) > MISSING_THUMBNAIL_MAX_FILE_BYTES ) {
+            await response.body?.cancel();
+            return undefined;
+        }
+        const type = response.headers.get('Content-Type')?.split(';')[0].trim() ?? '';
+        if ( ! response.body ) {
+            const blob = await response.blob();
+            active.received = blob.size;
+            return blob.size > MISSING_THUMBNAIL_MAX_FILE_BYTES ? undefined : blob;
+        }
+        const reader = response.body.getReader();
+        const chunks = [];
+        for ( ;; ) {
+            const { done, value } = await reader.read();
+            if ( done ) return new Blob(chunks, { type });
+            active.received += value.byteLength;
+            if ( active.received > MISSING_THUMBNAIL_MAX_FILE_BYTES ) {
+                await reader.cancel();
+                return undefined;
+            }
+            chunks.push(value);
+        }
+    };
+
     const run = async (fsentry, active) => {
         const response = await download(fsentry.uid, active.controller.signal);
-        if ( response.status === 429 ) return 'throttled';
-        if ( response.status === 402 ) return 'out_of_credit';
-        if ( ! response.ok ) return 'done';
-        const blob = await response.blob();
-        if ( blob.size > MISSING_THUMBNAIL_MAX_FILE_BYTES ) return 'failed';
+        if ( ! response.ok ) {
+            // Nothing reads the error's body, and the connection is held until something does.
+            response.body?.cancel().catch(() => {});
+            if ( response.status === 429 ) return 'throttled';
+            return response.status === 402 ? 'out_of_credit' : 'done';
+        }
+        const blob = await readContents(response, active);
+        if ( ! blob ) return 'failed';
         const thumbnail = await generate(new File([blob], fsentry.name, { type: fsentry.type || blob.type }));
         if ( ! thumbnail ) return 'failed';
         if ( active.unwanted ) return 'aborted';
@@ -234,6 +271,7 @@ export const createMissingThumbnailFiller = ({
             controller,
             modified: fsentry.modified,
             unwanted: false,
+            received: 0,
             row,
             fsentry: job.fsentry,
             place: job.place,
@@ -243,13 +281,13 @@ export const createMissingThumbnailFiller = ({
             .catch(() => controller.signal.aborted ? 'aborted' : 'done')
             .then((outcome) => {
                 if ( outcome === 'failed' ) failures.add(key);
+                // The budget is charged what was downloaded, which for a download that was cancelled or refused is
+                // less than the size set aside for it.
+                bytesLeft += fsentry.size - active.received;
                 // Downloads are billed to the account, so none start once it's out of credit.
                 if ( outcome === 'out_of_credit' ) bytesLeft = 0;
                 // A file left before its download finished, or one the server asked to wait for, is tried again.
-                if ( outcome === 'aborted' || outcome === 'throttled' ) {
-                    attempted.delete(key);
-                    bytesLeft += fsentry.size;
-                }
+                if ( outcome === 'aborted' || outcome === 'throttled' ) attempted.delete(key);
                 if ( outcome === 'throttled' ) pausedUntil = now() + MISSING_THUMBNAIL_BACKOFF_MS;
                 // Queued again for the row that has it now: after the pause, or at once for a row that came back
                 // after its download was cancelled.
