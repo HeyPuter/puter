@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRecordingCanvas, linesOf } from '../../../tests/fixtures/canvas.js';
 import { createDocx, createZip, paragraph, picture } from '../../../tests/fixtures/docx.js';
@@ -268,6 +269,13 @@ describe('readDocxPreview pictures', () => {
         expect(bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true);
     });
 
+    it('reads a picture of the largest size whole, though deflate could only make it larger', async () => {
+        const noise = randomBytes(WORD_PICTURE_MAX_BYTES);
+        await draw({ body: `<w:p>${picture('rId1', 100, 50)}</w:p>`, media: { 'image1.png': noise } });
+        expect(bitmaps[0].bytes).toHaveLength(WORD_PICTURE_MAX_BYTES);
+        expect(bitmaps[0].bytes.subarray(-64)).toEqual(new Uint8Array(noise.subarray(-64)));
+    });
+
     it('shows a document that holds only a picture', async () => {
         await draw({ body: `<w:p>${picture('rId1', 100, 50)}</w:p>`, media: { 'image1.png': png } });
         expect(drawn.images).toHaveLength(1);
@@ -301,6 +309,15 @@ describe('readDocxPreview budgets', () => {
         expect(lines[0].text).toBe('Shown');
         // A scan that looked at each character once per character would take minutes.
         expect(performance.now() - started).toBeLessThan(2000);
+    });
+
+    it('stops reading an entry whose data inflates to nothing', async () => {
+        // The main part's own data comes after 8 MiB that an inflater must work through for no output.
+        const file = docxFile({ padding: { 'word/document.xml': 8 * 1024 * 1024 } });
+        const slice = vi.spyOn(file, 'slice');
+        expect(await readDocxPreview(file)).toBeUndefined();
+        const largest = Math.max(...slice.mock.calls.map(([start, end]) => end - start));
+        expect(largest).toBeLessThan(OFFICE_XML_MAX_BYTES * 1.1);
     });
 
     it('lays out text up to the character budget', async () => {

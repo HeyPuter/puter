@@ -21,17 +21,49 @@ const u32 = (value) => {
 };
 
 /**
- * A ZIP archive holding `entries`, a map of entry names to their content. Entries are deflated, except the ones
- * named in `stored`. `sizes` overrides the uncompressed size the archive states for an entry.
+ * About `byteLength` bytes of deflate data that inflate to nothing: blocks that hold only their end marker. Put ahead
+ * of an entry's own data, they make an inflater work through any amount of input without giving any output.
  */
-export const createZip = (entries, { stored = [], comment = '', sizes = {}, flags = 0 } = {}) => {
+export const emptyDeflateBlocks = (byteLength) => {
+    const bits = [];
+    const field = (value, count) => {
+        for ( let bit = 0; bit < count; bit++ ) bits.push(value >> bit & 1);
+    };
+    // Two blocks are 184 bits, so a pair ends on a byte boundary.
+    for ( let block = 0; block < 2; block++ ) {
+        // Not the last block, with Huffman codes of its own: 257 literal codes, 1 distance code, 18 code-length codes.
+        field(0, 1);
+        field(2, 2);
+        field(0, 5);
+        field(0, 5);
+        field(14, 4);
+        // The code-length alphabet: 18 (a run of zeros) in 1 bit, 0 and 1 in 2 bits.
+        for ( const length of [0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2] ) field(length, 3);
+        // Literals 0 to 255 unused, the end marker in 1 bit, the distance code unused, then the end marker itself.
+        for ( const bit of [0, ...[1, 1, 1, 1, 1, 1, 1], 0, ...[1, 1, 0, 1, 0, 1, 1], 1, 1, 1, 0, 0] ) bits.push(bit);
+    }
+    const pair = Buffer.alloc(bits.length / 8);
+    bits.forEach((bit, index) => {
+        pair[index >> 3] |= bit << (index & 7);
+    });
+    return Buffer.concat(Array.from({ length: Math.ceil(byteLength / pair.length) }, () => pair));
+};
+
+/**
+ * A ZIP archive holding `entries`, a map of entry names to their content. Entries are deflated, except the ones
+ * named in `stored`. `sizes` overrides the uncompressed size the archive states for an entry, and `padding` puts
+ * that many bytes of empty deflate blocks ahead of an entry's data.
+ */
+export const createZip = (entries, { stored = [], comment = '', sizes = {}, flags = 0, padding = {} } = {}) => {
     const locals = [];
     const directory = [];
     let offset = 0;
     for ( const [name, content] of Object.entries(entries) ) {
         const data = Buffer.from(content);
         const method = stored.includes(name) ? 0 : 8;
-        const packed = method ? deflateRawSync(data) : data;
+        const packed = method
+            ? Buffer.concat([emptyDeflateBlocks(padding[name] ?? 0), deflateRawSync(data)])
+            : data;
         // Version, flags, method, time and date, checksum, both sizes, then the lengths of the name and extra field.
         const fields = Buffer.concat([
             u16(20), u16(flags), u16(method), u32(0), u32(crc32(data)),

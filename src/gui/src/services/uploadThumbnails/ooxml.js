@@ -65,7 +65,7 @@ export const openArchive = async (file) => {
         at += 46 + nameLength + directory.getUint16(at + 30, true) + directory.getUint16(at + 32, true);
     }
 
-    // Reading stops at `maxBytes`, so an entry that inflates to more than it states costs no more than that.
+    // Reading stops at `maxBytes` of output, so an entry that inflates to more than it states costs no more than that.
     const contentOf = async (entry, maxBytes) => {
         if ( !entry || entry.encrypted || (entry.method !== METHOD_STORED && entry.method !== METHOD_DEFLATE) ) {
             return undefined;
@@ -73,7 +73,10 @@ export const openArchive = async (file) => {
         const header = await read(entry.offset, 30, 30);
         if ( header?.getUint32(0) !== LOCAL_HEADER_SIGNATURE ) return undefined;
         const start = entry.offset + 30 + header.getUint16(26, true) + header.getUint16(28, true);
-        const data = file.slice(start, start + entry.compressedSize).stream();
+        // Deflate data can also inflate to nothing at all, so the input is cut off as well. Data that deflate could
+        // not shrink is a little larger than what it inflates to, which the margin allows for.
+        const packedBytes = Math.min(entry.compressedSize, maxBytes + Math.ceil(maxBytes / 64) + 1024);
+        const data = file.slice(start, start + packedBytes).stream();
         const reader = (entry.method === METHOD_DEFLATE
             ? data.pipeThrough(new DecompressionStream('deflate-raw'))
             : data).getReader();
@@ -85,6 +88,9 @@ export const openArchive = async (file) => {
                 chunks.push(value);
                 length += value.length;
             }
+        } catch ( error ) {
+            // Input that was cut off ends in the middle of the data. What it gave before that is all there is.
+            if ( packedBytes === entry.compressedSize ) throw error;
         } finally {
             reader.cancel().catch(() => {});
         }
