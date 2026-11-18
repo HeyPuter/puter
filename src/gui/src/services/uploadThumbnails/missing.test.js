@@ -106,6 +106,12 @@ describe('wantsThumbnail', () => {
         ['a kind the generator does not read', { name: 'notes.txt', type: 'text/plain' }, place, false],
         ['a PDF in a list row', { name: 'doc.pdf', type: 'application/pdf' }, { ...place, listRow: true }, false],
         ['an image in a list row', {}, { ...place, listRow: true }, true],
+        ['an image known only by its name', { name: 'photo.JPG', type: '' }, place, true],
+        ['an SVG', { name: 'logo.svg', type: 'image/svg+xml' }, place, true],
+        ['a TIFF, which most browsers cannot draw', { name: 'scan.tiff', type: 'image/tiff' }, place, false],
+        ['a CAD drawing typed as an image', { name: 'plan.dwg', type: 'image/vnd.dwg' }, place, false],
+        ['a Photoshop file', { name: 'art.psd', type: 'image/vnd.adobe.photoshop' }, place, true],
+        ['a HEIC photo', { name: 'IMG_1.HEIC', type: 'image/heic' }, place, true],
     ])('%s: %s', (_label, overrides, where, expected) => {
         expect(wantsThumbnail(entry(overrides), where)).toBe(expected);
     });
