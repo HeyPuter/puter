@@ -177,9 +177,27 @@ export const readDocPreview = async (file, signal) => {
     // A form feed ends the page, unless nothing comes before it.
     const firstCharacter = text.search(/\S/);
     const pageEnd = firstCharacter < 0 ? -1 : text.indexOf('\x0c', firstCharacter);
-    const paragraphs = (pageEnd < 0 ? text : text.slice(0, pageEnd))
-        // A field keeps its instruction between 0x13 and 0x14, and what it displays between 0x14 and 0x15.
-        .replace(/\x13[^\x13-\x15]*\x14?/g, '')
+    // A field keeps its instruction between 0x13 and 0x14 and what it displays between 0x14 and 0x15, and either part
+    // can hold more fields. Text is shown when it is in no field's instruction.
+    let shown = '';
+    let hidden = 0;
+    const inInstruction = [];
+    for ( const part of (pageEnd < 0 ? text : text.slice(0, pageEnd)).split(/([\x13-\x15])/) ) {
+        if ( part === '\x13' ) {
+            inInstruction.push(true);
+            hidden++;
+        } else if ( part === '\x14' ) {
+            if ( inInstruction.at(-1) ) {
+                inInstruction[inInstruction.length - 1] = false;
+                hidden--;
+            }
+        } else if ( part === '\x15' ) {
+            if ( inInstruction.pop() ) hidden--;
+        } else if ( ! hidden ) {
+            shown += part;
+        }
+    }
+    const paragraphs = shown
         .replace(/\x0b/g, '\n')
         .replace(/\x1e/g, '-')
         // Paragraphs end with a carriage return, table cells and rows with 0x07.

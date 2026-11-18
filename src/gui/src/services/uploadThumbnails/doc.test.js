@@ -69,6 +69,18 @@ describe('readDocPreview', () => {
         expect(lines).toEqual(['Page 1 of', 'Next']);
     });
 
+    it('hides the instruction of a field that holds another field', async () => {
+        // A mail merge condition: the inner field is part of the outer one's instruction.
+        const lines = await draw({ pieces: [compressed('Dear \x13 IF \x13 MERGEFIELD Title \x14Dr\x15 = "Dr" "Doctor" "Friend" \x14Doctor\x15,\r')] });
+        expect(lines).toEqual(['Dear Doctor,']);
+    });
+
+    it('shows the fields inside what another field displays', async () => {
+        // A table of contents: each line ends in a page reference field.
+        const lines = await draw({ pieces: [compressed('\x13 TOC \\o "1-3" \x14Intro \x13 PAGEREF _Toc1 \x141\x15\x0bBody \x13 PAGEREF _Toc2 \x143\x15\x15\rAfter \x15 a stray end\r')] });
+        expect(lines).toEqual(['Intro 1', 'Body 3', 'After a stray end']);
+    });
+
     it('splits table cells and line breaks into lines, and drops the marks of things it does not draw', async () => {
         const lines = await draw({ pieces: [compressed('Cell A\x07Cell B\x07\x07Line one\x0bLine two\rPicture \x01\x08here\x02, non\x1ebreaking\r')] });
         expect(lines).toEqual(['Cell A', 'Cell B', 'Line one', 'Line two', 'Picture here, non-breaking']);
