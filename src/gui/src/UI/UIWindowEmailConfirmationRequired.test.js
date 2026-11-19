@@ -35,10 +35,15 @@ vi.mock('./UIWindow.js', () => ({
     }),
 }));
 vi.mock('./UIAlert.js', () => ({ default: vi.fn() }));
+vi.mock('./UIWindowPhoneVerificationRequired.js', () => ({ default: vi.fn(async () => true) }));
+vi.mock('./UIWindowCardVerificationRequired.js', () => ({ default: vi.fn(async () => true) }));
+vi.mock('../helpers/postUserProtected.js', () => ({ default: vi.fn() }));
 
 globalThis.def = globalThis.def ?? (value => value);
 
 const { default: UIWindowEmailConfirmationRequired } = await import('./UIWindowEmailConfirmationRequired.js');
+const { default: UIWindowPhoneVerificationRequired } = await import('./UIWindowPhoneVerificationRequired.js');
+const { default: postUserProtected } = await import('../helpers/postUserProtected.js');
 
 const PENDING = Symbol('pending');
 const settled = (promise) => Promise.race([promise, new Promise((r) => setTimeout(() => r(PENDING), 0))]);
@@ -271,5 +276,78 @@ describe('UIWindowEmailConfirmationRequired', () => {
         expect(window.logout).toHaveBeenCalledTimes(1);
         expect(win()).toHaveLength(0);
         expect(await settled(result)).toBe(PENDING);
+    });
+});
+
+describe('UIWindowEmailConfirmationRequired replacing the address', () => {
+    beforeEach(() => {
+        postUserProtected.mockReset();
+        UIWindowPhoneVerificationRequired.mockReset();
+        UIWindowPhoneVerificationRequired.mockResolvedValue(true);
+    });
+
+    const submitChange = async (email = 'new@b.test') => {
+        win().find('.change-conf-email').trigger('click');
+        win().find('.email-change-new').val(email);
+        win().find('.email-change-password').val('pw');
+        win().find('.email-change-form').trigger('submit');
+    };
+
+    it('asks for the verification the server names, then retries the change', async () => {
+        postUserProtected
+            .mockResolvedValueOnce({ ok: false, data: { code: 'phone_verification_required', factors: ['phone', 'card'] }, message: 'verify' })
+            .mockResolvedValueOnce({ ok: true, data: {} });
+        await open();
+        await submitChange();
+
+        await vi.waitFor(() => expect(win().find('.email-change-sent').css('display')).not.toBe('none'));
+        expect(UIWindowPhoneVerificationRequired).toHaveBeenCalledWith(expect.objectContaining({ card_alternative: true }));
+        expect(postUserProtected).toHaveBeenCalledTimes(2);
+        expect(postUserProtected).toHaveBeenLastCalledWith('change-email', { new_email: 'new@b.test', code: undefined }, { password: 'pw' });
+    });
+
+    it('stops when the verification is not completed', async () => {
+        postUserProtected.mockResolvedValueOnce({ ok: false, data: { code: 'phone_verification_required', factors: ['phone'] }, message: 'verify' });
+        UIWindowPhoneVerificationRequired.mockResolvedValueOnce(false);
+        await open();
+        await submitChange();
+
+        await vi.waitFor(() => expect(UIWindowPhoneVerificationRequired).toHaveBeenCalled());
+        expect(postUserProtected).toHaveBeenCalledTimes(1);
+        expect(win().find('.email-change-sent').css('display')).toBe('none');
+    });
+
+    it('resolves true once the new address is confirmed through its link', async () => {
+        postUserProtected.mockResolvedValueOnce({ ok: true, data: {} });
+        window.refresh_user_data = vi.fn(async () => {
+            window.user = { email: 'new@b.test', email_confirmed: true };
+        });
+        const { result } = await open();
+        await submitChange();
+        await vi.waitFor(() => expect(win().find('.email-change-sent').css('display')).not.toBe('none'));
+        win().find('.email-change-continue').trigger('click');
+
+        await expect(result).resolves.toBe(true);
+    });
+
+    it('stays open while the new address is not confirmed yet', async () => {
+        postUserProtected.mockResolvedValueOnce({ ok: true, data: {} });
+        window.refresh_user_data = vi.fn(async () => {
+            window.user = { email: 'a@b.test', email_confirmed: false, requires_email_confirmation: true };
+        });
+        const { result } = await open();
+        await submitChange();
+        await vi.waitFor(() => expect(win().find('.email-change-sent').css('display')).not.toBe('none'));
+        win().find('.email-change-continue').trigger('click');
+
+        await vi.waitFor(() => expect(win().find('.email-change-sent .email-change-error').text()).toBe('email_change_not_confirmed'));
+        expect(await settled(result)).toBe(PENDING);
+    });
+
+    it('refuses the address already on the account without asking the server', async () => {
+        await open();
+        await submitChange('A@B.test');
+        expect(postUserProtected).not.toHaveBeenCalled();
+        expect(win().find('.email-change-form .email-change-error').text()).toBe('email_unchanged');
     });
 });

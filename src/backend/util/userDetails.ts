@@ -28,7 +28,8 @@ import {
     isCardFallbackEligible,
     type CardFallbackClients,
 } from './cardFallback.js';
-import { isEmailGateLast } from './verificationOrder.js';
+import { phoneLastDigits } from './phone.js';
+import { isEmailGateLast, isPhoneOnFileStep } from './verificationOrder.js';
 
 export interface UserDetailsDeps {
     config: IConfig;
@@ -190,6 +191,12 @@ export async function buildUserDetails(
         // The phone number itself is deliberately absent: nothing on the
         // client reads it. Only the verification flag ships.
         requires_phone_verification: user.requires_phone_verification,
+        // The last two digits of a number the owner has to prove again, so the
+        // client can say where the code goes.
+        phone_on_file:
+            isUser && isPhoneOnFileStep(user)
+                ? phoneLastDigits(String(user.phone))
+                : null,
         requires_card_verification: user.requires_card_verification,
         // Card and phone come before email for this account.
         email_gate_last: isEmailGateLast(user),

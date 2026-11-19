@@ -286,6 +286,9 @@ export class SignInService extends PuterService {
                 dormant_days: dormantDays,
                 is_dormant: isDormant,
                 known_device: earlyDevice?.known ?? false,
+                credential_exposed:
+                    req.requestSignals?.includes(CREDENTIAL_EXPOSED_SIGNAL) ??
+                    false,
                 account: {
                     has_verified_phone: hasVerifiedPhone(user),
                     has_verified_card: hasVerifiedCard(user),

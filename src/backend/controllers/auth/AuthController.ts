@@ -28,10 +28,13 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import {
+    assertAnyVerified,
+    assertVerifiedAccount,
     DEFAULT_ADMIN_USERNAMES,
     hasVerifiedCard,
     hasVerifiedPhone,
 } from '../../core/http/middleware/gates.js';
+import { actorOnPaidPlan } from '../../services/metering/enforcement.js';
 import type { Actor } from '../../core/actor.js';
 import { isAppActor, isPlainUserActor, makeActor } from '../../core/actor.js';
 import {
@@ -68,11 +71,14 @@ import {
     isCardFallbackEnabled,
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
-import { isEmailGateLast } from '../../util/verificationOrder.js';
+import {
+    isEmailGateLast,
+    isPhoneOnFileStep,
+} from '../../util/verificationOrder.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
-import { parsePhone } from '../../util/phone.js';
+import { parsePhone, phoneLastDigits } from '../../util/phone.js';
 import { deleteIfEqual } from '../../util/redisLock.js';
 import {
     bonusCodeInvalidError,
@@ -1534,6 +1540,21 @@ export class AuthController extends PuterController {
                 'Card verification must be completed first.',
                 { legacyCode: 'conflict' },
             );
+        // An account proving the number it already has gets the code there and
+        // can't name another. Losing that number opens the card fallback.
+        const onFile = isPhoneOnFileStep(user);
+        if (onFile && req.body?.lostNumber === true) {
+            if (await this.openCardFallback(user)) {
+                res.json({ card_fallback_available: true });
+                return;
+            }
+            throw new HttpError(
+                409,
+                'Email support@puter.com to verify your account another way.',
+                { legacyCode: 'conflict', code: 'phone_on_file_unavailable' },
+            );
+        }
+
         if (!this.clients.prelude?.isConfigured())
             throw await this.smsSendError(
                 503,
@@ -1546,7 +1567,7 @@ export class AuthController extends PuterController {
         // Parse to E.164 (Prelude's required form + the stored form) and the
         // country, so we can apply the per-country cost cap.
         const parsed = parsePhone(
-            req.body?.phone,
+            onFile ? user.phone : req.body?.phone,
             this.clients.prelude.defaultCountry,
         );
         if (!parsed)
@@ -1758,6 +1779,9 @@ export class AuthController extends PuterController {
         res.json({
             ...fallbackFields,
             ...(deliveryChannel ? { channel: deliveryChannel } : {}),
+            // Where the code went, for a client that didn't know the account
+            // had a number to prove.
+            ...(onFile ? { phone_on_file: phoneLastDigits(parsed.e164) } : {}),
         });
     }
 
@@ -1797,17 +1821,20 @@ export class AuthController extends PuterController {
         }
         // The number being verified is the one staged at send time (KV
         // pending), not the user row — we don't persist an unverified number.
-        // Fall back to a row value for accounts that already have one on file
-        // (legacy / a number persisted by a prior verified flow).
+        // An account proving the number on file proves only that one.
         const pendingPhoneKey = `phone-verify-pending:${user.id}`;
-        let pendingPhone: string | null = null;
-        try {
-            const { res: staged } = await this.stores.kv.get({
-                key: pendingPhoneKey,
-            });
-            if (typeof staged === 'string' && staged) pendingPhone = staged;
-        } catch (e) {
-            console.warn('[confirm-phone] pending read failed:', e);
+        let pendingPhone: string | null = isPhoneOnFileStep(user)
+            ? (user.phone as string)
+            : null;
+        if (!pendingPhone) {
+            try {
+                const { res: staged } = await this.stores.kv.get({
+                    key: pendingPhoneKey,
+                });
+                if (typeof staged === 'string' && staged) pendingPhone = staged;
+            } catch (e) {
+                console.warn('[confirm-phone] pending read failed:', e);
+            }
         }
         if (!pendingPhone) pendingPhone = user.phone ?? null;
         if (!pendingPhone)
@@ -2669,6 +2696,9 @@ export class AuthController extends PuterController {
 
     @Post('/user-protected/change-email', {
         userProtected: true,
+        // A pending email step is checked in the handler; every other gate
+        // still applies there.
+        allowUnconfirmed: true,
         rateLimit: {
             scope: 'change-email-start',
             limit: 10,
@@ -2696,6 +2726,7 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found', {
                 legacyCode: 'not_found',
             });
+        await this.#assertEmailChangeAllowed(req, user);
         this.#requireAccountTwoFactor(user, req.body?.code);
 
         const { new_email } = req.body ?? {};
@@ -2776,6 +2807,41 @@ export class AuthController extends PuterController {
         }
 
         res.json({});
+    }
+
+    /**
+     * An address that was never confirmed can be replaced while its code is
+     * pending, so a dead or mistyped one isn't a dead end. The password alone
+     * doesn't prove the account is the caller's, so it also takes a verified
+     * phone, card or second factor. Without one the code is still required.
+     */
+    async #assertEmailChangeAllowed(
+        req: Request,
+        user: UserRow,
+    ): Promise<void> {
+        const emailPending = Boolean(
+            user.requires_email_confirmation && !user.email_confirmed,
+        );
+        // A provider-only account would lose its sign-in when the change
+        // unlinks its providers.
+        if (emailPending && user.password === null) assertVerifiedAccount(user);
+        assertVerifiedAccount(
+            emailPending
+                ? { ...user, requires_email_confirmation: false }
+                : user,
+        );
+        if (!emailPending || user.otp_enabled) return;
+        if (hasVerifiedPhone(user) || hasVerifiedCard(user)) return;
+        const hasPaidPlan = (actor: Actor) =>
+            actorOnPaidPlan(this.services.metering, actor);
+        if (await hasPaidPlan(req.actor!)) return;
+        // Asks for a factor the deployment can verify; with none, only the
+        // emailed code is left.
+        await assertAnyVerified(req.actor, ['phone', 'card'], {
+            ...cardFallbackDepsFrom(this.clients),
+            hasPaidPlan,
+        });
+        assertVerifiedAccount(user);
     }
 
     @Get('/change_email/confirm', {
@@ -2880,6 +2946,22 @@ export class AuthController extends PuterController {
         }
 
         await this.stores.oidc.unlinkAllByUserId(user.id);
+        // Replacing an address that was never confirmed confirms the account,
+        // once however many times the link is followed at once.
+        if (
+            !user.email_confirmed &&
+            (await claimOnce(
+                this.stores.kv,
+                `change-email-confirmed:${decoded.token}`,
+                60 * 60,
+            ))
+        ) {
+            await this.services.signup.announceEmailConfirmed({
+                ...user,
+                email: newEmail,
+                email_confirmed: true,
+            });
+        }
 
         try {
             this.clients.event?.emit(
@@ -4985,7 +5067,9 @@ export class AuthController extends PuterController {
         ]);
         const spent = !sharedOpen || reservations.some((r) => !r.ok);
         return {
-            locked: spent && !device.known,
+            // An account with no email can't reset its way out, so a lock
+            // would let anyone keep it out of new browsers.
+            locked: spent && !device.known && Boolean(user.email),
             release: async () => {
                 await Promise.all(reservations.map((r) => r.release()));
             },
@@ -5030,7 +5114,9 @@ export class AuthController extends PuterController {
         try {
             this.clients.alarm?.create(
                 `auth:login-locked:${user.uuid}`,
-                'Password sign-in locked after repeated wrong passwords',
+                user.email
+                    ? 'Password sign-in locked after repeated wrong passwords'
+                    : 'Repeated wrong passwords on an account with no email (not locked)',
                 {
                     username: user.username,
                     user_uuid: user.uuid,

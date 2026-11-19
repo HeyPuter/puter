@@ -498,7 +498,7 @@ These apply to signing in to Puter itself, through the sign-in screen or [`puter
 
 Only wrong passwords and wrong codes count toward the per-account limits; a right one costs nothing.
 
-- **Wrong passwords.** Once either window is spent, password sign-in to that account answers `429` with `errorCode: "login_locked"` and `action: "reset_password"`, even for the right password, until the window passes. A browser that has signed in to the account before can still sign in, so the owner isn't locked out by someone else's guesses. Any new password ends the lockout at once, whether the owner changes it, resets it by email, or a team admin sets it. The owner is emailed when a lockout starts.
+- **Wrong passwords.** Once either window is spent, password sign-in to that account answers `429` with `errorCode: "login_locked"` and `action: "reset_password"`, even for the right password, until the window passes. A browser that has signed in to the account before can still sign in, so the owner isn't locked out by someone else's guesses. Any new password ends the lockout at once, whether the owner changes it, resets it by email, or a team admin sets it. The owner is emailed when a lockout starts. An account with no email address is never locked, since it has no way to reset its password.
 - **Email confirmation codes.** A code older than an hour answers `400` with `code: "confirmation_code_expired"`; send a new one. Over the wrong-code limit, confirming answers `429` until the window passes, even for the right code. Sending a new code doesn't reset the count.
 
 ### Sites and workers

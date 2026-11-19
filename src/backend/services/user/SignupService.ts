@@ -864,6 +864,17 @@ export class SignupService extends PuterService {
                 legacyCode: 'email_already_in_use' as never,
             });
         }
+        await this.announceEmailConfirmed(user, { originalClientSocketId });
+    }
+
+    /**
+     * What follows an account's first confirmed address, whichever route
+     * confirmed it: the verified group, other tabs, and listeners.
+     */
+    async announceEmailConfirmed(
+        user: UserRow,
+        { originalClientSocketId }: { originalClientSocketId?: unknown } = {},
+    ): Promise<void> {
         await promoteToVerifiedGroup(this.stores.group, this.config, user);
 
         // Best-effort side channels. Other tabs refresh; the one that sent

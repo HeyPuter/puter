@@ -25,3 +25,18 @@
 export const isEmailGateLast = (
     user: { metadata?: Record<string, unknown> | null } | null | undefined,
 ): boolean => user?.metadata?.emailGateLast === true;
+
+/**
+ * The phone gate is set on an account that already has a number: the code goes
+ * to that number, so passing proves the owner still has it.
+ */
+export const isPhoneOnFileStep = (
+    user:
+        | {
+              phone?: unknown;
+              requires_phone_verification?: boolean | number | null;
+          }
+        | null
+        | undefined,
+): boolean =>
+    Boolean(user?.phone) && Boolean(user?.requires_phone_verification);
