@@ -271,16 +271,16 @@ const TabFiles = {
                 if ( fsentry.thumbnail ) return;
                 fsentry.thumbnail = thumbnail;
                 if ( ! row.isConnected ) return;
-                _this.rowIcon(fsentry).then(({ image }) => {
-                    $(row).find('.item-icon > img').first().attr('src', image);
+                _this.rowIcon(fsentry).then(icon => {
+                    _this.showRowIcon($(row).find('.item-icon > img').first(), icon);
                 });
             },
             // The row kept its old thumbnail for a new one that isn't
             // coming. The same item in an open file dialog kept it too.
             onDropped: (row, fsentry) => {
                 if ( ! row.isConnected ) return;
-                _this.rowIcon(fsentry).then(({ image }) => {
-                    $(`.item[data-uid='${fsentry.uid}']`).find('.item-icon > img').attr('src', image);
+                _this.rowIcon(fsentry).then(icon => {
+                    _this.showRowIcon($(`.item[data-uid='${fsentry.uid}']`).find('.item-icon > img'), icon);
                 });
             },
         });
@@ -348,14 +348,14 @@ const TabFiles = {
             if ( file.thumbnail !== undefined && fsentry ) {
                 const keepsOld = _this.fillMissingThumbnail($row[0], fsentry, { showsOld: !!thumbnailBefore, changed: true });
                 if ( !keepsOld && (file.thumbnail ?? null) !== thumbnailBefore ) {
-                    _this.rowIcon(fsentry).then(({ image }) => {
-                        $row.find('.item-icon > img').attr('src', image);
+                    _this.rowIcon(fsentry).then(icon => {
+                        _this.showRowIcon($row.find('.item-icon > img'), icon);
                     });
                 }
             } else if ( !fsentry && typeof file.thumbnail === 'string' && file.thumbnail.length > 0 ) {
                 // Only a file dialog's item matched, with the folder on
                 // screen here being another one. It has no entry of its own.
-                $row.find('.item-icon > img').attr('src', file.thumbnail);
+                _this.showRowIcon($row.find('.item-icon > img'), { image: file.thumbnail, type: 'thumb' });
             }
             if ( displayName && displayName !== oldName && fsentry ) _this.followRename($row, fsentry, oldPath);
             // The footer's item-count/total-size line is computed from the
@@ -2013,8 +2013,8 @@ const TabFiles = {
      */
     followRename ($row, fsentry, oldPath) {
         this.insertAtSortedPosition($row, fsentry);
-        this.rowIcon(fsentry).then(({ image }) => {
-            $row.find('.item-icon > img').first().attr('src', image);
+        this.rowIcon(fsentry).then(icon => {
+            this.showRowIcon($row.find('.item-icon > img').first(), icon);
         });
         if ( fsentry.is_dir && oldPath && fsentry.path && fsentry.path !== oldPath ) {
             this.folderMoved(oldPath, fsentry.path);
@@ -3566,7 +3566,7 @@ const TabFiles = {
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
         if ( ! iconResult ) iconResult = await this.rowIcon(file);
-        const icon = `<img alt="" src="${html_encode(iconResult.image)}"/>`;
+        const icon = `<img alt=""${iconResult.type === 'thumb' ? ' class="row-thumb"' : ''} src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
         // A dot-file only reaches this point when the preference reveals it;
         // `item-revealed` dims it the same way the desktop Explorer does.
@@ -4020,8 +4020,8 @@ const TabFiles = {
                 if ( ! _this.applyHiddenRule($(el_item), fsentry.name ?? new_name) ) return;
                 $(el_item).attr('data-type', fsentry.type ?? '');
                 _this.insertAtSortedPosition($(el_item), fsentry);
-                _this.rowIcon(fsentry).then(({ image }) => {
-                    $(el_item).find('.item-icon > img').first().attr('src', image);
+                _this.rowIcon(fsentry).then(icon => {
+                    _this.showRowIcon($(el_item).find('.item-icon > img').first(), icon);
                 });
             });
         }
@@ -4846,6 +4846,18 @@ const TabFiles = {
      */
     rowIcon (fsentry) {
         return item_icon(fsentry, { listRow: !this.isGridView() });
+    },
+
+    /**
+     * Shows an icon from rowIcon() in a row's image. A thumbnail gets the
+     * `row-thumb` class, which the grid views draw with a shadow.
+     *
+     * @param {jQuery} $img
+     * @param {{ image: string, type: string }} icon
+     * @returns {void}
+     */
+    showRowIcon ($img, icon) {
+        $img.attr('src', icon.image).toggleClass('row-thumb', icon.type === 'thumb');
     },
 
     /**

@@ -6196,6 +6196,10 @@ body.myapps-reordering .myapps-tile {
     object-fit: contain;
 }
 
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-icon img.row-thumb {
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18));
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon svg {
     width: 64px;
     height: 64px;
