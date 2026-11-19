@@ -3,12 +3,13 @@
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
 callback's second argument. Files that are not PDFs, Illustrator files, PSDs,
-Office documents, videos, HEIC photos or audio files delegate to that image
-generator; when the running SDK predates the callback
+Office documents, videos, HEIC photos, audio files, source code or Markdown
+delegate to that image generator; when the running SDK predates the callback
 context (it then passes only the file), the GUI's bundled copy of the SDK image
 generator is used instead, so image thumbnails do not depend on deploy order.
 
-A thumbnail of a PDF, a Word document, a spreadsheet or a presentation is a picture of a page.
+A thumbnail of a PDF, a Word document, a spreadsheet, a presentation, a source
+file or a Markdown file is a picture of a page.
 The Files tab shows it in the grid views and shows the file's type icon in list
 rows, where a page would be a blank square. `kinds.js` holds the names that make
 a file a document, for the generator and for the icon helper alike.
@@ -180,6 +181,36 @@ An album is many files that each hold the same cover, often a large one, so an
 upload finds and scales one cover before it opens the next file, under a
 preparation deadline of its own.
 
+## Source code and Markdown
+
+Neither kind of file has a page of its own, so `text.js` gives them one: the
+shape of US Letter at well under half its size, which leaves about 24 lines of
+code legible enough to tell one file from another. Only the first 16 KiB of the
+file is read. A file with a NUL in that much of it is not text, and keeps its
+normal icon, as does a file with nothing but blank lines.
+
+`code.js` draws a JavaScript or CSS file as an editor shows it: in the
+browser's monospace font, a tab as four spaces, and each line running off the
+right edge of the page rather than wrapping. One pattern per language picks out
+the comments, strings, keywords, numbers and names, and each kind has a color.
+The patterns are a likeness of the language, not a parser: a regular expression
+literal is not recognized, and a CSS property is told from a selector by
+whether a `;` or `}` comes before the next `{`. Adding a language is a name in
+`kinds.js` and a pattern in `code.js`.
+
+`markdown.js` turns a Markdown file into the blocks `page.js` draws: headings
+sized by level, paragraphs, list items with their markers, quotes, fenced code
+and tables, with bold, italic, code and link text inside them. Front matter,
+comments, rules, pictures, badges and HTML tags are left out; the text between
+tags is kept, and an `<h1>` to `<h6>` is drawn as a heading.
+
+An upload draws and scales one of these files at a time, under a preparation
+deadline shorter than the other kinds have, because a project folder holds
+thousands of them. The files still queued at the deadline keep their icon
+until the dashboard shows them, which makes their thumbnails then. For these
+files the dashboard downloads only the 16 KiB that is read, so a large bundle
+costs no more than a small script.
+
 ## Budgets and tests
 
 All budgets are published in the developer docs' rate-limits-and-quotas page.
@@ -191,8 +222,9 @@ fixtures, and check first-page pixels, text, rotation, image delegation, failure
 recovery and termination of CPU-bound work. They also decode the thumbnails made
 from a PSD fixture's preview and from a fixture's merged image, and check the
 pixels of pages drawn from DOCX and DOC fixtures, of a sheet drawn from an XLSX
-fixture, of a slide drawn from a PPTX fixture, of a frame taken from a video fixture, and of
-covers stored in MP3, FLAC and MP4 audio fixtures. The browser the suite installs has
+fixture, of a slide drawn from a PPTX fixture, of a frame taken from a video fixture, of
+covers stored in MP3, FLAC and MP4 audio fixtures, and of pages drawn from JavaScript, CSS and
+Markdown text. The browser the suite installs has
 no HEVC decoder, so there the HEIC test checks that a photo is skipped without an
 error; in a browser that has one, the same test checks the decoded pixels. `heif.test.js`
 covers the reader against a stand-in for the decoder. The parsers' unit tests draw on a

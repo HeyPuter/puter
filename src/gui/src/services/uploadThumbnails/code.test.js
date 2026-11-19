@@ -1,0 +1,171 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRecordingCanvas, linesOf } from '../../../tests/fixtures/canvas.js';
+import { colorCode, readCodePreview } from './code.js';
+import { TEXT_MAX_READ_BYTES } from './config.js';
+
+const colorOf = (sample, language = 'javascript') => colorCode(sample, language)[0].color;
+const PLAIN = colorOf('x');
+const COMMENT = colorOf('// x');
+const STRING = colorOf('"x"');
+const KEYWORD = colorOf('const');
+const NUMBER = colorOf('1');
+const NAME = colorOf('f()');
+const PROPERTY = colorOf('color: red;', 'css');
+/** The text and color of each run, with the runs of plain text between tokens left out. */
+const tokens = (text, language) => colorCode(text, language)
+    .filter(run => run.color !== PLAIN)
+    .map(run => [run.text, run.color]);
+
+let drawn;
+const draw = async (text, name = 'app.js', language = 'javascript') => {
+    const preview = await readCodePreview(new File([text], name), language);
+    expect(preview).toBeInstanceOf(File);
+    expect(preview.type).toBe('image/png');
+    return linesOf(drawn);
+};
+
+beforeEach(() => {
+    const canvas = createRecordingCanvas();
+    drawn = canvas.drawn;
+    vi.stubGlobal('OffscreenCanvas', canvas.Canvas);
+});
+
+afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+});
+
+describe('colorCode', () => {
+    it('gives each kind of token a color of its own', () => {
+        expect(new Set([PLAIN, COMMENT, STRING, KEYWORD, NUMBER, NAME]).size).toBe(6);
+    });
+
+    it('colors the tokens of JavaScript and leaves the rest plain', () => {
+        const runs = colorCode('const total = sum(1, "two"); // done', 'javascript');
+        expect(runs.map(run => [run.text, run.color])).toEqual([
+            ['const', KEYWORD],
+            [' total = ', PLAIN],
+            ['sum', NAME],
+            ['(', PLAIN],
+            ['1', NUMBER],
+            [', ', PLAIN],
+            ['"two"', STRING],
+            ['); ', PLAIN],
+            ['// done', COMMENT],
+        ]);
+        expect(runs.every(run => run.family === 'monospace' && !run.bold && !run.italic)).toBe(true);
+    });
+
+    it('puts every character of the source in a run, in order', () => {
+        const source = 'if (a) {\n\treturn `x${a}`;\n}\n/* end';
+        expect(colorCode(source, 'javascript').map(run => run.text).join('')).toBe(source);
+    });
+
+    it.each([
+        ['a comment over several lines', '/* one\n two */ x', [['/* one\n two */', COMMENT]]],
+        ['a comment that never ends', 'x /* one\n two', [['/* one\n two', COMMENT]]],
+        ['a template over several lines', '`a\n${b}` + 1', [['`a\n${b}`', STRING], ['1', NUMBER]]],
+        ['a string that ends with its line', '\'open\nlet', [['\'open', STRING], ['let', KEYWORD]]],
+        ['an escaped quote in a string', '"a\\"b" in', [['"a\\"b"', STRING], ['in', KEYWORD]]],
+        ['a comment mark inside a string', '"http://x" // y', [['"http://x"', STRING], ['// y', COMMENT]]],
+        ['a keyword inside a longer name', 'constant, newest, $let, do_it', []],
+        ['numbers in their forms', '0xFF 1_000n 1.5e-3 a1', [['0xFF', NUMBER], ['1_000n', NUMBER], ['1.5e-3', NUMBER]]],
+        ['values written as words', 'null true', [['null', NUMBER], ['true', NUMBER]]],
+        ['a keyword before a bracket', 'if (x) while(y)', [['if', KEYWORD], ['while', KEYWORD]]],
+    ])('reads %s', (_label, source, expected) => {
+        expect(tokens(source, 'javascript')).toEqual(expected);
+    });
+
+    it('tells the properties of CSS from its selectors', () => {
+        expect(tokens('a:hover, .card > #main {\n  color: #fff;\n  margin: -2px 1.5em;\n  --gap: 10%\n}', 'css')).toEqual([
+            ['.card', NAME],
+            ['#main', NAME],
+            ['color', PROPERTY],
+            ['#fff', NUMBER],
+            ['margin', PROPERTY],
+            ['-2px', NUMBER],
+            ['1.5em', NUMBER],
+            ['--gap', PROPERTY],
+            ['10%', NUMBER],
+        ]);
+    });
+
+    it.each([
+        ['at-rules and what overrides them', '@media print { a { b: c !important } }', [['@media', KEYWORD], ['b', PROPERTY], ['!important', KEYWORD]]],
+        ['comments and strings', '/* a: b; */ a { content: "x: y;" }', [['/* a: b; */', COMMENT], ['content', PROPERTY], ['"x: y;"', STRING]]],
+        ['a number inside a name', 'h1, .col-2 { }', [['.col-2', NAME]]],
+        ['a selector spread over lines', 'a:link,\nb:visited { }', []],
+    ])('reads %s in CSS', (_label, source, expected) => {
+        expect(tokens(source, 'css')).toEqual(expected);
+    });
+});
+
+describe('readCodePreview', () => {
+    it('draws the lines of the file top to bottom in a fixed-width font, on a small page', async () => {
+        const lines = await draw('const a = 1;\n\n  return a;\n');
+        // A token is drawn on its own, so the number and the `;` after it come back as two words.
+        expect(lines.map(line => line.text)).toEqual(['const a = 1 ;', 'return a;']);
+        expect(drawn).toMatchObject({ width: 198, height: 256 });
+        expect(drawn.text.every(word => word.font === '10px monospace')).toBe(true);
+        // Two spaces of indent, each half the font size wide in the recording canvas.
+        expect(lines[1].x - lines[0].x).toBe(10);
+        // The empty second line still takes a line.
+        expect(lines[1].y - lines[0].y).toBe(24);
+        expect(drawn.text.find(word => word.text === 'const').color).toBe(KEYWORD);
+    });
+
+    it('lets a long line run off the page instead of wrapping it', async () => {
+        const lines = await draw(`${'word '.repeat(40)}\nnext`);
+        expect(lines).toHaveLength(2);
+        expect(lines[1].text).toBe('next');
+        // Words are drawn up to the one that crosses the right margin, and no further. A word and its space are 25 wide.
+        const last = Math.max(...drawn.text.map(word => word.x));
+        expect(last).toBeGreaterThan(255 - 18 - 25);
+        expect(last).toBeLessThanOrEqual(255 - 18);
+    });
+
+    it('measures a minified file only as far as the page goes', async () => {
+        const lines = await draw('a=b+1;'.repeat(2000).replace(/;/g, '; '));
+        expect(lines).toHaveLength(1);
+        expect(drawn.measured).toBeLessThan(200);
+    });
+
+    it('starts lines at the left edge whatever script their first letter is in', async () => {
+        const lines = await draw('// שלום\nconst a = 1;');
+        expect(lines.map(line => line.x)).toEqual([18, 18]);
+    });
+
+    it('draws a tab as four spaces and reads Windows line endings', async () => {
+        const lines = await draw('a\r\n\tb\r\n');
+        expect(lines.map(line => line.text)).toEqual(['a', 'b']);
+        expect(lines[1].x - lines[0].x).toBe(20);
+        expect(lines[1].y - lines[0].y).toBe(12);
+    });
+
+    it('stops at the bottom of the page', async () => {
+        const lines = await draw(Array.from({ length: 200 }, (_, index) => `line${index}`).join('\n'));
+        expect(lines.length).toBeGreaterThan(20);
+        expect(lines.length).toBeLessThan(30);
+        expect(lines[0].text).toBe('line0');
+    });
+
+    it('colors a stylesheet as CSS', async () => {
+        await draw('a { color: red; }', 'site.css', 'css');
+        expect(drawn.text.find(word => word.text === 'color').color).toBe(PROPERTY);
+    });
+
+    it('reads only the start of a large file', async () => {
+        const read = vi.spyOn(Blob.prototype, 'text');
+        const lines = await draw(`first\n${'x\n'.repeat(TEXT_MAX_READ_BYTES)}`);
+        expect(lines[0].text).toBe('first');
+        expect(read.mock.contexts.map(blob => blob.size)).toEqual([TEXT_MAX_READ_BYTES]);
+    });
+
+    it.each([
+        ['an empty file', ''],
+        ['a file of blank lines', ' \n\t\n\n'],
+        ['a file that is not text', 'MZ\0\0\x03\0\0\0code'],
+    ])('makes nothing of %s', async (_label, content) => {
+        expect(await readCodePreview(new File([content], 'app.js'), 'javascript')).toBeUndefined();
+    });
+});

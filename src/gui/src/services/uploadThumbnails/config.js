@@ -52,6 +52,10 @@ export const VIDEO_JOB_TIMEOUT_MS = 4000;
 export const VIDEO_FRAME_MAX_SECONDS = 10;
 // Twice the thumbnail's size, so the image generator's downscale smooths the frame.
 export const VIDEO_FRAME_DIMENSION = 256;
+// A project folder is thousands of small source files, so an upload spends less time on them than on documents.
+export const TEXT_BATCH_TIMEOUT_MS = 2000;
+// Source code and Markdown are drawn from the start of the file, which is all of it that is read.
+export const TEXT_MAX_READ_BYTES = 16 * 1024;
 // The dashboard makes thumbnails for files that have none as it shows them, within these budgets.
 export const MISSING_THUMBNAIL_MAX_FILE_BYTES = 20 * 1024 * 1024;
 // One at a time: a download holds one of the account's concurrent file reads, and a temporary account has three for

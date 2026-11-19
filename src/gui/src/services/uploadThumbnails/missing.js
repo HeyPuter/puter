@@ -9,7 +9,7 @@ import {
     MISSING_THUMBNAIL_SESSION_BYTES,
     MISSING_THUMBNAIL_SETTLE_MS,
 } from './config.js';
-import { canMakeThumbnail, isPageDocument } from './kinds.js';
+import { canMakeThumbnail, isPageDocument, leadingBytesRead } from './kinds.js';
 
 /**
  * @typedef {Object} MissingThumbnailEntry The fields of a listed entry the filler reads.
@@ -33,6 +33,14 @@ import { canMakeThumbnail, isPageDocument } from './kinds.js';
  */
 
 /**
+ * How much of an entry's file is downloaded to make its thumbnail: all of it, unless the generator reads only its start.
+ *
+ * @param {MissingThumbnailEntry} fsentry
+ * @returns {number} A number of bytes.
+ */
+const bytesNeeded = fsentry => Math.min(fsentry.size, leadingBytesRead(fsentry.name, fsentry.type ?? '') ?? Infinity);
+
+/**
  * Whether the dashboard should make a thumbnail for an entry: a file the user owns, of a kind the generator reads,
  * that has none, and whose row would show one.
  *
@@ -42,7 +50,7 @@ import { canMakeThumbnail, isPageDocument } from './kinds.js';
  */
 export const wantsThumbnail = (fsentry, { listRow, homePath, excludedPaths }) => {
     if ( !fsentry || fsentry.is_dir || fsentry.is_shortcut || fsentry.immutable || fsentry.thumbnail ) return false;
-    if ( !(fsentry.size > 0) || fsentry.size > MISSING_THUMBNAIL_MAX_FILE_BYTES ) return false;
+    if ( !(fsentry.size > 0) || bytesNeeded(fsentry) > MISSING_THUMBNAIL_MAX_FILE_BYTES ) return false;
     const path = fsentry.path ?? '';
     if ( !homePath || !path.startsWith(`${homePath}/`) ) return false;
     if ( excludedPaths.some(excluded => excluded && path.startsWith(`${excluded}/`)) ) return false;
@@ -97,7 +105,8 @@ export const createRememberedFailures = (getStorage) => {
 
 /**
  * @typedef {Object} MissingThumbnailDeps
- * @property {(uid: string, signal: AbortSignal) => Promise<Response>} download The file's contents.
+ * @property {(uid: string, signal: AbortSignal, byteCount?: number) => Promise<Response>} download The file's
+ *     contents, or its first `byteCount` bytes when that's all the thumbnail is made from.
  * @property {(body: { uid: string, thumbnail: string, expectedModified: number }) => Promise<Response>} store
  *     Saves the thumbnail, unless the file changed since `expectedModified`.
  * @property {(file: File) => Promise<string | undefined>} generate A data URL, or `undefined` for none.
@@ -309,7 +318,8 @@ export const createMissingThumbnailFiller = ({
         if ( active.made ) return send(fsentry, active);
         let blob;
         try {
-            const response = await download(fsentry.uid, active.controller.signal);
+            const needed = bytesNeeded(fsentry);
+            const response = await download(fsentry.uid, active.controller.signal, needed < fsentry.size ? needed : undefined);
             if ( ! response.ok ) {
                 // Nothing reads the error's body, and the connection is held until something does.
                 response.body?.cancel().catch(() => {});
@@ -341,7 +351,7 @@ export const createMissingThumbnailFiller = ({
         starts.push(now());
         const made = madeFor(job);
         // Set aside until the download ends, then settled against what arrived.
-        const reserved = made ? 0 : fsentry.size;
+        const reserved = made ? 0 : bytesNeeded(fsentry);
         bytesLeft -= reserved;
         const controller = new AbortController();
         /** @type {Download} */
@@ -414,7 +424,7 @@ export const createMissingThumbnailFiller = ({
                     break;
                 }
                 // Over the download budget, the rest of the page load goes without.
-                if ( !madeFor(next.job) && next.job.fsentry.size > bytesLeft ) {
+                if ( !madeFor(next.job) && bytesNeeded(next.job.fsentry) > bytesLeft ) {
                     forget(next.job.fsentry.uid, next.job.row);
                     drop(next.job.row, next.job.fsentry);
                     continue;

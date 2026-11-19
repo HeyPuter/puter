@@ -1,3 +1,5 @@
+import { TEXT_MAX_READ_BYTES } from './config.js';
+
 // Which files are documents, by name. A document's thumbnail is a picture of its first page.
 export const PDF_NAME = /\.pdf$/i;
 // Illustrator saves a PDF of the artwork inside its files, unless told not to. Such a file is artwork, not a page.
@@ -10,6 +12,9 @@ export const PSD_NAME = /\.ps[db]$/i;
 export const HEIF_NAME = /\.(heic|heif|hif)$/i;
 export const AUDIO_NAME = /\.(mp3|m4a|m4b|flac)$/i;
 export const VIDEO_NAME = /\.(mp4|m4v|mov|webm)$/i;
+// Source code, by language. `code.js` holds how each language is colored.
+export const CODE_NAMES = { javascript: /\.[cm]?js$/i, css: /\.css$/i };
+export const MARKDOWN_NAME = /\.(md|markdown)$/i;
 
 export const PSD_TYPE = 'image/vnd.adobe.photoshop';
 export const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
@@ -19,6 +24,8 @@ export const HEIF_TYPE = /^image\/hei[cf]$/;
 export const AUDIO_TYPE = /^audio\/(mpeg|mp3|mp4|m4a|x-m4a|flac|x-flac)$/;
 // The containers browsers play. Other `video/` types are left alone: a `.ts` source file is reported as one.
 export const VIDEO_TYPE = /^video\/(mp4|quicktime|webm|x-m4v)$/;
+export const CODE_TYPES = { javascript: /^(text|application)\/(x-)?javascript$/, css: /^text\/css$/ };
+export const MARKDOWN_TYPE = /^text\/(x-)?markdown$/;
 // The pictures browsers decode. Many other files are typed `image/` (TIFF scans, CAD drawings, DjVu books) and none of
 // them can be drawn, so a file is only worth downloading for a thumbnail when it's one of these.
 export const DECODABLE_IMAGE_TYPE = /^image\/(png|apng|jpeg|gif|webp|bmp|avif|svg\+xml|x-icon|vnd\.microsoft\.icon)$/;
@@ -32,8 +39,30 @@ export const DECODABLE_IMAGE_NAME = /\.(png|jpe?g|jfif|gif|webp|bmp|avif)$/i;
  * @param {string} [name]
  * @returns {boolean}
  */
-export const isPageDocument = (name = '') => [PDF_NAME, WORD_NAME, SPREADSHEET_NAME, PRESENTATION_NAME]
-    .some(pattern => pattern.test(name));
+export const isPageDocument = (name = '') =>
+    [PDF_NAME, WORD_NAME, SPREADSHEET_NAME, PRESENTATION_NAME, MARKDOWN_NAME, ...Object.values(CODE_NAMES)]
+        .some(pattern => pattern.test(name));
+
+/**
+ * The language of a source file the generator draws.
+ *
+ * @param {string} [name]
+ * @param {string} [type]
+ * @returns {string | undefined} A key of `CODE_NAMES`, or `undefined` for any other file.
+ */
+export const codeLanguage = (name = '', type = '') => Object.keys(CODE_NAMES)
+    .find(language => CODE_TYPES[language].test(type) || CODE_NAMES[language].test(name));
+
+/**
+ * How much of a file the generator reads, when it reads only the start. A file that has to be downloaded for a
+ * thumbnail is downloaded only this far.
+ *
+ * @param {string} [name]
+ * @param {string} [type]
+ * @returns {number | undefined} A number of bytes, or `undefined` for a file read past its start.
+ */
+export const leadingBytesRead = (name = '', type = '') =>
+    codeLanguage(name, type) || MARKDOWN_TYPE.test(type) || MARKDOWN_NAME.test(name) ? TEXT_MAX_READ_BYTES : undefined;
 
 /**
  * Whether the thumbnail generator has a reader for a file of this name and type that works in every browser. It may
@@ -53,4 +82,5 @@ export const canMakeThumbnail = (name = '', type = '') =>
     HEIF_TYPE.test(type) || HEIF_NAME.test(name) ||
     AUDIO_TYPE.test(type) || AUDIO_NAME.test(name) ||
     VIDEO_TYPE.test(type) || VIDEO_NAME.test(name) ||
+    !!leadingBytesRead(name, type) ||
     DECODABLE_IMAGE_TYPE.test(type) || DECODABLE_IMAGE_NAME.test(name);

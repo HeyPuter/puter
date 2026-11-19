@@ -8,6 +8,7 @@ import {
     MISSING_THUMBNAIL_PER_MINUTE,
     MISSING_THUMBNAIL_SESSION_BYTES,
     MISSING_THUMBNAIL_SETTLE_MS,
+    TEXT_MAX_READ_BYTES,
 } from './config.js';
 import { createMissingThumbnailFiller, createRememberedFailures, wantsThumbnail } from './missing.js';
 
@@ -116,6 +117,13 @@ describe('wantsThumbnail', () => {
         ['a CAD drawing typed as an image', { name: 'plan.dwg', type: 'image/vnd.dwg' }, place, false],
         ['a Photoshop file', { name: 'art.psd', type: 'image/vnd.adobe.photoshop' }, place, true],
         ['a HEIC photo', { name: 'IMG_1.HEIC', type: 'image/heic' }, place, true],
+        ['a script in a grid', { name: 'app.js', type: 'application/javascript' }, place, true],
+        ['a stylesheet known only by its name', { name: 'site.css', type: '' }, place, true],
+        ['a Markdown file in a grid', { name: 'README.md', type: 'text/markdown' }, place, true],
+        ['a script in a list row', { name: 'app.js', type: 'application/javascript' }, { ...place, listRow: true }, false],
+        ['a Markdown file in a list row', { name: 'README.md', type: 'text/markdown' }, { ...place, listRow: true }, false],
+        // Only the start of a text file is read, so its size is no reason to leave it.
+        ['a script over the size cap', { name: 'bundle.js', type: '', size: MISSING_THUMBNAIL_MAX_FILE_BYTES + 1 }, place, true],
     ])('%s: %s', (_label, overrides, where, expected) => {
         expect(wantsThumbnail(entry(overrides), where)).toBe(expected);
     });
@@ -562,6 +570,43 @@ describe('createMissingThumbnailFiller', () => {
             signal.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
         },
     })));
+
+    it('downloads only the start of a file whose thumbnail is made from its start', async () => {
+        const { filler, downloads, download, generate } = setup();
+        const large = entry({ name: 'bundle.js', type: 'application/javascript', size: MISSING_THUMBNAIL_MAX_FILE_BYTES + 1 });
+        const small = entry({ name: 'README.md', type: 'text/markdown', size: TEXT_MAX_READ_BYTES });
+        const picture = entry({ size: TEXT_MAX_READ_BYTES + 1 });
+        for ( const file of [large, small, picture] ) {
+            const row = makeRow();
+            filler.observe(row, file, place);
+            show(row);
+            await vi.advanceTimersByTimeAsync(0);
+            downloads.at(-1).finish();
+            await vi.advanceTimersByTimeAsync(0);
+        }
+        // A file no longer than what is read, and a file read whole, are asked for whole.
+        expect(download.mock.calls.map(([uid, , byteCount]) => [uid, byteCount])).toEqual([
+            [large.uid, TEXT_MAX_READ_BYTES],
+            [small.uid, undefined],
+            [picture.uid, undefined],
+        ]);
+        expect(generate.mock.calls[0][0]).toMatchObject({ name: 'bundle.js', type: 'application/javascript' });
+    });
+
+    it('sets aside only what it downloads of a text file from the download budget', async () => {
+        const { filler, downloads, download } = setup();
+        const size = MISSING_THUMBNAIL_SESSION_BYTES;
+        // Each of these would take the whole budget if it were downloaded whole.
+        for ( let i = 0; i < 3; i++ ) {
+            const row = makeRow();
+            filler.observe(row, entry({ name: `bundle${i}.js`, type: '', size }), place);
+            show(row);
+            await vi.advanceTimersByTimeAsync(0);
+            downloads.at(-1).finish();
+            await vi.advanceTimersByTimeAsync(0);
+        }
+        expect(download).toHaveBeenCalledTimes(3);
+    });
 
     it('counts what a cancelled download had already received against the download budget', async () => {
         const { filler, download } = setup();
