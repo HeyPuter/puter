@@ -25,6 +25,7 @@ import {
     type BatchEntry,
     type WriteResult,
 } from './DatabaseClient';
+import { assertBindableParams } from './bindableParams.js';
 import { preparePostgresSql } from './preparePostgresSql.js';
 import { splitPostgresStatements } from './splitPostgresStatements.js';
 import type { IConfig } from '../../types';
@@ -283,6 +284,7 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[] = [],
     ): Promise<QueryResult> {
+        assertBindableParams(query, params);
         let text = this.preparedSql.get(query);
         if (text === undefined) {
             text = preparePostgresSql(query).text;

@@ -713,3 +713,26 @@ describe('NotificationStore', () => {
         expect(await store.getByUid(n.uid)).toBeNull();
     });
 });
+
+describe('NotificationStore lookups by a value that is not a string', () => {
+    let lookupServer;
+
+    beforeAll(async () => {
+        lookupServer = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await lookupServer?.shutdown();
+    });
+
+    it('match no row', async () => {
+        const stores = lookupServer.stores;
+        for (const value of [0, 1, true, ['x'], { uid: 'x' }]) {
+            for (const row of [
+                await stores.notification.getByUid(value),
+                await stores.notification.getBySendKey(value),
+            ])
+                expect(row).toBeNull();
+        }
+    });
+});

@@ -342,6 +342,30 @@ describe('AppStore batched lookups', () => {
         expect((await appStore.getByUids(null)).size).toBe(0);
     });
 
+    it('text lookups match no row for a value that is not a string', async () => {
+        const a = await createApp('Alpha');
+        // MySQL would cast the column for a number, so none may reach it.
+        const db = server.clients.db;
+        const reads = [
+            vi.spyOn(db, 'read'),
+            vi.spyOn(db, 'pread'),
+            vi.spyOn(db, 'tryHardRead'),
+        ];
+        for (const value of [0, 1, true, ['x'], { uid: a.uid }]) {
+            expect(await appStore.getByUid(value)).toBeNull();
+            expect(await appStore.getByName(value)).toBeNull();
+            expect(await appStore.resolveApp(value)).toBeNull();
+            expect(await appStore.existsByName(value)).toBe(false);
+            expect(await appStore.uidExistsOnPrimary(value)).toBe(false);
+        }
+        for (const spy of reads) {
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        }
+        expect((await appStore.getById(a.id))?.uid).toBe(a.uid);
+        expect((await appStore.getByUid(a.uid))?.id).toBe(a.id);
+    });
+
     it('getByIds still resolves id-keyed lookups off the shared engine', async () => {
         const a = await createApp('Alpha');
 

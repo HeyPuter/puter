@@ -145,6 +145,7 @@ export class SubdomainStore extends PuterStore {
             primary?: boolean;
         } = {},
     ): Promise<SubdomainRow | null> {
+        if (typeof uuid !== 'string') return null;
         const where =
             userId !== undefined
                 ? 'WHERE `uuid` = ? AND `user_id` = ?'

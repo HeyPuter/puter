@@ -22,6 +22,7 @@ import { isAbsolute, resolve as resolvePath } from 'path';
 import type { IConfig } from '../../types';
 import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
+import { assertBindableParams } from './bindableParams.js';
 import { compareMigrationFilenames } from './migrationFilenames.js';
 
 export interface WriteResult {
@@ -179,6 +180,9 @@ export class AbstractDatabaseClient extends PuterClient {
     async tryHardReadAll(
         reads: { query: string; params?: unknown[] }[],
     ): Promise<Record<string, unknown>[][]> {
+        // A failed replica read counts as a miss below, so refuse up front.
+        for (const { query, params } of reads)
+            assertBindableParams(query, params);
         if (!this.hasReadReplica()) {
             return Promise.all(
                 reads.map(({ query, params = [] }) => this.read(query, params)),

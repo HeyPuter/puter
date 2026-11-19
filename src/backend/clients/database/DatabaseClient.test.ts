@@ -192,6 +192,18 @@ describe('AbstractDatabaseClient — replica-aware reads', () => {
             },
         );
 
+        it('refuses a batch with an array parameter before any read', async () => {
+            const client = new FixtureDatabaseClient([{ id: 1 }], [{ id: 2 }]);
+            await expect(
+                client.tryHardReadAll([
+                    { query: 'SELECT 1', params: ['a'] },
+                    { query: 'SELECT 2', params: [['a', 'b']] },
+                ]),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(client.reads).toEqual([]);
+            expect(client.preads).toEqual([]);
+        });
+
         it('issues one read per query when there is no replica', async () => {
             const client = new FixtureDatabaseClient([], [{ id: 2 }], false);
             expect(await client.tryHardReadAll(reads)).toEqual([[], []]);
