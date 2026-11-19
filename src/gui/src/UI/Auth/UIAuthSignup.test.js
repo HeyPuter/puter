@@ -169,6 +169,12 @@ describe('signup while the providers are looked up', () => {
 });
 
 describe('signup form', () => {
+    beforeEach(() => {
+        window.update_auth_data = vi.fn(async (token) => {
+            window.auth_token = token;
+        });
+    });
+
     it.each([
         [{}, 'username_required', 'username'],
         [{ username: 'a' }, 'email_required', 'email'],
@@ -302,6 +308,63 @@ describe('signup form', () => {
         for ( const gate of [gates.email, gates.phone, gates.card] ) {
             expect(gate.mock.calls[0][0].window_options).toEqual(window_options);
         }
+    });
+
+    describe('while the account checks are up', () => {
+        const signUp = async (options = { reload_on_success: false }) => {
+            const calls = captureAjax();
+            const result = UIAuthSignup(options);
+            fillForm();
+            $('.signup-form').trigger('submit');
+            await vi.waitFor(() => expect(calls).toHaveLength(1));
+            calls[0].success({ token: 't', user: { requires_phone_verification: true } });
+            return { calls, result };
+        };
+
+        it('keeps the signup open, out of sight, so another sign-in prompt waits on it', async () => {
+            let clearPhone;
+            gates.phone.mockImplementation(() => new Promise((resolve) => {
+                clearPhone = resolve;
+            }));
+            const { result } = await signUp();
+            await vi.waitFor(() => expect(gates.phone).toHaveBeenCalled());
+            expect($('.auth-dialog-overlay').is(':visible')).toBe(false);
+
+            const second = UIAuthLogin({ reload_on_success: false });
+            expect($('.auth-dialog')).toHaveLength(1);
+
+            clearPhone(true);
+            await expect(result).resolves.toBe(true);
+            await expect(second).resolves.toBe(true);
+        });
+
+        it('does not finish signing up when the page moved to another account', async () => {
+            gates.phone.mockImplementation(async () => {
+                window.auth_token = 'another-account';
+                return true;
+            });
+            const { result } = await signUp();
+            await expect(result).resolves.toBe(false);
+        });
+
+        it('does not reload into the landing when the page moved to another account', async () => {
+            const original = window.location;
+            const navigate = { replace: vi.fn(), reload: vi.fn() };
+            delete window.location;
+            window.location = { href: 'https://puter.test/start', origin: 'https://puter.test', pathname: '/start', search: '', hash: '', ...navigate };
+            try {
+                gates.phone.mockImplementation(async () => {
+                    window.auth_token = 'another-account';
+                    return true;
+                });
+                const { result } = await signUp({ reload_on_success: true });
+                await expect(result).resolves.toBe(false);
+                expect(navigate.replace).not.toHaveBeenCalled();
+                expect(navigate.reload).not.toHaveBeenCalled();
+            } finally {
+                window.location = original;
+            }
+        });
     });
 
     it('keeps an app landing after a signup that reloads', () => {

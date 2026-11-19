@@ -47,6 +47,7 @@ import {
     listConfiguredRateLimitBackends,
     peekRateLimit,
     rateLimitGate,
+    reserveRateLimit,
     sweepMemoryWindows,
 } from './rateLimit.js';
 
@@ -1776,6 +1777,91 @@ describe('peekRateLimit', () => {
         const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
         expect(await peekRateLimit('boom', 1, 60_000)).toBe(true);
         expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+});
+
+describe('reserveRateLimit', () => {
+    beforeEach(() => configureRateLimit());
+    afterEach(() => configureRateLimit());
+
+    it.each([
+        ['memory', () => ({})],
+        ['redis', () => ({ redis: new RedisMock() })],
+    ])(
+        'admits only what fits however many reserve at once, and takes a release back (%s)',
+        async (name, wiring) => {
+            const cfg = wiring();
+            configureRateLimit(cfg);
+            const key = `reserve-${name}-${Math.random()}`;
+            expect(await checkRateLimit(key, 3, 60_000, name)).toBe(true);
+            const held = await Promise.all(
+                Array.from({ length: 5 }, () =>
+                    reserveRateLimit(key, 3, 60_000, name),
+                ),
+            );
+            expect(held.filter((r) => r.ok)).toHaveLength(2);
+            expect(await peekRateLimit(key, 3, 60_000, name)).toBe(false);
+
+            const admitted = held.filter((r) => r.ok);
+            await admitted[0].release();
+            await admitted[0].release();
+            expect(await reserveRateLimit(key, 3, 60_000, name)).toMatchObject({
+                ok: true,
+            });
+            expect(await peekRateLimit(key, 3, 60_000, name)).toBe(false);
+            await cfg.redis?.quit?.();
+        },
+    );
+
+    it('releases each overlapping memory reservation from its own slot', async () => {
+        const key = `reserve-memory-overlap-${Math.random()}`;
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        try {
+            const first = reserveRateLimit(key, 2, 60_000, 'memory');
+            clock.mockReturnValue(1_000_001);
+            const second = reserveRateLimit(key, 2, 60_000, 'memory');
+            const held = await Promise.all([first, second]);
+            expect(held.map((r) => r.ok)).toEqual([true, true]);
+
+            await Promise.all(held.map((r) => r.release()));
+            expect(await peekRateLimit(key, 1, 60_000, 'memory')).toBe(true);
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it('takes a kv hit back', async () => {
+        const server = await setupTestServer();
+        try {
+            configureRateLimit({ kv: server.stores.kv });
+            const key = `reserve-kv-${Math.random().toString(36).slice(2, 10)}`;
+            const first = await reserveRateLimit(key, 1, 60_000, 'kv');
+            expect(first.ok).toBe(true);
+            expect((await reserveRateLimit(key, 1, 60_000, 'kv')).ok).toBe(
+                false,
+            );
+            await first.release();
+            expect(await peekRateLimit(key, 1, 60_000, 'kv')).toBe(true);
+        } finally {
+            configureRateLimit();
+            await server.shutdown();
+        }
+    });
+
+    it('fails open when the backend throws', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis down');
+                },
+            },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const reserved = await reserveRateLimit('boom', 1, 60_000);
+        expect(reserved.ok).toBe(true);
+        await expect(reserved.release()).resolves.toBeUndefined();
         spy.mockRestore();
     });
 });

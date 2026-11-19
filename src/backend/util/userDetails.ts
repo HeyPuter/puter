@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createHash } from 'node:crypto';
 import type { OIDCService } from '../services/auth/OIDCService.js';
 import type { SystemKVStore } from '../stores/systemKv/SystemKVStore.js';
 import type { TeamStoreContract } from '../core/teams.js';
@@ -47,11 +48,8 @@ const CLIENT_VISIBLE_FEATURE_FLAGS: ReadonlySet<string> = new Set([
     'prompt_user_when_navigation_away_from_puter',
 ]);
 
-// Keys that must never leave the server, whoever put them on a payload:
-// credentials and single-use tokens, the payment/phone identifiers used for
-// verification, the network identity recorded at signup, and anti-abuse
-// bookkeeping. The `requires_*_verification` flags stay; the GUI acts on them.
-const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+// Credentials and single-use tokens a user row (or its `metadata`) can hold.
+const SECRET_KEYS = [
     'password',
     'tmp_password',
     'pass_recovery_token',
@@ -60,6 +58,14 @@ const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
     'change_email_confirm_token',
     'otp_secret',
     'otp_recovery_codes',
+] as const;
+
+// Keys that must never leave the server, whoever put them on a payload: the
+// secrets above, the payment/phone identifiers used for verification, the
+// network identity recorded at signup, and anti-abuse bookkeeping. The
+// `requires_*_verification` flags stay; the GUI acts on them.
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+    ...SECRET_KEYS,
     'card_fingerprint',
     'phone',
     'clean_email',
@@ -103,6 +109,37 @@ export const scrubSensitive = (
         );
     }
 };
+
+/**
+ * A copy of the row without its credentials and single-use tokens (top level
+ * and in `metadata`), for code outside the auth path. `hasPassword` stands in
+ * for the hash, as on an actor's copy.
+ */
+export const withoutSecrets = (
+    user: UserRow,
+): UserRow & { hasPassword: boolean } => {
+    const copy: Record<string, unknown> = {
+        ...user,
+        hasPassword: user.password != null,
+    };
+    for (const key of SECRET_KEYS) delete copy[key];
+    if (user.metadata && typeof user.metadata === 'object') {
+        const metadata: Record<string, unknown> = { ...user.metadata };
+        for (const key of SECRET_KEYS) delete metadata[key];
+        copy.metadata = metadata;
+    }
+    return copy as UserRow & { hasPassword: boolean };
+};
+
+/**
+ * A short tag of the stored password hash. Any password replacement changes it
+ * (a new hash has a new salt), and it reveals nothing usable. Null without
+ * one.
+ */
+export const passwordTag = (user: { password?: unknown }): string | null =>
+    typeof user.password === 'string' && user.password
+        ? createHash('sha256').update(user.password).digest('hex').slice(0, 16)
+        : null;
 
 // SQL datetimes go out as unix seconds; unparseable values are dropped.
 export const toUnixSeconds = (value: unknown): number | undefined => {

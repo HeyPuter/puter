@@ -101,7 +101,8 @@ export function sweepMemoryWindows() {
     sweep.unref?.();
 }
 
-async function checkMemory(key, limit, windowMs) {
+/** Records a hit and returns its timestamp, or null when the bucket is full. */
+function admitMemory(key, limit, windowMs) {
     const now = Date.now();
     const cutoff = now - windowMs;
     let entry = memoryWindows.get(key);
@@ -120,9 +121,24 @@ async function checkMemory(key, limit, windowMs) {
     }
     const timestamps = entry.ts;
     while (timestamps.length > 0 && timestamps[0] < cutoff) timestamps.shift();
-    if (timestamps.length >= limit) return false;
+    if (timestamps.length >= limit) return null;
     timestamps.push(now);
-    return true;
+    return now;
+}
+
+async function checkMemory(key, limit, windowMs) {
+    return admitMemory(key, limit, windowMs) !== null;
+}
+
+/** `checkMemory` that returns a function giving the hit back, or null. */
+async function reserveMemory(key, limit, windowMs) {
+    const at = admitMemory(key, limit, windowMs);
+    if (at === null) return null;
+    return async () => {
+        const timestamps = memoryWindows.get(key)?.ts;
+        const i = timestamps ? timestamps.lastIndexOf(at) : -1;
+        if (i >= 0) timestamps.splice(i, 1);
+    };
 }
 
 /**
@@ -274,7 +290,12 @@ function multiResult(results, i) {
     return entry;
 }
 
-async function checkRedis(
+async function checkRedis(redis, key, limit, windowMs) {
+    return (await reserveRedis(redis, key, limit, windowMs)) !== null;
+}
+
+/** `checkRedis` that returns a function giving the hit back, or null. */
+async function reserveRedis(
     /** @type {import('ioredis').Cluster} */
     redis,
     /** @type {string} */
@@ -305,9 +326,11 @@ async function checkRedis(
     const count = Number(multiResult(results, 2));
     if (count > limit) {
         sendAsUndo(() => redis.zrem(redisKey, member)).catch(noop);
-        return false;
+        return null;
     }
-    return true;
+    return async () => {
+        await redis.zrem(redisKey, member);
+    };
 }
 
 /**
@@ -353,6 +376,11 @@ async function peekRedis(redis, key, limit, windowMs) {
 // -- KV backend ------------------------------------------------------
 
 async function checkKv(kv, key, limit, windowMs) {
+    return (await reserveKv(kv, key, limit, windowMs)) !== null;
+}
+
+/** `checkKv` that returns a function giving the hit back, or null. */
+async function reserveKv(kv, key, limit, windowMs) {
     const prefix = `rate:${key}:`;
     // `list` filters by TTL already, so a non-expired row ⇒ in-window.
     // Cap the fetch at `limit + 1` — once we know it's over, the exact
@@ -365,15 +393,18 @@ async function checkKv(kv, key, limit, windowMs) {
         reverse: true,
     });
     const keys = Array.isArray(res) ? res : (res?.items ?? []);
-    if (keys.length >= limit) return false;
+    if (keys.length >= limit) return null;
 
     const now = Date.now();
+    const row = `${prefix}${now}:${crypto.randomUUID()}`;
     await kv.set({
-        key: `${prefix}${now}:${crypto.randomUUID()}`,
+        key: row,
         value: 1,
         expireAt: Math.ceil((now + windowMs) / 1000),
     });
-    return true;
+    return async () => {
+        await kv.del({ key: row });
+    };
 }
 
 // `checkKv` for many units: one read, then a row per admitted unit. Newest
@@ -583,6 +614,10 @@ function instrumentBackendPair(name, pair) {
             withSpan('rate_limit.peek', attrs, () =>
                 pair.peek(key, limit, windowMs),
             ),
+        reserve: (key, limit, windowMs) =>
+            withSpan('rate_limit.reserve', attrs, () =>
+                pair.reserve(key, limit, windowMs),
+            ),
         claim: (key, limit, windowMs, units) =>
             withSpan('rate_limit.claim', attrs, () =>
                 pair.claim(key, limit, windowMs, units),
@@ -601,6 +636,7 @@ function instrumentBackendPair(name, pair) {
 const memoryBackendPair = instrumentBackendPair('memory', {
     rate: checkMemory,
     peek: peekMemory,
+    reserve: reserveMemory,
     claim: claimMemory,
     count: claimCountMemory,
     acquire: acquireMemoryConcurrent,
@@ -651,6 +687,8 @@ export function configureRateLimit({
                 checkRedis(redis, key, limit, windowMs),
             peek: (key, limit, windowMs) =>
                 peekRedis(redis, key, limit, windowMs),
+            reserve: (key, limit, windowMs) =>
+                reserveRedis(redis, key, limit, windowMs),
             claim: (key, limit, windowMs, units) =>
                 claimRedis(redis, key, limit, windowMs, units),
             count: (key, limit, windowMs, units) =>
@@ -662,6 +700,8 @@ export function configureRateLimit({
         backends.kv = instrumentBackendPair('kv', {
             rate: (key, limit, windowMs) => checkKv(kv, key, limit, windowMs),
             peek: (key, limit) => peekKv(kv, key, limit),
+            reserve: (key, limit, windowMs) =>
+                reserveKv(kv, key, limit, windowMs),
             claim: (key, limit, windowMs, units) =>
                 claimKv(kv, key, limit, windowMs, units),
             count: (key, limit, windowMs, units) =>
@@ -975,6 +1015,40 @@ export async function checkRateLimit(
             label: '[rate-limit] imperative check',
         },
     );
+}
+
+/**
+ * `checkRateLimit` whose hit can be given back: `{ ok, release }`, where
+ * `release()` returns an admitted hit to the bucket and never rejects. For a
+ * budget charged by an outcome known only after the work, such as a failed
+ * credential check: counting the hit first means concurrent callers can't all
+ * pass on the last slot. Fails open, admitting with a no-op `release`.
+ */
+export async function reserveRateLimit(key, limit, windowMs, backend) {
+    let giveBack;
+    try {
+        giveBack = await resolveBackend(backend).reserve(key, limit, windowMs);
+    } catch (err) {
+        console.error(
+            '[rate-limit] imperative reserve failed, failing open:',
+            err,
+        );
+        return { ok: true, release: noop };
+    }
+    if (!giveBack) return { ok: false, release: noop };
+    let released = false;
+    return {
+        ok: true,
+        release: async () => {
+            if (released) return;
+            released = true;
+            try {
+                await giveBack();
+            } catch (err) {
+                console.error('[rate-limit] imperative release failed:', err);
+            }
+        },
+    };
 }
 
 /**

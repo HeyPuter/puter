@@ -43,6 +43,11 @@ import { PuterService } from '../types.js';
 
 const EMAIL_STREAM_NAME = /^[a-z0-9][a-z0-9:_-]{0,63}$/;
 
+/** How long a mailed confirmation code is honored, from its latest send. */
+const CONFIRMATION_CODE_TTL_SECONDS = 60 * 60;
+const confirmationCodeSentKey = (userId: number): string =>
+    `email-confirm-code-sent:${userId}`;
+
 const emailStreamName = (value: unknown): string | null => {
     if (value == null) return null;
     if (typeof value === 'string' && EMAIL_STREAM_NAME.test(value)) {
@@ -57,7 +62,9 @@ export type ConfirmationEmailStage =
     | 'signup'
     | 'save-account'
     | 'resend'
-    | 'deferred';
+    | 'deferred'
+    | 'sign-in'
+    | 'team';
 
 /** What `puter.signup.validate` and the bonus hooks decided about a signup. */
 export type SignupGateOutcome =
@@ -744,6 +751,7 @@ export class SignupService extends PuterService {
     ): Promise<boolean> {
         if (!this.clients.email || !user.email) return false;
         const stream = this.confirmationStream(user);
+        if ('code' in message) await this.#markConfirmationCodeSent(user.id);
         try {
             const sent =
                 'code' in message
@@ -770,6 +778,38 @@ export class SignupService extends PuterService {
         } catch (e) {
             this.#confirmationEmailFailed(stage, user, e);
             return false;
+        }
+    }
+
+    /**
+     * Whether the account's confirmation code was mailed within the hour. Fails
+     * open: when the marker can't be read, the code is honored.
+     */
+    async isConfirmationCodeCurrent(userId: number): Promise<boolean> {
+        try {
+            const { res } = await this.stores.kv.get({
+                key: confirmationCodeSentKey(userId),
+            });
+            return res != null;
+        } catch (e) {
+            console.warn('[confirm-email] code marker read failed:', e);
+            return true;
+        }
+    }
+
+    // Best effort: without the marker the code reads as expired, and a resend
+    // writes it again.
+    async #markConfirmationCodeSent(userId: number): Promise<void> {
+        try {
+            await this.stores.kv.set({
+                key: confirmationCodeSentKey(userId),
+                value: true,
+                expireAt:
+                    Math.floor(Date.now() / 1000) +
+                    CONFIRMATION_CODE_TTL_SECONDS,
+            });
+        } catch (e) {
+            console.warn('[confirm-email] code marker write failed:', e);
         }
     }
 
@@ -935,7 +975,9 @@ export class SignupService extends PuterService {
         const route =
             stage === 'resend'
                 ? 'send-confirm-email'
-                : stage === 'save-account'
+                : stage === 'save-account' ||
+                    stage === 'sign-in' ||
+                    stage === 'team'
                   ? stage
                   : 'signup';
         console.warn(`[${route}] confirmation email not delivered: ${detail}`);

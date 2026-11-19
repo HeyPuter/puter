@@ -24,7 +24,13 @@ import { configContainer } from '../exports.js';
 import { PuterServer } from '../server.js';
 import { setupTestServer } from '../testUtil.js';
 import type { IConfig } from '../types.js';
-import { buildUserDetails, scrubSensitive } from './userDetails.js';
+import type { UserRow } from '../stores/user/UserStore.js';
+import {
+    buildUserDetails,
+    passwordTag,
+    scrubSensitive,
+    withoutSecrets,
+} from './userDetails.js';
 import { generateDefaultFsentries } from './userProvisioning.js';
 
 let server: PuterServer;
@@ -271,5 +277,51 @@ describe('scrubSensitive', () => {
             username: 'u',
             metadata: { nested: [{}] },
         });
+    });
+});
+
+describe('withoutSecrets', () => {
+    it('drops credentials and single-use tokens, and keeps every other column', () => {
+        const row = {
+            id: 7,
+            uuid: 'u-7',
+            username: 'u',
+            phone: '+1',
+            signup_ip: '192.0.2.1',
+            password: '$2b$hash',
+            otp_secret: 's',
+            otp_recovery_codes: 'a,b',
+            pass_recovery_token: 't1',
+            email_confirm_code: '123456',
+            email_confirm_token: 't2',
+            change_email_confirm_token: 't3',
+            metadata: { tmp_password: 'x', theme: 'dark' },
+        } as unknown as UserRow;
+        expect(withoutSecrets(row)).toEqual({
+            id: 7,
+            uuid: 'u-7',
+            username: 'u',
+            phone: '+1',
+            signup_ip: '192.0.2.1',
+            metadata: { theme: 'dark' },
+            hasPassword: true,
+        });
+        expect(row.metadata).toEqual({ tmp_password: 'x', theme: 'dark' });
+        expect(
+            withoutSecrets({ ...row, password: null } as unknown as UserRow)
+                .hasPassword,
+        ).toBe(false);
+    });
+});
+
+describe('passwordTag', () => {
+    it('changes with the stored hash and reveals none of it', () => {
+        const tag = passwordTag({ password: '$2b$08$firsthash' });
+        expect(tag).toMatch(/^[0-9a-f]{16}$/);
+        expect(passwordTag({ password: '$2b$08$firsthash' })).toBe(tag);
+        expect(passwordTag({ password: '$2b$08$otherhash' })).not.toBe(tag);
+        expect(tag).not.toContain('firsthash');
+        expect(passwordTag({ password: null })).toBeNull();
+        expect(passwordTag({})).toBeNull();
     });
 });

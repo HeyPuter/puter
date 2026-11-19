@@ -33,7 +33,7 @@ import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequi
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import UIAuthLogin from './UI/Auth/UIAuthLogin.js';
 import UIAuth2FA from './UI/Auth/UIAuth2FA.js';
-import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
+import { authErrorDisplayMessage, takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
@@ -1389,31 +1389,6 @@ function parseDashboardRoute() {
 window.parseDashboardRoute = parseDashboardRoute;
 
 /**
- * Display text for an auth error redirect (`?auth_error=1&message=<code>`).
- * The backend sends a fixed set of codes — never free text — plus, for a
- * blocked signup, a `request_code` the user can quote to support. Codes map
- * to translated messages here; anything unrecognized (including text crafted
- * directly into the URL) gets the generic message rather than being shown.
- */
-function authErrorDisplayMessage() {
-    const code = window.url_query_params.get('message');
-    const requestCode = window.url_query_params.get('request_code');
-    if (code === 'signup_blocked') {
-        const contact = requestCode
-            ? i18n('contact_support_with_code', { id: requestCode }, false)
-            : i18n('contact_support', [], false);
-        return `${i18n('signup_blocked_message', [], false)} ${contact}`;
-    }
-    if (code === 'account_suspended') {
-        return i18n('account_suspended_message', [], false);
-    }
-    if (code === 'bonus_code_invalid') {
-        return i18n('signup_bonus_code_invalid_retry', [], false);
-    }
-    return i18n('auth_error_generic', [], false);
-}
-
-/**
  * Settles the shell's server-rendered anonymous markup — the marketing
  * homepage, an `/app/<name>` landing — once the client knows whether it has a
  * session.
@@ -2113,7 +2088,7 @@ window.initgui = async function (options) {
     //--------------------------------------------------------------------------------------
     else if (action === 'login') {
         const opts = window.url_query_params.has('auth_error')
-            ? { authError: authErrorDisplayMessage() }
+            ? { authError: authErrorDisplayMessage(window.url_query_params) }
             : {};
         if (!window.is_auth()) {
             opts.page = true;
@@ -2131,7 +2106,7 @@ window.initgui = async function (options) {
     //--------------------------------------------------------------------------------------
     else if (action === 'signup') {
         const opts = window.url_query_params.has('auth_error')
-            ? { authError: authErrorDisplayMessage() }
+            ? { authError: authErrorDisplayMessage(window.url_query_params) }
             : {};
         if (!window.is_auth()) {
             opts.page = true;

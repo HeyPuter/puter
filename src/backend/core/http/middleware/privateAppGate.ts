@@ -400,7 +400,7 @@ export async function resolvePrivateIdentity(opts: {
         return {
             source: 'session-cookie',
             userUid: existingActor.user.uuid,
-            sessionUuid: existingActor.session?.uid,
+            sessionUuid: boundSessionUid(existingActor),
         };
     }
 
@@ -419,7 +419,7 @@ export async function resolvePrivateIdentity(opts: {
                 return {
                     source: 'session-cookie',
                     userUid: actor.user.uuid,
-                    sessionUuid: actor.session?.uid,
+                    sessionUuid: boundSessionUid(actor),
                 };
             }
         } catch {
@@ -441,7 +441,7 @@ export async function resolvePrivateIdentity(opts: {
                 return {
                     source: bootstrap.source,
                     userUid: actor.user.uuid,
-                    sessionUuid: actor.session?.uid,
+                    sessionUuid: boundSessionUid(actor),
                 };
             }
         } catch {
@@ -466,17 +466,28 @@ export async function resolvePrivateIdentity(opts: {
  * as a plain session on any private host.
  *
  * A scoped access token (a read URL, whoever issued it) is never the account
- * here: the hosted cookie minted from it would outlive the token's revocation.
+ * here. A full-access one is, when it names its own session row: the hosted
+ * cookie minted from it is bound to that row, so it ends with the token.
  */
 function actorMatchesExpectedApp(
     actor: Actor,
     expectedAppUid: string | undefined,
 ): boolean {
-    if (isAccessTokenActor(actor) && !isAccountContext(actor)) return false;
+    if (
+        isAccessTokenActor(actor) &&
+        (!isAccountContext(actor) || !actor.accessToken?.sessionUid)
+    ) {
+        return false;
+    }
     if (!expectedAppUid) return true;
     const app = actor.effectiveApp;
     if (!app) return true;
     return app.uid === expectedAppUid;
+}
+
+/** The session row a hosted cookie minted for `actor` is bound to. */
+function boundSessionUid(actor: Actor): string | undefined {
+    return actor.session?.uid ?? actor.accessToken?.sessionUid;
 }
 
 /**
@@ -511,7 +522,7 @@ export async function resolvePublicHostedIdentity(opts: {
         return {
             source: 'session-cookie',
             userUid: existingActor.user.uuid,
-            sessionUuid: existingActor.session?.uid,
+            sessionUuid: boundSessionUid(existingActor),
         };
     }
 
@@ -529,7 +540,7 @@ export async function resolvePublicHostedIdentity(opts: {
                 return {
                     source: 'session-cookie',
                     userUid: actor.user.uuid,
-                    sessionUuid: actor.session?.uid,
+                    sessionUuid: boundSessionUid(actor),
                 };
             }
         } catch {
@@ -605,7 +616,7 @@ export async function resolvePublicHostedIdentity(opts: {
                 return {
                     source: bootstrap.source,
                     userUid: actor.user.uuid,
-                    sessionUuid: actor.session?.uid,
+                    sessionUuid: boundSessionUid(actor),
                 };
             }
         } catch {
