@@ -172,13 +172,20 @@ export const parseMarkdown = (text) => {
         let match;
         if ( ! line.trim() ) {
             flush();
-        } else if ( (match = /^ {0,3}(`{3,}|~{3,})/.exec(line)) ) {
+        } else if ( (match = /^([ \t]*)(`{3,}|~{3,})/.exec(line)) ) {
+            // A fence indented further than a top-level one belongs to the list item before it.
             flush();
+            const fenceIndent = match[1].replace(/\t/g, '    ').length;
+            const item = fenceIndent && blocks.at(-1)?.marker ? blocks.at(-1) : undefined;
+            // The code's lines are indented as far as the fence is, which isn't part of the code.
+            const outdent = new RegExp(`^ {0,${fenceIndent}}`);
             const code = [];
-            while ( ++at < lines.length && !lines[at].trim().startsWith(match[1]) ) code.push(lines[at]);
-            push([{ ...bodyStyle, size: CODE_SIZE, family: 'monospace', text: code.join('\n').replace(/\t/g, '    ') }], {
+            while ( ++at < lines.length && !lines[at].trim().startsWith(match[2]) ) {
+                code.push(lines[at].replace(/\t/g, '    ').replace(outdent, ''));
+            }
+            push([{ ...bodyStyle, size: CODE_SIZE, family: 'monospace', text: code.join('\n') }], {
                 size: CODE_SIZE,
-                indent: 6,
+                indent: (item?.indent ?? 0) + 6,
                 wrap: false,
             });
         } else if ( (match = /^ {0,3}(#{1,6})[ \t]+(.*)$/.exec(line)) ) {

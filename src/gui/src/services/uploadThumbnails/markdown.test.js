@@ -166,6 +166,15 @@ describe('parseMarkdown', () => {
         expect(blocks[0].wrap).toBeUndefined();
     });
 
+    it('reads a fence indented inside a list item as the item\'s code', () => {
+        const blocks = parseMarkdown('1. Install:\n\n    ```bash\n    npm install\n      --save\n    ```\n\n2. Start:\n   ~~~\n   npm start\n   ~~~');
+        expect(textOf(blocks)).toEqual(['Install:', 'npm install\n  --save', 'Start:', 'npm start']);
+        expect(blocks[1]).toMatchObject({ wrap: false, indent: blocks[0].indent + 6 });
+        expect(blocks[3]).toMatchObject({ wrap: false, indent: blocks[2].indent + 6 });
+        // A fence at the top level keeps its small inset.
+        expect(parseMarkdown('```\nx\n```')[0].indent).toBe(6);
+    });
+
     it('reads a table as rows of cells that share the width, with a bold first row', () => {
         const blocks = parseMarkdown('Before\n| Name | Size |\n| --- | ---: |\n| a.js | **1** KB |\n| b.js | 2 KB |\n\nAfter');
         expect(textOf([blocks[0], blocks[4]])).toEqual(['Before', 'After']);
