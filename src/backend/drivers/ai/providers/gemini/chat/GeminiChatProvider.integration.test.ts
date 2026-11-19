@@ -378,11 +378,12 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 );
 
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
-    'Gemini 4 Carbon and Hydrogen (integration)',
+    'Gemini 4 Carbon, Hydrogen and Neon (integration)',
     () => {
         it.each([
             ['gemini-4-carbon', 'low'],
             ['gemini-4-hydrogen', 'xhigh'],
+            ['gemini-4-neon', 'xhigh'],
         ])(
             'generates a native text completion from %s at %s effort',
             { timeout: INTEGRATION_TEST_TIMEOUT_MS },

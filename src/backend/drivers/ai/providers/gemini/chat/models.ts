@@ -60,6 +60,13 @@ export const GEMINI_NATIVE_MODELS: ReadonlyMap<string, GeminiNativeOptions> =
                 temperature: false,
             },
         ],
+        [
+            'gemini-4-neon',
+            {
+                reasoningEfforts: new Set(['low', 'medium', 'high', 'xhigh']),
+                temperature: false,
+            },
+        ],
         ['gemini-3.1-flash-lite', FLASH_NATIVE_OPTIONS],
         ['gemini-3-flash-preview', FLASH_NATIVE_OPTIONS],
     ]);
@@ -176,6 +183,34 @@ export const GEMINI_MODELS: IChatModel[] = [
             completion_tokens: 750,
             thinking_tokens: 750,
             cached_tokens: 7.5,
+        },
+    },
+    {
+        puterId: 'google:google/gemini-4-neon',
+        id: 'gemini-4-neon',
+        // The native adapter forwards only text and image parts.
+        modalities: {
+            input: ['text', 'image'],
+            output: ['text'],
+        },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-11-18',
+        name: 'Gemini 4 Neon',
+        aliases: ['google/gemini-4-neon'],
+        // One window shared by input, thinking and output.
+        context: 1_048_576,
+        max_tokens: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 300,
+            completion_tokens: 1500,
+            thinking_tokens: 1500,
+            cached_tokens: 15,
         },
     },
     {

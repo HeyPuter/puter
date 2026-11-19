@@ -114,6 +114,7 @@ const makeProvider = (
 const ARGON = GEMINI_MODELS.find((m) => m.id === 'gemini-4-argon')!;
 const REQUEST_TIME = new Date('2026-10-14T12:00:00Z');
 const NATIVE_IDS = [
+    'gemini-4-neon',
     'gemini-4-hydrogen',
     'gemini-4-carbon',
     'gemini-4-argon',
@@ -1731,6 +1732,69 @@ describe('Gemini 4 Hydrogen', () => {
     it('sends a non-streamed request the max_tokens it asked for', async () => {
         generateContent.mockResolvedValueOnce(textResponse('OK'));
         await hydrogen({ max_tokens: 65_536 });
+        expect(requestOf().config.maxOutputTokens).toBe(65_536);
+    });
+});
+
+describe('Gemini 4 Neon', () => {
+    const neon = (args: Partial<ICompleteArguments>) =>
+        complete(
+            { model: 'gemini-4-neon', ...args },
+            new Date('2026-12-01T00:00:00.000Z'),
+        );
+
+    it('routes natively and meters thinking at its own rates', async () => {
+        generateContent.mockResolvedValueOnce(
+            textResponse('OK', { ...LIVE_USAGE, cachedContentTokenCount: 6 }),
+        );
+        await neon({ model: 'google/gemini-4-neon', temperature: 0.5 });
+        expect(requestOf().model).toBe('gemini-4-neon');
+        expect(requestOf().config).not.toHaveProperty('temperature');
+        expect(requestOf().config).not.toHaveProperty('thinkingConfig');
+        expect(openAICreate).not.toHaveBeenCalled();
+        expect(recordSpy.mock.calls[0]![2]).toBe('gemini:gemini-4-neon');
+        expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+            prompt_tokens: 30 * 300,
+            completion_tokens: 5 * 1500,
+            thinking_tokens: 69 * 1500,
+            cached_tokens: 6 * 15,
+        });
+    });
+
+    it.each([
+        ['low', 'LOW'],
+        ['medium', 'MEDIUM'],
+        ['high', 'HIGH'],
+        ['xhigh', 'XHIGH'],
+    ])('sends reasoning_effort %s as thinkingLevel %s', async (effort, level) => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await neon({
+            reasoning_effort: effort as ICompleteArguments['reasoning_effort'],
+        });
+        expect(requestOf().config.thinkingConfig).toEqual({
+            thinkingLevel: level,
+        });
+    });
+
+    it.each(['none', 'minimal', 'max'])(
+        'rejects reasoning_effort %s before calling Google',
+        async (effort) => {
+            await expect(
+                neon({
+                    reasoning_effort:
+                        effort as ICompleteArguments['reasoning_effort'],
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(generateContent).not.toHaveBeenCalled();
+        },
+    );
+
+    it('sends a non-streamed request the max_tokens it asked for', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await neon({ max_tokens: 65_536 });
         expect(requestOf().config.maxOutputTokens).toBe(65_536);
     });
 });

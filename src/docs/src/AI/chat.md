@@ -489,11 +489,11 @@ Fast service uses Priority inference on supported text and image requests. Other
 
 #### `temperature`
 
-Gemini 4 Carbon (`gemini-4-carbon`), Gemini 4 Argon (`gemini-4-argon`) and Gemini 4 Hydrogen (`gemini-4-hydrogen`) ignore `temperature`. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models use it.
+Gemini 4 Carbon (`gemini-4-carbon`), Gemini 4 Argon (`gemini-4-argon`), Gemini 4 Hydrogen (`gemini-4-hydrogen`) and Gemini 4 Neon (`gemini-4-neon`) ignore `temperature`. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models use it.
 
 #### `reasoning_effort`
 
-Gemini 4 Carbon and Gemini 4 Argon accept `low`, `medium` and `high`, and use `medium` when you leave it unset. Gemini 4 Hydrogen accepts `low`, `medium`, `high` and `xhigh`, and uses `high` when you leave it unset. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these five Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
+Gemini 4 Carbon and Gemini 4 Argon accept `low`, `medium` and `high`, and use `medium` when you leave it unset. Gemini 4 Hydrogen and Gemini 4 Neon accept `low`, `medium`, `high` and `xhigh`, and use `high` when you leave it unset. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these six Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
 
 The other Gemini models ignore `reasoning_effort`.
 
