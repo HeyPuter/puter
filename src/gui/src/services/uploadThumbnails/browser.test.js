@@ -766,6 +766,71 @@ describe('Upload thumbnails in a real browser', () => {
         }
     });
 
+    it.each([false, true])('draws JSON written on one line indented, and a CSV file as a sheet (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async () => {
+                const generate = window.createUploadThumbnailGenerator();
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const rows = Array.from({ length: 40 }, (_, index) => `row${index},${index * 10}`).join('\n');
+                const [minified, csv, ...skipped] = await Promise.all([
+                    // One line far wider than the page, which reads as many short lines once indented.
+                    new File([JSON.stringify({ items: Array.from({ length: 40 }, (_, index) => ({ id: index })) })], 'data.json'),
+                    new File([`name,total\n${rows}\n`], 'table.csv', { type: 'text/csv' }),
+                    new File(['\n\n'], 'blank.json'),
+                    new File([',,,\n,,\n'], 'empty.csv'),
+                    new File([new Uint8Array(64)], 'binary.csv'),
+                ].map(file => generate(file, context)));
+                const decode = async (thumbnail) => {
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    // How many pixels of a box are not white.
+                    const inked = (left, top, right, bottom) => {
+                        const { data } = ctx.getImageData(left, top, right - left, bottom - top);
+                        let count = 0;
+                        for ( let at = 0; at < data.length; at += 4 ) {
+                            if ( data[at] + data[at + 1] + data[at + 2] < 690 ) count++;
+                        }
+                        return count;
+                    };
+                    return {
+                        width: image.width,
+                        height: image.height,
+                        corner: [...ctx.getImageData(2, 2, 1, 1).data],
+                        top: inked(0, 0, image.width, 20),
+                        // Halfway down, where a page of one long line is blank.
+                        middle: inked(0, image.height / 2 - 10, image.width, image.height / 2 + 10),
+                        bottom: inked(0, image.height - 15, image.width, image.height),
+                    };
+                };
+                return { minified: await decode(minified), csv: await decode(csv), skipped };
+            });
+            const { minified, csv } = result;
+            expect(minified).toMatchObject({ width: 99, height: 128 });
+            expect(minified.corner).toEqual([255, 255, 255, 255]);
+            expect(minified.top).toBeGreaterThan(10);
+            expect(minified.middle).toBeGreaterThan(10);
+            // A sheet fills a square to its edges, gridlines and all.
+            expect(csv).toMatchObject({ width: 128, height: 128 });
+            expect(csv.top).toBeGreaterThan(10);
+            expect(csv.bottom).toBeGreaterThan(10);
+            expect(result.skipped).toEqual([undefined, undefined, undefined]);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
     it('skips encrypted, malformed, and oversized-image PDFs without unhandled errors', async () => {
         const page = await browser.newPage();
         const errors = [];

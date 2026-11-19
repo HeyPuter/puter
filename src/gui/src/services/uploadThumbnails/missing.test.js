@@ -122,6 +122,12 @@ describe('wantsThumbnail', () => {
         ['a Markdown file in a grid', { name: 'README.md', type: 'text/markdown' }, place, true],
         ['a script in a list row', { name: 'app.js', type: 'application/javascript' }, { ...place, listRow: true }, false],
         ['a Markdown file in a list row', { name: 'README.md', type: 'text/markdown' }, { ...place, listRow: true }, false],
+        ['a JSON file in a grid', { name: 'data.json', type: 'application/json' }, place, true],
+        ['a CSV file in a grid', { name: 'table.csv', type: 'text/csv' }, place, true],
+        ['a CSV file in a list row', { name: 'table.csv', type: 'text/csv' }, { ...place, listRow: true }, false],
+        ['a CSV file typed as an Excel workbook', { name: 'table.csv', type: 'application/vnd.ms-excel' }, place, true],
+        ['an old Excel workbook', { name: 'book.xls', type: 'application/vnd.ms-excel' }, place, false],
+        ['a CSV file over the size cap', { name: 'export.csv', type: '', size: MISSING_THUMBNAIL_MAX_FILE_BYTES + 1 }, place, true],
         // Only the start of a text file is read, so its size is no reason to leave it.
         ['a script over the size cap', { name: 'bundle.js', type: '', size: MISSING_THUMBNAIL_MAX_FILE_BYTES + 1 }, place, true],
     ])('%s: %s', (_label, overrides, where, expected) => {

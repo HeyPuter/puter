@@ -38,6 +38,67 @@ const TOKENS = {
         /(?<property>(?:--|-?[A-Za-z_])[\w-]*(?=\s{0,8}:[^{};]{0,200}(?:[;}]|$)))/,
         /(?:--|-?[A-Za-z_])[\w-]*/,
     ].map(pattern => pattern.source).join('|'), 'g'),
+    // Comments aren't JSON, but settings files such as `tsconfig.json` hold them.
+    json: new RegExp([
+        /(?<comment>\/\/[^\n]*|\/\*[^]*?(?:\*\/|$))/,
+        // A string before a colon is a key.
+        /(?<property>"(?:\\.|[^"\\\n])*"(?=\s{0,8}:))/,
+        /(?<string>"(?:\\.|[^"\\\n])*"?)/,
+        /(?<number>-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b(?:true|false|null)\b)/,
+        /[A-Za-z_$][\w$]*/,
+    ].map(pattern => pattern.source).join('|'), 'g'),
+};
+
+// A token of JSON, a comment, or a run of anything else. A string or comment the read cut off ends the text.
+const JSON_TOKEN = /"(?:\\.|[^"\\\n])*"?|\/\/[^\n]*|\/\*[^]*?(?:\*\/|$)|[{}[\],:]|[^\s{}[\],:"/]+|\//g;
+// More lines than a page shows, so that indenting stops well before the text runs out on a minified file.
+const JSON_MAX_LINES = 64;
+// Lines nested deeper than this start no further right, since nothing past the page's edge is seen.
+const JSON_MAX_INDENT = 16;
+
+/**
+ * Lay out JSON written on one line the way an editor's formatter would: one member or element to a line, indented by
+ * two spaces a level. Text that isn't JSON is laid out as far as its brackets and commas go.
+ *
+ * @param {string} text
+ * @returns {string} The first `JSON_MAX_LINES` lines of the result.
+ */
+export const indentJson = (text) => {
+    const lines = [];
+    let line = '';
+    let depth = 0;
+    // A bracket just opened waits for what comes next, so that an empty object or array stays on its line.
+    let opened = false;
+    // A top-level object or array has closed, so the next one, as in JSON Lines, starts a line of its own.
+    let ended = false;
+    // What the line holds so far, kept apart from `line` since reading a string built up piece by piece copies it.
+    let blank = true;
+    let previous = '';
+    const newLine = () => {
+        if ( ! blank ) lines.push(line);
+        line = '  '.repeat(Math.min(depth, JSON_MAX_INDENT));
+        blank = true;
+    };
+    for ( const [token] of text.matchAll(JSON_TOKEN) ) {
+        if ( lines.length >= JSON_MAX_LINES ) break;
+        const closes = token === '}' || token === ']';
+        const comment = token.startsWith('//') || token.startsWith('/*');
+        if ( closes ) depth = Math.max(0, depth - 1);
+        if ( closes ? !opened : opened || ended && token !== ',' ) newLine();
+        opened = token === '{' || token === '[';
+        ended = closes && depth === 0;
+        if ( opened ) depth++;
+        const startsLine = blank;
+        // A block comment inside a line is set apart from the tokens around it by a space.
+        if ( !startsLine && previous !== ':' && (comment || previous.startsWith('/*') && token !== ',') ) line += ' ';
+        line += token === ':' ? ': ' : token;
+        blank = false;
+        previous = token;
+        // A line comment runs to the end of its line, and a block comment that starts one is given it to itself.
+        if ( token === ',' || token.startsWith('//') || token.startsWith('/*') && startsLine ) newLine();
+    }
+    newLine();
+    return lines.slice(0, JSON_MAX_LINES).join('\n');
 };
 
 /**
@@ -72,8 +133,10 @@ export const colorCode = (text, language) => {
  * @returns {Promise<File | undefined>} An image file browsers can decode, or `undefined` for a file with no text.
  */
 export const readCodePreview = async (file, language) => {
-    const text = await readLeadingText(file);
+    let text = await readLeadingText(file);
     if ( ! text ) return undefined;
+    // A first line that holds a comma holds more than one value, as JSON written without line breaks does.
+    if ( language === 'json' && text.split('\n', 1)[0].includes(',') ) text = indentJson(text);
     const page = createTextPage();
     page.blocks = [{
         runs: colorCode(text.replace(/\t/g, '    '), language),

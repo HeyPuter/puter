@@ -14,12 +14,15 @@ import {
     TEXT_BATCH_TIMEOUT_MS,
     VIDEO_BATCH_TIMEOUT_MS,
 } from './config.js';
+import { readCsvPreview } from './csv.js';
 import { readDocPreview } from './doc.js';
 import { readDocxPreview } from './docx.js';
 import { readHeifPreview } from './heif.js';
 import {
     AUDIO_NAME,
     AUDIO_TYPE,
+    CSV_NAME,
+    CSV_TYPE,
     HEIF_NAME,
     HEIF_TYPE,
     ILLUSTRATOR_NAME,
@@ -37,6 +40,7 @@ import {
     WORD_NAME,
     WORD_TYPE,
     codeLanguage,
+    leadingBytesRead,
 } from './kinds.js';
 import { readMarkdownPreview } from './markdown.js';
 import { readPptxPreview } from './pptx.js';
@@ -50,6 +54,21 @@ const workerUrl = bundleUrl
     ? new URL(`pdf-thumbnails/${PDFJS_VERSION}/worker.js`, bundleUrl).href
     : `${PDF_THUMBNAIL_ASSET_PATH}worker.js`;
 const useWorkerWrapper = bundleUrl && new URL(bundleUrl).origin !== globalThis.location?.origin;
+
+/**
+ * Draw a page or a sheet from the start of a text file.
+ *
+ * @param {File} file
+ * @returns {Promise<File | undefined>}
+ */
+const readTextPreview = (file) => {
+    const name = file.name || '';
+    const language = codeLanguage(name, file.type);
+    if ( language ) return readCodePreview(file, language);
+    if ( CSV_TYPE.test(file.type) || CSV_NAME.test(name) ) return readCsvPreview(file);
+    if ( MARKDOWN_TYPE.test(file.type) || MARKDOWN_NAME.test(name) ) return readMarkdownPreview(file);
+    return Promise.resolve(undefined);
+};
 
 const pendingJobs = new Set();
 let activeJob;
@@ -225,12 +244,11 @@ export const createUploadThumbnailGenerator = () => {
                     }, context?.signal);
                 } else if ( VIDEO_TYPE.test(file.type) || VIDEO_NAME.test(name) ) {
                     image = await queueVideo(signal => readVideoFrame(file, signal), context?.signal);
-                } else if ( MARKDOWN_TYPE.test(file.type) || MARKDOWN_NAME.test(name) || codeLanguage(name, file.type) ) {
+                } else if ( leadingBytesRead(name, file.type) ) {
                     // A project folder is thousands of these, so one page is drawn and scaled before the next file
                     // is opened.
                     return await queueText(async () => {
-                        const language = codeLanguage(name, file.type);
-                        const page = await (language ? readCodePreview(file, language) : readMarkdownPreview(file));
+                        const page = await readTextPreview(file);
                         return page ? imageGenerator(page) : undefined;
                     }, context?.signal);
                 }

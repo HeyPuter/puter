@@ -3,13 +3,13 @@
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
 callback's second argument. Files that are not PDFs, Illustrator files, PSDs,
-Office documents, videos, HEIC photos, audio files, source code or Markdown
-delegate to that image generator; when the running SDK predates the callback
+Office documents, videos, HEIC photos, audio files, source code, JSON, CSV or
+Markdown delegate to that image generator; when the running SDK predates the callback
 context (it then passes only the file), the GUI's bundled copy of the SDK image
 generator is used instead, so image thumbnails do not depend on deploy order.
 
 A thumbnail of a PDF, a Word document, a spreadsheet, a presentation, a source
-file or a Markdown file is a picture of a page.
+file, a JSON or CSV file, or a Markdown file is a picture of a page.
 The Files tab shows it in the grid views and shows the file's type icon in list
 rows, where a page would be a blank square. `kinds.js` holds the names that make
 a file a document, for the generator and for the icon helper alike.
@@ -181,13 +181,14 @@ An album is many files that each hold the same cover, often a large one, so an
 upload finds and scales one cover before it opens the next file, under a
 preparation deadline of its own.
 
-## Source code and Markdown
+## Source code, JSON, CSV and Markdown
 
 Neither kind of file has a page of its own, so `text.js` gives them one: the
 shape of US Letter at well under half its size, which leaves about 24 lines of
 code legible enough to tell one file from another. Only the first 16 KiB of the
-file is read. A file with a NUL in that much of it is not text, and keeps its
-normal icon, as does a file with nothing but blank lines.
+file is read. Text that isn't UTF-8 is read in the Windows code page, which
+Excel saves a CSV in by default. A file with a NUL in that much of it is not
+text, and keeps its normal icon, as does a file with nothing but blank lines.
 
 `code.js` draws a JavaScript or CSS file as an editor shows it: in the
 browser's monospace font, a tab as four spaces, and each line running off the
@@ -197,6 +198,25 @@ The patterns are a likeness of the language, not a parser: a regular expression
 literal is not recognized, and a CSS property is told from a selector by
 whether a `;` or `}` comes before the next `{`. Adding a language is a name in
 `kinds.js` and a pattern in `code.js`.
+
+JSON is drawn the same way, with keys colored apart from the strings they hold,
+and with comments, which settings files such as `tsconfig.json` hold. A JSON
+file whose first line holds a comma is written on one line, as minified JSON
+is, so `code.js` lays it out first as a formatter would: one member or element
+to a line, two spaces in a level. That layout stops after 64 lines, more than a
+page shows, and indents no deeper than 16 levels, so a file of nothing but
+brackets costs no more than any other.
+
+`csv.js` draws a CSV file as a spreadsheet opens it, through the sheet drawer
+`xlsx.js` uses: gridlines, cells of the default size, numbers aligned right and
+other text left. Dates, times and amounts of money count as numbers, as they do
+in a spreadsheet. A number wider than its cell is drawn from its left edge, so
+its leading digits show. A field in quotes may hold the delimiter, a line break
+or a quote written twice, as RFC 4180 has it. The delimiter is the one a first
+line such as `sep=;` names, which Excel reads and hides, or else the one of
+`,`, `;`, tab and `|` that the first line holds the most of, outside quotes.
+Nothing in a cell is evaluated: a formula is drawn as the text it is. A file
+whose fields are all empty keeps its normal icon.
 
 `markdown.js` turns a Markdown file into the blocks `page.js` draws: headings
 sized by level, paragraphs, list items with their markers, quotes, fenced code
@@ -224,8 +244,8 @@ recovery and termination of CPU-bound work. They also decode the thumbnails made
 from a PSD fixture's preview and from a fixture's merged image, and check the
 pixels of pages drawn from DOCX and DOC fixtures, of a sheet drawn from an XLSX
 fixture, of a slide drawn from a PPTX fixture, of a frame taken from a video fixture, of
-covers stored in MP3, FLAC and MP4 audio fixtures, and of pages drawn from JavaScript, CSS and
-Markdown text. The browser the suite installs has
+covers stored in MP3, FLAC and MP4 audio fixtures, of pages drawn from JavaScript, CSS, JSON and
+Markdown text, and of a sheet drawn from CSV text. The browser the suite installs has
 no HEVC decoder, so there the HEIC test checks that a photo is skipped without an
 error; in a browser that has one, the same test checks the decoded pixels. `heif.test.js`
 covers the reader against a stand-in for the decoder. The parsers' unit tests draw on a

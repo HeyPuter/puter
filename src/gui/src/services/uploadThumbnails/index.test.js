@@ -904,6 +904,8 @@ describe('source code and Markdown thumbnails', () => {
         ['README.md', '', '11px sans-serif'],
         ['notes.markdown', '', '11px sans-serif'],
         ['notes', 'text/markdown', '11px sans-serif'],
+        ['data.json', '', '10px monospace'],
+        ['data', 'application/json', '10px monospace'],
     ])('hands the image generator a page drawn from %s (%s)', async (name, type, font) => {
         const defaultGenerator = vi.fn(async () => thumbnail);
         const file = new File(['plain words'], name, { type });
@@ -912,6 +914,19 @@ describe('source code and Markdown thumbnails', () => {
         expect(drawn.text.map(word => word.text)).toEqual(['plain', 'words']);
         expect(drawn.text.every(word => word.font === font)).toBe(true);
         expect(workers).toHaveLength(0);
+    });
+
+    it.each([
+        ['table.csv', ''],
+        ['TABLE.CSV', ''],
+        ['table', 'text/csv'],
+    ])('hands the image generator a sheet drawn from %s (%s)', async (name, type) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const file = new File(['plain,words'], name, { type });
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator.mock.calls[0][0]).toMatchObject({ type: 'image/png' });
+        expect(drawn.text.map(word => [word.text, word.font])).toEqual([['plain', '11px sans-serif'], ['words', '11px sans-serif']]);
+        expect(drawn.lines.length).toBeGreaterThan(0);
     });
 
     it('colors a file by the language its name gives it', async () => {
@@ -930,6 +945,8 @@ describe('source code and Markdown thumbnails', () => {
         ['a blank file', new File(['\n\n'], 'app.js')],
         ['a file that is not text', new File(['\0\0\0\0'], 'README.md')],
         ['other text files', new File(['plain words'], 'notes.txt', { type: 'text/plain' })],
+        ['a CSV of empty fields', new File([',,\n,,\n'], 'table.csv')],
+        ['an old Excel workbook, the type Windows gives a CSV', new File(['a,b'], 'book.xls', { type: 'application/vnd.ms-excel' })],
         ['TypeScript, which browsers call a video', new File(['const a = 1;'], 'app.ts', { type: 'video/mp2t' })],
     ])('makes nothing of %s', async (_label, file) => {
         const defaultGenerator = vi.fn(async image => (image.type === 'image/png' ? thumbnail : undefined));
@@ -949,7 +966,7 @@ describe('source code and Markdown thumbnails', () => {
             });
         }));
         const generate = createUploadThumbnailGenerator();
-        const names = ['a.js', 'b.css', 'c.md', 'd.js'];
+        const names = ['a.js', 'b.csv', 'c.md', 'd.json'];
         const results = Promise.all(names.map(name => generate(new File([name], name), { defaultGenerator })));
         await vi.waitFor(() => expect(finish).toHaveLength(1));
         finish.shift()();
