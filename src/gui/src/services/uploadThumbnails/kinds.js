@@ -13,8 +13,9 @@ export const HEIF_NAME = /\.(heic|heif|hif)$/i;
 export const AUDIO_NAME = /\.(mp3|m4a|m4b|flac)$/i;
 export const VIDEO_NAME = /\.(mp4|m4v|mov|webm)$/i;
 // Source code, by language. `code.js` holds how each language is colored.
-export const CODE_NAMES = { javascript: /\.[cm]?js$/i, css: /\.css$/i };
+export const CODE_NAMES = { javascript: /\.[cm]?js$/i, css: /\.css$/i, json: /\.json$/i };
 export const MARKDOWN_NAME = /\.(md|markdown)$/i;
+export const CSV_NAME = /\.csv$/i;
 
 export const PSD_TYPE = 'image/vnd.adobe.photoshop';
 export const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
@@ -24,8 +25,14 @@ export const HEIF_TYPE = /^image\/hei[cf]$/;
 export const AUDIO_TYPE = /^audio\/(mpeg|mp3|mp4|m4a|x-m4a|flac|x-flac)$/;
 // The containers browsers play. Other `video/` types are left alone: a `.ts` source file is reported as one.
 export const VIDEO_TYPE = /^video\/(mp4|quicktime|webm|x-m4v)$/;
-export const CODE_TYPES = { javascript: /^(text|application)\/(x-)?javascript$/, css: /^text\/css$/ };
+export const CODE_TYPES = {
+    javascript: /^(text|application)\/(x-)?javascript$/,
+    css: /^text\/css$/,
+    json: /^application\/json$/,
+};
 export const MARKDOWN_TYPE = /^text\/(x-)?markdown$/;
+// With Excel installed, Windows types a CSV as `application/vnd.ms-excel`, an old workbook's type, so its name decides.
+export const CSV_TYPE = /^text\/csv$/;
 // The pictures browsers decode. Many other files are typed `image/` (TIFF scans, CAD drawings, DjVu books) and none of
 // them can be drawn, so a file is only worth downloading for a thumbnail when it's one of these.
 export const DECODABLE_IMAGE_TYPE = /^image\/(png|apng|jpeg|gif|webp|bmp|avif|svg\+xml|x-icon|vnd\.microsoft\.icon)$/;
@@ -40,7 +47,7 @@ export const DECODABLE_IMAGE_NAME = /\.(png|jpe?g|jfif|gif|webp|bmp|avif)$/i;
  * @returns {boolean}
  */
 export const isPageDocument = (name = '') =>
-    [PDF_NAME, WORD_NAME, SPREADSHEET_NAME, PRESENTATION_NAME, MARKDOWN_NAME, ...Object.values(CODE_NAMES)]
+    [PDF_NAME, WORD_NAME, SPREADSHEET_NAME, PRESENTATION_NAME, CSV_NAME, MARKDOWN_NAME, ...Object.values(CODE_NAMES)]
         .some(pattern => pattern.test(name));
 
 /**
@@ -62,7 +69,8 @@ export const codeLanguage = (name = '', type = '') => Object.keys(CODE_NAMES)
  * @returns {number | undefined} A number of bytes, or `undefined` for a file read past its start.
  */
 export const leadingBytesRead = (name = '', type = '') =>
-    codeLanguage(name, type) || MARKDOWN_TYPE.test(type) || MARKDOWN_NAME.test(name) ? TEXT_MAX_READ_BYTES : undefined;
+    codeLanguage(name, type) || MARKDOWN_TYPE.test(type) || MARKDOWN_NAME.test(name) ||
+    CSV_TYPE.test(type) || CSV_NAME.test(name) ? TEXT_MAX_READ_BYTES : undefined;
 
 /**
  * Whether the thumbnail generator has a reader for a file of this name and type that works in every browser. It may

@@ -18,7 +18,7 @@ import {
 
 const DEFAULT_ROW_HEIGHT = 15;
 const DEFAULT_COLUMN_CHARACTERS = 8.43;
-const DEFAULT_FONT = { size: 11, bold: false, color: '#000' };
+export const DEFAULT_FONT = { size: 11, bold: false, color: '#000' };
 const CELL_PADDING = 2;
 const GRID_COLOR = '#d4d4d4';
 // The standard palette that a color given as a position refers to, eight colors to a line.
@@ -170,6 +170,16 @@ const readStrings = (xml) => {
     return strings;
 };
 
+/** @returns {Sheet} A sheet with no cells, in a spreadsheet's default sizes and with its gridlines. */
+export const createSheet = () => ({
+    gridlines: true,
+    rightToLeft: false,
+    rowHeight: DEFAULT_ROW_HEIGHT,
+    columnWidth: columnPoints(DEFAULT_COLUMN_CHARACTERS),
+    widths: [],
+    rows: [],
+});
+
 /**
  * Read the rows and columns at the top-left of a worksheet.
  *
@@ -179,14 +189,7 @@ const readStrings = (xml) => {
  * @returns {Sheet}
  */
 const readSheet = (xml, strings, styleOf) => {
-    const sheet = {
-        gridlines: true,
-        rightToLeft: false,
-        rowHeight: DEFAULT_ROW_HEIGHT,
-        columnWidth: columnPoints(DEFAULT_COLUMN_CHARACTERS),
-        widths: [],
-        rows: [],
-    };
+    const sheet = createSheet();
     const path = [];
     let row;
     let cell;
@@ -275,7 +278,7 @@ const readSheet = (xml, strings, styleOf) => {
  * @returns {Promise<File | undefined>} A square PNG `OFFICE_PAGE_DIMENSION` pixels a side, or `undefined` for a sheet
  *     with nothing in view.
  */
-const drawSheet = async (sheet) => {
+export const drawSheet = async (sheet) => {
     const canvas = new OffscreenCanvas(OFFICE_PAGE_DIMENSION, OFFICE_PAGE_DIMENSION);
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#fff';
