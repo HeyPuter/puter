@@ -66,6 +66,41 @@ describe('parseMarkdown', () => {
         expect(textOf(blocks)).toEqual(['Project ', 'About it']);
         expect(blocks[0].runs[0]).toMatchObject({ bold: true, size: parseMarkdown('# x')[0].runs[0].size });
         expect(blocks[1].runs[0].bold).toBe(false);
+        expect(blocks.map(block => block.align)).toEqual(['center', 'center']);
+    });
+
+    it('starts and ends a block at an HTML block tag, however the lines around it run', () => {
+        const blocks = parseMarkdown([
+            '<p align="center">',
+            '  <img src="logo.png">',
+            '</p>',
+            '<h1 align="center">My Project</h1>',
+            '<p align="right">A tiny tool</p>',
+            'Body',
+        ].join('\n'));
+        expect(textOf(blocks)).toEqual(['My Project', 'A tiny tool', 'Body']);
+        expect(blocks[0].runs[0].bold).toBe(true);
+        expect(blocks.map(block => block.align)).toEqual(['center', 'end', 'start']);
+    });
+
+    it('aligns what is inside a centered <div> or <center>, up to its end tag', () => {
+        const blocks = parseMarkdown([
+            '<div align="center">',
+            '',
+            '# Title',
+            '',
+            'Tagline',
+            '',
+            '```',
+            'code',
+            '```',
+            '</div>',
+            '<center>Old</center>',
+            '',
+            'After',
+        ].join('\n'));
+        expect(textOf(blocks)).toEqual(['Title', 'Tagline', 'code', 'Old', 'After']);
+        expect(blocks.map(block => block.align)).toEqual(['center', 'center', 'start', 'center', 'start']);
     });
 
     it('breaks the line at a <br>, without the space around it', () => {

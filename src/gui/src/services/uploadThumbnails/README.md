@@ -202,7 +202,8 @@ whether a `;` or `}` comes before the next `{`. Adding a language is a name in
 sized by level, paragraphs, list items with their markers, quotes, fenced code
 and tables, with bold, italic, code and link text inside them. Front matter,
 comments, rules, pictures, badges and HTML tags are left out; the text between
-tags is kept, and an `<h1>` to `<h6>` is drawn as a heading.
+tags is kept, an `<h1>` to `<h6>` is drawn as a heading, a `<br>` breaks the
+line, and a block centered with `align` or `<center>` is drawn centered.
 
 An upload draws and scales one of these files at a time, under a preparation
 deadline shorter than the other kinds have, because a project folder holds

@@ -120,6 +120,10 @@ const paragraph = (runs, layout) => ({
 
 const bodyStyle = { size: BODY_SIZE, bold: false, italic: false, color: TEXT_COLOR };
 const headingStyle = level => ({ ...bodyStyle, size: HEADING_SIZES[level - 1], bold: true });
+// An HTML tag that makes a block of its own, as a README's centered title and links are, and the end of one.
+const HTML_BLOCK_OPEN = /^\s*<(h[1-6]|p|div|center)(?=[\s>/])([^>]{0,300})>/i;
+const HTML_BLOCK_CLOSE = /<\/(h[1-6]|p|div|center)>\s*$/i;
+const HTML_ALIGN = { center: 'center', right: 'end' };
 const splitRow = line => line.trim().replace(/^\||\|$/g, '').split('|').slice(0, TABLE_MAX_COLUMNS);
 
 /**
@@ -142,9 +146,13 @@ export const parseMarkdown = (text) => {
     let layout;
     let style = bodyStyle;
     let quoted = false;
+    // How an HTML `<div>` or `<center>` aligns the text inside it, up to its end tag.
+    let htmlAlign;
     const push = (runs, blockLayout) => {
         // Text that was all pictures or tags leaves nothing to draw, and takes no line.
-        if ( runs.some(run => run.text.trim()) ) blocks.push(paragraph(runs, blockLayout));
+        if ( ! runs.some(run => run.text.trim()) ) return;
+        const aligned = htmlAlign && blockLayout?.wrap !== false ? { align: htmlAlign, ...blockLayout } : blockLayout;
+        blocks.push(paragraph(runs, aligned));
     };
     const flush = () => {
         if ( gathered.length ) push(blockRuns(gathered.join(' '), style), layout);
@@ -218,12 +226,25 @@ export const parseMarkdown = (text) => {
                 });
             }
         } else {
-            // An HTML heading, as a README often opens with, is the only tag that changes how its text is drawn.
-            if ( !gathered.length && (match = /^\s*<h([1-6])[\s>]/i.exec(line)) ) {
-                style = headingStyle(Number(match[1]));
-                layout = { size: style.size, spaceBefore: blocks.length ? 6 : 0, spaceAfter: 6 };
+            // An HTML heading, as a README often opens with, is drawn as a heading, and a block that states its
+            // alignment is drawn aligned. Other tags change nothing about how their text is drawn.
+            if ( (match = HTML_BLOCK_OPEN.exec(line)) ) {
+                flush();
+                const tag = match[1].toLowerCase();
+                const align = tag === 'center' ? 'center'
+                    : HTML_ALIGN[/\balign\s*=\s*["']?(center|right)\b/i.exec(match[2])?.[1].toLowerCase()];
+                if ( tag[0] === 'h' ) {
+                    style = headingStyle(Number(tag[1]));
+                    layout = { size: style.size, spaceBefore: blocks.length ? 6 : 0, spaceAfter: 6 };
+                }
+                if ( align ) layout = { ...layout, align };
+                if ( align && (tag === 'div' || tag === 'center') ) htmlAlign = align;
             }
             gathered.push(line.trim());
+            if ( (match = HTML_BLOCK_CLOSE.exec(line)) ) {
+                flush();
+                if ( /^(div|center)$/i.test(match[1]) ) htmlAlign = undefined;
+            }
         }
     }
     flush();
