@@ -158,7 +158,6 @@ const columnAlign = cell => /^:-+:$/.test(cell) ? 'center' : /-:$/.test(cell) ? 
 export const parseMarkdown = (text) => {
     const lines = text
         .replace(/^---\n[^]*?\n(?:---|\.\.\.)[ \t]*(?:\n|$)/, '')
-        .replace(/<!--[^]*?(?:-->|$)/g, '')
         .split('\n')
         .map(line => line.slice(0, LINE_MAX_CHARACTERS));
     /** @type {import('./page.js').PageBlock[]} */
@@ -198,8 +197,28 @@ export const parseMarkdown = (text) => {
         spaceAfter: 6,
     });
 
+    // Whether a comment that runs past the end of a line is open. Code doesn't open one, since code shows `<!--`.
+    let inComment = false;
+    const withoutComments = (text) => {
+        let kept = '';
+        for ( ;; ) {
+            if ( inComment ) {
+                const end = text.indexOf('-->');
+                if ( end < 0 ) return kept;
+                text = text.slice(end + 3);
+                inComment = false;
+            }
+            const start = text.indexOf('<!--');
+            if ( start < 0 ) return kept + text;
+            kept += text.slice(0, start);
+            text = text.slice(start + 4);
+            inComment = true;
+        }
+    };
+
     for ( let at = 0; at < lines.length; at++ ) {
-        const line = lines[at];
+        // A line that was all comment ends the paragraph before it, as a blank line does.
+        const line = withoutComments(lines[at]);
         let match;
         if ( ! line.trim() ) {
             flush();

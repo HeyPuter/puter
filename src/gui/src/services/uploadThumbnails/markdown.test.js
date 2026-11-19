@@ -132,7 +132,7 @@ describe('parseMarkdown', () => {
         ['pictures', 'Before ![logo](logo.png) after ![ref][logo]', ['Before  after ']],
         ['badges, and the space they leave at the start', '[![build](https://x.test/b.svg)](https://x.test) Text', ['Text']],
         ['HTML tags', '<details><summary>More</summary>\n<img src="a.png">\n</details>', ['More  ']],
-        ['comments', 'a <!-- hidden\nacross lines --> b\n<!-- never closed', ['a  b']],
+        ['comments', 'a <!-- hidden\nacross lines --> b <!-- one --> c\n<!-- never closed\n\nd', ['a b  c']],
         ['front matter', '---\ntitle: Hidden\n---\nShown', ['Shown']],
         ['rules', 'a\n\n---\n\n* * *\n\nb', ['a', 'b']],
         ['the addresses links refer to', 'a\n\n[1]: https://x.test\n', ['a']],
@@ -181,6 +181,11 @@ describe('parseMarkdown', () => {
         // An alert's text is drawn in the text color, not the lighter color of a quote.
         expect(note.runs.at(-1).color).toBe(parseMarkdown('x')[0].runs[0].color);
         expect(unknown.runs[0].color).not.toBe(note.runs.at(-1).color);
+    });
+
+    it('keeps a comment in code, and ends a paragraph at a line that is all comment', () => {
+        const blocks = parseMarkdown('```html\n<!-- Page.astro -->\n<!-- open\n<p>\n```\nOne\n<!-- note -->\nTwo');
+        expect(textOf(blocks)).toEqual(['<!-- Page.astro -->\n<!-- open\n<p>', 'One', 'Two']);
     });
 
     it('keeps fenced code as it is written, in a fixed-width font that does not wrap', () => {
