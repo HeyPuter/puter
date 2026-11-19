@@ -1484,11 +1484,9 @@ export class PermissionStore extends PuterStore {
                 `WHERE ug.user_id = ? AND g.\`deleted_at\` IS NULL AND ${permClause}`,
             [userId, ...permissions],
         );
-        // The column's collation also matches other casings.
-        const wanted = new Set(permissions);
-        return rows
-            .filter((row) => wanted.has(row.permission as string))
-            .map((row) => this.#decodeExtra<LinkedUserGroupPermRow>(row));
+        return rows.map((row) =>
+            this.#decodeExtra<LinkedUserGroupPermRow>(row),
+        );
     }
 
     /** Any group, seeded or team: a grant does not care which kind it is. */

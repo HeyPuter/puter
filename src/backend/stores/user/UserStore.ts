@@ -382,7 +382,7 @@ export class UserStore extends PuterStore {
         email: string,
         opts: { force?: boolean } = {},
     ): Promise<UserRow | null> {
-        if (!email) return null;
+        if (!email || typeof email !== 'string') return null;
         const direct = await this.getByEmail(email, { force: opts.force });
         if (direct) return direct;
         return this.getByCleanEmail(cleanEmail(email), opts);

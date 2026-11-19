@@ -259,18 +259,26 @@ describe('assertNormalized', () => {
     });
 });
 
-describe('assertNormalized length', () => {
+describe('path length', () => {
+    const longest = `/${'a'.repeat(MAX_PATH_LENGTH - 1)}`;
+
     it('refuses a path longer than the path column holds', () => {
-        const longest = `/${'a'.repeat(MAX_PATH_LENGTH - 1)}`;
-        expect(assertNormalized(longest)).toBe(longest);
-        expect(() => assertNormalized(`${longest}b`)).toThrowError(
+        expect(normalizeAbsolutePath(longest)).toBe(longest);
+        expect(() => normalizeAbsolutePath(`${longest}b`)).toThrowError(
+            /Path is too long/,
+        );
+    });
+
+    it('measures the path after adding the leading slash and dropping the trailing one', () => {
+        expect(normalizeAbsolutePath(`${longest}/`)).toBe(longest);
+        expect(() => normalizeAbsolutePath(`${longest.slice(1)}b`)).toThrowError(
             /Path is too long/,
         );
     });
 
     it('counts characters, not UTF-16 code units', () => {
         const emoji = `/${'😀'.repeat(MAX_PATH_LENGTH - 1)}`;
-        expect(assertNormalized(emoji)).toBe(emoji);
+        expect(normalizeAbsolutePath(emoji)).toBe(emoji);
     });
 });
 

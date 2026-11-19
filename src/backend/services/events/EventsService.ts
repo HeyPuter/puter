@@ -1532,7 +1532,9 @@ const parseExpiresAt = (value: unknown): number | null => {
     const seconds =
         typeof value === 'number'
             ? Math.floor(value)
-            : Math.floor(Date.parse(String(value)) / 1000);
+            : typeof value === 'string'
+              ? Math.floor(Date.parse(value) / 1000)
+              : Number.NaN;
     if (
         !Number.isFinite(seconds) ||
         seconds <= Math.floor(Date.now() / 1000) ||

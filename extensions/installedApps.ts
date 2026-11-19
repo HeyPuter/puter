@@ -35,9 +35,8 @@ export const handleInstalledApps = async (
     const page = Number.isSafeInteger(requestedPage)
         ? Math.min(Math.max(requestedPage, 1), 1_000_000)
         : 1;
-    const limit = Math.min(
-        Math.max(Math.floor(Number(req.query.limit)) || 100, 1),
-        100,
+    const limit = Math.floor(
+        Math.min(Math.max(Number(req.query.limit) || 100, 1), 100),
     );
     const offset = (page - 1) * limit;
     const installedApps = await stores.permission.listAppsGrantedByUser(

@@ -19,7 +19,10 @@
 
 import { statfs } from 'node:fs/promises';
 import { posix as pathPosix } from 'node:path';
-import { assertNormalized } from '../../services/fs/resolveNode.js';
+import {
+    assertNormalized,
+    assertPathLength,
+} from '../../services/fs/resolveNode.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { WriteResult } from '../../clients/database/DatabaseClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -152,6 +155,8 @@ const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 const LINEAGE_LOOKUP_CONCURRENCY = 10;
 // Deepest ancestor walk; a chain that doesn't end by then counts as broken.
 const LINEAGE_MAX_DEPTH = 512;
+// One `UNION ALL` arm per segment; SQLite refuses more than 500.
+const LINEAGE_MAX_SEGMENTS = 500;
 // Cache refreshes after a batched update; each is a cache read and write.
 const ENTRY_PATCH_CONCURRENCY = 32;
 // Thumbnail text one batched UPDATE carries; inline data URLs run to
@@ -312,7 +317,7 @@ export class FSEntryStore extends PuterStore {
             normalized = normalized.slice(0, -1);
         }
 
-        return normalized;
+        return assertPathLength(normalized);
     }
 
     #toBoolean(value: number | boolean | null | undefined): boolean {
@@ -1284,7 +1289,7 @@ export class FSEntryStore extends PuterStore {
     ): Promise<FSEntry | null> {
         if (normalizedPath === '/') return null;
         const segments = normalizedPath.split('/').filter(Boolean);
-        if (segments.length === 0 || segments.length > LINEAGE_MAX_DEPTH)
+        if (segments.length === 0 || segments.length > LINEAGE_MAX_SEGMENTS)
             return null;
 
         // Build the segments CTE as an UNION ALL chain of literal SELECTs.

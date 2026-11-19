@@ -1681,7 +1681,7 @@ describe('AppStore detailed stats', () => {
         });
     });
 
-    it.each(['constructor', 'toString', '__proto__', 7])(
+    it.each(['constructor', 'toString', '__proto__', 7, { toString: null }])(
         'refuses %s as a grouping',
         async (grouping) => {
             await expect(

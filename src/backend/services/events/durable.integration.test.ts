@@ -381,7 +381,12 @@ describe('creating a durable subscription over HTTP', () => {
     });
 
     it('refuses an expiry past the year 9999', async () => {
-        for (const expiresAt of [1e300, 253402300800]) {
+        for (const expiresAt of [
+            1e300,
+            253402300800,
+            [new Date(Date.now() + 3_600_000).toISOString()],
+            { toString: null },
+        ]) {
             const refused = await subscribe(env.users.user.token, { expiresAt });
             expect(refused.status).toBe(400);
             expect(refused.body.code).toBe('invalid_expires_at');

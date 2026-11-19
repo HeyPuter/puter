@@ -138,12 +138,17 @@ export function splitParentAndName(absolutePath: string): {
 // The `path` column's width in characters; no stored entry has a longer path.
 export const MAX_PATH_LENGTH = 4096;
 
-export function assertNormalized(input: string): string {
-    if (input.length > MAX_PATH_LENGTH && [...input].length > MAX_PATH_LENGTH) {
+/** Refuses a canonical absolute path longer than the `path` column holds. */
+export function assertPathLength(path: string): string {
+    if (path.length > MAX_PATH_LENGTH && [...path].length > MAX_PATH_LENGTH) {
         throw new HttpError(400, 'Path is too long', {
             legacyCode: 'bad_request',
         });
     }
+    return path;
+}
+
+export function assertNormalized(input: string): string {
     if (pathPosix.normalize(input) !== input) {
         throw new HttpError(400, 'Invalid path', {
             legacyCode: 'bad_request',
@@ -167,7 +172,7 @@ export function normalizeAbsolutePath(path: string): string {
     if (normalized.length > 1 && normalized.endsWith('/')) {
         normalized = normalized.slice(0, -1);
     }
-    return normalized;
+    return assertPathLength(normalized);
 }
 
 /**

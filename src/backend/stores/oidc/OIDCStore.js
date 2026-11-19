@@ -62,7 +62,7 @@ export class OIDCStore extends PuterStore {
         try {
             await this.clients.db.write(
                 'INSERT INTO `user_oidc_providers` (`user_id`, `provider`, `provider_sub`, `refresh_token`) VALUES (?, ?, ?, ?)',
-                [userId, provider, providerSub, refreshToken],
+                [userId, provider, String(providerSub), refreshToken],
             );
             return;
         } catch (e) {

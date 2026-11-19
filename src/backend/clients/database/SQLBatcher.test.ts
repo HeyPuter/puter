@@ -688,7 +688,11 @@ describe('SQLBatcher', () => {
 
     it('keeps the breaker closed when every read fails with an error the server answered', async () => {
         const conn = makeConnection(() => {
-            throw makeError('ER_PARSE_ERROR');
+            // The message quotes the statement, which mentions a lost connection.
+            throw makeError(
+                'ER_PARSE_ERROR',
+                "syntax error near 'Connection lost'",
+            );
         });
         const { pool } = makePool(conn);
         const batcher = new SQLBatcher(pool, {

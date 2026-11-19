@@ -1750,7 +1750,7 @@ export class AppStore extends PuterStore {
             ) {
                 throw new HttpError(
                     400,
-                    `Invalid grouping: ${grouping}. Supported: hour, day, week, month, year`,
+                    'Invalid grouping. Supported: hour, day, week, month, year',
                     { legacyCode: 'bad_request' },
                 );
             }
