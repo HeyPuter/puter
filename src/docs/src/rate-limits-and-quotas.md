@@ -434,7 +434,16 @@ The Puter desktop makes a video upload thumbnail from one frame of an MP4, MOV, 
 | Frame | One tenth of the way into the video, at most 10 seconds in |
 | Output | At most 128 × 128 pixels, aspect ratio preserved |
 
-The Puter desktop also makes a thumbnail for a file in the user's own folders that has none, such as a file an app wrote or saved over, when the file comes into view. It downloads the file and reads it the same way as an upload, within the budgets above and these. A picture is downloaded only in a format every browser draws, which is PNG, JPEG, GIF, WebP, BMP, AVIF, SVG, or ICO. The downloads count toward the account's egress. A file saved over gets a new thumbnail once it's done changing, and shows its old one until then. A file over the size limit keeps its file icon. A file that gives no thumbnail keeps its file icon and isn't downloaded again until it changes. A file skipped because of another budget is tried again after the page reloads.
+The Puter desktop makes a source code or Markdown upload thumbnail from the start of a JavaScript (`.js`, `.mjs`, `.cjs`), CSS, or Markdown (`.md`, `.markdown`) file, within these budgets. For a JavaScript or CSS file, the desktop draws the first lines of the file in a fixed-width font, with comments, strings, keywords, and numbers in different colors. For a Markdown file, the desktop draws a page with the file's headings, paragraphs, lists, quotes, code blocks, and tables. A file still queued when the preparation time runs out keeps its file icon. A file with no text to draw keeps its file icon too.
+
+| Source code and Markdown thumbnail | Limit |
+| --- | --- |
+| Files drawn per upload | 1 at a time |
+| Preparation per upload, including queued files | 2 seconds from the first file |
+| Data read from the file | The first 16 KiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop also makes a thumbnail for a file in the user's own folders that has none, such as a file an app wrote or saved over, when the file comes into view. It downloads the file and reads it the same way as an upload, within the budgets above and these. For a source code or Markdown file, it downloads only the first 16 KiB, and the file size limit doesn't apply. A picture is downloaded only in a format every browser draws, which is PNG, JPEG, GIF, WebP, BMP, AVIF, SVG, or ICO. The downloads count toward the account's egress. A file saved over gets a new thumbnail once it's done changing, and shows its old one until then. A file over the size limit keeps its file icon. A file that gives no thumbnail keeps its file icon and isn't downloaded again until it changes. A file skipped because of another budget is tried again after the page reloads.
 
 | Missing thumbnail | Limit |
 | --- | --- |

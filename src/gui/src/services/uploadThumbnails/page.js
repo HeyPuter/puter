@@ -7,6 +7,7 @@ import { OFFICE_PAGE_DIMENSION } from './config.js';
  * @property {boolean} bold
  * @property {boolean} italic
  * @property {string} color A CSS color.
+ * @property {string} [family] A CSS font family, for text not set in the page's sans-serif.
  */
 
 /**
@@ -18,6 +19,7 @@ import { OFFICE_PAGE_DIMENSION } from './config.js';
  * @property {number} spaceBefore In points.
  * @property {number} spaceAfter In points.
  * @property {number} lineSpacing Line height as a multiple of single spacing.
+ * @property {boolean} [wrap] `false` for lines that run off the page's edge instead of wrapping, as source code does.
  * @property {{ text: string, offset: number, size: number, color: string }} [marker] A bullet or number drawn on the
  *     first line, `offset` points from where the text starts (negative to hang before it).
  */
@@ -74,7 +76,9 @@ export const createPage = () => ({
 export const drawParagraph = (ctx, paragraph, left, width, top, bottom, paint = true) => {
     // A paragraph runs right to left when its first letter does.
     const firstLetter = paragraph.runs.map(run => run.text).join('').match(/\p{L}/u)?.[0] ?? '';
-    const rtl = RTL_LETTER.test(firstLetter);
+    const wraps = paragraph.wrap !== false;
+    // Lines that run off the page start at its left edge.
+    const rtl = wraps && RTL_LETTER.test(firstLetter);
     const indent = Math.min(paragraph.indent, width / 2);
     const available = width - indent;
     let y = top + paragraph.spaceBefore;
@@ -116,24 +120,26 @@ export const drawParagraph = (ctx, paragraph, left, width, top, bottom, paint = 
     };
 
     for ( const run of paragraph.runs ) {
-        const font = `${run.italic ? 'italic ' : ''}${run.bold ? 'bold ' : ''}${run.size}px sans-serif`;
+        const font = `${run.italic ? 'italic ' : ''}${run.bold ? 'bold ' : ''}${run.size}px ${run.family ?? 'sans-serif'}`;
         for ( const part of run.text.match(/\n|\t|[^\S\n\t]+|\S+/g) ?? [] ) {
             if ( y >= bottom ) return { bottom: y, drawn };
             if ( part === '\n' ) {
                 endLine();
                 continue;
             }
+            // What comes after the edge on a line that doesn't wrap is never seen, so it isn't measured.
+            if ( !wraps && lineWidth > available ) continue;
             // Drawing a line leaves the font of its last word behind, which may be another run's.
             ctx.font = font;
             const partWidth = part === '\t' ? TAB_WIDTH - lineWidth % TAB_WIDTH : ctx.measureText(part).width;
             // A word wider than the line, as in text written without spaces, breaks between characters.
-            const breaks = !!part.trim() && partWidth > available;
+            const breaks = wraps && !!part.trim() && partWidth > available;
             for ( const text of breaks ? [...part] : [part] ) {
                 // Such a word can be most of the document, so it is measured only as far as the page goes.
                 if ( y >= bottom ) return { bottom: y, drawn };
                 ctx.font = font;
                 const wordWidth = breaks ? ctx.measureText(text).width : partWidth;
-                if ( line.length && text.trim() && lineWidth + wordWidth > available ) endLine();
+                if ( wraps && line.length && text.trim() && lineWidth + wordWidth > available ) endLine();
                 line.push({ text, width: wordWidth, font, color: run.color, size: run.size });
                 lineWidth += wordWidth;
             }

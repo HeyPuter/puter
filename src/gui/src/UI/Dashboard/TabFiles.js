@@ -247,7 +247,10 @@ const TabFiles = {
         // folder can cancel the download.
         this.missingThumbnails?.reset();
         this.missingThumbnails = createMissingThumbnailFiller({
-            download: (uid, signal) => fetch(`${window.api_origin}/read?${new URLSearchParams({ file: uid })}`, {
+            download: (uid, signal, byteCount) => fetch(`${window.api_origin}/read?${new URLSearchParams({
+                file: uid,
+                ...(byteCount ? { byte_count: byteCount } : {}),
+            })}`, {
                 headers: { 'Authorization': `Bearer ${window.auth_token}` },
                 cache: 'no-store',
                 signal,

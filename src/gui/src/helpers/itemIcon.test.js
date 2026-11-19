@@ -18,7 +18,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('item_icon for a file with a thumbnail', () => {
-    it.each(['photo.jpg', 'clip.mp4', 'art.psd', 'report.pdf', 'letter.docx', 'budget.xlsx'])(
+    it.each(['photo.jpg', 'clip.mp4', 'art.psd', 'report.pdf', 'letter.docx', 'budget.xlsx', 'app.js', 'site.css', 'README.md'])(
         'shows the thumbnail of %s where there is room for it', async (name) => {
             expect(await item_icon(entry(name))).toEqual({ image: thumbnail, type: 'thumb' });
         },
@@ -35,6 +35,10 @@ describe('item_icon for a file with a thumbnail', () => {
         ['letter.docx', 'file-docx.svg'],
         ['budget.xlsx', 'file-xlsx.svg'],
         ['deck.pptx', 'file-pptx.svg'],
+        ['app.js', 'file-js.svg'],
+        ['module.mjs', 'file-js.svg'],
+        ['site.css', 'file-css.svg'],
+        ['README.md', 'file-md.svg'],
     ])('shows the type icon of %s in a list row, where a page is too small to make out', async (name, icon) => {
         expect(await item_icon(entry(name, { type: name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : undefined }), { listRow: true }))
             .toEqual({ image: icon, type: 'icon' });

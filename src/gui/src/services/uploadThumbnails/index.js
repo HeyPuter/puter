@@ -1,5 +1,6 @@
 import { defaultThumbnailGenerator } from '../../../../puter-js/src/modules/FileSystem/operations/upload/thumbnails.js';
 import { readAudioCover } from './audio.js';
+import { readCodePreview } from './code.js';
 import {
     AUDIO_BATCH_TIMEOUT_MS,
     HEIF_BATCH_TIMEOUT_MS,
@@ -10,6 +11,7 @@ import {
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_BYTES,
     OFFICE_BATCH_TIMEOUT_MS,
+    TEXT_BATCH_TIMEOUT_MS,
     VIDEO_BATCH_TIMEOUT_MS,
 } from './config.js';
 import { readDocPreview } from './doc.js';
@@ -21,6 +23,8 @@ import {
     HEIF_NAME,
     HEIF_TYPE,
     ILLUSTRATOR_NAME,
+    MARKDOWN_NAME,
+    MARKDOWN_TYPE,
     PDF_NAME,
     PRESENTATION_NAME,
     PRESENTATION_TYPE,
@@ -32,7 +36,9 @@ import {
     VIDEO_TYPE,
     WORD_NAME,
     WORD_TYPE,
+    codeLanguage,
 } from './kinds.js';
+import { readMarkdownPreview } from './markdown.js';
 import { readPptxPreview } from './pptx.js';
 import { readPsdPreview } from './psd.js';
 import { readVideoFrame } from './video.js';
@@ -168,6 +174,7 @@ export const createUploadThumbnailGenerator = () => {
     const queueVideo = createQueue(VIDEO_BATCH_TIMEOUT_MS);
     const queueAudio = createQueue(AUDIO_BATCH_TIMEOUT_MS);
     const queueHeif = createQueue(HEIF_BATCH_TIMEOUT_MS);
+    const queueText = createQueue(TEXT_BATCH_TIMEOUT_MS);
     // Whether this browser decodes HEIC photos itself, which is known once it has been given one.
     let decodesHeif;
     return async (file, context) => {
@@ -218,6 +225,14 @@ export const createUploadThumbnailGenerator = () => {
                     }, context?.signal);
                 } else if ( VIDEO_TYPE.test(file.type) || VIDEO_NAME.test(name) ) {
                     image = await queueVideo(signal => readVideoFrame(file, signal), context?.signal);
+                } else if ( MARKDOWN_TYPE.test(file.type) || MARKDOWN_NAME.test(name) || codeLanguage(name, file.type) ) {
+                    // A project folder is thousands of these, so one page is drawn and scaled before the next file
+                    // is opened.
+                    return await queueText(async () => {
+                        const language = codeLanguage(name, file.type);
+                        const page = await (language ? readCodePreview(file, language) : readMarkdownPreview(file));
+                        return page ? imageGenerator(page) : undefined;
+                    }, context?.signal);
                 }
                 return image ? await imageGenerator(image) : undefined;
             }
