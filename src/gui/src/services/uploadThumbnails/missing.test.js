@@ -688,6 +688,48 @@ describe('createMissingThumbnailFiller', () => {
         expect(after.downloads).toHaveLength(0);
     });
 
+    it('does not download a version again in this page load after the server turned its thumbnail away', async () => {
+        const { filler, downloads, store } = setup({ storeStatus: 409 });
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place);
+        show(row);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(store).toHaveBeenCalledTimes(1);
+
+        filler.observe(row, file, place);
+        show(row);
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_BACKOFF_MS);
+        expect(downloads).toHaveLength(1);
+    });
+
+    it('starts nothing while the tab is hidden, and carries on when it is shown again', async () => {
+        const page = { hidden: true, addEventListener: vi.fn() };
+        vi.stubGlobal('document', page);
+        const { filler, downloads } = setup();
+        const row = makeRow();
+        filler.observe(row, entry(), place);
+        show(row);
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_SETTLE_MS);
+        expect(downloads).toHaveLength(0);
+
+        page.hidden = false;
+        const [, onVisibilityChange] = page.addEventListener.mock.calls.find(([type]) => type === 'visibilitychange');
+        onVisibilityChange();
+        expect(downloads).toHaveLength(1);
+    });
+
+    it('downloads nothing when the browser asks to use less data', async () => {
+        vi.stubGlobal('navigator', { connection: { saveData: true } });
+        const { filler, downloads } = setup();
+        const row = makeRow();
+        expect(filler.observe(row, entry(), place, { showsOld: true })).toBe(false);
+        show(row);
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_SETTLE_MS);
+        expect(downloads).toHaveLength(0);
+    });
+
     it('downloads nothing more once the account is out of credit', async () => {
         const { filler, downloads } = setup();
         const first = makeRow();
