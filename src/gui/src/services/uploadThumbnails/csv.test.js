@@ -97,6 +97,29 @@ describe('readCsvPreview', () => {
         expect(cells['1,50'].x).toBeCloseTo(2 * COLUMN - 2 - 4 * 5.5);
     });
 
+    it.each([
+        ['an ISO date', '2024-01-15'],
+        ['an ISO date and time', '2024-01-15T13:45:00Z'],
+        ['a date with slashes and a time', '1/15/2024 1:45 PM'],
+        ['a date with dots', '15.01.2024'],
+        ['a time', '13:45:30'],
+        ['a number with grouped thousands', '1,234,567.89'],
+        ['a number with dots between thousands and a decimal comma', '1.234,56'],
+        ['an amount of money', '-$1,234.50'],
+        ['an amount of money written after', '12,50 €'],
+    ])('aligns %s right, as a spreadsheet reads it as a number', async (_label, value) => {
+        const cells = await draw(`label,"${value}"\n`);
+        expect(cells[value].x).toBeCloseTo(2 * COLUMN - 2 - value.length * 5.5);
+    });
+
+    it.each([['a version', '1.2.3'], ['a phone number', '555-0100'], ['a word with a currency sign', '$abc']])(
+        'aligns %s left',
+        async (_label, value) => {
+            const cells = await draw(`label,"${value}"\n`);
+            expect(cells[value].x).toBeCloseTo(COLUMN + 2);
+        },
+    );
+
     it('draws a formula as the text it is', async () => {
         const cells = await draw('=SUM(A1:A2),=1+1\n');
         expect(Object.keys(cells)).toEqual(['=SUM(A1:A2)', '=1+1']);

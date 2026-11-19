@@ -4,8 +4,12 @@ import { DEFAULT_FONT, createSheet, drawSheet } from './xlsx.js';
 
 // What separates the fields of a CSV, in the order a tie is settled. Locales that write a decimal comma use `;`.
 const DELIMITERS = [',', ';', '\t', '|'];
-// A file separated by `;` writes its decimals after a comma.
-const NUMBER = /^[-+]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][-+]?\d+)?%?$/;
+// What a spreadsheet reads as a number, and so aligns right: amounts, with either mark between thousands or before the
+// decimals, since a file separated by `;` writes its decimals after a comma, and dates and times.
+const AMOUNT = String.raw`[-+]?(?:[$€£¥]\s?)?(?:(?:\d{1,3}(?:[.,]\d{3})+|\d+)(?:[.,]\d*)?|[.,]\d+)(?:[eE][-+]?\d+)?%?(?:\s?[$€£¥])?`;
+const TIME = String.raw`\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:\s?[AaPp][Mm])?`;
+const DATE = String.raw`(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}(?<mark>[/.])\d{1,2}\k<mark>\d{2,4})(?:[T ]${TIME}(?:Z|[-+]\d{2}:?\d{2})?)?`;
+const NUMBER = new RegExp(`^(?:${AMOUNT}|${DATE}|${TIME})$`);
 
 /**
  * The delimiter a CSV's first line holds the most of, outside quotes.
