@@ -433,15 +433,18 @@ export const createMissingThumbnailFiller = ({
         // A download of an older version would only be refused, and one for a file that has a thumbnail now, or
         // can't have one any more, is wasted.
         const current = running.get(fsentry.uid);
-        if ( current && !current.unwanted ) {
+        if ( current ) {
             if ( wanted && current.modified === fsentry.modified ) {
-                // Already being made: a row drawn again takes over the download its old one started.
+                // Already being made: a row drawn again takes over the download its old one started, even one a list
+                // row had no use for. A download that was cancelled is queued again when it ends.
                 if ( current.row && current.row !== row ) release(current.row);
-                Object.assign(current, { row, fsentry, place });
+                Object.assign(current, { row, fsentry, place, unwanted: false });
                 return true;
             }
-            current.unwanted = true;
-            current.controller.abort();
+            if ( ! current.unwanted ) {
+                current.unwanted = true;
+                current.controller.abort();
+            }
         }
         if ( !wanted || bytesLeft <= 0 || globalThis.navigator?.connection?.saveData ||
             attempted.has(key) || failures.has(key) ) {

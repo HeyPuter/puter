@@ -301,6 +301,41 @@ describe('createMissingThumbnailFiller', () => {
         expect(onStored).not.toHaveBeenCalled();
     });
 
+    it.each([
+        ['made', false],
+        ['downloaded', true],
+    ])('still gives a document its thumbnail when the view goes to the list and back while it is being %s', async (_step, downloading) => {
+        let finishGenerating;
+        const { filler, downloads, generate, store, onStored } = setup();
+        generate.mockImplementation(() => new Promise((resolve) => {
+            finishGenerating = resolve;
+        }));
+        const file = entry({ name: 'doc.pdf', type: 'application/pdf' });
+        const gridRow = makeRow();
+        filler.observe(gridRow, file, place);
+        show(gridRow);
+        if ( ! downloading ) {
+            downloads[0].finish();
+            await vi.advanceTimersByTimeAsync(0);
+        }
+
+        // Each view change draws the folder again. A list row shows a document's type icon.
+        filler.reset();
+        filler.observe(makeRow(), file, { ...place, listRow: true });
+        filler.reset();
+        const row = makeRow();
+        filler.observe(row, file, place);
+        show(row);
+        await vi.advanceTimersByTimeAsync(0);
+        if ( downloading ) downloads.at(-1).finish();
+        await vi.advanceTimersByTimeAsync(0);
+        finishGenerating(thumbnail);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(store).toHaveBeenCalledTimes(1);
+        expect(onStored).toHaveBeenCalledWith(row, file, thumbnail);
+    });
+
     it('sends the modified time of the version it downloaded when the file changes meanwhile', async () => {
         let finishGenerating;
         const { filler, downloads, generate, store } = setup();
