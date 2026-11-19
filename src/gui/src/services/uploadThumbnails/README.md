@@ -186,8 +186,9 @@ preparation deadline of its own.
 Neither kind of file has a page of its own, so `text.js` gives them one: the
 shape of US Letter at well under half its size, which leaves about 24 lines of
 code legible enough to tell one file from another. Only the first 16 KiB of the
-file is read. A file with a NUL in that much of it is not text, and keeps its
-normal icon, as does a file with nothing but blank lines.
+file is read. Text that isn't UTF-8 is read in the Windows code page, which
+Excel saves a CSV in by default. A file with a NUL in that much of it is not
+text, and keeps its normal icon, as does a file with nothing but blank lines.
 
 `code.js` draws a JavaScript or CSS file as an editor shows it: in the
 browser's monospace font, a tab as four spaces, and each line running off the
@@ -208,11 +209,14 @@ brackets costs no more than any other.
 
 `csv.js` draws a CSV file as a spreadsheet opens it, through the sheet drawer
 `xlsx.js` uses: gridlines, cells of the default size, numbers aligned right and
-other text left. A field in quotes may hold the delimiter, a line break or a
-quote written twice, as RFC 4180 has it. The delimiter is the one of `,`, `;`,
-tab and `|` that the first line holds the most of, outside quotes. Nothing in a
-cell is evaluated: a formula is drawn as the text it is. A file whose fields are
-all empty keeps its normal icon.
+other text left. Dates, times and amounts of money count as numbers, as they do
+in a spreadsheet. A number wider than its cell is drawn from its left edge, so
+its leading digits show. A field in quotes may hold the delimiter, a line break
+or a quote written twice, as RFC 4180 has it. The delimiter is the one a first
+line such as `sep=;` names, which Excel reads and hides, or else the one of
+`,`, `;`, tab and `|` that the first line holds the most of, outside quotes.
+Nothing in a cell is evaluated: a formula is drawn as the text it is. A file
+whose fields are all empty keeps its normal icon.
 
 `markdown.js` turns a Markdown file into the blocks `page.js` draws: headings
 sized by level, paragraphs, list items with their markers, quotes, fenced code
