@@ -8,6 +8,14 @@ const HEADING_SIZES = [22, 18, 15, 13, 12, 11];
 const TEXT_COLOR = '#1f2328';
 const QUOTE_COLOR = '#59636e';
 const LINK_COLOR = '#0969da';
+// The title and color of each kind of GitHub alert, a quote that opens with `[!NOTE]` or the like.
+const ALERTS = {
+    note: { title: 'Note', color: '#0969da' },
+    tip: { title: 'Tip', color: '#1a7f37' },
+    important: { title: 'Important', color: '#8250df' },
+    warning: { title: 'Warning', color: '#9a6700' },
+    caution: { title: 'Caution', color: '#d1242f' },
+};
 // A page has room for no more columns than this.
 const TABLE_MAX_COLUMNS = 6;
 // No page shows this much of one line, and reading a line takes time by the square of its length at worst.
@@ -160,6 +168,8 @@ export const parseMarkdown = (text) => {
     let layout;
     let style = bodyStyle;
     let quoted = false;
+    // The alert the quote being gathered is, if it is one.
+    let alert;
     // How an HTML `<div>` or `<center>` aligns the text inside it, up to its end tag.
     let htmlAlign;
     const push = (runs, blockLayout) => {
@@ -169,11 +179,18 @@ export const parseMarkdown = (text) => {
         blocks.push(paragraph(runs, aligned));
     };
     const flush = () => {
-        if ( gathered.length ) push(blockRuns(gathered.join(' '), style), layout);
+        const runs = gathered.length ? blockRuns(gathered.join(' '), style) : [];
+        // An alert's title takes the first line, even when the alert has nothing under it.
+        if ( alert ) {
+            if ( runs.length ) runs.unshift({ ...style, text: '\n' });
+            runs.unshift({ ...style, bold: true, color: alert.color, text: alert.title });
+        }
+        if ( runs.length ) push(runs, layout);
         gathered = [];
         layout = undefined;
         style = bodyStyle;
         quoted = false;
+        alert = undefined;
     };
     const heading = (level, content) => push(blockRuns(content, headingStyle(level)), {
         size: HEADING_SIZES[level - 1],
@@ -215,11 +232,18 @@ export const parseMarkdown = (text) => {
             // A rule, or the address a link refers to by name. Neither is drawn.
             flush();
         } else if ( (match = /^ {0,3}>[ \t]?(.*)$/.exec(line)) ) {
-            if ( ! quoted ) flush();
+            let content = match[1].trim();
+            if ( ! quoted ) {
+                flush();
+                const kind = /^\[!(\w+)\]$/.exec(content)?.[1].toLowerCase();
+                alert = kind && Object.hasOwn(ALERTS, kind) ? ALERTS[kind] : undefined;
+                if ( alert ) content = '';
+                // An alert's text is drawn in the text color, a quote's in a lighter one.
+                style = alert ? bodyStyle : { ...bodyStyle, color: QUOTE_COLOR };
+            }
             quoted = true;
             layout = { indent: 12 };
-            style = { ...bodyStyle, color: QUOTE_COLOR };
-            gathered.push(match[1].trim());
+            if ( content ) gathered.push(content);
         } else if ( (match = /^([ \t]*)([-*+]|\d{1,9}[.)])[ \t]+(.*)$/.exec(line)) ) {
             flush();
             const level = Math.min(3, Math.floor(match[1].replace(/\t/g, '    ').length / 2));

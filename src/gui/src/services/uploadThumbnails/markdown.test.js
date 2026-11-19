@@ -171,6 +171,18 @@ describe('parseMarkdown', () => {
         expect(blocks[2]).toMatchObject({ indent: 0, runs: [{ color: blocks[0].runs[0].color }] });
     });
 
+    it('draws a GitHub alert under its title, in the alert\'s color', () => {
+        const blocks = parseMarkdown('> [!NOTE]\n> Read **this**.\n\n> [!warning]\n\n> [!constructor]\n> text\n\n> Quote\n> [!TIP]');
+        expect(textOf(blocks)).toEqual(['Note\nRead this.', 'Warning', '[!constructor] text', 'Quote [!TIP]']);
+        const [note, warning, unknown] = blocks;
+        expect(note.runs[0]).toMatchObject({ bold: true, color: '#0969da' });
+        expect(warning.runs[0]).toMatchObject({ bold: true, color: '#9a6700' });
+        expect(note.indent).toBe(unknown.indent);
+        // An alert's text is drawn in the text color, not the lighter color of a quote.
+        expect(note.runs.at(-1).color).toBe(parseMarkdown('x')[0].runs[0].color);
+        expect(unknown.runs[0].color).not.toBe(note.runs.at(-1).color);
+    });
+
     it('keeps fenced code as it is written, in a fixed-width font that does not wrap', () => {
         const blocks = parseMarkdown('Run:\n```sh\nnpm *install*\n\n\tnpm test\n```\nDone\n~~~\nopen to the end');
         expect(textOf(blocks)).toEqual(['Run:', 'npm *install*\n\n    npm test', 'Done', 'open to the end']);
