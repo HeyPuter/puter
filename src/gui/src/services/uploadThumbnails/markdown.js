@@ -124,7 +124,20 @@ const headingStyle = level => ({ ...bodyStyle, size: HEADING_SIZES[level - 1], b
 const HTML_BLOCK_OPEN = /^\s*<(h[1-6]|p|div|center)(?=[\s>/])([^>]{0,300})>/i;
 const HTML_BLOCK_CLOSE = /<\/(h[1-6]|p|div|center)>\s*$/i;
 const HTML_ALIGN = { center: 'center', right: 'end' };
-const splitRow = line => line.trim().replace(/^\||\|$/g, '').split('|').slice(0, TABLE_MAX_COLUMNS);
+/**
+ * The cells of a table row. A bar escaped with a backslash is part of a cell's text.
+ *
+ * @param {string} line
+ * @returns {string[]}
+ */
+const splitRow = (line) => {
+    const cells = line.trim().split(/(?<!\\)\|/);
+    if ( cells.length > 1 && !cells[0].trim() ) cells.shift();
+    if ( cells.length > 1 && !cells.at(-1).trim() ) cells.pop();
+    return cells.map(cell => cell.trim().replace(/\\\|/g, '|'));
+};
+// How a column is aligned, from the colons of its cell in the row under the header.
+const columnAlign = cell => /^:-+:$/.test(cell) ? 'center' : /-:$/.test(cell) ? 'end' : 'start';
 
 /**
  * Turn Markdown into the blocks of a page: headings, paragraphs, lists, quotes, code and tables. Front matter,
@@ -219,16 +232,23 @@ export const parseMarkdown = (text) => {
         } else if ( line.includes('|') && /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/.test(lines[at + 1] ?? '') &&
             lines[at + 1].includes('|') ) {
             flush();
-            const rows = [splitRow(line)];
+            // The header sets the columns. A row with fewer cells is filled out, and one with more is cut short.
+            const header = splitRow(line).slice(0, TABLE_MAX_COLUMNS);
+            const aligns = header.map((_cell, column) => columnAlign(splitRow(lines[at + 1])[column] ?? ''));
+            const rows = [header];
             for ( at += 2; at < lines.length && lines[at].includes('|'); at++ ) rows.push(splitRow(lines[at]));
             at--;
             const tableStyle = { ...bodyStyle, size: BODY_SIZE - 1 };
             for ( const [index, row] of rows.entries() ) {
                 blocks.push({
-                    cells: row.map(cell => ({
+                    cells: header.map((_cell, column) => ({
                         // Columns share the page's width evenly.
                         width: 0,
-                        blocks: [paragraph(blockRuns(cell.trim(), { ...tableStyle, bold: !index }), { size: BODY_SIZE - 1, spaceAfter: 4 })],
+                        blocks: [paragraph(blockRuns(row[column] ?? '', { ...tableStyle, bold: !index }), {
+                            size: BODY_SIZE - 1,
+                            align: aligns[column],
+                            spaceAfter: 4,
+                        })],
                     })),
                 });
             }

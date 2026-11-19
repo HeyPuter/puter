@@ -188,6 +188,23 @@ describe('parseMarkdown', () => {
         expect(rows.map(row => row.cells[0].blocks[0].runs[0].bold)).toEqual([true, false, false]);
     });
 
+    it('gives every row of a table the header\'s columns, aligned as the row under the header says', () => {
+        const blocks = parseMarkdown([
+            '| Name | Age | City |',
+            '|:-----|:---:|-----:|',
+            '| Alice | 30 |',
+            '| Bob | 25 | Rome | extra |',
+            'Carol | a \\| b | Oslo',
+        ].join('\n'));
+        expect(blocks.map(row => row.cells.map(cell => textOf(cell.blocks)[0]))).toEqual([
+            ['Name', 'Age', 'City'],
+            ['Alice', '30', ''],
+            ['Bob', '25', 'Rome'],
+            ['Carol', 'a | b', 'Oslo'],
+        ]);
+        expect(blocks.every(row => row.cells.map(cell => cell.blocks[0].align).join() === 'start,center,end')).toBe(true);
+    });
+
     it('reads a line with a bar as text when no table follows', () => {
         expect(textOf(parseMarkdown('a | b\nc'))).toEqual(['a | b c']);
     });
