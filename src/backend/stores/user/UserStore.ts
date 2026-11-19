@@ -425,6 +425,10 @@ export class UserStore extends PuterStore {
         const cached = options.cached ?? true;
         const force = options.force ?? false;
 
+        // Only a string or number can equal a stored value. The driver expands
+        // an array or object into SQL of its own.
+        if (typeof value !== 'string' && typeof value !== 'number') return null;
+
         // Reject lookup values that can't exist in a latin1 column before
         // the driver turns them into a collation-mix error at MySQL.
         if (

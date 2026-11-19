@@ -512,6 +512,34 @@ describe('UserStore batched and uncached lookups', () => {
         ).toBeNull();
     });
 
+    it('matches no row for a lookup value that is not a string or number', async () => {
+        const user = await makeUser();
+        const lookups: unknown[] = [
+            ['a', 'b'],
+            [user.username],
+            { username: 1 },
+            { email: user.email },
+            null,
+            undefined,
+            true,
+        ];
+        for (const value of lookups) {
+            expect(
+                await server.stores.user.getByUsername(value as never),
+            ).toBeNull();
+            expect(
+                await server.stores.user.getByEmail(value as never),
+            ).toBeNull();
+            expect(
+                await server.stores.user.getByProperty('uuid', value),
+            ).toBeNull();
+        }
+        // A real lookup still resolves.
+        expect(
+            (await server.stores.user.getByUsername(user.username))?.id,
+        ).toBe(user.id);
+    });
+
     it('refuses to write a non-latin1 value into a latin1 column', async () => {
         const user = await makeUser();
         await expect(
