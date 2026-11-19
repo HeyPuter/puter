@@ -54,6 +54,10 @@ describe('parseMarkdown', () => {
         expect(blocks[0].size).toBe(sizes[0]);
     });
 
+    it('draws nothing for an empty heading', () => {
+        expect(textOf(parseMarkdown('#\n\n## #\n### ###\n#hashtag\n\n# C#'))).toEqual(['#hashtag', 'C#']);
+    });
+
     it('reads a paragraph underlined with = or - as a heading', () => {
         const blocks = parseMarkdown('Title\n=====\n\nSection\nname\n---\n\nBody');
         expect(textOf(blocks)).toEqual(['Title', 'Section name', 'Body']);

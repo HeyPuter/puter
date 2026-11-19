@@ -202,9 +202,10 @@ export const parseMarkdown = (text) => {
                 indent: (item?.indent ?? 0) + 6,
                 wrap: false,
             });
-        } else if ( (match = /^ {0,3}(#{1,6})[ \t]+(.*)$/.exec(line)) ) {
+        } else if ( (match = /^ {0,3}(#{1,6})(?:[ \t]+(.*))?$/.exec(line)) ) {
+            // A heading can be empty, and can close with a row of `#`, which isn't its text.
             flush();
-            heading(match[1].length, match[2].trim().replace(/[ \t]#+$/, ''));
+            heading(match[1].length, (match[2] ?? '').trim().replace(/(?:^|[ \t])#+$/, ''));
         } else if ( gathered.length && !layout && (match = /^ {0,3}(=+|-+)[ \t]*$/.exec(line)) ) {
             // A paragraph underlined with `=` or `-` is a heading.
             const content = gathered.join(' ');
