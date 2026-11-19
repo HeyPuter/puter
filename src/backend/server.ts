@@ -632,13 +632,17 @@ export class PuterServer {
         }
 
         // -- Request fingerprints ------------------------------------
-        // Stamp `req.networkFingerprint` (server-derived) and
-        // `req.deviceFingerprint` (client-supplied, from body/header). Runs
-        // AFTER body parsing so the body fingerprint is readable, and before
-        // the ALS context so the snapshot carries them.
+        // Stamp `req.networkFingerprint` (server-derived),
+        // `req.deviceFingerprint` (client-supplied, from body/header) and the
+        // proxy's `req.requestSignals`. Runs AFTER body parsing so the body
+        // fingerprint is readable, and before the ALS context so the snapshot
+        // carries them.
         this.#app.use(
             createFingerprintMiddleware({
                 tlsFingerprintHeader: this.#config.tlsFingerprintHeader,
+                requestSignalHeaders: this.#config.requestSignalHeaders,
+                requestSignalValue: this.#config.requestSignalValue,
+                events: this.clients.event,
             }),
         );
 

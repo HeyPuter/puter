@@ -21,6 +21,7 @@ import type {
 } from 'express';
 import { Actor } from '../../core';
 import type { EmailTemplateName } from '../email/templates';
+import type { SenderAuthOutcome } from '../../services/email/mailbox';
 import type { UsageInput } from '../../services/metering/types';
 import { FSEntry } from '../../stores/fs/FSEntry';
 
@@ -80,6 +81,9 @@ export type KvOp = 'set' | 'del' | 'expire';
 
 /** A flush empties a whole namespace, so it is never reported per key. */
 export type KvMutation = KvOp | 'flush';
+
+/** How an interactive sign-in proved the account. */
+export type SignInMethod = 'password' | 'otp' | 'recovery_code' | 'oidc';
 
 export type EventMap = {
     // ---- Server lifecycle ----
@@ -311,6 +315,106 @@ export type EventMap = {
         requires_card_verification: boolean;
         accepted: boolean;
     };
+    /**
+     * A password sign-in attempt (`POST /login`), via `emitAndWait` before the
+     * account is looked up or the password checked, so a refusal looks the same
+     * for every account. A listener refuses with `allow = false`; one that
+     * throws counts as no opinion, and what it set is undone.
+     */
+    'puter.signin.attempt': {
+        /** The request; the password is gone from its body. */
+        req: unknown;
+        ip: string | null;
+        user_agent: string | null;
+        tls_fingerprint: string | null;
+        /** Device fingerprint the client sent, shape-checked. */
+        fingerprint: string | null;
+        /** The request body without its credential fields. */
+        data: Record<string, unknown>;
+        allow: boolean;
+        message: string | null;
+        code: string | null;
+        /** Shown to a refused user as the Request Code. */
+        trail_id: string | undefined;
+    };
+    /**
+     * Before the session of an interactive sign-in is minted (not signup), via
+     * `emitAndWait`. A listener refuses with `allow = false`, or asks for phone
+     * or card verification; a listener that throws counts as no opinion, and
+     * what it set is undone.
+     */
+    'puter.signin.validate': {
+        /** The request; a verified password or code is gone from its body. */
+        req: unknown;
+        /** The account row without credentials or single-use tokens. */
+        user: Record<string, unknown>;
+        method: SignInMethod;
+        ip: string | null;
+        user_agent: string | null;
+        tls_fingerprint: string | null;
+        /** Device fingerprint the client sent, shape-checked. */
+        fingerprint: string | null;
+        /** The request body without its credential fields. */
+        data: Record<string, unknown>;
+        /** Whole days since the account's last activity; null if unknown. */
+        dormant_days: number | null;
+        is_dormant: boolean;
+        known_device: boolean;
+        account: {
+            has_verified_phone: boolean;
+            has_verified_card: boolean;
+            otp_enabled: boolean;
+            oidc_linked: boolean;
+            email_confirmed: boolean;
+            is_org_seat: boolean;
+            is_temp: boolean;
+        };
+        allow: boolean;
+        message: string | null;
+        code: string | null;
+        requires_phone_verification: boolean;
+        requires_card_verification: boolean;
+        /** Shown to a refused user as the Request Code. */
+        trail_id: string | undefined;
+    };
+    /** After a sign-in's session exists, signups included. */
+    'puter.signin': {
+        user_id: number;
+        user_uuid: string;
+        username: string;
+        method: SignInMethod | 'signup';
+        ip: string | null;
+        user_agent: string | null;
+        tls_fingerprint: string | null;
+        fingerprint: string | null;
+        dormant_days: number | null;
+        is_dormant: boolean;
+        known_device: boolean;
+        session_uuid: string;
+    };
+    /** A sign-in's password is known to be exposed, once per source. */
+    'puter.signin.credential_exposed': {
+        user_id: number;
+        user_uuid: string;
+        username: string;
+        source: 'edge' | 'pwned_passwords';
+        /** Whether the owner was emailed for this sign-in. */
+        notified: boolean;
+    };
+    /** A request from a resolved actor carried request signals. */
+    'puter.request.flagged': {
+        signals: readonly string[];
+        user_id: number | null;
+        user_uuid: string | null;
+        username: string | null;
+        app_uid: string | null;
+        /** HTTP method. */
+        method: string;
+        /** The matched route pattern, else the path. */
+        route: string;
+        ip: string | null;
+        tls_fingerprint: string | null;
+    };
     'email.validate': {
         email: string;
         allow: boolean;
@@ -329,6 +433,29 @@ export type EventMap = {
         /** The whole message, exactly as received. */
         raw: Buffer;
         handled: boolean;
+    };
+    // Inbound mail about to be filed in a mailbox, emitted via `emitAndWait`.
+    // A listener may refuse it, or record a sender check that is stored with
+    // the message as the `X-Puter-Sender-Auth` header. A failed listener is
+    // no opinion: the message is filed.
+    'email.ingress.validate': {
+        /** The envelope recipient. */
+        to: string;
+        /** The envelope sender (MAIL FROM), when the relay passed one. */
+        envelopeFrom: string | null;
+        /** The header block exactly as received, through its blank line. */
+        head: Buffer;
+        /** Size of the whole message in bytes. */
+        size: number;
+        /**
+         * The whole message as received. Holds it in memory, so call it only
+         * when the head says the body matters.
+         */
+        readMessage: () => Promise<Buffer>;
+        allow: boolean;
+        /** Why it was refused; the relay hands it back to the sender. */
+        message: string | null;
+        senderAuth: SenderAuthOutcome | null;
     };
     'user.save_account': {
         user_id: number;

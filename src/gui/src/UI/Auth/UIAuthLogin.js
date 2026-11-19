@@ -20,9 +20,12 @@
 // The login screen: email or username and password, the identity provider
 // buttons, and the ways to the signup and password recovery screens.
 
+import { runVerificationGates } from '../../helpers/verification_gates.js';
 import { bindPasswordReveal, formFieldHtml } from '../Dashboard/UIDashboardFormDialog.js';
 import openAuthFlow, {
     authHeadHtml,
+    authRefusalText,
+    deviceFingerprint,
     joinAuthFlow,
     keepCurrentSession,
     navigateAfterSignIn,
@@ -32,6 +35,7 @@ import openAuthFlow, {
     wireAuthHead,
 } from './authFlow.js';
 import { renderProviderButtons } from './authProviders.js';
+import { mountTurnstile, turnstileHtml } from './authTurnstile.js';
 import { pushTwoFactorScreen } from './UIAuth2FA.js';
 import { pushRecoverPasswordScreen } from './UIAuthRecoverPassword.js';
 import { pushSignupScreen } from './UIAuthSignup.js';
@@ -56,6 +60,26 @@ const clearCredentialsFromUrl = () => {
 };
 
 /**
+ * The body of a login request.
+ *
+ * @param {object} fields
+ * @param {string} fields.emailOrUsername
+ * @param {string} fields.password
+ * @param {{ auth_id?: string, reauth_reason?: string }} [fields.reauth]
+ * @param {string | null} [fields.fingerprint]
+ * @param {string | null} [fields.captchaToken] Left out when the login shows no captcha.
+ * @returns {Record<string, unknown>}
+ */
+export const loginRequestBody = ({ emailOrUsername, password, reauth = {}, fingerprint = null, captchaToken }) => {
+    const body = window.is_email(emailOrUsername)
+        ? { email: emailOrUsername, password, ...reauth }
+        : { username: emailOrUsername, password, ...reauth };
+    if ( fingerprint ) body.fingerprint = fingerprint;
+    if ( captchaToken !== undefined ) body['cf-turnstile-response'] = captchaToken;
+    return body;
+};
+
+/**
  * What to tell the user about a failed login request.
  *
  * @param {{ status?: number, responseText?: string }} err
@@ -65,7 +89,19 @@ export const loginErrorMessage = (err) => {
     const response_text = err?.responseText || '';
     try {
         const json = JSON.parse(response_text);
-        if ( json?.message ) return { text: String(json.message) };
+        const text = authRefusalText(json) ?? (json?.message ? String(json.message) : '');
+        // The account's password sign-in is locked: a reset is the way back in.
+        if ( err?.status === 429 && text
+            && (json.action === 'reset_password' || json.errorCode === 'login_locked') ) {
+            return {
+                text,
+                html: '<div class="auth-status-help">'
+                    + `<p>${html_encode(text)}</p>`
+                    + `<button type="button" class="auth-link login-reset-password">${i18n('login_locked_reset_password')}</button>`
+                    + '</div>',
+            };
+        }
+        if ( text ) return { text };
     } catch {
         // Not JSON.
     }
@@ -102,6 +138,9 @@ export const loginErrorMessage = (err) => {
  */
 export function pushLoginScreen (flow, options = {}) {
     const id = `auth-login-${window.uuidv4?.() ?? Date.now()}`;
+    // Off until the server asks for it, so a captcha is only required of
+    // GUIs that send one.
+    const turnstile_key = window.gui_params?.turnstileLogin === true ? window.gui_params.turnstileSiteKey : undefined;
 
     let h = '<div class="dashboard-dialog-body auth-body">';
     // Logging in means already having a Puter account; no need to explain it.
@@ -121,6 +160,7 @@ export function pushLoginScreen (flow, options = {}) {
         attrs: { autocomplete: 'current-password' },
     }, id);
     h += `<div class="auth-forgot-row"><button type="button" class="auth-link forgot-password-link">${i18n('forgot_pass_c2a')}</button></div>`;
+    if ( turnstile_key ) h += turnstileHtml(turnstile_key);
     h += submitButtonHtml(i18n('log_in', [], false), 'login-btn');
     h += '</form>';
     h += '<div class="auth-providers" hidden>';
@@ -142,6 +182,9 @@ export function pushLoginScreen (flow, options = {}) {
     const $form = $screen.find('.login-form');
     const $user = $form.find('[name="email_or_username"]');
     const $password = $form.find('[name="password"]');
+    const turnstile = turnstile_key ? mountTurnstile($form, turnstile_key, flow.isClosed) : null;
+    // Started now, so the submit rarely has to wait for it.
+    const fingerprint = deviceFingerprint();
 
     wireAuthHead($screen);
     bindPasswordReveal($form);
@@ -159,10 +202,13 @@ export function pushLoginScreen (flow, options = {}) {
         if ( offered ) $screen.find('.auth-providers').prop('hidden', false);
     });
 
-    $screen.find('.forgot-password-link').on('click', () => {
+    const toRecoverPassword = () => {
         if ( flow.isBusy() ) return;
         pushRecoverPasswordScreen(flow, { email_or_username: String($user.val() ?? '').trim() });
-    });
+    };
+    $screen.find('.forgot-password-link').on('click', toRecoverPassword);
+    // Offered by a locked password sign-in.
+    $screen.on('click', '.login-reset-password', toRecoverPassword);
 
     $screen.find('.auth-to-signup').on('click', () => {
         if ( flow.isBusy() ) return;
@@ -170,9 +216,11 @@ export function pushLoginScreen (flow, options = {}) {
     });
 
     // The form first, so the end of busy can hand focus back to a field.
+    // A captcha token is spent by the attempt; the next one gets a fresh one.
     const unlock = () => {
         setFormBusy($form, false);
         flow.setBusy(false);
+        turnstile?.reset();
     };
 
     $form.on('submit', async (e) => {
@@ -190,17 +238,28 @@ export function pushLoginScreen (flow, options = {}) {
             setAuthStatus($screen, i18n('login_password_required', [], false), { field: '[name="password"]' });
             return;
         }
+        const captcha_token = turnstile?.token();
+        if ( captcha_token === '' ) {
+            setAuthStatus($screen, i18n('captcha_required', [], false));
+            return;
+        }
         setAuthStatus($screen, '');
+
+        flow.setBusy(true);
+        setFormBusy($form, true);
 
         // After a `reauth_required` 401, the login re-attaches the same
         // stable identity.
         const reauth = options.auth_id ? { auth_id: options.auth_id, reauth_reason: options.reauth_reason } : {};
-        const body = window.is_email(email_username)
-            ? { email: email_username, password, ...reauth }
-            : { username: email_username, password, ...reauth };
-
-        flow.setBusy(true);
-        setFormBusy($form, true);
+        const body = loginRequestBody({
+            emailOrUsername: email_username,
+            password,
+            reauth,
+            fingerprint: await fingerprint,
+            captchaToken: captcha_token,
+        });
+        // Dismissed while the fingerprint settled: nothing was sent.
+        if ( flow.isClosed() ) return;
 
         let data;
         try {
@@ -222,6 +281,11 @@ export function pushLoginScreen (flow, options = {}) {
             if ( flow.isClosed() ) return;
             const message = loginErrorMessage(err);
             setAuthStatus($screen, message.text ?? '', { html: message.html });
+            const el_reset = $screen.find('.login-reset-password').get(0);
+            if ( el_reset ) {
+                el_reset.focus({ preventScroll: true });
+                return;
+            }
             // A refused password is typed again; a refused name is fixed there.
             $password.get(0)?.focus({ preventScroll: true });
             $password.get(0)?.select?.();
@@ -240,6 +304,7 @@ export function pushLoginScreen (flow, options = {}) {
             const verified = await pushTwoFactorScreen(flow, data.otp_jwt_token);
             if ( ! verified ) {
                 setFormBusy($form, false);
+                turnstile?.reset();
                 if ( ! flow.isClosed() ) flow.focus();
                 return;
             }
@@ -263,7 +328,21 @@ export function pushLoginScreen (flow, options = {}) {
             navigateAfterSignIn(flow.options.redirect_url || window.location.origin + window.location.pathname);
             return;
         }
-        flow.finish(true);
+        // Checks this sign-in left on the account (a dormant one, say) come
+        // next. A reload runs them at boot instead. The server has already
+        // mailed the email code.
+        const user = data.user;
+        const show_email = !! (user?.requires_email_confirmation && ! user?.email_confirmed);
+        let completed = true;
+        if ( show_email || user?.requires_phone_verification || user?.requires_card_verification ) {
+            // Hidden, not closed: a sign-in prompt meanwhile joins this flow
+            // instead of signing another account in under these checks.
+            flow.hide();
+            completed = await runVerificationGates(user, show_email, false, flow.page)
+                // The checks were this account's; the page may have moved on.
+                && window.auth_token === data.token;
+        }
+        flow.finish(completed);
     });
 
     return $screen;
@@ -275,9 +354,11 @@ export function pushLoginScreen (flow, options = {}) {
  * @param {Partial<import('./authFlow.js').AuthFlowOptions> & LoginScreenOptions & {
  *   page?: boolean, dismissable?: boolean, closeOnBackdrop?: boolean,
  * }} [options] `page`, `dismissable` and `closeOnBackdrop` as in `openAuthFlow`.
- * @returns {Promise<boolean>} True once signed in, unless the page reloads
- *   first; false when the user dismisses it. Joins an auth flow that is
- *   already open instead of opening another.
+ * @returns {Promise<boolean>} True once signed in (or false if an email
+ *   confirmation the sign-in asked for wasn't completed, or the page signed in
+ *   as another account meanwhile), unless the page reloads first; false when
+ *   the user dismisses it. Joins an auth flow that is already open instead of
+ *   opening another.
  */
 export default function UIAuthLogin (options = {}) {
     const joined = joinAuthFlow();

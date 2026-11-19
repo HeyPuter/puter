@@ -27,6 +27,7 @@ import { RecommendedAppsService } from './apps/RecommendedAppsService';
 import { SuggestedAppsService } from './apps/SuggestedAppsService';
 import { AuthService } from './auth/AuthService';
 import { OIDCService } from './auth/OIDCService';
+import { SignInService } from './auth/SignInService';
 import { TokenService } from './auth/TokenService';
 import { BroadcastService } from './broadcast/BroadcastService';
 import { CacheReplicationService } from './cache/CacheReplicationService';
@@ -93,6 +94,7 @@ declare module './types' {
         health: ServerHealthService;
         userAccount: UserAccountService;
         signup: SignupService;
+        signIn: SignInService;
         openaiRealtime: OpenAIRealtimeRelayService;
         alarmCalls: AlarmCallService;
     }
@@ -134,6 +136,8 @@ export const puterServices = {
     userAccount: UserAccountService,
     // Reaches `team` and `socket` at call time only.
     signup: SignupService,
+    // Reaches `signup` at call time only.
+    signIn: SignInService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
     // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any

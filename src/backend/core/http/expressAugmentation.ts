@@ -112,6 +112,13 @@ declare global {
             tlsFingerprint?: string;
 
             /**
+             * Signals the proxy in front of the server raised on this request,
+             * read from the headers named by `requestSignalHeaders`. Empty when
+             * there are none.
+             */
+            requestSignals?: readonly string[];
+
+            /**
              * Parsed cookies, populated by the global `cookie-parser`
              * middleware.
              */

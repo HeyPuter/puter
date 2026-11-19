@@ -72,6 +72,7 @@ const en = {
         bio: 'Bio',
         browser: 'Browser',
         captcha_required: 'Please complete the CAPTCHA verification',
+        captcha_failed: 'CAPTCHA verification failed. Please try again.',
         cancel: 'Cancel',
         change: 'Change',
         change_email: 'Change Email',
@@ -852,6 +853,7 @@ const en = {
         'auth_error_generic': 'Authentication failed. Please try again.',
         'account_suspended_message': 'This account is suspended.',
         'signup_blocked_message': 'Your account could not be created.',
+        'signin_blocked_message': 'This sign-in was blocked.',
         'contact_support': 'Please contact support@puter.com.',
         'contact_support_with_code': 'Please contact support@puter.com and include this code: {{id}}.',
         'signup_bonus_code_invalid': 'This bonus code is invalid or no longer available.',
@@ -892,6 +894,8 @@ const en = {
         // Login Window
         'login_email_username_required': 'Email or username is required',
         'login_password_required': 'Password is required',
+        'login_locked_reset_password': 'Reset your password',
+        'login_locked_message': 'Too many incorrect passwords for this account. Reset your password, or try again later.',
 
         // Various Window Titles
         'window_title_open': 'Open',

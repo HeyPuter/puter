@@ -461,6 +461,24 @@ A `LOCK` gets the `Timeout` the client asks for, up to 1 hour, and the response 
 
 For long-lived mounts, sign in with a `-token` username and an API token as the password. That skips the per-account sign-in limit, and the token can be revoked from the dashboard without changing the account password.
 
+### Sign-in
+
+These apply to signing in to Puter itself, through the sign-in screen or [`puter.auth.signIn()`](/Auth/signIn/).
+
+| Limit | Value | Scope |
+| ----- | ----- | ----- |
+| Password sign-in requests | 10 per 15 min | Per network |
+| Password sign-in requests | 50 per 15 min | Per IP address |
+| Wrong passwords | 20/hour, 50/day | Per account being signed into |
+| Wrong two-factor or recovery codes | 10 per 30 min | Per account being signed into |
+| Wrong email confirmation codes | 10/hour, 20/day | Per account |
+| Email confirmation code lifetime | 1 hour from when it was sent | Per code |
+
+Only wrong passwords and wrong codes count toward the per-account limits; a right one costs nothing.
+
+- **Wrong passwords.** Once either window is spent, password sign-in to that account answers `429` with `errorCode: "login_locked"` and `action: "reset_password"`, even for the right password, until the window passes. A browser that has signed in to the account before can still sign in, so the owner isn't locked out by someone else's guesses. Any new password ends the lockout at once, whether the owner changes it, resets it by email, or a team admin sets it. The owner is emailed when a lockout starts.
+- **Email confirmation codes.** A code older than an hour answers `400` with `code: "confirmation_code_expired"`; send a new one. Over the wrong-code limit, confirming answers `429` until the window passes, even for the right code. Sending a new code doesn't reset the count.
+
 ### Sites and workers
 
 | Limit                               | Paid | Free | Anonymous |
@@ -925,7 +943,7 @@ A read that times out is retried once. A write or AI call that times out is neve
 
 | Status | `code`                  | Meaning                               | What to do |
 | ------ | ----------------------- | ------------------------------------- | ---------- |
-| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry. Windows are at most 60 s, or 1 h for sustained filesystem mutations. The uploads-in-progress limit clears only when uploads finish, are cancelled, or expire. |
+| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry. Windows are at most 60 s, or 1 h for sustained filesystem mutations; [sign-in](#sign-in) limits run up to a day. The uploads-in-progress limit clears only when uploads finish, are cancelled, or expire. |
 | `402`  | `insufficient_funds`    | Monthly credit spent                  | The user buys credit or upgrades; the allowance resets next month. |
 | `402`  | `subscription_required` | The endpoint requires a paid plan     | The user upgrades. Retrying or waiting doesn't help. |
 | `413`  | `storage_limit_reached` | Storage quota reached                 | The user deletes files or upgrades. |

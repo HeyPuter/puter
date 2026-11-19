@@ -3706,11 +3706,13 @@ describe('AuthService (integration)', () => {
 
         it('verifying a private token throws 401 when expected app_uid mismatches', async () => {
             const user = await makeUser();
+            const { session } = await authService.createSessionToken(user, {});
             const appA = `app-${uuidv4()}`;
             const appB = `app-${uuidv4()}`;
             const token = await authService.createHostedAssetToken('private', {
                 appUid: appA,
                 userUid: user.uuid,
+                sessionUuid: (session as { uuid: string }).uuid,
             });
             await expect(
                 authService.verifyHostedAssetToken('private', token, {
@@ -3756,12 +3758,14 @@ describe('AuthService (integration)', () => {
         });
 
         it('verifying as public rejects a private-kind token (kind mismatch)', async () => {
-            const user = { uuid: uuidv4() };
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user, {});
             const privateToken = await authService.createHostedAssetToken(
                 'private',
                 {
                     appUid: `app-${uuidv4()}`,
                     userUid: user.uuid,
+                    sessionUuid: (session as { uuid: string }).uuid,
                 },
             );
             await expect(
@@ -4694,6 +4698,376 @@ describe('AuthService (integration)', () => {
                     ).toBeNull();
                 }
             });
+        });
+    });
+
+    describe('sessions that predate expires_at or went idle', () => {
+        const DAY = 24 * 60 * 60;
+        const nowS = () => Math.floor(Date.now() / 1000);
+
+        /** Age a row in the database and drop its cached copy. */
+        const age = async (
+            uuid: string,
+            fields: { expires_at: number | null; activeDaysAgo: number },
+        ) => {
+            const at = nowS() - fields.activeDaysAgo * DAY;
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ?, `last_activity` = ?, `created_at` = ? WHERE `uuid` = ?',
+                [fields.expires_at, at, at, uuid],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${uuid}`);
+        };
+
+        const makeTempUser = async () => {
+            const username = `tmp-${Math.random().toString(36).slice(2, 10)}`;
+            return server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: null,
+                email: null,
+                free_storage: 100 * 1024 * 1024,
+                requires_email_confirmation: false,
+            });
+        };
+
+        const sessionUidOf = (token: string) =>
+            (
+                server.services.token.verify('auth', token) as {
+                    session_uid: string;
+                }
+            ).session_uid;
+
+        const webSession = async (
+            user: Awaited<ReturnType<typeof makeUser>>,
+        ) => {
+            const { token, session } = await authService.createSessionToken(
+                user,
+                {},
+            );
+            return { token, uuid: (session as { uuid: string }).uuid };
+        };
+
+        it('ends a web session whose row has no expires_at and no activity within the store window', async () => {
+            const user = await makeUser();
+            const { token, uuid } = await webSession(user);
+            await age(uuid, { expires_at: null, activeDaysAgo: 400 });
+            expect(await authService.authenticate(token)).toEqual({
+                reauth: { reason: 'session_expired', auth_id: user.uuid },
+            });
+        });
+
+        it('ends a web session idle past the window although its expires_at is ahead', async () => {
+            const user = await makeUser();
+            const { token, uuid } = await webSession(user);
+            await age(uuid, {
+                expires_at: nowS() + 184 * DAY,
+                activeDaysAgo: 181,
+            });
+            expect(await authService.authenticate(token)).toEqual({
+                reauth: { reason: 'session_expired', auth_id: user.uuid },
+            });
+
+            const fresh = await webSession(user);
+            await age(fresh.uuid, {
+                expires_at: nowS() + 186 * DAY,
+                activeDaysAgo: 179,
+            });
+            expect(
+                (await authService.authenticate(fresh.token)).actor,
+            ).toBeTruthy();
+        });
+
+        it('keeps a temp account signed in at 200 idle days, until the store window ends', async () => {
+            const user = await makeTempUser();
+            const { token, uuid } = await webSession(user);
+            await age(uuid, {
+                expires_at: nowS() + 165 * DAY,
+                activeDaysAgo: 200,
+            });
+            expect(
+                (await authService.authenticate(token)).actor?.user.uuid,
+            ).toBe(user.uuid);
+
+            await age(uuid, { expires_at: null, activeDaysAgo: 200 });
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+
+            await age(uuid, { expires_at: null, activeDaysAgo: 366 });
+            expect(await authService.authenticate(token)).toEqual({
+                reauth: { reason: 'session_expired', auth_id: user.uuid },
+            });
+        });
+
+        it('keeps an access token minted without an expiry working however old its row', async () => {
+            const user = await makeUser();
+            const token = await authService.createAccessToken(
+                { user } as Actor,
+                [[FULL_API_ACCESS]],
+            );
+            await age(sessionUidOf(token), {
+                expires_at: null,
+                activeDaysAgo: 2000,
+            });
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+
+        it('ends a token minted under a sign-in that went idle', async () => {
+            const user = await makeUser();
+            const token = await authService.createAccessToken(
+                { user } as Actor,
+                [[`user:${user.uuid}:email:read`]],
+            );
+            const tokenRow = sessionUidOf(token);
+            const parent = await webSession(user);
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `parent_session_id` = ? WHERE `uuid` = ?',
+                [parent.uuid, tokenRow],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${tokenRow}`);
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+
+            await age(parent.uuid, {
+                expires_at: nowS() + 184 * DAY,
+                activeDaysAgo: 181,
+            });
+            expect(await authService.authenticate(token)).toEqual({
+                reauth: { reason: 'session_expired' },
+            });
+        });
+
+        it('ends an idle app session, and the next launch mints a fresh one', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const actor = makeActor({ user });
+            const first = await authService.getUserAppToken(actor, appUid);
+            expect((await authService.authenticate(first)).actor).toBeTruthy();
+
+            await age(sessionUidOf(first), {
+                expires_at: nowS() + 184 * DAY,
+                activeDaysAgo: 181,
+            });
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+            );
+            expect(await authService.authenticate(first)).toEqual({
+                reauth: { reason: 'session_expired' },
+            });
+
+            const second = await authService.getUserAppToken(actor, appUid);
+            expect(sessionUidOf(second)).not.toBe(sessionUidOf(first));
+            expect((await authService.authenticate(second)).actor).toBeTruthy();
+        });
+
+        it('leaves an idle session out of listSessions', async () => {
+            const user = await makeUser();
+            const idle = await webSession(user);
+            const live = await webSession(user);
+            await age(idle.uuid, {
+                expires_at: nowS() + 184 * DAY,
+                activeDaysAgo: 181,
+            });
+            const listed = (
+                await authService.listSessions({ user } as Actor)
+            ).map((row) => (row as { uuid: string }).uuid);
+            expect(listed).toContain(live.uuid);
+            expect(listed).not.toContain(idle.uuid);
+        });
+
+        describe('hosted-asset cookies', () => {
+            const appUid = () => `app-${uuidv4()}`;
+
+            const fullAccessToken = async (
+                user: Awaited<ReturnType<typeof makeUser>>,
+                options: { expiresIn?: string } = {},
+            ) => {
+                const token = await authService.createAccessToken(
+                    { user } as Actor,
+                    [[FULL_API_ACCESS]],
+                    options,
+                );
+                const { actor } = await authService.authenticate(token);
+                return { token, row: actor!.accessToken!.sessionUid! };
+            };
+
+            const privateCookie = (
+                user: { uuid: string },
+                sessionUuid: string,
+            ) =>
+                authService.createHostedAssetToken('private', {
+                    appUid: appUid(),
+                    userUid: user.uuid,
+                    sessionUuid,
+                });
+
+            it('a private cookie minted from a full-access token ends when the token is revoked', async () => {
+                const user = await makeUser();
+                const { token, row } = await fullAccessToken(user);
+                const cookie = await privateCookie(user, row);
+                await authService.verifyHostedAssetToken('private', cookie);
+
+                await authService.revokeAccessToken({ user } as Actor, token);
+                await expect(
+                    authService.verifyHostedAssetToken('private', cookie),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    legacyCode: 'session_required',
+                });
+            });
+
+            it('a private cookie minted from a full-access token ends when the token expires', async () => {
+                const user = await makeUser();
+                const { row } = await fullAccessToken(user, {
+                    expiresIn: '1h',
+                });
+                const cookie = await privateCookie(user, row);
+                await authService.verifyHostedAssetToken('private', cookie);
+
+                await age(row, { expires_at: nowS() - 1, activeDaysAgo: 0 });
+                await expect(
+                    authService.verifyHostedAssetToken('private', cookie),
+                ).rejects.toMatchObject({ statusCode: 401 });
+            });
+
+            it('a private cookie minted from a token ends with the sign-in the token hangs off', async () => {
+                const user = await makeUser();
+                const { row } = await fullAccessToken(user);
+                const parent = await webSession(user);
+                await server.clients.db.write(
+                    'UPDATE `sessions` SET `parent_session_id` = ? WHERE `uuid` = ?',
+                    [parent.uuid, row],
+                );
+                await server.clients.redis.del(`sessions:v2:uuid:${row}`);
+                const cookie = await privateCookie(user, row);
+                await authService.verifyHostedAssetToken('private', cookie);
+
+                await age(parent.uuid, {
+                    expires_at: nowS() - 1,
+                    activeDaysAgo: 0,
+                });
+                await expect(
+                    authService.verifyHostedAssetToken('private', cookie),
+                ).rejects.toMatchObject({ statusCode: 401 });
+            });
+
+            it('refuses a private cookie that names no session', async () => {
+                const user = await makeUser();
+                const app = appUid();
+                const unbound = server.services.token.sign('hosted-asset', {
+                    kind: 'private',
+                    version: '2',
+                    user_uid: user.uuid,
+                    app_uid: app,
+                });
+                await expect(
+                    authService.verifyHostedAssetToken('private', unbound, {
+                        appUid: app,
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    legacyCode: 'session_required',
+                });
+                await expect(
+                    authService.createHostedAssetToken('private', {
+                        appUid: app,
+                        userUid: user.uuid,
+                    }),
+                ).rejects.toMatchObject({ statusCode: 401 });
+            });
+
+            it('signs both kinds to expire with the cookie and the asset window', async () => {
+                const user = await makeUser();
+                const { uuid } = await webSession(user);
+                const lifetime = 7 * DAY;
+                expect(authService.getHostedAssetCookieOptions().maxAge).toBe(
+                    lifetime * 1000,
+                );
+                for (const kind of ['private', 'public'] as const) {
+                    const cookie = await authService.createHostedAssetToken(
+                        kind,
+                        {
+                            appUid: appUid(),
+                            userUid: user.uuid,
+                            sessionUuid: uuid,
+                        },
+                    );
+                    const { iat, exp } = jwt.decode(cookie) as {
+                        iat: number;
+                        exp?: number;
+                    };
+                    expect(exp! - iat, kind).toBe(lifetime);
+                }
+            });
+
+            it('refuses a public cookie past its signed expiry while its sign-in lives on', async () => {
+                const user = await makeUser();
+                const { uuid } = await webSession(user);
+                const cookie = await authService.createHostedAssetToken(
+                    'public',
+                    { appUid: appUid(), userUid: user.uuid, sessionUuid: uuid },
+                );
+                vi.useFakeTimers({ toFake: ['Date'] });
+                try {
+                    vi.setSystemTime(Date.now() + 8 * DAY * 1000);
+                    expect(
+                        await server.stores.session.getByUuid(uuid),
+                    ).toBeTruthy();
+                    await expect(
+                        authService.verifyHostedAssetToken('public', cookie),
+                    ).rejects.toThrow();
+                } finally {
+                    vi.useRealTimers();
+                }
+            });
+
+            it('a private cookie minted from a sign-in reads only its own row', async () => {
+                const user = await makeUser();
+                const { uuid } = await webSession(user);
+                const cookie = await privateCookie(user, uuid);
+                await authService.verifyHostedAssetToken('private', cookie);
+
+                const reads = vi.spyOn(server.stores.session, 'getByUuid');
+                try {
+                    await authService.verifyHostedAssetToken('private', cookie);
+                    expect(reads).toHaveBeenCalledTimes(1);
+                } finally {
+                    reads.mockRestore();
+                }
+            });
+
+            it.each([
+                ['ends', 'an account that can sign back in', makeUser, true],
+                ['keeps', 'a temp account', makeTempUser, false],
+            ] as const)(
+                'a public cookie %s when the sign-in of %s goes idle',
+                async (_verb, _who, make, ends) => {
+                    const user = await make();
+                    const { uuid } = await webSession(user);
+                    const cookie = await authService.createHostedAssetToken(
+                        'public',
+                        {
+                            appUid: appUid(),
+                            userUid: user.uuid,
+                            sessionUuid: uuid,
+                        },
+                    );
+                    await age(uuid, {
+                        expires_at: nowS() + 184 * DAY,
+                        activeDaysAgo: 181,
+                    });
+                    const verifying = authService.verifyHostedAssetToken(
+                        'public',
+                        cookie,
+                    );
+                    if (ends) {
+                        await expect(verifying).rejects.toMatchObject({
+                            statusCode: 401,
+                        });
+                    } else {
+                        await expect(verifying).resolves.toMatchObject({
+                            userUid: user.uuid,
+                        });
+                    }
+                },
+            );
         });
     });
 

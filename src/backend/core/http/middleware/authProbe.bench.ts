@@ -53,4 +53,32 @@ describe('auth', () => {
             throw new Error(`POST /login answered ${response.status}: ${body}`);
         }
     });
+
+    // A deployment whose extensions validate sign-ins, so the payload's reads
+    // (known device, OIDC link, seat) run before the session is minted.
+    env.scenario('log in with a sign-in validate listener', async () => {
+        const { username, password } = env.users.user;
+        const listener = async () => {};
+        env.server.clients.event.on('puter.signin.validate', listener);
+        try {
+            const response = await fetch(new URL('/login', env.origin), {
+                method: 'POST',
+                // Its own client, so the scenario above leaves its login
+                // limit untouched.
+                headers: {
+                    'content-type': 'application/json',
+                    'user-agent': 'auth-bench-validate',
+                },
+                body: JSON.stringify({ username, password }),
+            });
+            const body = await response.text();
+            if (!response.ok) {
+                throw new Error(
+                    `POST /login answered ${response.status}: ${body}`,
+                );
+            }
+        } finally {
+            env.server.clients.event.off('puter.signin.validate', listener);
+        }
+    });
 });

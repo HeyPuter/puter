@@ -326,7 +326,7 @@ Used for password resets, email confirmation, and notifications. Without it thos
 
 To require email confirmation before login, also set `"strict_email_verification_required": true`.
 
-Account and notification mail is sent on a named stream: `auth` (password, address and 2FA changes), `signup` (address confirmation; a `puter.signup.validate` listener may name another: lowercase letters, digits, `:`, `_` and `-`, up to 64 characters, starting with a letter or digit) and `notify` (share, app feedback and contact form mail). Add `"streams"` inside `"email"` to configure one, for instance to let your mail provider route or report each kind of mail separately:
+Account and notification mail is sent on a named stream: `auth` (password, address and 2FA changes, new sign-in and exposed-password notices), `signup` (address confirmation; a `puter.signup.validate` listener may name another: lowercase letters, digits, `:`, `_` and `-`, up to 64 characters, starting with a letter or digit) and `notify` (share, app feedback and contact form mail). Add `"streams"` inside `"email"` to configure one, for instance to let your mail provider route or report each kind of mail separately:
 
 ```json
 "streams": {
@@ -501,6 +501,27 @@ set as an account's email.
 
 ```json
 "min_pass_length": 12
+```
+
+### Sign-in protection
+
+A sign-in to an account with no activity for `dormantSignInDays` days (default `180`, `0` turns it off) counts as dormant: an unconfirmed email on file has to be confirmed again when `"email"` is configured (a code goes to it), and the owner gets a "new sign-in" email. Team seats and guest accounts never count as dormant. The owner also gets that email when an account that has signed in before is signed in to from a browser it hasn't seen, at most once an hour.
+
+```json
+"dormantSignInDays": 180
+```
+
+To check passwords against known breach data at sign-in, turn on the Pwned Passwords range lookup. Only the first five hex characters of the password's SHA-1 hash leave the server, the check runs after the sign-in answers, and a failing or slow API never blocks a sign-in. A hit emails the owner (at most once per password and once in 30 days).
+
+```json
+"pwnedPasswords": { "enabled": true, "timeoutMs": 2000 }
+```
+
+A proxy in front of Puter can flag requests with headers. `requestSignalHeaders` maps each header to the signal it raises, and a header counts only when it holds the `requestSignalValue` secret, so clients can't send one themselves (the proxy should also strip these headers from client requests). Without `requestSignalValue`, signals are off and the server logs a warning at startup. Signals only ever count against the caller. Extensions see them on signed-in requests as the `puter.request.flagged` event, and the signal `credential_exposed` on `POST /login` reports the password as exposed once it verifies.
+
+```json
+"requestSignalHeaders": { "x-proxy-flag-bot": "bot", "x-proxy-flag-leaked": "credential_exposed" },
+"requestSignalValue": "<random shared secret>"
 ```
 
 ### Contact-form recipient

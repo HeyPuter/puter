@@ -9,6 +9,7 @@ interface IngressCall {
     to: string | null;
     subject: string | null;
     from: string | null;
+    mailfrom: string | null;
     messageid: string | null;
     secret: string | null;
     contentLength: string | undefined;
@@ -118,6 +119,7 @@ beforeAll(async () => {
                 to,
                 subject: url.searchParams.get('subject'),
                 from: url.searchParams.get('from'),
+                mailfrom: url.searchParams.get('mailfrom'),
                 messageid: url.searchParams.get('messageid'),
                 secret: url.searchParams.get('SECRET'),
                 contentLength: req.headers['content-length'],
@@ -156,6 +158,11 @@ describe('accepting mail', () => {
         expect(calls[0].contentLength).toBe(
             String(Buffer.byteLength(calls[0].body)),
         );
+    });
+
+    test('passes the envelope sender along', async () => {
+        await deliver({ to: ['dan@example.com'] });
+        expect(calls[0].mailfrom).toBe('sender@elsewhere.test');
     });
 
     test('sends NO-ID when the message has no Message-ID', async () => {
@@ -244,6 +251,12 @@ describe('reporting what the ingress endpoint said', () => {
     test('an unknown user becomes a permanent 550', async () => {
         statusFor = () => 404;
         const reply = await deliver({ to: ['nobody@example.com'] });
+        expect(reply.code).toBe(550);
+    });
+
+    test('a policy refusal becomes a permanent 550 at DATA', async () => {
+        statusFor = () => 422;
+        const reply = await deliver({ to: ['dan@example.com'] });
         expect(reply.code).toBe(550);
     });
 

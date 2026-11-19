@@ -206,6 +206,8 @@ interface MockRes {
     clearCookie(name: string): MockRes;
     send(text: string): MockRes;
     end(): MockRes;
+    /** Work deferred past the response never runs here. */
+    once(event: string, listener: () => void): MockRes;
 }
 
 const makeRes = (): MockRes => {
@@ -242,6 +244,9 @@ const makeRes = (): MockRes => {
         end() {
             this.ended = true;
             this.headersSent = true;
+            return this;
+        },
+        once() {
             return this;
         },
     };
@@ -6521,13 +6526,20 @@ describe('AuthController.handleConfirmEmail', () => {
                 email_confirmed: false,
             },
         } as Actor;
+        // Mailed, so the code is current and the address check is what refuses.
+        await server.services.signup.sendConfirmationEmail(claimant, 'resend', {
+            code: '123456',
+        });
 
         await expect(
             controller.handleConfirmEmail(
                 makeReq({ code: '123456' }, { actor }),
                 makeRes(),
             ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'email_already_in_use',
+        });
 
         const untouched = await server.stores.user.getById(owner.id, {
             force: true,

@@ -858,6 +858,31 @@ interface IConfigOptional {
      * proxy overwrites any value the client sends. Unset disables it.
      */
     tlsFingerprintHeader?: string;
+    /**
+     * Request headers a proxy in front of the server sets to flag a request,
+     * mapped to the signal each one raises (`{ "x-edge-label-bot": "bot" }`).
+     * Signals only ever count against the caller; `credential_exposed` on `POST
+     * /login` reports the password as exposed. Default `{}`.
+     */
+    requestSignalHeaders?: Record<string, string>;
+    /**
+     * A signal header counts only when its value equals this, so a client can't
+     * raise a signal the proxy didn't. Unset, signals are off.
+     */
+    requestSignalValue?: string;
+    /**
+     * Days without account activity after which a sign-in counts as dormant:
+     * listeners may ask for phone or card verification, an unconfirmed email
+     * has to be confirmed, and the owner is emailed. `0` turns it off. Default
+     * 180.
+     */
+    dormantSignInDays?: number;
+    /**
+     * Check passwords at sign-in against the Pwned Passwords range API. Only
+     * the first five hex characters of the password's SHA-1 leave the server.
+     * Off by default; `timeoutMs` defaults to 2000.
+     */
+    pwnedPasswords?: { enabled?: boolean; timeoutMs?: number };
     /** Don't launch browser when starting. */
     no_browser_launch: boolean;
     /** Disable dev-time frontend webpack watchers. */

@@ -25,6 +25,7 @@ import {
     HOSTED_ASSET_COOKIES,
     type AuthService,
 } from '../../../services/auth/AuthService';
+import { FULL_API_ACCESS } from '../../../services/permission/consts';
 import { PuterServer } from '../../../server';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
@@ -833,10 +834,15 @@ describe('resolvePrivateIdentity', () => {
 
     it('returns the sticky private-cookie identity when the token matches the expected app/subdomain/host', async () => {
         const user = await makeUser();
+        const { session } = await authService.createSessionToken(
+            user as never,
+            {},
+        );
         const appUid = `app-${uuidv4()}`;
         const token = await authService.createHostedAssetToken('private', {
             appUid,
             userUid: user.uuid,
+            sessionUuid: (session as { uuid: string }).uuid,
             subdomain: 'beans',
             host: 'beans.app.puter.localhost',
         });
@@ -859,9 +865,14 @@ describe('resolvePrivateIdentity', () => {
 
     it('falls through to req.actor when the private cookie is for a different app', async () => {
         const user = await makeUser();
+        const { session } = await authService.createSessionToken(
+            user as never,
+            {},
+        );
         const wrongToken = await authService.createHostedAssetToken('private', {
             appUid: `app-${uuidv4()}`,
             userUid: user.uuid,
+            sessionUuid: (session as { uuid: string }).uuid,
             subdomain: 'beans',
             host: 'beans.app.puter.localhost',
         });
@@ -1011,7 +1022,32 @@ describe('resolvePrivateIdentity', () => {
         expect(out.source).toBe('none');
     });
 
-    it('accepts a full-access token, which holds the account', async () => {
+    it('accepts a full-access token, which holds the account, bound to its own row', async () => {
+        const user = await makeUser();
+        const issuer = makeActor({ user: { uuid: user.uuid } });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: {
+                        uid: `tok-${uuidv4()}`,
+                        issuer,
+                        fullAccess: true,
+                        sessionUid: 'token-row-1',
+                    },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: `app-target-${uuidv4()}`,
+        });
+        expect(out.source).toBe('session-cookie');
+        expect(out.userUid).toBe(user.uuid);
+        expect(out.sessionUuid).toBe('token-row-1');
+    });
+
+    it('ignores a full-access token that names no row of its own to bind a cookie to', async () => {
         const user = await makeUser();
         const issuer = makeActor({ user: { uuid: user.uuid } });
         const out = await resolvePrivateIdentity({
@@ -1030,8 +1066,61 @@ describe('resolvePrivateIdentity', () => {
             sessionCookieName: 'puter_auth_token',
             expectedAppUid: `app-target-${uuidv4()}`,
         });
-        expect(out.source).toBe('session-cookie');
-        expect(out.userUid).toBe(user.uuid);
+        expect(out.source).toBe('none');
+    });
+
+    describe('a cookie minted from a full-access token in the query', () => {
+        const mint = async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const expected = {
+                expectedAppUid: appUid,
+                expectedSubdomain: 'beans',
+                expectedPrivateHost: 'beans.app.puter.localhost',
+            };
+            const token = await authService.createAccessToken(
+                makeActor({ user: { id: user.id, uuid: user.uuid } }),
+                [[FULL_API_ACCESS]],
+            );
+            const viaQuery = await resolvePrivateIdentity({
+                req: reqOf({ query: { auth_token: token } }),
+                authService,
+                sessionCookieName: 'puter_auth_token',
+                ...expected,
+            });
+            expect(viaQuery.source).toBe('query');
+            const cookie = await authService.createHostedAssetToken('private', {
+                appUid,
+                userUid: viaQuery.userUid!,
+                sessionUuid: viaQuery.sessionUuid,
+                subdomain: 'beans',
+                host: 'beans.app.puter.localhost',
+            });
+            const withCookie = () =>
+                resolvePrivateIdentity({
+                    req: reqOf({
+                        cookies: {
+                            [HOSTED_ASSET_COOKIES.private.name]: cookie,
+                        },
+                    }),
+                    authService,
+                    sessionCookieName: 'puter_auth_token',
+                    ...expected,
+                });
+            return { user, token, viaQuery, withCookie };
+        };
+
+        it('is refused once the token is revoked', async () => {
+            const { user, token, viaQuery, withCookie } = await mint();
+            expect(viaQuery.sessionUuid).toBeTruthy();
+            expect((await withCookie()).source).toBe('private-cookie');
+
+            await authService.revokeAccessToken(
+                makeActor({ user: { id: user.id, uuid: user.uuid } }),
+                token,
+            );
+            expect((await withCookie()).source).toBe('none');
+        });
     });
 
     it("ignores a bootstrap query-token whose actor.app.uid doesn't match the target app", async () => {
