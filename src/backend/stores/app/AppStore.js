@@ -153,6 +153,7 @@ const READ_ONLY_COLUMNS = new Set([
     'created_by_app',
     'filetype_associations',
 ]);
+const COLUMN_NAME = /^[a-z_][a-z0-9_]*$/;
 // Unique-key columns `#getManyByProperty` may build an IN-list against.
 const BATCH_LOOKUP_COLUMNS = new Set(['id', 'uid', 'name']);
 const APP_BOOLEAN_COLUMNS = new Set([
@@ -323,8 +324,11 @@ export class AppStore extends PuterStore {
         if (!BATCH_LOOKUP_COLUMNS.has(prop)) {
             throw new Error(`AppStore: unsupported batch lookup key ${prop}`);
         }
+        // Same rule as `#getByProperty`: only `id` takes a number.
         const present = (Array.isArray(values) ? values : []).filter(
-            (value) => value !== null && value !== undefined,
+            (value) =>
+                typeof value === 'string' ||
+                (prop === 'id' && typeof value === 'number'),
         );
         return this.#cache.getMany(prop, present, async (missing, primary) => {
             const apps = [];
@@ -1567,6 +1571,10 @@ export class AppStore extends PuterStore {
         const out = {};
         for (const [k, v] of Object.entries(fields)) {
             if (READ_ONLY_COLUMNS.has(k)) continue;
+            // Keys become column names in the statement.
+            if (!COLUMN_NAME.test(k)) {
+                throw new Error(`AppStore: invalid column name ${k}`);
+            }
             if (k === 'index_url' && typeof v === 'string' && v) {
                 try {
                     out[k] = new URL(v).href;
@@ -1736,7 +1744,10 @@ export class AppStore extends PuterStore {
         const clickhouse = this.clients.clickhouse;
 
         if (grouping) {
-            if (!MYSQL_DATE_FORMATS[grouping]) {
+            if (
+                typeof grouping !== 'string' ||
+                !Object.hasOwn(MYSQL_DATE_FORMATS, grouping)
+            ) {
                 throw new HttpError(
                     400,
                     `Invalid grouping: ${grouping}. Supported: hour, day, week, month, year`,

@@ -346,7 +346,8 @@ export class UserStore extends PuterStore {
         cleanEmailValue: string,
         opts: { force?: boolean } = {},
     ): Promise<UserRow | null> {
-        if (!cleanEmailValue) return null;
+        if (!cleanEmailValue || typeof cleanEmailValue !== 'string')
+            return null;
         if (!isStorableAsLatin1(cleanEmailValue)) return null;
         const sql = `SELECT \`id\`, \`clean_email\` FROM \`user\` WHERE \`clean_email\` = ? ${EMAIL_OWNER_ORDER} LIMIT 1`;
         const rows = (await (opts.force
@@ -401,7 +402,7 @@ export class UserStore extends PuterStore {
         phone: string,
         excludeUserId: number,
     ): Promise<number> {
-        if (!phone) return 0;
+        if (!phone || typeof phone !== 'string') return 0;
         if (!isStorableAsLatin1(phone)) return 0;
         const rows = (await this.clients.db.tryHardRead(
             'SELECT COUNT(*) AS n FROM `user` WHERE `phone` = ? AND `id` != ?',
@@ -870,7 +871,12 @@ export class UserStore extends PuterStore {
         email: string,
         cleanEmailValue: string,
     ): Promise<UserRow | null> {
-        if (!email) return null;
+        if (
+            !email ||
+            typeof email !== 'string' ||
+            typeof cleanEmailValue !== 'string'
+        )
+            return null;
         const rows = (await this.clients.db.pread(
             'SELECT * FROM `user` WHERE `id` != ? AND (`email` = ? OR `clean_email` = ?) ' +
                 `AND \`email_confirmed\` = ${this.clients.db.booleanLiteral(true)} ` +
@@ -890,6 +896,8 @@ export class UserStore extends PuterStore {
         // straight to SQL, so without their pre-image we don't know which
         // cache keys it retires — and a cached copy still carries the address
         // that was just revoked, which would keep answering lookups for it.
+        if (typeof email !== 'string' || typeof cleanEmailValue !== 'string')
+            return;
         const matched = (await this.clients.db.pread(
             'SELECT * FROM `user` WHERE `id` != ? AND (`email` = ? OR `clean_email` = ?)',
             [userId, email, cleanEmailValue],

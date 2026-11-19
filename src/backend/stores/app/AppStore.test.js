@@ -342,6 +342,16 @@ describe('AppStore batched lookups', () => {
         expect((await appStore.getByUids(null)).size).toBe(0);
     });
 
+    it('getByUids and getByIds skip values of the wrong type', async () => {
+        const a = await createApp('Typed');
+
+        const byUid = await appStore.getByUids([a.uid, 0, ['x'], { uid: 1 }]);
+        expect([...byUid.keys()]).toEqual([a.uid]);
+
+        const byId = await appStore.getByIds([a.id, true, ['x']]);
+        expect([...byId.keys()].map(Number)).toEqual([Number(a.id)]);
+    });
+
     it('text lookups match no row for a value that is not a string', async () => {
         const a = await createApp('Alpha');
         // MySQL would cast the column for a number, so none may reach it.
@@ -1670,6 +1680,15 @@ describe('AppStore detailed stats', () => {
             referral_count: null,
         });
     });
+
+    it.each(['constructor', 'toString', '__proto__', 7])(
+        'refuses %s as a grouping',
+        async (grouping) => {
+            await expect(
+                appStore.getAppStatsDetailed(APP_UID, { grouping }),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
 
     it('resolves an app with no opens to zeroes', async () => {
         expect(await appStore.getAppStatsDetailed('app-never-opened')).toEqual({

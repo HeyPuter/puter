@@ -761,6 +761,19 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         ).resolves.toMatchObject({ uuid: stored.uuid });
     });
 
+    it('returns null without a lineage read for a path deeper than the walk', async () => {
+        const user = await makeUser();
+        const deep = `${user.home}${'/d'.repeat(600)}`;
+
+        const { stats, spy } = watchLineageReads();
+        try {
+            await expect(store.getEntryByPath(deep)).resolves.toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
+        expect(stats.calls).toBe(0);
+    });
+
     it('returns null when a path segment cannot be resolved', async () => {
         const user = await makeUser();
         await expect(

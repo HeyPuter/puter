@@ -1808,6 +1808,20 @@ describe('AppDriver.select pagination', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('rejects a cursor without a usable id', async () => {
+        const { actor } = await makeApps(1);
+        for (const cursor of [
+            { id: 'x' },
+            { id: 1e999 },
+            {},
+            Buffer.from(JSON.stringify({ id: -1 })).toString('base64'),
+        ]) {
+            await expect(
+                withActor(actor, () => driver.select({ cursor })),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
     it('reports an exact total for owner-scoped selects', async () => {
         const { actor, names } = await makeApps(3);
         const page = (await withActor(actor, () =>

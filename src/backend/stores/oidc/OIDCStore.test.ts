@@ -51,7 +51,7 @@ describe('OIDCStore', () => {
         ).resolves.toEqual(row);
         expect(db.pread).toHaveBeenLastCalledWith(expect.any(String), [
             'p',
-            42,
+            '42',
         ]);
 
         db.pread.mockClear();

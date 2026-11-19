@@ -215,4 +215,16 @@ describe('installedApps extension — handleInstalledApps', () => {
 
         expect(Array.isArray(captured.body)).toBe(true);
     });
+
+    it('reads a fractional or huge page as a whole page', async () => {
+        const user = await seedUser();
+        for (const page of ['1.5', 'Infinity', '1e400']) {
+            const { res, captured } = makeRes();
+            await runWithContext(
+                { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+                () => handleInstalledApps(makeReq({ page }), res),
+            );
+            expect(Array.isArray(captured.body)).toBe(true);
+        }
+    });
 });

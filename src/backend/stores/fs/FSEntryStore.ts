@@ -1284,7 +1284,8 @@ export class FSEntryStore extends PuterStore {
     ): Promise<FSEntry | null> {
         if (normalizedPath === '/') return null;
         const segments = normalizedPath.split('/').filter(Boolean);
-        if (segments.length === 0) return null;
+        if (segments.length === 0 || segments.length > LINEAGE_MAX_DEPTH)
+            return null;
 
         // Build the segments CTE as an UNION ALL chain of literal SELECTs.
         // Both SQLite and MySQL support recursive CTEs of this shape.

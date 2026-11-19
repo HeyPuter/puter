@@ -23,6 +23,7 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import {
     assertNormalized,
+    MAX_PATH_LENGTH,
     expandTildePath,
     isOwnersTrash,
     isTildePath,
@@ -255,6 +256,21 @@ describe('assertNormalized', () => {
         expect(assertNormalized('/alice/Dökümanlar/my file.txt')).toBe(
             '/alice/Dökümanlar/my file.txt',
         );
+    });
+});
+
+describe('assertNormalized length', () => {
+    it('refuses a path longer than the path column holds', () => {
+        const longest = `/${'a'.repeat(MAX_PATH_LENGTH - 1)}`;
+        expect(assertNormalized(longest)).toBe(longest);
+        expect(() => assertNormalized(`${longest}b`)).toThrowError(
+            /Path is too long/,
+        );
+    });
+
+    it('counts characters, not UTF-16 code units', () => {
+        const emoji = `/${'😀'.repeat(MAX_PATH_LENGTH - 1)}`;
+        expect(assertNormalized(emoji)).toBe(emoji);
     });
 });
 

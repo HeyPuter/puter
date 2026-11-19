@@ -135,7 +135,15 @@ export function splitParentAndName(absolutePath: string): {
     return { parentPath: parentPath === '.' ? '/' : parentPath, name };
 }
 
+// The `path` column's width in characters; no stored entry has a longer path.
+export const MAX_PATH_LENGTH = 4096;
+
 export function assertNormalized(input: string): string {
+    if (input.length > MAX_PATH_LENGTH && [...input].length > MAX_PATH_LENGTH) {
+        throw new HttpError(400, 'Path is too long', {
+            legacyCode: 'bad_request',
+        });
+    }
     if (pathPosix.normalize(input) !== input) {
         throw new HttpError(400, 'Invalid path', {
             legacyCode: 'bad_request',
