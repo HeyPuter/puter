@@ -82,7 +82,7 @@ The standard chat timeout is 10 minutes for a response to start, or to finish if
 
 GPT-6.2 Astra, GPT-6.2 Sol, and GPT-6.1 Terra have a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
 
-Gemini 4 Carbon and Gemini 4 Hydrogen accept text and images within a shared 1,048,576-token window and generate up to 65,536 tokens, including thinking.
+Gemini 4 Carbon, Gemini 4 Hydrogen and Gemini 4 Neon accept text and images within a shared 1,048,576-token window and generate up to 65,536 tokens, including thinking.
 
 A `gemini-4-argon` or `gemini-4-carbon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
