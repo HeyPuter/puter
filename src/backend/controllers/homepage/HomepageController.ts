@@ -231,7 +231,15 @@ export class HomepageController extends PuterController {
             const guestApps = await this.services.recommendedApps
                 .getRecommendedApps()
                 .catch((): Array<Record<string, unknown>> => []);
-            res.send(homepage.renderAppBrowserEmbed({ guestApps }));
+            res.send(
+                homepage.renderAppBrowserEmbed({
+                    guestApps,
+                    hostOrigin: embedHostOrigin(
+                        this.config,
+                        req.get('referer'),
+                    ),
+                }),
+            );
         });
 
         router.get('/embed/feedback', {}, (req, res) => {

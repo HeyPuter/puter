@@ -61,6 +61,7 @@ export default function build_open_with_items (el_item, suggested_apps, { inNewT
                 window_title: $(el_item).attr('data-name'),
                 file_uid: $(el_item).attr('data-uid'),
                 ...(newTab ? { newTab } : {}),
+                trigger: 'open_with',
             });
         },
     }));

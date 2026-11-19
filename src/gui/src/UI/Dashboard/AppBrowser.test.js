@@ -225,7 +225,7 @@ describe('shared app browser', () => {
         $('.myapps-search').val('editor').trigger('input');
         $('.myapps-tile[data-app-name="editor"]').trigger('click');
         expect(window.open).toHaveBeenCalledWith('', '_blank');
-        expect(actions.launchApp).toHaveBeenCalledWith({ name: 'editor', newTab: tab });
+        expect(actions.launchApp).toHaveBeenCalledWith({ name: 'editor', newTab: tab, trigger: 'app_icon' });
         await vi.waitFor(() => expect(browser._launchingApps.size).toBe(0));
         expect($('.window')).toHaveLength(0);
     });
@@ -244,6 +244,7 @@ describe('shared app browser', () => {
         expect(actions.launchApp).toHaveBeenCalledWith({
             name: 'editor', maximized: true,
             window_options: { morph_from_dashboard_tile: true },
+            trigger: 'app_icon',
         });
         expect(actions.beginTileLaunch).toHaveBeenCalledWith(tile);
         await vi.waitFor(() => expect(actions.settleTileLaunch).toHaveBeenCalledWith(tile));

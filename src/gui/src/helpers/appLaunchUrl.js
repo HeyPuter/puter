@@ -40,6 +40,12 @@ const GUI_FEATURES = 'feedback-dialog,enable-push,custom-domains,custom-domains-
  */
 
 /**
+ * What the user did to open the app, sent to the app as `utm_content`.
+ *
+ * @typedef {'app_icon' | 'file_open' | 'open_with' | 'file_drop'} LaunchTrigger
+ */
+
+/**
  * The app's index URL with the params that name the launch.
  *
  * @param {object} options
@@ -82,8 +88,10 @@ export const appLaunchUrl = ({ app, name = app.name, appInstanceID, guiOrigin, a
  * @param {string} options.locale
  * @param {unknown} [options.args]
  * @param {LaunchSurface} options.surface
+ * @param {LaunchTrigger} [options.trigger]
+ * @param {string} [options.source] - the site that sent the user, `puter.com` unless another page did
  */
-export const appendLaunchContext = (url, { appDomain, pageUrl, apiOrigin, params, locale, args, surface }) => {
+export const appendLaunchContext = (url, { appDomain, pageUrl, apiOrigin, params, locale, args, surface, trigger, source = 'puter.com' }) => {
     url.searchParams.append('puter.domain', appDomain);
 
     const page = new URL(pageUrl);
@@ -101,7 +109,8 @@ export const appendLaunchContext = (url, { appDomain, pageUrl, apiOrigin, params
     url.searchParams.append('puter.locale', locale);
     url.searchParams.append('puter.gui_features', GUI_FEATURES);
     url.searchParams.append('puter.args', JSON.stringify(args ?? {}));
-    url.searchParams.append('utm_source', 'puter.com');
+    url.searchParams.append('utm_source', source);
     url.searchParams.append('utm_medium', 'referral');
     url.searchParams.append('utm_campaign', surface);
+    if ( trigger ) url.searchParams.append('utm_content', trigger);
 };

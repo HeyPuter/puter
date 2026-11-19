@@ -17,7 +17,8 @@ destination with no opener.
 The embed follows the OS's light or dark setting. A host with a fixed theme adds
 `theme=dark` or `theme=light` to the fragment (`#user=<uuid>&theme=dark`), since
 Chromium doesn't pass an iframe's `color-scheme` on to the page inside it.
-Apps opened from the embed carry `utm_source=puter.com&utm_medium=referral&utm_campaign=app_browser_embed`;
+Apps opened from the embed carry `utm_medium=referral&utm_campaign=app_browser_embed&utm_content=app_icon`,
+with `utm_source` set to the framing page's host (`puter.com` when no allowed page frames it);
 the desktop and dashboard send `utm_campaign=desktop` and `utm_campaign=dashboard`.
 
 ## Session and framing

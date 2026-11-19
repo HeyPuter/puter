@@ -1157,11 +1157,12 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                     if ( ! tab ) beginTileLaunch(tile);
                     // The launch owns the tab from here, and closes it on failure.
                     launchApp(tab
-                        ? { name: appName, newTab: tab }
+                        ? { name: appName, newTab: tab, trigger: 'app_icon' }
                         : {
                             name: appName,
                             maximized: true,
                             window_options: { morph_from_dashboard_tile: true },
+                            trigger: 'app_icon',
                         })
                         .catch((err) => {
                             console.error(`Failed to launch ${appName}:`, err);

@@ -551,6 +551,7 @@ const runLaunch = async (options) => {
             locale: window.locale,
             args: withoutNotificationClick(options.args),
             surface: window.is_dashboard_mode ? 'dashboard' : 'desktop',
+            trigger: options.trigger,
         });
 
         // Closed by the user while the launch was on its way: they called it off.
@@ -836,6 +837,7 @@ const runLaunch = async (options) => {
  *   opening an in-page window. The launch owns the tab: it is closed when the
  *   launch fails. Explorer and built-in apps are part of the desktop, so for
  *   them the tab is closed and the app opens in-page.
+ * @param {import('./appLaunchUrl.js').LaunchTrigger} [options.trigger] - what the user did to open the app
  */
 const launch_app = async (options) => {
     const tab = options.newTab;
