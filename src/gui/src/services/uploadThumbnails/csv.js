@@ -107,7 +107,8 @@ export const readCsvPreview = async (file) => {
             // A line break inside a field would be drawn as nothing.
             const value = field.replace(/\n/g, ' ');
             if ( ! value.trim() ) return undefined;
-            return { ...DEFAULT_FONT, text: value, align: NUMBER.test(value.trim()) ? 'right' : 'left' };
+            const number = NUMBER.test(value.trim());
+            return { ...DEFAULT_FONT, text: value, align: number ? 'right' : 'left', number };
         }),
     }));
     return drawSheet(sheet);

@@ -103,18 +103,27 @@ describe('readCsvPreview', () => {
     });
 
     it.each([
-        ['an ISO date', '2024-01-15'],
-        ['an ISO date and time', '2024-01-15T13:45:00Z'],
-        ['a date with slashes and a time', '1/15/2024 1:45 PM'],
-        ['a date with dots', '15.01.2024'],
-        ['a time', '13:45:30'],
-        ['a number with grouped thousands', '1,234,567.89'],
-        ['a number with dots between thousands and a decimal comma', '1.234,56'],
-        ['an amount of money', '-$1,234.50'],
+        ['a date with slashes', '1/5/24'],
+        ['a date with dots', '5.1.24'],
+        ['a time', '1:45 PM'],
+        ['a number with grouped thousands', '1,234.5'],
+        ['a number with dots between thousands and a decimal comma', '1.234,5'],
+        ['an amount of money', '-$12.50'],
         ['an amount of money written after', '12,50 €'],
     ])('aligns %s right, as a spreadsheet reads it as a number', async (_label, value) => {
         const cells = await draw(`label,"${value}"\n`);
         expect(cells[value].x).toBeCloseTo(2 * COLUMN - 2 - value.length * 5.5);
+    });
+
+    it('draws a number too wide for its cell from the left and cuts it off there, so its leading digits show', async () => {
+        const values = ['2024-01-15', '2024-01-15T13:45:00Z', '"1,234,567,890.12"', '', '1/15/2024 1:45 PM'];
+        const cells = await draw(`${values.join(',')}\n`);
+        for ( const [column, value] of [[0, '2024-01-15'], [1, '2024-01-15T13:45:00Z'], [2, '1,234,567,890.12'], [4, '1/15/2024 1:45 PM']] ) {
+            expect(cells[value].x).toBeCloseTo(column * COLUMN + 2);
+            // Unlike text, a number doesn't run on over the empty cell after it.
+            expect(cells[value].clip.x).toBeCloseTo(column * COLUMN);
+            expect(cells[value].clip.width).toBeCloseTo(COLUMN);
+        }
     });
 
     it.each([['a version', '1.2.3'], ['a phone number', '555-0100'], ['a word with a currency sign', '$abc']])(

@@ -41,6 +41,8 @@ const INDEXED_COLORS = (
  * @property {string} color A CSS color.
  * @property {string} [fill] A CSS color for the cell's background.
  * @property {'left' | 'center' | 'right'} align
+ * @property {boolean} [number] Whether the text is a number, which is drawn from the side the sheet starts at when it is
+ *     wider than its cell, so that its leading digits aren't the ones cut off.
  */
 
 /**
@@ -343,9 +345,12 @@ export const drawSheet = async (sheet) => {
             end++;
         }
         const left = leftOf(column, column + 1);
-        const x = cell.align === 'right'
+        const align = cell.number && textWidth + 2 * CELL_PADDING > width
+            ? (sheet.rightToLeft ? 'right' : 'left')
+            : cell.align;
+        const x = align === 'right'
             ? left + width - CELL_PADDING - textWidth
-            : cell.align === 'center' ? left + (width - textWidth) / 2 : left + CELL_PADDING;
+            : align === 'center' ? left + (width - textWidth) / 2 : left + CELL_PADDING;
         ctx.save();
         ctx.beginPath();
         ctx.rect(leftOf(column, end), ys[row], xs[end] - xs[column], height);
