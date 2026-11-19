@@ -343,7 +343,7 @@ const TabFiles = {
             // carries the key, so the icon is only worked out again when the
             // thumbnail changed. An open file dialog's item matches too.
             if ( file.thumbnail !== undefined && fsentry ) {
-                const keepsOld = _this.fillMissingThumbnail($row[0], fsentry, { showsOld: !!thumbnailBefore });
+                const keepsOld = _this.fillMissingThumbnail($row[0], fsentry, { showsOld: !!thumbnailBefore, changed: true });
                 if ( !keepsOld && (file.thumbnail ?? null) !== thumbnailBefore ) {
                     _this.rowIcon(fsentry).then(({ image }) => {
                         $row.find('.item-icon > img').attr('src', image);
@@ -3653,7 +3653,8 @@ const TabFiles = {
      *
      * @param {HTMLElement} row
      * @param {Object} fsentry - The row's entry
-     * @param {{ showsOld?: boolean }} [options] - `showsOld` for a row showing the thumbnail of the version before
+     * @param {{ showsOld?: boolean, changed?: boolean }} [options] - `showsOld` for a row showing the thumbnail of
+     *     the version before, `changed` for an entry an update just arrived for
      * @returns {boolean} Whether the row should keep showing that thumbnail while the new one is made
      */
     fillMissingThumbnail (row, fsentry, options) {

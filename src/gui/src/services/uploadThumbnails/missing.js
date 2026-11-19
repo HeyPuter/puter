@@ -117,10 +117,11 @@ export const createRememberedFailures = (getStorage) => {
  * @param {MissingThumbnailDeps} deps
  * @returns {{
  *     observe: (row: Element, fsentry: MissingThumbnailEntry, place: MissingThumbnailPlace,
- *         options?: { showsOld?: boolean }) => boolean,
+ *         options?: { showsOld?: boolean, changed?: boolean }) => boolean,
  *     reset: () => void,
- * }} `observe` takes `showsOld` for a row that shows the thumbnail of the version before. It returns whether the row
- *     should keep showing it, which it should while the new one is being made.
+ * }} `observe` takes `showsOld` for a row that shows the thumbnail of the version before, and `changed` for an entry
+ *     an update just arrived for. It returns whether the row should keep showing the old thumbnail, which it should
+ *     while the new one is being made.
  */
 export const createMissingThumbnailFiller = ({
     download,
@@ -427,7 +428,7 @@ export const createMissingThumbnailFiller = ({
     globalThis.document?.addEventListener?.('visibilitychange', schedule);
 
     /** Queue a row's file, or hand the row a download already under way. Whether a thumbnail is on its way. */
-    const take = (row, fsentry, place) => {
+    const take = (row, fsentry, place, changed) => {
         const key = keyOf(fsentry);
         const wanted = wantsThumbnail(fsentry, place);
         // A download of an older version would only be refused, and one for a file that has a thumbnail now, or
@@ -455,11 +456,14 @@ export const createMissingThumbnailFiller = ({
         }
         const time = now();
         const settled = fsentry.modified * 1000 + MISSING_THUMBNAIL_SETTLE_MS;
+        // An update means the file was saved just now, which `modified` rounds down by up to a second. So it waits
+        // all but that second at least, even when this computer's clock is ahead and `modified` reads as long ago.
+        const earliest = changed ? time + MISSING_THUMBNAIL_SETTLE_MS - 1000 : time;
         pending.set(fsentry.uid, {
             row,
             fsentry,
             place,
-            readyAt: Math.min(time + MISSING_THUMBNAIL_SETTLE_MS, Math.max(time, settled)),
+            readyAt: Math.min(time + MISSING_THUMBNAIL_SETTLE_MS, Math.max(earliest, settled)),
             made: pending.get(fsentry.uid)?.made,
         });
         observer.observe(row);
@@ -470,10 +474,10 @@ export const createMissingThumbnailFiller = ({
     };
 
     return {
-        observe (row, fsentry, place, { showsOld = false } = {}) {
+        observe (row, fsentry, place, { showsOld = false, changed = false } = {}) {
             if ( ! observer ) return false;
             const kept = release(row);
-            const coming = take(row, fsentry, place);
+            const coming = take(row, fsentry, place, changed);
             // The wait counts from the first save, so a file saved over and over doesn't show an old picture for
             // as long as the saving goes on.
             const time = now();

@@ -207,6 +207,18 @@ describe('createMissingThumbnailFiller', () => {
         expect(downloads).toHaveLength(1);
     });
 
+    it('waits for a file an update reports saved, whatever this computer\'s clock makes of its modified time', async () => {
+        const { filler, downloads } = setup();
+        const row = makeRow();
+        // Saved just now by the server's clock, which this computer's is a minute ahead of.
+        filler.observe(row, entry({ modified: Date.now() / 1000 - 60 }), place, { changed: true });
+        show(row);
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_SETTLE_MS - 1001);
+        expect(downloads).toHaveLength(0);
+        await vi.advanceTimersByTimeAsync(1001);
+        expect(downloads).toHaveLength(1);
+    });
+
     it('makes only the newest version of a file saved again while it waits', async () => {
         const { filler, downloads, store } = setup();
         const row = makeRow();
