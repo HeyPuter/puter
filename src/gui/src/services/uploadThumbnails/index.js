@@ -15,7 +15,24 @@ import {
 import { readDocPreview } from './doc.js';
 import { readDocxPreview } from './docx.js';
 import { readHeifPreview } from './heif.js';
-import { ILLUSTRATOR_NAME, PDF_NAME, PRESENTATION_NAME, SPREADSHEET_NAME, WORD_NAME } from './kinds.js';
+import {
+    AUDIO_NAME,
+    AUDIO_TYPE,
+    HEIF_NAME,
+    HEIF_TYPE,
+    ILLUSTRATOR_NAME,
+    PDF_NAME,
+    PRESENTATION_NAME,
+    PRESENTATION_TYPE,
+    PSD_NAME,
+    PSD_TYPE,
+    SPREADSHEET_NAME,
+    SPREADSHEET_TYPE,
+    VIDEO_NAME,
+    VIDEO_TYPE,
+    WORD_NAME,
+    WORD_TYPE,
+} from './kinds.js';
 import { readPptxPreview } from './pptx.js';
 import { readPsdPreview } from './psd.js';
 import { readVideoFrame } from './video.js';
@@ -107,14 +124,6 @@ const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => 
     startNextJob();
 });
 
-const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
-const SPREADSHEET_TYPE = /^application\/vnd\.(ms-excel\.(sheet|template)\.|openxmlformats-officedocument\.spreadsheetml\.)/;
-const PRESENTATION_TYPE = /^application\/vnd\.(ms-powerpoint\.|openxmlformats-officedocument\.presentationml\.)/;
-const HEIF_TYPE = /^image\/hei[cf]$/;
-const AUDIO_TYPE = /^audio\/(mpeg|mp3|mp4|m4a|x-m4a|flac|x-flac)$/;
-// The containers browsers play. Other `video/` types are left alone: a `.ts` source file is reported as one.
-const VIDEO_TYPE = /^video\/(mp4|quicktime|webm|x-m4v)$/;
-
 /**
  * Make a queue that runs one task at a time, until `timeoutMs` after the first one started. At that deadline the task
  * under way is given up on and the ones still waiting are skipped, so the upload waits no longer than that.
@@ -176,7 +185,7 @@ export const createUploadThumbnailGenerator = () => {
                 const name = file.name || '';
                 // Browsers can't decode these, so the image generator gets a small image made from the file instead.
                 let image = file;
-                if ( file.type === 'image/vnd.adobe.photoshop' || /\.ps[db]$/i.test(name) ) {
+                if ( file.type === PSD_TYPE || PSD_NAME.test(name) ) {
                     image = await readPsdPreview(file, context?.signal);
                 } else if ( WORD_TYPE.test(file.type) || WORD_NAME.test(name) ) {
                     // A name doesn't settle which of the two formats a document is in. Each reader checks the signature.
@@ -186,7 +195,7 @@ export const createUploadThumbnailGenerator = () => {
                     image = await queueOffice(signal => readXlsxPreview(file, signal), context?.signal);
                 } else if ( PRESENTATION_TYPE.test(file.type) || PRESENTATION_NAME.test(name) ) {
                     image = await queueOffice(signal => readPptxPreview(file, signal), context?.signal);
-                } else if ( HEIF_TYPE.test(file.type) || /\.(heic|heif|hif)$/i.test(name) ) {
+                } else if ( HEIF_TYPE.test(file.type) || HEIF_NAME.test(name) ) {
                     // Safari decodes these itself. The image generator goes by a file's type, and not every browser
                     // gives these one.
                     if ( decodesHeif !== false ) {
@@ -200,14 +209,14 @@ export const createUploadThumbnailGenerator = () => {
                         const picture = await readHeifPreview(file, signal);
                         return picture ? imageGenerator(picture) : undefined;
                     }, context?.signal);
-                } else if ( AUDIO_TYPE.test(file.type) || /\.(mp3|m4a|m4b|flac)$/i.test(name) ) {
+                } else if ( AUDIO_TYPE.test(file.type) || AUDIO_NAME.test(name) ) {
                     // An album is many files that each hold the same large cover, so one cover is found and scaled
                     // before the next file is opened.
                     return await queueAudio(async (signal) => {
                         const cover = await readAudioCover(file, signal);
                         return cover ? imageGenerator(cover) : undefined;
                     }, context?.signal);
-                } else if ( VIDEO_TYPE.test(file.type) || /\.(mp4|m4v|mov|webm)$/i.test(name) ) {
+                } else if ( VIDEO_TYPE.test(file.type) || VIDEO_NAME.test(name) ) {
                     image = await queueVideo(signal => readVideoFrame(file, signal), context?.signal);
                 }
                 return image ? await imageGenerator(image) : undefined;
