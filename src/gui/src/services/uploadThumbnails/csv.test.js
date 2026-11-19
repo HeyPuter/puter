@@ -144,8 +144,24 @@ describe('readCsvPreview', () => {
         expect(Object.keys(cells)).toEqual(['first second', 'x']);
     });
 
+    it('reads text saved in the Windows code page, as Excel saves a CSV by default', async () => {
+        // `Café,Größe` in Windows-1252, which isn't valid UTF-8.
+        const cells = await draw(new Uint8Array([0x43, 0x61, 0x66, 0xE9, 0x2C, 0x47, 0x72, 0xF6, 0xDF, 0x65, 0x0A]));
+        expect(Object.keys(cells)).toEqual(['Café', 'Größe']);
+    });
+
+    it('reads UTF-8 the read cut off in the middle of a character as UTF-8', async () => {
+        const start = 'Café,x\n';
+        // The `é` at the end starts on the last byte read.
+        const filler = '\n'.repeat(TEXT_MAX_READ_BYTES - 1 - new TextEncoder().encode(start).length);
+        const bytes = new TextEncoder().encode(`${start}${filler}é`);
+        expect(bytes.length).toBe(TEXT_MAX_READ_BYTES + 1);
+        const cells = await draw(bytes);
+        expect(Object.keys(cells)).toContain('Café');
+    });
+
     it('reads only the start of a large file', async () => {
-        const read = vi.spyOn(Blob.prototype, 'text');
+        const read = vi.spyOn(Blob.prototype, 'arrayBuffer');
         const cells = await draw(`first,row\n${'1,2\n'.repeat(TEXT_MAX_READ_BYTES)}`);
         expect(cells.first).toBeDefined();
         expect(read.mock.contexts.map(blob => blob.size)).toEqual([TEXT_MAX_READ_BYTES]);

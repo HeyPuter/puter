@@ -236,7 +236,7 @@ describe('readCodePreview', () => {
     });
 
     it('reads only the start of a large file', async () => {
-        const read = vi.spyOn(Blob.prototype, 'text');
+        const read = vi.spyOn(Blob.prototype, 'arrayBuffer');
         const lines = await draw(`first\n${'x\n'.repeat(TEXT_MAX_READ_BYTES)}`);
         expect(lines[0].text).toBe('first');
         expect(read.mock.contexts.map(blob => blob.size)).toEqual([TEXT_MAX_READ_BYTES]);
