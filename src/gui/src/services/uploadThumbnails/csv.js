@@ -16,10 +16,21 @@ const NUMBER = /^[-+]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][-+]?\d+)?%?$/;
 const delimiterOf = (text) => {
     const counts = new Map(DELIMITERS.map(delimiter => [delimiter, 0]));
     let quoted = false;
+    // As in the parser, a quote opens only at the start of a field, and one inside a field is part of its text. A quote
+    // right after a closing one is a quote written twice, so it reopens.
+    let fieldStart = true;
     for ( const char of text ) {
-        if ( char === '"' ) quoted = !quoted;
-        else if ( char === '\n' && !quoted ) break;
-        else if ( !quoted && counts.has(char) ) counts.set(char, counts.get(char) + 1);
+        if ( char === '"' && (quoted || fieldStart) ) {
+            quoted = !quoted;
+            fieldStart = !quoted;
+        } else if ( quoted ) {
+            continue;
+        } else if ( char === '\n' ) {
+            break;
+        } else {
+            fieldStart = counts.has(char);
+            if ( fieldStart ) counts.set(char, counts.get(char) + 1);
+        }
     }
     return DELIMITERS.reduce((most, delimiter) => (counts.get(delimiter) > counts.get(most) ? delimiter : most));
 };

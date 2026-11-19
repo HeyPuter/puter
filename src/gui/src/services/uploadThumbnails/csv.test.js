@@ -48,6 +48,9 @@ describe('parseCsv', () => {
         ['tabs', 'a\tb\tc, d\n', [['a', 'b', 'c, d']]],
         ['bars', 'a|b|c\n', [['a', 'b', 'c']]],
         ['commas, when a quoted header holds semicolons', '"a;b",c\n', [['a;b', 'c']]],
+        ['semicolons, when a header holds a quote inside a field', 'Size 5";Length;Weight\n1;2;3\n',
+            [['Size 5"', 'Length', 'Weight'], ['1', '2', '3']]],
+        ['tabs, when a quoted header holds a quote written twice', '"say ""a,b"""\tc\td\n', [['say "a,b"', 'c', 'd']]],
     ])('finds a file separated by %s', (_label, content, expected) => {
         expect(parseCsv(content)).toEqual(expected);
     });
