@@ -349,6 +349,10 @@ const TabFiles = {
                         $row.find('.item-icon > img').attr('src', image);
                     });
                 }
+            } else if ( !fsentry && typeof file.thumbnail === 'string' && file.thumbnail.length > 0 ) {
+                // Only a file dialog's item matched, with the folder on
+                // screen here being another one. It has no entry of its own.
+                $row.find('.item-icon > img').attr('src', file.thumbnail);
             }
             if ( displayName && displayName !== oldName && fsentry ) _this.followRename($row, fsentry, oldPath);
             // The footer's item-count/total-size line is computed from the
