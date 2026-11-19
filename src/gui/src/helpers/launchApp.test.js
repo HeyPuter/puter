@@ -131,6 +131,13 @@ describe('launch_app with a new tab', () => {
         });
     });
 
+    it('tags the launch with what the user did to open the app', async () => {
+        const tab = { location: { href: '' }, close: vi.fn() };
+        await launch_app({ name: 'notes', app_obj: { ...app }, newTab: tab, trigger: 'file_open' });
+
+        expect(new URL(tab.location.href).searchParams.get('utm_content')).toBe('file_open');
+    });
+
     it('counts the launch as one with no interactive span to wait for', async () => {
         const tab = { location: { href: '' }, close: vi.fn() };
         await launch_app({ name: 'notes', app_obj: { ...app }, newTab: tab });

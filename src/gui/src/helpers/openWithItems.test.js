@@ -86,6 +86,7 @@ describe('build_open_with_items', () => {
             file_path: '/alice/Documents/Notes.MD',
             window_title: 'Notes.MD',
             file_uid: 'file-1',
+            trigger: 'open_with',
         });
         expect(window.mutate_user_preferences).not.toHaveBeenCalled();
     });

@@ -73,7 +73,7 @@ const runOpen = async function (options) {
     //----------------------------------------------------------------
     const app_name = $(el_item).attr('data-app');
     if ( app_name ) {
-        launch_app({ name: app_name, newTab: take_tab() });
+        launch_app({ name: app_name, newTab: take_tab(), trigger: 'app_icon' });
         return;
     }
 
@@ -86,7 +86,7 @@ const runOpen = async function (options) {
             const text = typeof content === 'string' ? content : await content.text();
             const data = JSON.parse(text);
             if ( data.app ) {
-                launch_app({ name: data.app, newTab: take_tab() });
+                launch_app({ name: data.app, newTab: take_tab(), trigger: 'app_icon' });
                 return;
             }
         } catch (e) {
@@ -308,6 +308,7 @@ Please try recreating the link.`);
             name: associated_app_name,
             maximized: options.maximized ?? window.is_dashboard_mode,
             newTab: take_tab(),
+            trigger: 'app_icon',
         });
     }
     //----------------------------------------------------------------
@@ -361,6 +362,7 @@ Please try recreating the link.`);
                 maximized: options.maximized ?? window.is_dashboard_mode,
                 file_uid: file_uid,
                 newTab: take_tab(),
+                trigger: 'file_open',
             });
             if ( target_file_uid ) launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
             return;
@@ -446,6 +448,7 @@ Please try recreating the link.`);
                 maximized: options.maximized ?? window.is_dashboard_mode,
                 file_signature: open_item_meta.signature,
                 newTab: take_tab(),
+                trigger: 'file_open',
             });
             if ( target_file_uid ) launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
         }

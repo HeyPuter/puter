@@ -183,10 +183,18 @@ export class PuterHomepageService extends PuterService {
         this.#guiParams[key] = val;
     }
 
-    /** `guestApps` is what the embed shows a visitor without a session. */
+    /**
+     * `guestApps` is what the embed shows a visitor without a session.
+     * `hostOrigin` is the first-party page framing it, named to the apps it
+     * opens; null when no allowed page frames it.
+     */
     renderAppBrowserEmbed({
         guestApps = [],
-    }: { guestApps?: Array<Record<string, unknown>> } = {}): string {
+        hostOrigin = null,
+    }: {
+        guestApps?: Array<Record<string, unknown>>;
+        hostOrigin?: string | null;
+    } = {}): string {
         return this.#renderEmbed({
             rootId: 'app-browser',
             rootClass: 'dashboard',
@@ -200,6 +208,7 @@ export class PuterHomepageService extends PuterService {
                         : (this.config.gui_puterjs_bundle ??
                           'https://js.puter.com/v2/'),
                 guestApps,
+                hostOrigin,
             },
         });
     }

@@ -122,6 +122,7 @@ describe('launchAppInTab', () => {
             'utm_source': 'puter.com',
             'utm_medium': 'referral',
             'utm_campaign': 'app_browser_embed',
+            'utm_content': 'app_icon',
         });
         expect(url.searchParams.has('puter.auth.token')).toBe(false);
         expect(fetch).toHaveBeenCalledWith('https://api.puter.test/auth/get-user-app-token', expect.objectContaining({
@@ -135,6 +136,13 @@ describe('launchAppInTab', () => {
             expect.objectContaining({ msg: 'puter.launch', appInstanceID, token: 'app-token', item: null }),
             'https://notes.example.com',
         );
+    });
+
+    it('names the page the embed is on as the source', async () => {
+        arrange();
+        const tab = newTab();
+        await launch(tab, { source: 'builder.puter.test' });
+        expect(new URL(tab.location.href).searchParams.get('utm_source')).toBe('builder.puter.test');
     });
 
     it.each([
@@ -167,11 +175,12 @@ describe('launchAppInTab', () => {
 });
 
 describe('guestAppLaunchUrl', () => {
-    const launch = app => guestAppLaunchUrl({
+    const launch = (app, source) => guestAppLaunchUrl({
         app,
         guiOrigin: 'https://puter.test',
         apiOrigin: 'https://api.puter.test',
         locale: 'fr',
+        source,
     });
 
     it('opens the app at its own URL with the embed\'s launch params and no token', () => {
@@ -182,7 +191,13 @@ describe('guestAppLaunchUrl', () => {
         expect(url.searchParams.get('puter.origin')).toBe('https://puter.test');
         expect(url.searchParams.get('puter.locale')).toBe('fr');
         expect(url.searchParams.get('utm_campaign')).toBe('app_browser_embed');
+        expect(url.searchParams.get('utm_content')).toBe('app_icon');
         expect([...url.searchParams.keys()].some(key => key.includes('token'))).toBe(false);
+    });
+
+    it('names the page the embed is on as the source', () => {
+        const url = new URL(launch({ name: 'notes', uuid: 'app-notes', index_url: 'https://notes.example.com/' }, 'builder.puter.test'));
+        expect(url.searchParams.get('utm_source')).toBe('builder.puter.test');
     });
 
     it.each([

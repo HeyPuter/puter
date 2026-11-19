@@ -356,12 +356,16 @@ describe('PuterServer host header validation', () => {
                 res.body.match(/id="app-browser-config">(.*?)<\/script>/)[1],
             );
             expect(Array.isArray(config.guestApps)).toBe(true);
+            expect(config.hostOrigin).toBe(parent);
         }
         const gui = await request('/embed/apps', {
             host: `puter.localhost:${port}`,
             referer: `http://puter.localhost:${port}/dashboard`,
         });
         expect(gui.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        expect(
+            JSON.parse(gui.body.match(/id="app-browser-config">(.*?)<\/script>/)[1]).hostOrigin,
+        ).toBeNull();
         const dashboard = await request('/dashboard', { host: `puter.localhost:${port}` });
         expect(dashboard.headers['x-frame-options']).toBe('SAMEORIGIN');
         const api = await request('/embed/apps', { host: `api.puter.localhost:${port}` });

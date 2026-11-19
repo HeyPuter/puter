@@ -112,13 +112,15 @@ beforeAll(async () => {
         <script>window.PUTER_ORIGIN = '${origin}'; window.PUTER_API_ORIGIN = '${origin}';</script>
         <script src="${origin}/sdk.js"></script></head>
         <body><header><puter-user-menu></puter-user-menu></header></body></html>`));
-    app.get('/embed/apps', (_req, res) => {
+    app.get('/embed/apps', (req, res) => {
+        // The server names the framing page, as embedHostOrigin does.
+        const hostOrigin = req.get('referer') ? new URL(req.get('referer')).origin : null;
         res.setHeader('Content-Security-Policy', `frame-ancestors 'self' http://*.puter.localhost:${port}`);
         res.send(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
             <link rel="stylesheet" href="/css/normalize.css"><link rel="stylesheet" href="/css/dashboard.css">
             <link rel="stylesheet" href="/css/apps-embed.css"></head><body>
             <main id="app-browser" class="dashboard"></main>
-            <script type="application/json" id="app-browser-config">${JSON.stringify({ apiOrigin: origin, sdkUrl: '/sdk.js', guestApps })}</script>
+            <script type="application/json" id="app-browser-config">${JSON.stringify({ apiOrigin: origin, sdkUrl: '/sdk.js', guestApps, hostOrigin })}</script>
             <script defer src="/dist/apps-embed.min.js"></script></body></html>`);
     });
     server = await new Promise(resolve => {
@@ -183,6 +185,8 @@ describe('embedded app browser', () => {
                 expect(appUrl.searchParams.get('puter.origin')).toBe(origin);
                 expect(appUrl.searchParams.has('puter.auth.token')).toBe(false);
                 expect(appUrl.searchParams.get('utm_campaign')).toBe('app_browser_embed');
+                expect(appUrl.searchParams.get('utm_content')).toBe('app_icon');
+                expect(appUrl.searchParams.get('utm_source')).toBe('spreadsheet.puter.localhost');
                 expect(page.url()).toBe(parentUrl);
                 await popup.waitForFunction(() => window.puter?.authToken === 'token-for-uid-app-104');
                 expect(await popup.evaluate(() => window.opener)).toBeNull();
@@ -278,6 +282,7 @@ describe('embedded app browser', () => {
             const appUrl = new URL(popup.url());
             expect(appUrl.origin).toBe(`http://notes.puter.localhost:${port}`);
             expect(appUrl.searchParams.get('utm_campaign')).toBe('app_browser_embed');
+            expect(appUrl.searchParams.get('utm_source')).toBe('spreadsheet.puter.localhost');
             expect(await popup.evaluate(() => window.opener)).toBeNull();
 
             popupPromise = context.waitForEvent('page');
