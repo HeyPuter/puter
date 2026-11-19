@@ -14,14 +14,16 @@ const LINE_MAX_CHARACTERS = 2000;
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', nbsp: ' ', '#39': '\'' };
 
 // What can stand in a line of text, one alternative each. A match with no group set is something not drawn: a
-// picture, a badge or an HTML tag. The last alternative takes a whole word, so that an underscore inside one starts
-// nothing. Every repeat is bounded, so text full of unclosed marks is still read in time by its length.
+// picture, a badge or an HTML tag other than a line break. The last alternative takes a whole word, so that an
+// underscore inside one starts nothing. Every repeat is bounded, so text full of unclosed marks is still read in time
+// by its length.
 const INLINE = new RegExp([
     /`(?<code>[^`]{1,300})`/,
     /\[!\[[^\]]{0,300}\]\([^)]{0,300}\)\]\([^)]{0,300}\)/,
     /!\[[^\]]{0,300}\](?:\([^)]{0,300}\)|\[[^\]]{0,300}\])?/,
     /\[(?<link>[^\]]{1,300})\](?:\([^)]{0,300}\)|\[[^\]]{0,300}\])/,
     /<(?<address>https?:\/\/[^>\s]{1,300})>/,
+    /(?<lineBreak><[bB][rR]\s{0,20}\/?>)/,
     /<\/?[A-Za-z][^>]{0,300}>/,
     /(?<bothMark>\*\*\*|___)(?=\S)(?<both>.{0,300}?\S)\k<bothMark>/,
     /(?<strongMark>\*\*|__)(?=\S)(?<strong>.{0,300}?\S)\k<strongMark>/,
@@ -50,22 +52,35 @@ const INLINE = new RegExp([
 const inlineRuns = (text, style) => {
     const runs = [];
     let at = 0;
+    // The space a source line break leaves after a `<br>` would indent the line it starts.
+    let lineStart = false;
     const add = (part, extra) => {
-        if ( part ) runs.push({ ...style, ...extra, text: part });
+        if ( lineStart ) part = part.trimStart();
+        if ( ! part ) return;
+        lineStart = false;
+        runs.push({ ...style, ...extra, text: part });
+    };
+    const nest = (part, extra) => {
+        const nested = inlineRuns(part, { ...style, ...extra });
+        if ( nested.length ) lineStart = false;
+        runs.push(...nested);
     };
     for ( const match of text.matchAll(INLINE) ) {
-        const { code, link, address, both, strong, emphasis, strike, escaped, entity, word } = match.groups;
+        const { code, link, address, lineBreak, both, strong, emphasis, strike, escaped, entity, word } = match.groups;
         if ( word !== undefined ) continue;
         add(text.slice(at, match.index));
         at = match.index + match[0].length;
-        if ( code !== undefined ) add(code.trim(), { family: 'monospace' });
-        else if ( link !== undefined ) runs.push(...inlineRuns(link, { ...style, color: LINK_COLOR }));
+        if ( lineBreak !== undefined ) {
+            runs.push({ ...style, text: '\n' });
+            lineStart = true;
+        } else if ( code !== undefined ) add(code.trim(), { family: 'monospace' });
+        else if ( link !== undefined ) nest(link, { color: LINK_COLOR });
         else if ( address !== undefined ) add(address, { color: LINK_COLOR });
-        else if ( both !== undefined ) runs.push(...inlineRuns(both, { ...style, bold: true, italic: true }));
-        else if ( strong !== undefined ) runs.push(...inlineRuns(strong, { ...style, bold: true }));
-        else if ( emphasis !== undefined ) runs.push(...inlineRuns(emphasis, { ...style, italic: true }));
-        else if ( strike !== undefined ) runs.push(...inlineRuns(strike, style));
-        else add(escaped ?? ENTITIES[entity]);
+        else if ( both !== undefined ) nest(both, { bold: true, italic: true });
+        else if ( strong !== undefined ) nest(strong, { bold: true });
+        else if ( emphasis !== undefined ) nest(emphasis, { italic: true });
+        else if ( strike !== undefined ) nest(strike);
+        else if ( escaped !== undefined || entity !== undefined ) add(escaped ?? ENTITIES[entity]);
     }
     add(text.slice(at));
     return runs;
@@ -73,7 +88,7 @@ const inlineRuns = (text, style) => {
 
 /**
  * The runs of a block's text. What a picture or a tag leaves behind at the start is dropped, since space there would
- * be drawn as an indent.
+ * be drawn as an indent, and so is a line break at the end, which would be drawn as an empty line.
  *
  * @param {string} text
  * @param {TextStyle} style
@@ -82,6 +97,7 @@ const inlineRuns = (text, style) => {
 const blockRuns = (text, style) => {
     const runs = inlineRuns(text, style);
     while ( runs.length && !runs[0].text.trim() ) runs.shift();
+    while ( runs.at(-1)?.text === '\n' ) runs.pop();
     if ( runs.length ) runs[0].text = runs[0].text.trimStart();
     return runs;
 };

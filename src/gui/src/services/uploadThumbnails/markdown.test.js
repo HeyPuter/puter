@@ -68,6 +68,13 @@ describe('parseMarkdown', () => {
         expect(blocks[1].runs[0].bold).toBe(false);
     });
 
+    it('breaks the line at a <br>, without the space around it', () => {
+        expect(textOf(parseMarkdown('A tiny tool<br>that works\n\n**Demo**  <br/>\n  <br />\n  <a href="x">[Site](x)</a> · <img src="x"> Docs<BR>'))).toEqual([
+            'A tiny tool\nthat works',
+            'Demo  \n\nSite ·  Docs',
+        ]);
+    });
+
     it.each([
         ['bold and italic', 'a **b** *c* __d__ _e_ ***f***', ['a ', ['b', 'bold'], ' ', ['c', 'italic'], ' ', ['d', 'bold'], ' ', ['e', 'italic'], ' ', ['f', 'bold', 'italic']]],
         ['marks inside marks', '**a *b* c**', [['a ', 'bold'], ['b', 'bold', 'italic'], [' c', 'bold']]],
