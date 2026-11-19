@@ -945,12 +945,3 @@ The promise still rejects with the error above. An app that writes files should 
 - `puter.auth.getMonthlyUsage()` → month-to-date spend and remaining allowance, per API.
 
 Total spend and remaining allowance are always current. The per-API and per-app breakdowns can lag by up to about a minute. Past 5,000 distinct APIs in a month, the rest are grouped under `other`.
-
-### Model catalog monitoring
-
-The upstream model catalog monitor runs every 30 minutes while the server is running. It fetches
-up to four configured catalogs concurrently, with a 15-second timeout and an
-8 MiB response cap per page. A listing can contain up to 100 pages and 20,000
-unique model identifiers, each at most 256 characters. Stored snapshots are
-limited to 350 KiB. A listing that exceeds these bounds fails the scan for that
-catalog and preserves its previous snapshot.
