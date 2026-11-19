@@ -55,6 +55,11 @@ describe('parseCsv', () => {
         expect(parseCsv(content)).toEqual(expected);
     });
 
+    it('uses the delimiter a first line of `sep=` names, and leaves that line out', () => {
+        expect(parseCsv('sep=;\na;b,c\n1;2\n')).toEqual([['a', 'b,c'], ['1', '2']]);
+        expect(parseCsv('sep=|\n')).toEqual([]);
+    });
+
     it('reads a line the read cut off in the middle of a quoted field', () => {
         expect(parseCsv('a,"open')).toEqual([['a', 'open']]);
     });

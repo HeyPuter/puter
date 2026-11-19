@@ -47,7 +47,10 @@ const delimiterOf = (text) => {
  * @returns {string[][]}
  */
 export const parseCsv = (text) => {
-    const delimiter = delimiterOf(text);
+    // Excel takes a first line such as `sep=;` as the delimiter to use, and doesn't show it.
+    const named = /^sep=(.)\n/i.exec(text);
+    if ( named ) text = text.slice(named[0].length);
+    const delimiter = named?.[1] ?? delimiterOf(text);
     const rows = [];
     let fields = [];
     let field = '';
