@@ -223,14 +223,17 @@ export const parseMarkdown = (text) => {
         } else if ( (match = /^([ \t]*)([-*+]|\d{1,9}[.)])[ \t]+(.*)$/.exec(line)) ) {
             flush();
             const level = Math.min(3, Math.floor(match[1].replace(/\t/g, '    ').length / 2));
-            const marker = /\d/.test(match[2]) ? match[2] : '•';
+            // A task list item shows a box, ticked when the task is done, in place of its bullet.
+            const task = /^\[([ xX])\][ \t]+(.*)$/.exec(match[3]);
+            const marker = task ? (task[1] === ' ' ? '☐' : '☑') : /\d/.test(match[2]) ? match[2] : '•';
+            // The marker hangs before the text, about its own width away. A box is as wide as the text is tall.
+            const markerWidth = task ? BODY_SIZE : marker.length * BODY_SIZE / 2;
             layout = {
                 indent: 14 + level * 12,
                 spaceAfter: 3,
-                // The marker hangs before the text, about its own width away.
-                marker: { text: marker, offset: -(marker.length * BODY_SIZE / 2 + 4), size: BODY_SIZE, color: TEXT_COLOR },
+                marker: { text: marker, offset: -(markerWidth + 4), size: BODY_SIZE, color: TEXT_COLOR },
             };
-            gathered.push(match[3].trim());
+            gathered.push((task ? task[2] : match[3]).trim());
         } else if ( line.includes('|') && /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/.test(lines[at + 1] ?? '') &&
             lines[at + 1].includes('|') ) {
             flush();

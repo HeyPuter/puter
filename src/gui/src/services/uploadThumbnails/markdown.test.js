@@ -154,6 +154,14 @@ describe('parseMarkdown', () => {
         expect(blocks[5].marker.offset).toBeLessThan(blocks[4].marker.offset);
     });
 
+    it('draws a box in place of the bullet of a task, ticked when it is done', () => {
+        const blocks = parseMarkdown('- [ ] Write docs\n- [x] Ship it\n* [X] Also\n- [] not a task\n1. [ ] numbered');
+        expect(textOf(blocks)).toEqual(['Write docs', 'Ship it', 'Also', '[] not a task', 'numbered']);
+        expect(blocks.map(block => block.marker.text)).toEqual(['☐', '☑', '☑', '•', '☐']);
+        // The box is wider than a bullet, so it hangs further before the text.
+        expect(blocks[0].marker.offset).toBeLessThan(blocks[3].marker.offset);
+    });
+
     it('indents a quote and draws it in another color', () => {
         const blocks = parseMarkdown('Body\n> quoted\n> **more**\n\nBody');
         expect(textOf(blocks)).toEqual(['Body', 'quoted more', 'Body']);
