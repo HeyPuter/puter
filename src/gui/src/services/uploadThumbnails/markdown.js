@@ -2,6 +2,7 @@ import { renderPage } from './page.js';
 import { createTextPage, readLeadingText } from './text.js';
 
 const BODY_SIZE = 11;
+const PARAGRAPH_SPACE_AFTER = 8;
 const CODE_SIZE = 9.5;
 const HEADING_SIZES = [22, 18, 15, 13, 12, 11];
 const TEXT_COLOR = '#1f2328';
@@ -113,7 +114,7 @@ const paragraph = (runs, layout) => ({
     align: 'start',
     indent: 0,
     spaceBefore: 0,
-    spaceAfter: 8,
+    spaceAfter: PARAGRAPH_SPACE_AFTER,
     lineSpacing: 1,
     ...layout,
 });
@@ -247,7 +248,8 @@ export const parseMarkdown = (text) => {
                         blocks: [paragraph(blockRuns(row[column] ?? '', { ...tableStyle, bold: !index }), {
                             size: BODY_SIZE - 1,
                             align: aligns[column],
-                            spaceAfter: 4,
+                            // The last row is set apart from what follows the table as a paragraph is.
+                            spaceAfter: index === rows.length - 1 ? PARAGRAPH_SPACE_AFTER : 4,
                         })],
                     })),
                 });

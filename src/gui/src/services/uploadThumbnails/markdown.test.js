@@ -205,6 +205,14 @@ describe('parseMarkdown', () => {
         expect(blocks.every(row => row.cells.map(cell => cell.blocks[0].align).join() === 'start,center,end')).toBe(true);
     });
 
+    it('sets a table apart from the paragraph after it as far as paragraphs are apart', () => {
+        const blocks = parseMarkdown('| a |\n|---|\n| b |\n| c |\nAfter\n\nNext');
+        const spaces = blocks.slice(0, 3).map(row => row.cells[0].blocks[0].spaceAfter);
+        expect(spaces[0]).toBe(spaces[1]);
+        expect(spaces[2]).toBe(blocks[3].spaceAfter);
+        expect(spaces[2]).toBeGreaterThan(spaces[1]);
+    });
+
     it('reads a line with a bar as text when no table follows', () => {
         expect(textOf(parseMarkdown('a | b\nc'))).toEqual(['a | b c']);
     });
