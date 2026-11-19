@@ -338,6 +338,7 @@ Per minute unless stated:
 | Limit | Value | Scope |
 | ----- | ----- | ----- |
 | Uploads in progress | 10,000 | Per user, all apps |
+| Path length | 4,096 characters | Per path |
 | Entries in one `readdir` response | 10,000 (1,000 per page by default when paginated or `recursive`) | Per request |
 | Levels a `recursive` `readdir` descends | 10 | Per request |
 | Files and folders in one `startBatchWrite`, `completeBatchWrite` or `batchWrite` | 500 | Per request |

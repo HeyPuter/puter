@@ -89,6 +89,8 @@ const errorCode = (error: unknown): string | undefined =>
 export const isRetriableError = (error: unknown): boolean => {
     const code = errorCode(error);
     if (code && RETRIABLE_ERROR_CODES.has(code)) return true;
+    // The server answered; its message can quote text such as "Connection lost".
+    if (code?.startsWith('ER_')) return false;
 
     const msg = String((error as Error)?.message ?? '');
     return RETRIABLE_ERROR_MESSAGES.some((m) => msg.includes(m));

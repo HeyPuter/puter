@@ -215,4 +215,27 @@ describe('installedApps extension — handleInstalledApps', () => {
 
         expect(Array.isArray(captured.body)).toBe(true);
     });
+
+    it('reads fractional and huge page or limit values as whole numbers', async () => {
+        const user = await seedUser();
+        for (let i = 0; i < 3; i++) {
+            const app = await seedApp(user.id as number);
+            await grantInstalled(app!.id as number, user.id as number);
+        }
+        const list = async (query: Record<string, string>) => {
+            const { res, captured } = makeRes();
+            await runWithContext(
+                { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+                () => handleInstalledApps(makeReq(query), res),
+            );
+            return captured.body as unknown[];
+        };
+
+        expect(await list({ limit: '0.5' })).toHaveLength(1);
+        expect(await list({ limit: '2.9' })).toHaveLength(2);
+        expect(await list({ page: '2.5', limit: '2' })).toHaveLength(1);
+        for (const page of ['Infinity', '1e400']) {
+            expect(await list({ page })).toHaveLength(3);
+        }
+    });
 });

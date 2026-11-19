@@ -678,6 +678,7 @@ export class DurableSubscriptionStore extends PuterStore {
      * would give that answer for a row the caller has only just created.
      */
     async getBySubId(subId: string): Promise<DurableSubscription | null> {
+        if (typeof subId !== 'string') return null;
         const rows = await this.clients.db.pread(
             `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` WHERE \`sub_id\` = ?`,
             [subId],
