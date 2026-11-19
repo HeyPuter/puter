@@ -375,11 +375,9 @@ With `provider` set as well, the request is answered by that provider or fails. 
 
 ## Service speed
 
-The `serviceSpeed` option selects service capacity independently of reasoning effort. If the requested speed is unavailable for the selected model, the request uses the next supported speed in the order `ultrafast`, `fast`, `standard`.
+The `serviceSpeed` option sets how fast the model serves the request, separately from reasoning effort. If the requested speed is unavailable for the selected model, the request uses the next supported speed in the order `ultrafast`, `fast`, `standard`.
 
-A faster tier that rejects a request because its capacity or access is unavailable can retry at a lower speed on the same provider. The `fallback` option controls retries on other providers separately. Once streaming output starts, a failed stream ends with an error instead of restarting at another speed.
-
-The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the tier or equivalent model that served the request. A provider downgrade is billed at the lower tier's rates. Response normalization follows the same rule as a request without this option, including when a faster equivalent model is selected.
+The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the tier or equivalent model that served the request. A provider downgrade is billed at the lower tier's rates.
 
 ## Model-specific features
 
@@ -439,7 +437,7 @@ The `usageDetails` object on every result carries the same counts under provider
 
 ### Anthropic models
 
-Fast service is available on Claude models with a Fast rate card. Ultrafast falls back to fast. When the account has no Fast quota, the request retries at standard speed. The upstream service tier and inference speed are separate fields.
+Fast service is available on Claude models with a Fast rate card. Ultrafast falls back to fast.
 
 Pass `speed: "fast"` to request Fast mode, or `speed: "standard"` for standard inference. This option applies to Claude models. An explicit `serviceSpeed` takes precedence.
 
@@ -618,7 +616,7 @@ MiniMax M3 uses Priority admission for fast service. Earlier models with an equi
 
 ### Mistral models
 
-Fast service requests Priority when the account and model are eligible. The provider can serve the request at standard speed.
+Fast service requests Priority on models with a Fast rate card. Mistral can still serve the request at standard speed.
 
 Passing `service_tier: "auto"` selects fast service, with the same prices as `serviceSpeed: "fast"`. An explicit `serviceSpeed` takes precedence.
 
