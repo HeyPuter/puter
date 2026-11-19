@@ -6713,6 +6713,17 @@ describe('AuthController password recovery', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('send-pass-recovery-email: 400 for a username that is not a string', async () => {
+        for (const username of [['a', 'b'], { username: 1 }, 7]) {
+            await expect(
+                controller.handleSendPassRecoveryEmail(
+                    makeReq({ username }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
     it('send-pass-recovery-email: returns the generic message even for an unknown username (no leak)', async () => {
         const res = makeRes();
         await controller.handleSendPassRecoveryEmail(

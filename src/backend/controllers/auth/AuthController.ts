@@ -2202,6 +2202,10 @@ export class AuthController extends PuterController {
 
         let user;
         if (username) {
+            if (typeof username !== 'string')
+                throw new HttpError(400, 'username must be a string.', {
+                    legacyCode: 'bad_request',
+                });
             user = await this.stores.user.getByUsername(username);
         } else {
             if (!isStorableEmail(email))
