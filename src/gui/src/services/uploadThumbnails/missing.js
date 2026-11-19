@@ -318,8 +318,9 @@ export const createMissingThumbnailFiller = ({
         if ( active.made ) return send(fsentry, active);
         let blob;
         try {
-            const needed = bytesNeeded(fsentry);
-            const response = await download(fsentry.uid, active.controller.signal, needed < fsentry.size ? needed : undefined);
+            // Asked for even when the listed size is smaller, since the file may have grown since it was listed.
+            const leading = leadingBytesRead(fsentry.name, fsentry.type ?? '');
+            const response = await download(fsentry.uid, active.controller.signal, leading);
             if ( ! response.ok ) {
                 // Nothing reads the error's body, and the connection is held until something does.
                 response.body?.cancel().catch(() => {});

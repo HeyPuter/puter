@@ -584,10 +584,11 @@ describe('createMissingThumbnailFiller', () => {
             downloads.at(-1).finish();
             await vi.advanceTimersByTimeAsync(0);
         }
-        // A file no longer than what is read, and a file read whole, are asked for whole.
+        // A file listed as no longer than what is read is asked for only that far too, since it may have grown. A
+        // file read whole is asked for whole.
         expect(download.mock.calls.map(([uid, , byteCount]) => [uid, byteCount])).toEqual([
             [large.uid, TEXT_MAX_READ_BYTES],
-            [small.uid, undefined],
+            [small.uid, TEXT_MAX_READ_BYTES],
             [picture.uid, undefined],
         ]);
         expect(generate.mock.calls[0][0]).toMatchObject({ name: 'bundle.js', type: 'application/javascript' });
