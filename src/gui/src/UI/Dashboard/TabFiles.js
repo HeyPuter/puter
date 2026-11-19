@@ -272,6 +272,14 @@ const TabFiles = {
                     $(row).find('.item-icon > img').first().attr('src', image);
                 });
             },
+            // The row kept its old thumbnail for a new one that isn't
+            // coming. The same item in an open file dialog kept it too.
+            onDropped: (row, fsentry) => {
+                if ( ! row.isConnected ) return;
+                _this.rowIcon(fsentry).then(({ image }) => {
+                    $(`.item[data-uid='${fsentry.uid}']`).find('.item-icon > img').attr('src', image);
+                });
+            },
         });
 
         // Refresh an existing row in place from an fs entry. Shared with
@@ -330,17 +338,17 @@ const TabFiles = {
                 $row.attr('data-modified', file.modified);
                 $row.find('.item-modified').text(formatRelativeTime(file.modified * 1000, Date.now(), window.locale));
             }
-            // An overwrite clears the thumbnail, and a new one can follow.
-            // Every update carries the key, so the icon is only worked out
-            // again when the thumbnail changed: some icons are read from
-            // the file. The same item in an open file dialog matches too.
+            // An overwrite clears the thumbnail and a new one follows, so the
+            // row keeps showing the old one while that's made. Every update
+            // carries the key, so the icon is only worked out again when the
+            // thumbnail changed. An open file dialog's item matches too.
             if ( file.thumbnail !== undefined && fsentry ) {
-                if ( (file.thumbnail ?? null) !== thumbnailBefore ) {
+                const keepsOld = _this.fillMissingThumbnail($row[0], fsentry, { showsOld: !!thumbnailBefore });
+                if ( !keepsOld && (file.thumbnail ?? null) !== thumbnailBefore ) {
                     _this.rowIcon(fsentry).then(({ image }) => {
                         $row.find('.item-icon > img').attr('src', image);
                     });
                 }
-                _this.fillMissingThumbnail($row[0], fsentry);
             }
             if ( displayName && displayName !== oldName && fsentry ) _this.followRename($row, fsentry, oldPath);
             // The footer's item-count/total-size line is computed from the
@@ -3645,14 +3653,15 @@ const TabFiles = {
      *
      * @param {HTMLElement} row
      * @param {Object} fsentry - The row's entry
-     * @returns {void}
+     * @param {{ showsOld?: boolean }} [options] - `showsOld` for a row showing the thumbnail of the version before
+     * @returns {boolean} Whether the row should keep showing that thumbnail while the new one is made
      */
-    fillMissingThumbnail (row, fsentry) {
-        this.missingThumbnails?.observe(row, fsentry, {
+    fillMissingThumbnail (row, fsentry, options) {
+        return this.missingThumbnails?.observe(row, fsentry, {
             listRow: !this.isGridView(),
             homePath: window.home_path,
             excludedPaths: [window.trash_path, window.appdata_path],
-        });
+        }, options) ?? false;
     },
 
     /**

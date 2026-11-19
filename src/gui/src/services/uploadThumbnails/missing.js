@@ -4,6 +4,7 @@ import {
     MISSING_THUMBNAIL_CONCURRENCY,
     MISSING_THUMBNAIL_FAILURES_REMEMBERED,
     MISSING_THUMBNAIL_MAX_FILE_BYTES,
+    MISSING_THUMBNAIL_OLD_PICTURE_MS,
     MISSING_THUMBNAIL_PER_MINUTE,
     MISSING_THUMBNAIL_SESSION_BYTES,
     MISSING_THUMBNAIL_SETTLE_MS,
@@ -102,6 +103,8 @@ export const createRememberedFailures = (getStorage) => {
  * @property {(file: File) => Promise<string | undefined>} generate A data URL, or `undefined` for none.
  * @property {(row: Element, fsentry: MissingThumbnailEntry, thumbnail: string) => void} onStored Called with the
  *     row's own entry once its thumbnail is stored.
+ * @property {(row: Element, fsentry: MissingThumbnailEntry) => void} [onDropped] Called for a row that was told to
+ *     keep the thumbnail it shows, when the new one isn't coming after all or is taking too long.
  * @property {RememberedFailures} [failures] Versions that gave no thumbnail before, which are skipped.
  * @property {() => number} [now]
  */
@@ -113,15 +116,18 @@ export const createRememberedFailures = (getStorage) => {
  *
  * @param {MissingThumbnailDeps} deps
  * @returns {{
- *     observe: (row: Element, fsentry: MissingThumbnailEntry, place: MissingThumbnailPlace) => void,
+ *     observe: (row: Element, fsentry: MissingThumbnailEntry, place: MissingThumbnailPlace,
+ *         options?: { showsOld?: boolean }) => boolean,
  *     reset: () => void,
- * }}
+ * }} `observe` takes `showsOld` for a row that shows the thumbnail of the version before. It returns whether the row
+ *     should keep showing it, which it should while the new one is being made.
  */
 export const createMissingThumbnailFiller = ({
     download,
     store,
     generate,
     onStored,
+    onDropped = () => {},
     failures = createRememberedFailures(() => undefined),
     now = () => Date.now(),
 }) => {
@@ -160,6 +166,12 @@ export const createMissingThumbnailFiller = ({
     /** @type {number[]} */
     const starts = [];
     let bytesLeft = MISSING_THUMBNAIL_SESSION_BYTES;
+    /**
+     * Rows still showing the thumbnail of the version before, and when each stops waiting for the new one.
+     *
+     * @type {Map<Element, { timer: ReturnType<typeof setTimeout>, until: number }>}
+     */
+    const keeping = new Map();
     let pausedUntil = 0;
     let timer;
     let orphanTimer;
@@ -182,6 +194,21 @@ export const createMissingThumbnailFiller = ({
         observer?.unobserve(row);
     };
 
+    /** The row no longer waits on a new thumbnail. Returns what it was waiting with, if it was. */
+    const release = (row) => {
+        const kept = keeping.get(row);
+        if ( kept ) {
+            clearTimeout(kept.timer);
+            keeping.delete(row);
+        }
+        return kept;
+    };
+
+    /** No thumbnail is coming for the row's file for now, so the row stops showing the old one. */
+    const drop = (row, fsentry) => {
+        if ( release(row) ) onDropped(row, fsentry);
+    };
+
     const remember = (key) => {
         attempted.add(key);
         if ( attempted.size > MISSING_THUMBNAIL_ATTEMPTS_REMEMBERED ) {
@@ -196,12 +223,14 @@ export const createMissingThumbnailFiller = ({
         for ( const [uid, candidate] of pending ) {
             if ( ! candidate.row.isConnected ) {
                 forget(uid, candidate.row);
+                release(candidate.row);
                 continue;
             }
             if ( !visible.has(candidate.row) || running.has(uid) ) continue;
             // The entry may have changed since it was queued: renamed, moved, or given a thumbnail by another tab.
             if ( ! wantsThumbnail(candidate.fsentry, candidate.place) ) {
                 forget(uid, candidate.row);
+                drop(candidate.row, candidate.fsentry);
                 continue;
             }
             if ( candidate.readyAt <= time ) {
@@ -267,8 +296,12 @@ export const createMissingThumbnailFiller = ({
         if ( stored.status === 400 ) return 'failed';
         // The row's own entry, not the copy: the caller records the thumbnail on it. A row that has moved on to a
         // newer version meanwhile keeps what it shows.
-        if ( stored.ok && active.row && !active.unwanted ) onStored(active.row, active.fsentry, active.made.thumbnail);
-        return 'done';
+        if ( ! stored.ok ) return 'done';
+        if ( active.row && !active.unwanted ) {
+            release(active.row);
+            onStored(active.row, active.fsentry, active.made.thumbnail);
+        }
+        return 'stored';
     };
 
     const run = async (fsentry, active) => {
@@ -347,6 +380,11 @@ export const createMissingThumbnailFiller = ({
                     });
                     observer?.observe(active.row);
                 }
+                // Nothing is on its way for this version, or not before a pause is over, so a row showing the old
+                // thumbnail stops. A row that came back after a cancelled download is still being worked on.
+                if ( outcome !== 'stored' && outcome !== 'aborted' && active.row && !active.unwanted ) {
+                    drop(active.row, active.fsentry);
+                }
             })
             .finally(() => {
                 if ( running.get(fsentry.uid)?.controller === controller ) running.delete(fsentry.uid);
@@ -377,6 +415,7 @@ export const createMissingThumbnailFiller = ({
                 // Over the download budget, the rest of the page load goes without.
                 if ( !madeFor(next.job) && next.job.fsentry.size > bytesLeft ) {
                     forget(next.job.fsentry.uid, next.job.row);
+                    drop(next.job.row, next.job.fsentry);
                     continue;
                 }
                 start(next.job);
@@ -387,43 +426,61 @@ export const createMissingThumbnailFiller = ({
 
     globalThis.document?.addEventListener?.('visibilitychange', schedule);
 
+    /** Queue a row's file, or hand the row a download already under way. Whether a thumbnail is on its way. */
+    const take = (row, fsentry, place) => {
+        const key = keyOf(fsentry);
+        const wanted = wantsThumbnail(fsentry, place);
+        // A download of an older version would only be refused, and one for a file that has a thumbnail now, or
+        // can't have one any more, is wasted.
+        const current = running.get(fsentry.uid);
+        if ( current && !current.unwanted ) {
+            if ( wanted && current.modified === fsentry.modified ) {
+                // Already being made: a row drawn again takes over the download its old one started.
+                if ( current.row && current.row !== row ) release(current.row);
+                Object.assign(current, { row, fsentry, place });
+                return true;
+            }
+            current.unwanted = true;
+            current.controller.abort();
+        }
+        if ( !wanted || bytesLeft <= 0 || globalThis.navigator?.connection?.saveData ||
+            attempted.has(key) || failures.has(key) ) {
+            // Whatever is queued is for a state the file is no longer in.
+            const queued = pending.get(fsentry.uid);
+            if ( queued ) forget(fsentry.uid, queued.row);
+            return false;
+        }
+        const time = now();
+        const settled = fsentry.modified * 1000 + MISSING_THUMBNAIL_SETTLE_MS;
+        pending.set(fsentry.uid, {
+            row,
+            fsentry,
+            place,
+            readyAt: Math.min(time + MISSING_THUMBNAIL_SETTLE_MS, Math.max(time, settled)),
+            made: pending.get(fsentry.uid)?.made,
+        });
+        observer.observe(row);
+        // A row not on screen yet has nothing to start, and the observer's first report on it schedules. Going
+        // through the queue for each row of a large folder as it's drawn would take the square of its length.
+        if ( visible.has(row) ) schedule();
+        return true;
+    };
+
     return {
-        observe (row, fsentry, place) {
-            if ( ! observer ) return;
-            const key = keyOf(fsentry);
-            const wanted = wantsThumbnail(fsentry, place);
-            // A download of an older version would only be refused, and one for a file that has a thumbnail now, or
-            // can't have one any more, is wasted.
-            const current = running.get(fsentry.uid);
-            if ( current && !current.unwanted ) {
-                if ( wanted && current.modified === fsentry.modified ) {
-                    // Already being made: a row drawn again takes over the download its old one started.
-                    Object.assign(current, { row, fsentry, place });
-                    return;
-                }
-                current.unwanted = true;
-                current.controller.abort();
-            }
-            if ( !wanted || bytesLeft <= 0 || globalThis.navigator?.connection?.saveData ||
-                attempted.has(key) || failures.has(key) ) {
-                // Whatever is queued is for a state the file is no longer in.
-                const queued = pending.get(fsentry.uid);
-                if ( queued ) forget(fsentry.uid, queued.row);
-                return;
-            }
+        observe (row, fsentry, place, { showsOld = false } = {}) {
+            if ( ! observer ) return false;
+            const kept = release(row);
+            const coming = take(row, fsentry, place);
+            // The wait counts from the first save, so a file saved over and over doesn't show an old picture for
+            // as long as the saving goes on.
             const time = now();
-            const settled = fsentry.modified * 1000 + MISSING_THUMBNAIL_SETTLE_MS;
-            pending.set(fsentry.uid, {
-                row,
-                fsentry,
-                place,
-                readyAt: Math.min(time + MISSING_THUMBNAIL_SETTLE_MS, Math.max(time, settled)),
-                made: pending.get(fsentry.uid)?.made,
-            });
-            observer.observe(row);
-            // A row not on screen yet has nothing to start, and the observer's first report on it schedules. Going
-            // through the queue for each row of a large folder as it's drawn would take the square of its length.
-            if ( visible.has(row) ) schedule();
+            const until = kept?.until ?? time + MISSING_THUMBNAIL_OLD_PICTURE_MS;
+            if ( coming && (showsOld || kept) && time >= pausedUntil && until > time ) {
+                keeping.set(row, { until, timer: setTimeout(() => drop(row, fsentry), until - time) });
+                return true;
+            }
+            if ( kept ) onDropped(row, fsentry);
+            return false;
         },
         /**
          * Stop for rows that are gone, such as when the folder changes. A download is cancelled unless its file's row
@@ -439,6 +496,8 @@ export const createMissingThumbnailFiller = ({
             }, 0);
             pending.clear();
             visible.clear();
+            for ( const { timer: keepTimer } of keeping.values() ) clearTimeout(keepTimer);
+            keeping.clear();
             observer?.disconnect();
             clearTimeout(timer);
             timer = undefined;

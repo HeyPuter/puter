@@ -434,7 +434,7 @@ The Puter desktop makes a video upload thumbnail from one frame of an MP4, MOV, 
 | Frame | One tenth of the way into the video, at most 10 seconds in |
 | Output | At most 128 × 128 pixels, aspect ratio preserved |
 
-The Puter desktop also makes a thumbnail for a file in the user's own folders that has none, such as a file an app wrote or saved over, when the file comes into view. It downloads the file and reads it the same way as an upload, within the budgets above and these. A picture is downloaded only in a format every browser draws, which is PNG, JPEG, GIF, WebP, BMP, AVIF, SVG, or ICO. The downloads count toward the account's egress. A file saved over gets a new thumbnail once it's done changing. A file over the size limit keeps its file icon. A file that gives no thumbnail keeps its file icon and isn't downloaded again until it changes. A file skipped because of another budget is tried again after the page reloads.
+The Puter desktop also makes a thumbnail for a file in the user's own folders that has none, such as a file an app wrote or saved over, when the file comes into view. It downloads the file and reads it the same way as an upload, within the budgets above and these. A picture is downloaded only in a format every browser draws, which is PNG, JPEG, GIF, WebP, BMP, AVIF, SVG, or ICO. The downloads count toward the account's egress. A file saved over gets a new thumbnail once it's done changing, and shows its old one until then. A file over the size limit keeps its file icon. A file that gives no thumbnail keeps its file icon and isn't downloaded again until it changes. A file skipped because of another budget is tried again after the page reloads.
 
 | Missing thumbnail | Limit |
 | --- | --- |
@@ -443,6 +443,7 @@ The Puter desktop also makes a thumbnail for a file in the user's own folders th
 | Files started per minute | 20 |
 | Data downloaded per page load | 100 MiB |
 | Wait after the file was last saved | 3 seconds |
+| Old thumbnail shown while the new one is made | At most 10 seconds |
 | Pause after a `429` response or a failed connection | 60 seconds |
 
 ### Permissions

@@ -4,6 +4,7 @@ import {
     MISSING_THUMBNAIL_CONCURRENCY,
     MISSING_THUMBNAIL_FAILURES_REMEMBERED,
     MISSING_THUMBNAIL_MAX_FILE_BYTES,
+    MISSING_THUMBNAIL_OLD_PICTURE_MS,
     MISSING_THUMBNAIL_PER_MINUTE,
     MISSING_THUMBNAIL_SESSION_BYTES,
     MISSING_THUMBNAIL_SETTLE_MS,
@@ -74,8 +75,11 @@ const setup = ({ generated = thumbnail, storeStatus = 200, failures } = {}) => {
     const store = vi.fn(async () => new Response('{}', { status: typeof storeStatus === 'function' ? storeStatus() : storeStatus }));
     const generate = vi.fn(async () => generated);
     const onStored = vi.fn();
-    const filler = createMissingThumbnailFiller({ download, store, generate, onStored, failures, now: () => Date.now() });
-    return { filler, downloads, download, store, generate, onStored };
+    const onDropped = vi.fn();
+    const filler = createMissingThumbnailFiller({
+        download, store, generate, onStored, onDropped, failures, now: () => Date.now(),
+    });
+    return { filler, downloads, download, store, generate, onStored, onDropped };
 };
 
 beforeEach(() => {
@@ -650,6 +654,136 @@ describe('createMissingThumbnailFiller', () => {
         show(second);
         await vi.advanceTimersByTimeAsync(60_000);
         expect(downloads).toHaveLength(1);
+    });
+});
+
+describe('a row showing the thumbnail of the version before', () => {
+    const showsOld = { showsOld: true };
+
+    it('keeps it until the new one is stored', async () => {
+        const { filler, downloads, onStored, onDropped } = setup();
+        const row = makeRow();
+        const file = entry();
+
+        expect(filler.observe(row, file, place, showsOld)).toBe(true);
+        show(row);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_OLD_PICTURE_MS);
+        expect(onStored).toHaveBeenCalledWith(row, file, thumbnail);
+        expect(onDropped).not.toHaveBeenCalled();
+    });
+
+    it('does not keep it for a file that gets no new one', () => {
+        const { filler, onDropped } = setup();
+        const tooLarge = entry({ size: MISSING_THUMBNAIL_MAX_FILE_BYTES + 1 });
+        expect(filler.observe(makeRow(), tooLarge, place, showsOld)).toBe(false);
+        expect(onDropped).not.toHaveBeenCalled();
+    });
+
+    it('is not asked to keep anything when it shows no thumbnail', async () => {
+        const { filler, downloads, onDropped } = setup({ generated: null });
+        const row = makeRow();
+        expect(filler.observe(row, entry(), place)).toBe(false);
+        show(row);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_OLD_PICTURE_MS);
+        expect(onDropped).not.toHaveBeenCalled();
+    });
+
+    it('drops it as soon as the file turns out to give no thumbnail', async () => {
+        const { filler, downloads, onDropped } = setup({ generated: null });
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place, showsOld);
+        show(row);
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onDropped).toHaveBeenCalledTimes(1);
+        expect(onDropped).toHaveBeenCalledWith(row, file);
+    });
+
+    it.each([
+        ['the download is refused', { downloadStatus: 500 }],
+        ['the account is out of credit', { downloadStatus: 402 }],
+        ['the server asks to slow down', { downloadStatus: 429 }],
+        ['the thumbnail is refused', { storeStatus: 409 }],
+    ])('drops it when %s', async (_label, { downloadStatus = 200, storeStatus = 200 }) => {
+        const { filler, downloads, onDropped } = setup({ storeStatus });
+        const row = makeRow();
+        filler.observe(row, entry(), place, showsOld);
+        show(row);
+        downloads[0].finish(downloadStatus);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onDropped).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops it when the new one takes too long, and still shows the new one when it arrives', async () => {
+        const { filler, downloads, onStored, onDropped } = setup();
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place, showsOld);
+        show(row);
+
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_OLD_PICTURE_MS - 1);
+        expect(onDropped).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(onDropped).toHaveBeenCalledWith(row, file);
+
+        downloads[0].finish();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onStored).toHaveBeenCalledWith(row, file, thumbnail);
+        expect(onDropped).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps it through further saves, but no longer than the wait from the first one', async () => {
+        const { filler, onDropped } = setup();
+        const row = makeRow();
+        const file = entry({ modified: Date.now() / 1000 });
+        expect(filler.observe(row, file, place, showsOld)).toBe(true);
+        show(row);
+
+        // An app that saves every two seconds: the entry no longer has a thumbnail, the row still shows one.
+        for ( let saved = 2000; saved < MISSING_THUMBNAIL_OLD_PICTURE_MS; saved += 2000 ) {
+            await vi.advanceTimersByTimeAsync(2000);
+            file.modified = Date.now() / 1000;
+            expect(filler.observe(row, file, place)).toBe(true);
+        }
+        expect(onDropped).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(onDropped).toHaveBeenCalledTimes(1);
+        file.modified = Date.now() / 1000;
+        expect(filler.observe(row, file, place)).toBe(false);
+    });
+
+    it('drops it when a later save makes the file one that gets no thumbnail', () => {
+        const { filler, onDropped } = setup();
+        const row = makeRow();
+        const file = entry();
+        filler.observe(row, file, place, showsOld);
+
+        file.modified = SAVED + 5;
+        file.size = MISSING_THUMBNAIL_MAX_FILE_BYTES + 1;
+        expect(filler.observe(row, file, place)).toBe(false);
+        expect(onDropped).toHaveBeenCalledWith(row, file);
+    });
+
+    it('does not keep it while the filler is paused', async () => {
+        const { filler, downloads } = setup();
+        const throttled = makeRow();
+        filler.observe(throttled, entry(), place);
+        show(throttled);
+        downloads[0].finish(429);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(filler.observe(makeRow(), entry(), place, showsOld)).toBe(false);
+    });
+
+    it('stops waiting when the folder changes', async () => {
+        const { filler, onDropped } = setup();
+        filler.observe(makeRow(), entry(), place, showsOld);
+        filler.reset();
+        await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_OLD_PICTURE_MS);
+        expect(onDropped).not.toHaveBeenCalled();
     });
 });
 

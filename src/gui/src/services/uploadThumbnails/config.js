@@ -63,6 +63,8 @@ export const MISSING_THUMBNAIL_SESSION_BYTES = 100 * 1024 * 1024;
 // A file saved within this long waits until it's this old, so an app saving every few seconds isn't chased.
 export const MISSING_THUMBNAIL_SETTLE_MS = 3000;
 export const MISSING_THUMBNAIL_BACKOFF_MS = 60 * 1000;
+// How long a row keeps showing the thumbnail of the version before, while one is made for a file that was saved over.
+export const MISSING_THUMBNAIL_OLD_PICTURE_MS = 10 * 1000;
 export const MISSING_THUMBNAIL_ATTEMPTS_REMEMBERED = 10000;
 // Files that gave no thumbnail, kept across page loads so they aren't downloaded again.
 export const MISSING_THUMBNAIL_FAILURES_REMEMBERED = 1000;
