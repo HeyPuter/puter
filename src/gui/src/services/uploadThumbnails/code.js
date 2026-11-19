@@ -71,21 +71,31 @@ export const indentJson = (text) => {
     let opened = false;
     // A top-level object or array has closed, so the next one, as in JSON Lines, starts a line of its own.
     let ended = false;
+    // What the line holds so far, kept apart from `line` since reading a string built up piece by piece copies it.
+    let blank = true;
+    let previous = '';
     const newLine = () => {
-        if ( line.trim() ) lines.push(line);
+        if ( ! blank ) lines.push(line);
         line = '  '.repeat(Math.min(depth, JSON_MAX_INDENT));
+        blank = true;
     };
     for ( const [token] of text.matchAll(JSON_TOKEN) ) {
         if ( lines.length >= JSON_MAX_LINES ) break;
         const closes = token === '}' || token === ']';
+        const comment = token.startsWith('//') || token.startsWith('/*');
         if ( closes ) depth = Math.max(0, depth - 1);
         if ( closes ? !opened : opened || ended && token !== ',' ) newLine();
         opened = token === '{' || token === '[';
         ended = closes && depth === 0;
         if ( opened ) depth++;
+        const startsLine = blank;
+        // A block comment inside a line is set apart from the tokens around it by a space.
+        if ( !startsLine && previous !== ':' && (comment || previous.startsWith('/*') && token !== ',') ) line += ' ';
         line += token === ':' ? ': ' : token;
-        // A line comment runs to the end of its line.
-        if ( token === ',' || token.startsWith('//') ) newLine();
+        blank = false;
+        previous = token;
+        // A line comment runs to the end of its line, and a block comment that starts one is given it to itself.
+        if ( token === ',' || token.startsWith('//') || token.startsWith('/*') && startsLine ) newLine();
     }
     newLine();
     return lines.slice(0, JSON_MAX_LINES).join('\n');

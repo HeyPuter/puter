@@ -149,7 +149,15 @@ describe('indentJson', () => {
     });
 
     it('keeps the comments of a settings file', () => {
-        expect(indentJson('{"a":1,// why\n"b":/* c */2}')).toBe('{\n  "a": 1,\n  // why\n  "b": /* c */2\n}');
+        expect(indentJson('{"a":1,// why\n"b":/* c */2}')).toBe('{\n  "a": 1,\n  // why\n  "b": /* c */ 2\n}');
+    });
+
+    it('sets a comment inside a line apart from the tokens around it', () => {
+        expect(indentJson('[1/* a */,2// b\n]')).toBe('[\n  1 /* a */,\n  2 // b\n]');
+    });
+
+    it('puts what follows a comment that starts a line on the next line', () => {
+        expect(indentJson('/* Copyright 2024, A */{"a":1}')).toBe('/* Copyright 2024, A */\n{\n  "a": 1\n}');
     });
 
     it('lays out JSON the read cut off', () => {
