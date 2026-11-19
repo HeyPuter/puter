@@ -184,7 +184,7 @@ export const createMissingThumbnailFiller = ({
                 else visible.delete(entry.target);
             }
             schedule();
-        }, { rootMargin: '200px' })
+        })
         : undefined;
 
     const keyOf = fsentry => `${fsentry.uid}:${fsentry.modified}`;
