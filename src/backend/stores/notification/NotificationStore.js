@@ -120,6 +120,7 @@ export class NotificationStore extends PuterStore {
      * @param {{ userId?: number; primary?: boolean }} [opts]
      */
     async getByUid(uid, { userId, primary = false } = {}) {
+        if (typeof uid !== 'string') return null;
         const where =
             userId !== undefined
                 ? 'WHERE `uid` = ? AND `user_id` = ?'
@@ -139,6 +140,7 @@ export class NotificationStore extends PuterStore {
      * @param {string} sendKey
      */
     async getBySendKey(sendKey) {
+        if (typeof sendKey !== 'string') return null;
         const rows = await this.clients.db.pread(
             'SELECT * FROM `notification` WHERE `send_key` = ? LIMIT 1',
             [sendKey],

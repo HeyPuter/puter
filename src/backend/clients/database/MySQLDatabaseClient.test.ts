@@ -615,6 +615,61 @@ describe('MySQLDatabaseClient — query interface', () => {
     });
 });
 
+describe('MySQLDatabaseClient — non-scalar parameters', () => {
+    // The driver formats in the client: an array becomes a value list and an
+    // object becomes `col = val` pairs, so neither may reach it.
+    it.each([
+        ['an array', ['a', 'b']],
+        ['an object', { username: 1 }],
+        ['a function', () => 1],
+    ])('refuses %s with a 400 before any query is sent', async (_, value) => {
+        const client = await startClient({ replica: { host: 'replica' } });
+        const sql = 'SELECT * FROM `user` WHERE `username` = ?';
+        for (const call of [
+            () => client.read(sql, [value]),
+            () => client.pread(sql, [value]),
+            () => client.tryHardRead(sql, [value]),
+            () => client.write('DELETE FROM `user` WHERE `uuid` = ?', [value]),
+            () =>
+                client.batchWrite([
+                    { statement: 'UPDATE `user` SET `x` = ?', values: [1] },
+                    {
+                        statement: 'DELETE FROM `user` WHERE `uuid` = ?',
+                        values: [value],
+                    },
+                ]),
+        ]) {
+            await expect(call()).rejects.toMatchObject({ statusCode: 400 });
+        }
+        for (const pool of createdPools) {
+            expect(pool.calls).toEqual([]);
+            expect(pool.connections).toEqual([]);
+        }
+    });
+
+    it('binds scalars, null, dates and buffers', async () => {
+        const client = await startClient();
+        const pool = createdPools[0];
+        pool.respond = () => rowSets([]);
+        const values = [
+            'a',
+            1,
+            10n,
+            true,
+            null,
+            undefined,
+            new Date(0),
+            Buffer.from('x'),
+        ];
+
+        await client.read(
+            `SELECT 1 WHERE ${values.map(() => '?').join(' AND ')}`,
+            values,
+        );
+        expect(pool.calls[0].values).toEqual(values);
+    });
+});
+
 describe('MySQLDatabaseClient — batchWrite transactions', () => {
     it('runs every statement on one connection inside a transaction', async () => {
         const client = await startClient();

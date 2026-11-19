@@ -1652,11 +1652,13 @@ export class FSEntryStore extends PuterStore {
     }
 
     async getEntryByUuid(uuid: string): Promise<FSEntry | null> {
+        if (typeof uuid !== 'string') return null;
         return this.#getEntryBy('uuid', uuid);
     }
 
     /** Uncached primary read, for decisions a stale row must not make. */
     async getEntryByUuidFromPrimary(uuid: string): Promise<FSEntry | null> {
+        if (typeof uuid !== 'string') return null;
         const rows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],

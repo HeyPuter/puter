@@ -4538,3 +4538,26 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
         );
     });
 });
+
+describe('FSEntryStore lookups by a value that is not a string', () => {
+    let lookupServer: PuterServer;
+
+    beforeAll(async () => {
+        lookupServer = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await lookupServer?.shutdown();
+    });
+
+    it('match no row', async () => {
+        const stores = lookupServer.stores;
+        for (const value of [0, 1, true, ['x'], { uid: 'x' }]) {
+            for (const row of [
+                await stores.fsEntry.getEntryByUuid(value as never),
+                await stores.fsEntry.getEntryByUuidFromPrimary(value as never),
+            ])
+                expect(row).toBeNull();
+        }
+    });
+});

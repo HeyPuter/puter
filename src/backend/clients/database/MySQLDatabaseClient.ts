@@ -20,6 +20,7 @@
 import { metrics } from '@opentelemetry/api';
 import { createPool, ExecuteValues, type Pool } from 'mysql2';
 import { Span } from '../../util/span.js';
+import { assertBindableParams } from './bindableParams.js';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import { SQLBatcher } from './SQLBatcher.js';
 import { isRetriableError } from './retriableErrors.js';
@@ -134,6 +135,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
+        assertBindableParams(query, params);
         let result;
         try {
             result = await this.dbReplica.execute(query, params);
@@ -160,6 +162,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
+        assertBindableParams(query, params);
         const result = await this.dbPrimaryRead.execute(query, params);
         if (!result) return [];
         return (result[0] as Record<string, unknown>[]) ?? [];
@@ -170,6 +173,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[] = [],
     ): Promise<WriteResult> {
+        assertBindableParams(query, params);
         const result = await this.db.execute(query, params);
         const header = result[0] as {
             insertId?: number;
@@ -192,6 +196,8 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         entries: { statement: string; values: unknown[] }[],
     ): Promise<void> {
         if (entries.length === 0) return;
+        for (const { statement, values } of entries)
+            assertBindableParams(statement, values);
         // Bypass the SQLBatcher: it coalesces queries from unrelated callers
         // into a single multi-statement string, which is incompatible with
         // wrapping a transaction around just *our* statements. Acquire a
@@ -223,6 +229,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[],
     ): Promise<Record<string, unknown>[]> {
+        assertBindableParams(query, params);
         const result = await this.dbReplica.execute(query, params);
         if (!result) return [];
         return (result[0] as Record<string, unknown>[]) ?? [];

@@ -32,6 +32,9 @@ export class OIDCStore extends PuterStore {
 
     /** Pass `primary` when the row may be newer than the replica. */
     async getByProviderSub(provider, providerSub, { primary = false } = {}) {
+        // Some providers send a numeric `sub`, and links were stored from it.
+        if (typeof providerSub !== 'string' && typeof providerSub !== 'number')
+            return null;
         // Ordered so a sub that predates the UNIQUE index (two callbacks for the
         // same new identity used to be able to both insert) always resolves to
         // the same link, instead of bouncing the user between two accounts.

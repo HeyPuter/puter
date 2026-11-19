@@ -162,7 +162,7 @@ export class SessionStore extends PuterStore {
     }
 
     async getByUuidAny(uuid) {
-        if (!uuid) return null;
+        if (!uuid || typeof uuid !== 'string') return null;
 
         const cached = await this.#readCache(uuid);
         if (cached) return cached;

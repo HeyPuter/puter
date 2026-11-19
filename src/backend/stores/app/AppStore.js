@@ -274,7 +274,7 @@ export class AppStore extends PuterStore {
      * extensions.
      */
     async uidExistsOnPrimary(uid) {
-        if (!uid) return false;
+        if (!uid || typeof uid !== 'string') return false;
         const rows = await this.clients.db.pread(
             'SELECT `id` FROM `apps` WHERE `uid` = ? LIMIT 1',
             [uid],
@@ -352,6 +352,7 @@ export class AppStore extends PuterStore {
     }
 
     async existsByName(name) {
+        if (typeof name !== 'string') return false;
         const rows = await this.clients.db.read(
             'SELECT `id` FROM `apps` WHERE `name` = ? LIMIT 1',
             [name],
@@ -1276,7 +1277,13 @@ export class AppStore extends PuterStore {
     // -- Internals ----------------------------------------------------
 
     async #getByProperty(prop, value) {
-        if (value === undefined || value === null) return null;
+        // A text column compared with a number casts the column, so only `id`
+        // takes a number.
+        if (
+            typeof value !== 'string' &&
+            !(prop === 'id' && typeof value === 'number')
+        )
+            return null;
         return this.#cache.get(
             this.#cache.key(prop, value),
             async (primary) => {
