@@ -21,6 +21,7 @@ import type { Actor } from '../../../../../core/actor.js';
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import { isHttpUrl } from '../../../shared/imageInput.js';
 import { klingImageInput, klingRequest } from '../kling.js';
 import {
@@ -66,6 +67,17 @@ interface KlingTask {
     message?: string;
     outputs?: Array<{ type?: string; url?: string; duration?: string }>;
 }
+
+/** The finished clip among a task's outputs, if it has one with a URL. */
+const videoOutput = (task: KlingTask | undefined) =>
+    Array.isArray(task?.outputs)
+        ? task.outputs.find(
+              (output) =>
+                  output?.type === 'video' &&
+                  typeof output.url === 'string' &&
+                  output.url,
+          )
+        : undefined;
 
 const badRequest = (message: string) =>
     new HttpError(400, message, { legacyCode: 'bad_request' });
@@ -275,9 +287,7 @@ export class KlingVideoProvider extends VideoProvider {
                 settled: boolean,
             ) => {
                 if (settled && task?.status !== 'succeeded') return;
-                const video = task?.outputs?.find(
-                    (output) => output.type === 'video' && output.url,
-                );
+                const video = videoOutput(task);
                 const outputSeconds = Number.parseFloat(video?.duration ?? '');
                 const billedSeconds =
                     hasVideo &&
@@ -300,7 +310,8 @@ export class KlingVideoProvider extends VideoProvider {
             if (
                 task.status !== 'succeeded' &&
                 sourceVideo &&
-                SOURCE_DECODE_FAILURE_PATTERN.test(task.message ?? '')
+                typeof task.message === 'string' &&
+                SOURCE_DECODE_FAILURE_PATTERN.test(task.message)
             ) {
                 throw sourceUnreadableError();
             }
@@ -311,13 +322,9 @@ export class KlingVideoProvider extends VideoProvider {
                 );
             }
 
-            const video = task.outputs?.find(
-                (output) => output.type === 'video' && output.url,
-            );
-            if (!video?.url) {
-                throw new Error('Kling response did not include a video URL');
-            }
-            return video.url;
+            const video = videoOutput(task);
+            if (!video) throw malformedUpstreamResponse('kling', 'Kling');
+            return video.url!;
         } finally {
             await jobHold.release();
         }
