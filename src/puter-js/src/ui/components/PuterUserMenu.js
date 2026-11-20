@@ -148,13 +148,19 @@ class PuterUserMenu extends PuterWebComponent {
     _start () {
         if ( !this.isConnected || this.#unsubscribe || !this._active() ) return;
         this.$('.bar').hidden = false;
-        this.#unsubscribe = globalThis.puter.onAuthStateChanged(() => {
+        const stopAuth = globalThis.puter.onAuthStateChanged(() => {
             const puter = globalThis.puter;
             if ( puter.authToken === this.#token && puter.APIOrigin === this.#apiOrigin ) return;
             this._closePanels();
             this._dropApps();
             this._load();
         });
+        // An upgrade made in a frame on the page, from this button or anywhere else, gives the account a plan.
+        const stopUpgrade = globalThis.puter.ui.onUpgraded_(() => this._renderPlan());
+        this.#unsubscribe = () => {
+            stopAuth();
+            stopUpgrade();
+        };
         this._load();
     }
 
@@ -846,9 +852,7 @@ class PuterUserMenu extends PuterWebComponent {
     _upgrade () {
         this._closePanels();
         // Called inside the click, so a tab it falls back to isn't blocked.
-        const closed = globalThis.puter.ui.showUpgrade_();
-        // An upgrade made in it gives the account a plan, and the button its other label.
-        closed.then(() => this._renderPlan(), () => {});
+        void globalThis.puter.ui.showUpgrade_();
     }
 
     _addCredits () {

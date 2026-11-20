@@ -13,6 +13,7 @@ const TRIGGER_RECT = { left: 800, right: 836, top: 10, bottom: 46, width: 36, he
 /** The SDK instance the component reads, holding one signed-in state at a time. */
 const fakePuter = ({ token = null, user = null, picture = null } = {}) => {
     const listeners = new Set();
+    const upgradeListeners = new Set();
     let currentPicture = picture;
     const sdk = {
         env: 'web',
@@ -28,6 +29,10 @@ const fakePuter = ({ token = null, user = null, picture = null } = {}) => {
             showFeedbackDialog: vi.fn(() => new Promise(() => {})),
             showTopUp_: vi.fn(() => new Promise(() => {})),
             showUpgrade_: vi.fn(() => new Promise(() => {})),
+            onUpgraded_: (listener) => {
+                upgradeListeners.add(listener);
+                return () => upgradeListeners.delete(listener);
+            },
         },
         auth: {
             getProfilePicture: vi.fn(async () => currentPicture),
@@ -42,7 +47,12 @@ const fakePuter = ({ token = null, user = null, picture = null } = {}) => {
             for ( const listener of listeners ) listener();
             sdk.whoamiCache_ = Promise.resolve(nextUser);
         },
-        listenerCount: () => listeners.size,
+        // What the SDK does when an upgrade framed on the page reports a plan.
+        upgrade (account) {
+            account.subscribed = true;
+            for ( const listener of upgradeListeners ) listener();
+        },
+        listenerCount: () => listeners.size + upgradeListeners.size,
     };
     return sdk;
 };
@@ -288,9 +298,8 @@ describe('<puter-user-menu>', () => {
     it('reads Manage plan once an upgrade made from the button closes', async () => {
         const account = { ...USER, subscribed: false };
         const sdk = fakePuter({ token: 't', user: account });
-        // What the SDK does to its cached whoami when a framed upgrade reports a plan.
         sdk.ui.showUpgrade_.mockImplementation(async () => {
-            account.subscribed = true;
+            sdk.upgrade(account);
             return { upgraded: true };
         });
         vi.stubGlobal('puter', sdk);
@@ -299,6 +308,18 @@ describe('<puter-user-menu>', () => {
 
         part(el, '.upgrade-button').click();
         await settle();
+        expect(part(el, '.upgrade-button').textContent).toBe('Manage plan');
+    });
+
+    it('reads Manage plan once an upgrade made elsewhere on the page closes', async () => {
+        const account = { ...USER, subscribed: false };
+        const sdk = fakePuter({ token: 't', user: account });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount({ 'show-upgrade': '' });
+        expect(part(el, '.upgrade-button').textContent).toBe('Upgrade');
+
+        // Such as the upgrade a usage limit dialog's button frames.
+        sdk.upgrade(account);
         expect(part(el, '.upgrade-button').textContent).toBe('Manage plan');
     });
 
