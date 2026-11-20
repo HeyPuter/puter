@@ -237,16 +237,17 @@ describe('<puter-user-menu>', () => {
         expect(shown(el, '.menu')).toBe(false);
     });
 
-    it('leaves the Upgrade button out unless the page asks for it', async () => {
+    it('leaves the Upgrade button out when the page sets hide-upgrade', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
-        const el = await mount();
+        const el = await mount({ 'hide-upgrade': '' });
+        expect(shown(el, '.avatar')).toBe(true);
         expect(shown(el, '.upgrade-button')).toBe(false);
     });
 
     it('shows the Upgrade button beside the Apps button and opens the upgrade from it', async () => {
         const sdk = fakePuter({ token: 'app-token', user: USER });
         vi.stubGlobal('puter', sdk);
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         expect(shown(el, '.upgrade-button')).toBe(true);
         expect(part(el, '.upgrade-button').textContent).toBe('Upgrade');
         expect(part(el, '.upgrade-button').nextElementSibling).toBe(part(el, '.apps-button'));
@@ -260,7 +261,7 @@ describe('<puter-user-menu>', () => {
     it('opens the upgrade once for a double-click', async () => {
         const sdk = fakePuter({ token: 'app-token', user: USER });
         vi.stubGlobal('puter', sdk);
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         const button = part(el, '.upgrade-button');
         button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
         button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
@@ -277,7 +278,7 @@ describe('<puter-user-menu>', () => {
         ['on a temporary account', { token: 'temp-token', user: TEMP }],
     ])('shows the Upgrade button beside Sign in %s', async (_label, state) => {
         vi.stubGlobal('puter', fakePuter(state));
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         expect(shown(el, '.sign-in')).toBe(true);
         expect(shown(el, '.upgrade-button')).toBe(true);
         expect(part(el, '.upgrade-button').textContent).toBe('Upgrade');
@@ -290,7 +291,7 @@ describe('<puter-user-menu>', () => {
             return { success: true };
         });
         vi.stubGlobal('puter', sdk);
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         const signins = [];
         el.addEventListener('signin', event => signins.push(event.detail));
         part(el, '.upgrade-button').click();
@@ -310,7 +311,7 @@ describe('<puter-user-menu>', () => {
             return { success: true };
         });
         vi.stubGlobal('puter', sdk);
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         part(el, '.upgrade-button').click();
         expect(sdk.auth.signIn).toHaveBeenCalledTimes(1);
         await settle();
@@ -323,7 +324,7 @@ describe('<puter-user-menu>', () => {
             throw new Error('closed');
         });
         vi.stubGlobal('puter', sdk);
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         part(el, '.upgrade-button').click();
         await settle();
         expect(sdk.ui.showUpgrade_).not.toHaveBeenCalled();
@@ -338,7 +339,7 @@ describe('<puter-user-menu>', () => {
     it('opens no second sign-in while the Sign in button has one open', async () => {
         const sdk = fakePuter();
         vi.stubGlobal('puter', sdk);
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         part(el, '.sign-in').click();
         part(el, '.upgrade-button').click();
         expect(sdk.auth.signIn).toHaveBeenCalledTimes(1);
@@ -352,7 +353,7 @@ describe('<puter-user-menu>', () => {
             return { success: true };
         });
         vi.stubGlobal('puter', sdk);
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         part(el, '.upgrade-button').click();
         await settle();
         expect(sdk.ui.showUpgrade_).not.toHaveBeenCalled();
@@ -360,11 +361,12 @@ describe('<puter-user-menu>', () => {
         expect(shown(el, '.upgrade-button')).toBe(false);
     });
 
-    it('follows show-upgrade and the sign-in as they change', async () => {
+    it('follows hide-upgrade and the sign-in as they change', async () => {
         const sdk = fakePuter({ token: 'app-token', user: { ...USER, subscribed: true } });
         vi.stubGlobal('puter', sdk);
-        const el = await mount();
-        el.setAttribute('show-upgrade', '');
+        const el = await mount({ 'hide-upgrade': '' });
+        expect(shown(el, '.upgrade-button')).toBe(false);
+        el.removeAttribute('hide-upgrade');
         expect(shown(el, '.upgrade-button')).toBe(true);
         expect(part(el, '.upgrade-button').textContent).toBe('Manage plan');
 
@@ -379,13 +381,13 @@ describe('<puter-user-menu>', () => {
         await settle();
         expect(shown(el, '.upgrade-button')).toBe(true);
 
-        el.removeAttribute('show-upgrade');
+        el.setAttribute('hide-upgrade', '');
         expect(shown(el, '.upgrade-button')).toBe(false);
     });
 
     it('reads Manage plan for an account with a plan', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 't', user: { ...USER, subscribed: true } }));
-        const el = await mount({ 'show-upgrade': '', 'upgrade-label': 'Passer à un forfait' });
+        const el = await mount({ 'upgrade-label': 'Passer à un forfait' });
         expect(shown(el, '.upgrade-button')).toBe(true);
         expect(part(el, '.upgrade-button').textContent).toBe('Manage plan');
 
@@ -401,7 +403,7 @@ describe('<puter-user-menu>', () => {
             return { upgraded: true };
         });
         vi.stubGlobal('puter', sdk);
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         expect(part(el, '.upgrade-button').textContent).toBe('Upgrade');
 
         part(el, '.upgrade-button').click();
@@ -413,7 +415,7 @@ describe('<puter-user-menu>', () => {
         const account = { ...USER, subscribed: false };
         const sdk = fakePuter({ token: 't', user: account });
         vi.stubGlobal('puter', sdk);
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         expect(part(el, '.upgrade-button').textContent).toBe('Upgrade');
 
         // Such as the upgrade a usage limit dialog's button frames.
@@ -424,7 +426,7 @@ describe('<puter-user-menu>', () => {
     it('keeps the Upgrade button hidden for a seat, whose team changes the plan', async () => {
         const seat = { ...USER, subscribed: true, team: { uid: 'team-1', name: 'Acme' } };
         vi.stubGlobal('puter', fakePuter({ token: 't', user: seat }));
-        const el = await mount({ 'show-upgrade': '' });
+        const el = await mount();
         expect(shown(el, '.avatar')).toBe(true);
         expect(shown(el, '.upgrade-button')).toBe(false);
     });
@@ -752,7 +754,6 @@ describe('<puter-user-menu>', () => {
     it('uses label attributes, including ones changed later', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
         const el = await mount({
-            'show-upgrade': '',
             'upgrade-label': 'Passer à un forfait',
             'apps-label': 'Applis',
             'sign-out-label': 'Déconnexion',

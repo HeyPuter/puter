@@ -11,12 +11,12 @@
  * it, for the same user: signed out, or signed in as an account other than
  * the Puter session's, the browser shows only recommended apps. The browser
  * is kept between opens and dropped whenever the page's sign-in changes.
- * With `show-upgrade`, an Upgrade button beside the Apps button opens the
- * upgrade flow, signing in first when signed out, and reads Manage plan once
- * the account has a plan.
+ * An Upgrade button beside the Apps button, unless `hide-upgrade` is set,
+ * opens the upgrade flow, signing in first when signed out, and reads Manage
+ * plan once the account has a plan.
  * Renders nothing inside the Puter desktop.
  *
- * Attributes: theme, show-upgrade, upgrade-label, manage-plan-label,
+ * Attributes: theme, hide-upgrade, upgrade-label, manage-plan-label,
  *   apps-label, sign-in-label, sign-out-label, close-label, account-label,
  *   manage-account-label, usage-label, add-credits-label, open-puter-label,
  *   feedback-label
@@ -68,7 +68,7 @@ const CARET_INSET = 20;
 
 class PuterUserMenu extends PuterWebComponent {
     static get observedAttributes () {
-        return [...Object.keys(LABELS), 'show-upgrade'];
+        return [...Object.keys(LABELS), 'hide-upgrade'];
     }
 
     #unsubscribe = null;
@@ -105,7 +105,7 @@ class PuterUserMenu extends PuterWebComponent {
 
     attributeChangedCallback (name) {
         if ( ! this.$('.bar') ) return;
-        if ( name === 'show-upgrade' ) this._renderPlan();
+        if ( name === 'hide-upgrade' ) this._renderPlan();
         else this._applyLabels();
     }
 
@@ -649,7 +649,7 @@ class PuterUserMenu extends PuterWebComponent {
 
     /**
      * What follows the account's plan, which whoami reports where there are plans: Add
-     * credits, sold to accounts with one, and what the opt-in Upgrade button reads.
+     * credits, sold to accounts with one, and what the Upgrade button reads.
      */
     _renderPlan () {
         // The SDK reads whoami into a new object when the same token is set again,
@@ -660,7 +660,7 @@ class PuterUserMenu extends PuterWebComponent {
         const seat = isSeat(user);
         this.$('.add-credits').hidden = !subscribed || seat;
         const upgrade = this.$('.upgrade-button');
-        upgrade.hidden = !this.#ready || seat || !this.hasAttribute('show-upgrade');
+        upgrade.hidden = !this.#ready || seat || this.hasAttribute('hide-upgrade');
         upgrade.textContent = this._label(subscribed ? 'manage-plan-label' : 'upgrade-label');
     }
 
