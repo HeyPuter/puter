@@ -161,6 +161,12 @@ describe('sign-in pipeline', () => {
                 user?: Record<string, unknown>;
             },
             deviceCookie: deviceCookieOf(response),
+            // Every cookie but the device id: the session's.
+            sessionCookies: response.headers
+                .getSetCookie()
+                .join(', ')
+                .split(/,\s*(?=[^;,=\s]+=)/)
+                .filter((c) => c && !c.startsWith('puter_device=')),
         };
     };
 
@@ -234,6 +240,7 @@ describe('sign-in pipeline', () => {
                 is_dormant: false,
                 known_device: false,
                 credential_exposed: false,
+                request_signals: [],
                 account: {
                     has_verified_phone: false,
                     has_verified_card: false,
@@ -919,6 +926,32 @@ describe('sign-in pipeline', () => {
             expect(mailTo(username)).toHaveLength(0);
         });
 
+        it('read the team seat once and hand it to the account payload', async () => {
+            const { username, user } = await account();
+            cleanups.push(installSeatStub(env.server, [user.id]));
+            const config = signInConfig() as { teams_enabled?: boolean };
+            const before = config.teams_enabled;
+            config.teams_enabled = true;
+            cleanups.push(() => {
+                config.teams_enabled = before;
+            });
+            const team = (
+                env.server.stores as unknown as {
+                    team: { getOrgSeat: (id: number) => Promise<unknown> };
+                }
+            ).team;
+            const getOrgSeat = vi.spyOn(team, 'getOrgSeat');
+            // A listener makes the sign-in read the seat.
+            listen('puter.signin.validate', () => {});
+
+            const { status, body } = await login(username);
+            expect(status).toBe(200);
+            expect(body.user?.team).toBeTruthy();
+            expect(
+                getOrgSeat.mock.calls.filter(([id]) => id === user.id),
+            ).toHaveLength(1);
+        });
+
         it('are off with dormantSignInDays: 0', async () => {
             const config = env.server.services.signIn as unknown as {
                 config: IConfig;
@@ -1160,6 +1193,182 @@ describe('sign-in pipeline', () => {
         });
     });
 
+    describe('a sign-in that owes proof of the phone on file', () => {
+        const ON_FILE = '+14155550123';
+        const whoami = (token: unknown, cookie?: string) =>
+            fetch(new URL('/whoami', env.apiOrigin), {
+                headers: {
+                    authorization: `Bearer ${String(token)}`,
+                    ...(cookie ? { cookie } : {}),
+                },
+            });
+        const confirmPhone = (token: unknown) =>
+            fetch(new URL('/confirm-phone', env.apiOrigin), {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${String(token)}`,
+                },
+                body: JSON.stringify({ code: '123456' }),
+            });
+        const stubSms = () => {
+            const prelude = env.server.clients.prelude;
+            vi.spyOn(prelude, 'isConfigured').mockReturnValue(true);
+            vi.spyOn(prelude, 'checkVerification').mockResolvedValue({
+                status: 'success',
+            } as never);
+        };
+
+        it('signs every other session out when one proves it, and remembers only that device', async () => {
+            stubSms();
+            const { username, user } = await account();
+            await env.server.stores.user.update(user.id, { phone: ON_FILE });
+            // Signed in before anything was asked.
+            const earlier = await login(username);
+            expect(earlier.deviceCookie).toBeDefined();
+
+            await env.server.stores.user.update(user.id, {
+                requires_phone_verification: 1,
+            });
+            const other = await login(username);
+            const owner = await login(username);
+            expect(other.body.user?.requires_phone_verification).toBe(true);
+
+            const proved = await confirmPhone(owner.body.token);
+            expect(await proved.json()).toMatchObject({ phone_verified: true });
+
+            expect((await whoami(owner.body.token)).status).toBe(200);
+            // The gate is on the account, so nobody else rides through on it.
+            expect((await whoami(earlier.body.token)).status).toBe(401);
+            expect((await whoami(other.body.token)).status).toBe(401);
+            expect(
+                (await env.server.stores.user.getById(user.id, { force: true }))
+                    ?.requires_phone_verification,
+            ).toBe(false);
+
+            // Only the device that proved it counts as the account's.
+            const seen: boolean[] = [];
+            listen('puter.signin.validate', (event) => {
+                if (event.user.uuid === user.uuid) seen.push(event.known_device);
+            });
+            await login(username, { cookie: owner.deviceCookie });
+            await login(username, { cookie: other.deviceCookie });
+            expect(seen).toEqual([true, false]);
+        });
+
+        it('signs the other sessions out before the gate clears', async () => {
+            stubSms();
+            const { username, user } = await account();
+            await env.server.stores.user.update(user.id, {
+                phone: ON_FILE,
+                requires_phone_verification: 1,
+            });
+            const other = await login(username);
+            const owner = await login(username);
+            const update = env.server.stores.user.update.bind(
+                env.server.stores.user,
+            );
+            let otherAtClear = -1;
+            vi.spyOn(env.server.stores.user, 'update').mockImplementation(
+                async (...args) => {
+                    const patch = args[1] as Record<string, unknown>;
+                    if (
+                        args[0] === user.id &&
+                        patch.requires_phone_verification === 0
+                    )
+                        otherAtClear = (await whoami(other.body.token)).status;
+                    return update(...(args as Parameters<typeof update>));
+                },
+            );
+            expect((await confirmPhone(owner.body.token)).status).toBe(200);
+            expect(otherAtClear).toBe(401);
+        });
+
+        it.each([
+            ['before the gate clears', 0],
+            ['after the gate clears', 1],
+        ])('keeps the gate when the other sessions cannot be signed out %s', async (_, passes) => {
+            stubSms();
+            const { username, user } = await account();
+            await env.server.stores.user.update(user.id, {
+                phone: ON_FILE,
+                requires_phone_verification: 1,
+            });
+            const signedIn = await login(username);
+            const revoke = vi.spyOn(
+                env.server.services.auth,
+                'revokeAllSessions',
+            );
+            for (let i = 0; i < passes; i++)
+                revoke.mockResolvedValueOnce(undefined);
+            revoke.mockRejectedValueOnce(new Error('session store down'));
+            // What the gate was set to, and how many passes had run by then.
+            const gateWrites: [unknown, number][] = [];
+            const update = env.server.stores.user.update.bind(
+                env.server.stores.user,
+            );
+            vi.spyOn(env.server.stores.user, 'update').mockImplementation(
+                async (...args) => {
+                    const patch = args[1] as Record<string, unknown>;
+                    if (
+                        args[0] === user.id &&
+                        'requires_phone_verification' in patch
+                    )
+                        gateWrites.push([
+                            patch.requires_phone_verification,
+                            revoke.mock.calls.length,
+                        ]);
+                    return update(...(args as Parameters<typeof update>));
+                },
+            );
+            expect((await confirmPhone(signedIn.body.token)).status).toBe(500);
+            expect(revoke).toHaveBeenCalledTimes(passes + 1);
+            // Cleared after the first pass, put back after the second failed.
+            expect(gateWrites).toEqual(
+                passes === 0
+                    ? []
+                    : [
+                          [0, 1],
+                          [1, 2],
+                      ],
+            );
+            expect(
+                (await env.server.stores.user.getById(user.id, { force: true }))
+                    ?.requires_phone_verification,
+            ).toBe(true);
+        });
+
+        it('does not keep a session whose sign-in finds the proof already given', async () => {
+            const { username, user } = await account();
+            await env.server.stores.user.update(user.id, {
+                phone: ON_FILE,
+                requires_phone_verification: 1,
+            });
+            // The proof lands between this sign-in reading the gate and
+            // opening its session.
+            const create = env.server.services.auth.createSessionToken.bind(
+                env.server.services.auth,
+            );
+            vi.spyOn(
+                env.server.services.auth,
+                'createSessionToken',
+            ).mockImplementationOnce(async (...args) => {
+                await env.server.stores.user.update(user.id, {
+                    requires_phone_verification: 0,
+                });
+                return create(...(args as Parameters<typeof create>));
+            });
+            const before = await sessionCount(user.id);
+            const late = await login(username);
+            expect(late.status).toBe(409);
+            expect(late.body.errorCode ?? late.body.code).toBe('signin_retry');
+            expect(await sessionCount(user.id)).toBe(before);
+            // Nor does the browser get a cookie for it.
+            expect(late.sessionCookies).toEqual([]);
+            expect((await login(username)).sessionCookies).toHaveLength(1);
+        });
+    });
+
     describe('credential exposure from the edge proxy', () => {
         const exposureNotices = () =>
             sent.filter(
@@ -1169,15 +1378,25 @@ describe('sign-in pipeline', () => {
         it('tells validate listeners before the session is minted', async () => {
             const { username, user } = await account();
             const seen: boolean[] = [];
+            const signals: (readonly string[])[] = [];
             listen('puter.signin.validate', (event) => {
-                if (event.user.uuid === user.uuid)
-                    seen.push(event.credential_exposed);
+                if (event.user.uuid !== user.uuid) return;
+                seen.push(event.credential_exposed);
+                signals.push(event.request_signals);
             });
             await login(username, {
-                headers: { [EXPOSED_HEADER]: SIGNAL_SECRET },
+                headers: {
+                    [EXPOSED_HEADER]: SIGNAL_SECRET,
+                    [BOT_HEADER]: SIGNAL_SECRET,
+                },
             });
             await login(username);
             expect(seen).toEqual([true, false]);
+            expect([...signals[0]!].sort()).toEqual([
+                'bot',
+                'credential_exposed',
+            ]);
+            expect(signals[1]).toEqual([]);
         });
 
         it('records, alarms and emails once per password after the password verifies', async () => {

@@ -6563,7 +6563,7 @@ describe('AuthController phone on file', () => {
                     key: `phone-on-file-proven:${user.id}`,
                 })
             ).res,
-        ).toBe(ON_FILE);
+        ).toMatchObject({ phone: ON_FILE });
         expect(
             (await server.stores.user.getById(user.id, { force: true }))!
                 .requires_phone_verification,
@@ -6582,7 +6582,7 @@ describe('AuthController phone on file', () => {
                 makeRes(),
             );
         });
-        expect(await proven(onFile.user.id)).toBe(ON_FILE);
+        expect(await proven(onFile.user.id)).toMatchObject({ phone: ON_FILE });
 
         // A number entered for the first time proves nothing about the past.
         const fresh = await makeUserAndActor({
@@ -6633,6 +6633,29 @@ describe('AuthController phone on file', () => {
                 ),
             ).rejects.toMatchObject({ statusCode: 409 });
         });
+    });
+
+    it('asks a card step on an account with a card for that card', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+            card_fingerprint: 'fp_on_file',
+        });
+        for (const [fingerprint, entered] of [
+            ['fp_other', true],
+            ['fp_on_file', false],
+        ] as const) {
+            expect((await confirmCard(actor, fingerprint, entered)).body).toEqual({
+                card_verified: false,
+                reason: 'card_not_on_file',
+            });
+        }
+        expect((await confirmCard(actor, 'fp_on_file')).body).toMatchObject({
+            card_verified: true,
+        });
+        expect(
+            (await server.stores.user.getById(user.id, { force: true }))!
+                .requires_card_verification,
+        ).toBe(false);
     });
 
     it('sends at most two codes a day to a number on file', async () => {

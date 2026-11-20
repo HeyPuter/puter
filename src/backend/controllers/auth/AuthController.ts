@@ -73,6 +73,7 @@ import {
 } from '../../util/cardFallback.js';
 import {
     hasPhoneFromBeforeDormancy,
+    isCardOnFileStep,
     isEmailGateLast,
     isEmailPending,
     isPhoneOnFileStep,
@@ -134,7 +135,12 @@ import { PuterController } from '../types.js';
 import type { SignInInput } from '../../services/auth/SignInService.js';
 import { claimOnce } from '../../util/kvClaim.js';
 import { knownDeviceStatus } from './knownDevice.js';
-import { runAfterResponse, startWebSession } from './webSession.js';
+import {
+    rememberProvenDevice,
+    runAfterResponse,
+    signInOf,
+    startWebSession,
+} from './webSession.js';
 import { completeOidcLoginReturn } from './oidcLoginReturn.js';
 
 const FINGERPRINT_MAX_LENGTH = 128;
@@ -1899,11 +1905,18 @@ export class AuthController extends PuterController {
         }
 
         // Verified — persist the number now (and only now) and clear the gate.
-        if (isPhoneOnFileStep(user)) await this.#markPhoneOnFileProven(user);
+        const provedOnFile = isPhoneOnFileStep(user);
+        if (provedOnFile) await this.#beforeProofOnFile(req);
         await this.stores.user.update(user.id, {
             requires_phone_verification: 0,
             phone: pendingPhone,
         });
+        if (provedOnFile) {
+            await this.#afterProofOnFile(req, user, {
+                requires_phone_verification: 1,
+            });
+            await this.#markPhoneOnFileProven(req, user);
+        }
         await this.sendDeferredConfirmation(user.id);
 
         // Run the verified-event listeners synchronously (emitAndWait, not
@@ -2124,15 +2137,17 @@ export class AuthController extends PuterController {
             );
 
         // While a number on file waits to be proven, the only card that
-        // verifies is the one already on file, entered again.
+        // verifies is the one already on file, entered again. A card step on
+        // an account that has a card asks for that card too.
         const onFileStep = isPhoneOnFileStep(user);
         if (onFileStep && !user.card_fingerprint) {
             res.json({ card_verified: false, reason: 'card_not_on_file' });
             return;
         }
-        const requiredFingerprint = onFileStep
-            ? (user.card_fingerprint as string)
-            : null;
+        const requiredFingerprint =
+            onFileStep || isCardOnFileStep(user)
+                ? (user.card_fingerprint as string)
+                : null;
 
         const confirmEvent = {
             user_id: user.id,
@@ -2200,12 +2215,21 @@ export class AuthController extends PuterController {
         // ever clear a phone gate.
         const clearedPhoneGate =
             fallbackEligible && Boolean(user.requires_phone_verification);
-        if (clearedPhoneGate && onFileStep)
-            await this.#markPhoneOnFileProven(user);
+        if (requiredFingerprint !== null) await this.#beforeProofOnFile(req);
         await this.stores.user.update(user.id, {
             requires_card_verification: 0,
             ...(clearedPhoneGate ? { requires_phone_verification: 0 } : {}),
         });
+        // Only the gates this request cleared go back on if it fails.
+        if (requiredFingerprint !== null)
+            await this.#afterProofOnFile(req, user, {
+                ...(user.requires_card_verification
+                    ? { requires_card_verification: 1 }
+                    : {}),
+                ...(clearedPhoneGate ? { requires_phone_verification: 1 } : {}),
+            });
+        if (clearedPhoneGate && onFileStep)
+            await this.#markPhoneOnFileProven(req, user);
         await this.sendDeferredConfirmation(user.id);
 
         // Awaited like `user.phone-verified`, so whatever a listener grants on
@@ -2783,7 +2807,7 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found', {
                 legacyCode: 'not_found',
             });
-        await this.#assertEmailChangeAllowed(user);
+        await this.#assertEmailChangeAllowed(req, user);
         this.#requireAccountTwoFactor(user, req.body?.code);
 
         const { new_email } = req.body ?? {};
@@ -2873,7 +2897,10 @@ export class AuthController extends PuterController {
      * the number the account had before, proven again within the hour (by its
      * code, or by the card on file). Without that the code is still required.
      */
-    async #assertEmailChangeAllowed(user: UserRow): Promise<void> {
+    async #assertEmailChangeAllowed(
+        req: Request,
+        user: UserRow,
+    ): Promise<void> {
         if (!isEmailPending(user)) {
             assertVerifiedAccount(user);
             return;
@@ -2890,7 +2917,14 @@ export class AuthController extends PuterController {
             const { res } = await this.stores.kv.get({
                 key: phoneOnFileProvenKey(user.id),
             });
-            proven = res === user.phone;
+            // The proof counts for the sign-in that gave it, not the account.
+            const proof = res as { phone?: unknown; signIn?: unknown } | null;
+            const signIn = signInOf(req);
+            proven =
+                Boolean(user.phone) &&
+                Boolean(signIn) &&
+                proof?.phone === user.phone &&
+                proof?.signIn === signIn;
         } catch (e) {
             console.warn('[change-email] phone proof unreadable:', e);
         }
@@ -2907,12 +2941,40 @@ export class AuthController extends PuterController {
         );
     }
 
+    /**
+     * The phone or card on file was just proven. The gate is on the account, so
+     * clearing it lets every session through: the account's other sign-ins are
+     * signed out first, while the gate still holds them.
+     */
+    async #beforeProofOnFile(req: Request): Promise<void> {
+        await this.services.auth.revokeAllSessions(req.actor!);
+    }
+
+    /**
+     * The gate is clear. Sign-ins made since the first pass are signed out too,
+     * and this one's device is remembered. If they can't be signed out, `gates`
+     * goes back on and the request fails.
+     */
+    async #afterProofOnFile(
+        req: Request,
+        user: UserRow,
+        gates: Record<string, number>,
+    ): Promise<void> {
+        try {
+            await this.services.auth.revokeAllSessions(req.actor!);
+        } catch (e) {
+            await this.stores.user.update(user.id, gates);
+            throw e;
+        }
+        await rememberProvenDevice(req, user.uuid, { kv: this.stores.kv });
+    }
+
     /** Best effort: a failed write only means the number is asked for again. */
-    async #markPhoneOnFileProven(user: UserRow): Promise<void> {
+    async #markPhoneOnFileProven(req: Request, user: UserRow): Promise<void> {
         try {
             await this.stores.kv.set({
                 key: phoneOnFileProvenKey(user.id),
-                value: user.phone,
+                value: { phone: user.phone, signIn: signInOf(req) },
                 expireAt:
                     Math.floor(Date.now() / 1000) +
                     PHONE_ON_FILE_PROVEN_TTL_SECONDS,
@@ -5346,7 +5408,11 @@ export class AuthController extends PuterController {
                   });
         // The row it hands back carries the gates the sign-in just set, so
         // the client opens the right verification flow straight away.
-        const { guiToken: gui_token, user } = await startWebSession(
+        const {
+            guiToken: gui_token,
+            user,
+            orgSeat,
+        } = await startWebSession(
             req,
             res,
             resolvedUser,
@@ -5356,6 +5422,7 @@ export class AuthController extends PuterController {
                 signIn: this.services.signIn,
                 token: this.services.token,
                 kv: this.stores.kv,
+                user: this.stores.user,
             },
             method,
         );
@@ -5370,7 +5437,7 @@ export class AuthController extends PuterController {
                 stores: this.stores,
                 services: this.services,
             },
-            { isUser: true },
+            { isUser: true, orgSeat },
         );
         scrubSensitive(details);
 

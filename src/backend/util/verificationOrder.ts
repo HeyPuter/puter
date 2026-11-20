@@ -41,6 +41,22 @@ export const isPhoneOnFileStep = (
 ): boolean =>
     Boolean(user?.phone) && Boolean(user?.requires_phone_verification);
 
+/**
+ * The card gate is set on an account that already has a card: only that card,
+ * entered again, clears it.
+ */
+export const isCardOnFileStep = (
+    user:
+        | {
+              card_fingerprint?: unknown;
+              requires_card_verification?: boolean | number | null;
+          }
+        | null
+        | undefined,
+): boolean =>
+    Boolean(user?.card_fingerprint) &&
+    Boolean(user?.requires_card_verification);
+
 type EmailPendingUser =
     | {
           requires_email_confirmation?: boolean | number | null;
