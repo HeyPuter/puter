@@ -204,6 +204,9 @@ const isModerationRefusal = (e: unknown): boolean =>
     isHttpError(e) &&
     (e.code === 'moderation_flagged' || e.code === 'moderation_unavailable');
 
+/** Times the credit gate sizes a request again after losing the headroom. */
+const CREDIT_GATE_ATTEMPTS = 3;
+
 /**
  * The refusal for a request its funds can't cover. When what's missing is only
  * held by the account's own requests still in flight, waiting is the remedy,
@@ -1825,6 +1828,7 @@ export class ChatCompletionDriver extends PuterDriver {
             /** The instant this attempt is priced at. */
             pricingTime: Date;
         },
+        attempt = 1,
     ): Promise<{
         hold: CreditHold;
         fundsCap?: number;
@@ -1893,15 +1897,20 @@ export class ChatCompletionDriver extends PuterDriver {
         // affordability check here and the output cap below, net of holds,
         // and the balance alone, which tells spent from committed to requests
         // that are still running.
-        let { balance, held } = await metering.getUsageHeadroom(actor);
+        let headroom = await metering.getUsageHeadroom(actor, {
+            versioned: true,
+        });
         // Short of funds rather than of what running requests hold: a top-up
         // made at this moment is worth reading the balance once more.
         if (
-            balance < fullCost &&
+            headroom.balance < fullCost &&
             (await creditsRefilled(this.clients.event, actor))
         ) {
-            ({ balance, held } = await metering.getUsageHeadroom(actor));
+            headroom = await metering.getUsageHeadroom(actor, {
+                versioned: true,
+            });
         }
+        const { balance, held } = headroom;
         const remainingCredits = Math.max(0, balance - held);
 
         if (remainingCredits < needed) {
@@ -1968,10 +1977,24 @@ export class ChatCompletionDriver extends PuterDriver {
             approximateInputCost +
             extras +
             (args.max_tokens ?? 0) * outputTokenCost;
+        // Held only if it still fits the headroom the cap was sized from.
+        // Requests this account started at the same moment read the same
+        // headroom; the ones that lose size themselves again from what is left.
         const hold = await this.#aiMetering.reserveCredits(
             actor,
             Math.max(worstCaseCost, minimumCredits),
+            { within: headroom },
         );
+        if (!hold) {
+            if (attempt >= CREDIT_GATE_ATTEMPTS) throw fundsRefusal(true);
+            return this.#applyCreditGate(
+                actor,
+                model,
+                args,
+                estimates,
+                attempt + 1,
+            );
+        }
         return { hold, fundsCap, costFactor, promptTokenEstimate };
     }
 

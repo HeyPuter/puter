@@ -391,6 +391,70 @@ describe('ChatCompletionDriver credit gate against real metering', () => {
         ).toBeGreaterThan(0);
     });
 
+    it('holds no more than the balance for requests that start at the same moment', async () => {
+        const actor = freeUser() as never;
+        const metering = server.services.metering;
+        const allowance = (await metering.getActorSubscription(actor))
+            .monthUsageAllowance;
+        await metering.incrementUsage(
+            actor,
+            'test:prior-spend',
+            1,
+            Math.floor(allowance * 0.9),
+        );
+        const { remaining: balance } = await metering.getAllowedUsage(actor);
+
+        let finish: (v: unknown) => void = () => {};
+        const inFlight = new Promise((r) => {
+            finish = r;
+        });
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockImplementation(
+                async () =>
+                    inFlight.then(() => ({
+                        message: {
+                            role: 'assistant',
+                            content: [{ type: 'text', text: 'ok' }],
+                        },
+                        usage: { input_tokens: 1, output_tokens: 1 },
+                        finish_reason: 'stop',
+                    })) as never,
+            );
+
+        // Each would take all that's left if it were alone.
+        const requests = Array.from({ length: 6 }, (_, i) =>
+            withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'priced',
+                        messages: [{ role: 'user', content: `request ${i}` }],
+                    }),
+                actor,
+            ).catch((error) => error),
+        );
+        await vi.waitFor(() => expect(completeSpy).toHaveBeenCalled());
+        // Every request has either reached the provider or been refused.
+        await vi.waitFor(async () => {
+            const settled = await Promise.all(
+                requests.map((request) =>
+                    Promise.race([request, Promise.resolve('running')]),
+                ),
+            );
+            expect(
+                settled.filter((outcome) => outcome === 'running'),
+            ).toHaveLength(completeSpy.mock.calls.length);
+        });
+
+        expect(await metering.getOutstandingHolds(actor)).toBeLessThanOrEqual(
+            balance,
+        );
+
+        finish(undefined);
+        await Promise.all(requests);
+        completeSpy.mockRestore();
+    });
+
     it('caps output to the balance left, so one call cannot run away with the month', async () => {
         const actor = freeUser() as never;
         const metering = server.services.metering;

@@ -26,6 +26,7 @@ import {
     type CreditHold,
     NO_CREDIT_HOLD,
     type UsageByType,
+    type UsageHeadroom,
     type UsageInput,
 } from '../services/metering/types.js';
 
@@ -374,9 +375,29 @@ export function withAiCostFactor(
     const reserveCredits = async (
         actor: Actor,
         amount: number,
+        opts?: { ttlMs?: number; within?: UsageHeadroom },
+    ): Promise<CreditHold | null> => {
+        const hold = await metering.reserveCredits(
+            actor,
+            amount,
+            opts as { within: UsageHeadroom },
+        );
+        return hold && outlastingWrites(hold);
+    };
+
+    // For a cost the caller has already factored.
+    const reserveCreditsIfAffordable = async (
+        actor: Actor,
+        amount: number,
         opts?: { ttlMs?: number },
-    ): Promise<CreditHold> =>
-        outlastingWrites(await metering.reserveCredits(actor, amount, opts));
+    ): Promise<CreditHold | null> => {
+        const hold = await metering.reserveCreditsIfAffordable(
+            actor,
+            amount,
+            opts,
+        );
+        return hold && outlastingWrites(hold);
+    };
 
     const overrides: Record<string, unknown> = {
         incrementUsage: (...args: Parameters<typeof incrementUsage>) =>
@@ -390,6 +411,7 @@ export function withAiCostFactor(
         costFactor,
         reserveAiCredits,
         reserveCredits,
+        reserveCreditsIfAffordable,
     };
 
     // A proxy, not a wrapper: providers use far more of the service than the

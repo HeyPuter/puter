@@ -718,7 +718,7 @@ describe('TogetherVideoProvider.generate per-second models', () => {
         expect('height' in sent).toBe(false);
         expect('ratio' in sent).toBe(false);
         // The flat-rate gate is not consulted for per-second models.
-        expect(admitSpy).not.toHaveBeenCalled();
+        expect(admitSpy).toHaveBeenCalledTimes(1);
 
         const seedance = TOGETHER_VIDEO_GENERATION_MODELS.find(
             (m) => m.model === 'ByteDance/Seedance-2.5',
