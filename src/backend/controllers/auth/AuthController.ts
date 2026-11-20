@@ -136,8 +136,8 @@ import type { SignInInput } from '../../services/auth/SignInService.js';
 import { claimOnce } from '../../util/kvClaim.js';
 import { knownDeviceStatus } from './knownDevice.js';
 import {
+    rememberProvenDevice,
     runAfterResponse,
-    settleProofOnFile,
     startWebSession,
 } from './webSession.js';
 import { completeOidcLoginReturn } from './oidcLoginReturn.js';
@@ -1904,14 +1904,16 @@ export class AuthController extends PuterController {
         }
 
         // Verified — persist the number now (and only now) and clear the gate.
-        if (isPhoneOnFileStep(user)) {
-            await this.#settleProofOnFile(req, user);
-            await this.#markPhoneOnFileProven(user);
-        }
+        const provedOnFile = isPhoneOnFileStep(user);
+        if (provedOnFile) await this.#markPhoneOnFileProven(user);
         await this.stores.user.update(user.id, {
             requires_phone_verification: 0,
             phone: pendingPhone,
         });
+        if (provedOnFile)
+            await this.#afterProofOnFile(req, user, {
+                requires_phone_verification: 1,
+            });
         await this.sendDeferredConfirmation(user.id);
 
         // Run the verified-event listeners synchronously (emitAndWait, not
@@ -2210,14 +2212,21 @@ export class AuthController extends PuterController {
         // ever clear a phone gate.
         const clearedPhoneGate =
             fallbackEligible && Boolean(user.requires_phone_verification);
-        if (requiredFingerprint !== null)
-            await this.#settleProofOnFile(req, user);
         if (clearedPhoneGate && onFileStep)
             await this.#markPhoneOnFileProven(user);
         await this.stores.user.update(user.id, {
             requires_card_verification: 0,
             ...(clearedPhoneGate ? { requires_phone_verification: 0 } : {}),
         });
+        if (requiredFingerprint !== null)
+            await this.#afterProofOnFile(req, user, {
+                requires_card_verification: user.requires_card_verification
+                    ? 1
+                    : 0,
+                requires_phone_verification: user.requires_phone_verification
+                    ? 1
+                    : 0,
+            });
         await this.sendDeferredConfirmation(user.id);
 
         // Awaited like `user.phone-verified`, so whatever a listener grants on
@@ -2919,11 +2928,24 @@ export class AuthController extends PuterController {
         );
     }
 
-    #settleProofOnFile(req: Request, user: UserRow): Promise<void> {
-        return settleProofOnFile(req, user.uuid, {
-            auth: this.services.auth,
-            kv: this.stores.kv,
-        });
+    /**
+     * The phone or card on file was just proven and its gate cleared. The gate
+     * is on the account, so clearing it would let every session through: all
+     * other sign-ins are signed out, and this one's device is remembered. If
+     * they can't be signed out, `gates` goes back on and the request fails.
+     */
+    async #afterProofOnFile(
+        req: Request,
+        user: UserRow,
+        gates: Record<string, number>,
+    ): Promise<void> {
+        try {
+            await this.services.auth.revokeAllSessions(req.actor!);
+        } catch (e) {
+            await this.stores.user.update(user.id, gates);
+            throw e;
+        }
+        await rememberProvenDevice(req, user.uuid, { kv: this.stores.kv });
     }
 
     /** Best effort: a failed write only means the number is asked for again. */
@@ -5379,6 +5401,7 @@ export class AuthController extends PuterController {
                 signIn: this.services.signIn,
                 token: this.services.token,
                 kv: this.stores.kv,
+                user: this.stores.user,
             },
             method,
         );

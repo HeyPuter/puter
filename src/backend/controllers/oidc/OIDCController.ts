@@ -1075,6 +1075,7 @@ if (window.opener) {
                     signIn: this.services.signIn,
                     token: this.services.token,
                     kv: this.stores.kv,
+                    user: this.stores.user,
                 },
                 method,
             );

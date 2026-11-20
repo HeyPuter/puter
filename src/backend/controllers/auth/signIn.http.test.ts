@@ -1213,7 +1213,7 @@ describe('sign-in pipeline', () => {
             } as never);
         };
 
-        it('ends the other sessions opened meanwhile when one of them proves it, and remembers only that device', async () => {
+        it('signs every other session out when one proves it, and remembers only that device', async () => {
             stubSms();
             const { username, user } = await account();
             await env.server.stores.user.update(user.id, { phone: ON_FILE });
@@ -1232,8 +1232,13 @@ describe('sign-in pipeline', () => {
             expect(await proved.json()).toMatchObject({ phone_verified: true });
 
             expect((await whoami(owner.body.token)).status).toBe(200);
-            expect((await whoami(earlier.body.token)).status).toBe(200);
+            // The gate is on the account, so nobody else rides through on it.
+            expect((await whoami(earlier.body.token)).status).toBe(401);
             expect((await whoami(other.body.token)).status).toBe(401);
+            expect(
+                (await env.server.stores.user.getById(user.id, { force: true }))
+                    ?.requires_phone_verification,
+            ).toBe(false);
 
             // Only the device that proved it counts as the account's.
             const seen: boolean[] = [];
@@ -1243,6 +1248,52 @@ describe('sign-in pipeline', () => {
             await login(username, { cookie: owner.deviceCookie });
             await login(username, { cookie: other.deviceCookie });
             expect(seen).toEqual([true, false]);
+        });
+
+        it('puts the gate back when the other sessions cannot be signed out', async () => {
+            stubSms();
+            const { username, user } = await account();
+            await env.server.stores.user.update(user.id, {
+                phone: ON_FILE,
+                requires_phone_verification: 1,
+            });
+            const signedIn = await login(username);
+            vi.spyOn(
+                env.server.services.auth,
+                'revokeAllSessions',
+            ).mockRejectedValueOnce(new Error('session store down'));
+            expect((await confirmPhone(signedIn.body.token)).status).toBe(500);
+            expect(
+                (await env.server.stores.user.getById(user.id, { force: true }))
+                    ?.requires_phone_verification,
+            ).toBe(true);
+        });
+
+        it('does not keep a session whose sign-in finds the proof already given', async () => {
+            const { username, user } = await account();
+            await env.server.stores.user.update(user.id, {
+                phone: ON_FILE,
+                requires_phone_verification: 1,
+            });
+            // The proof lands between this sign-in reading the gate and
+            // opening its session.
+            const create = env.server.services.auth.createSessionToken.bind(
+                env.server.services.auth,
+            );
+            vi.spyOn(
+                env.server.services.auth,
+                'createSessionToken',
+            ).mockImplementationOnce(async (...args) => {
+                await env.server.stores.user.update(user.id, {
+                    requires_phone_verification: 0,
+                });
+                return create(...(args as Parameters<typeof create>));
+            });
+            const before = await sessionCount(user.id);
+            const late = await login(username);
+            expect(late.status).toBe(409);
+            expect(late.body.errorCode ?? late.body.code).toBe('signin_retry');
+            expect(await sessionCount(user.id)).toBe(before);
         });
     });
 

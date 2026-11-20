@@ -26,7 +26,8 @@ import type {
     SignInResult,
     SignInService,
 } from '../../services/auth/SignInService.js';
-import type { UserRow } from '../../stores/user/UserStore.js';
+import { HttpError } from '../../core/http/HttpError.js';
+import type { UserRow, UserStore } from '../../stores/user/UserStore.js';
 import type { IConfig } from '../../types.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import {
@@ -71,6 +72,7 @@ export async function startWebSession(
         config: IConfig;
         auth: AuthService;
         signIn: SignInService;
+        user: Pick<UserStore, 'getById'>;
     } & KnownDeviceDeps,
     method: SignInInput['method'],
 ): Promise<SignInResult> {
@@ -104,22 +106,33 @@ export async function startWebSession(
                 httpOnly: true,
             });
             // A sign-in that still owes proof of the phone or card on file
-            // hasn't shown it is the owner's: its device isn't remembered, and
-            // the session is noted so that proof from elsewhere ends it.
-            if (
-                isPhoneOnFileStep(sessionUser) ||
-                isCardOnFileStep(sessionUser)
-            ) {
-                const now = Math.floor(Date.now() / 1000);
-                await deps.kv.set({
-                    key: unprovenSessionPrefix(user.uuid) + session.uuid,
-                    value: {
-                        deviceId: recordDevice
-                            ? issueDeviceCookie(req, res, deps)
-                            : null,
-                    },
-                    expireAt: now + UNPROVEN_SESSION_TTL_SECONDS,
-                });
+            // hasn't shown it is the owner's, so its device isn't remembered
+            // yet; the id is kept for the request that proves it.
+            if (owesProofOnFile(sessionUser)) {
+                if (recordDevice) {
+                    try {
+                        await deps.kv.set({
+                            key: unprovenDeviceKey(String(session.uuid)),
+                            value: issueDeviceCookie(req, res, deps),
+                            expireAt:
+                                Math.floor(Date.now() / 1000) +
+                                UNPROVEN_DEVICE_TTL_SECONDS,
+                        });
+                    } catch (e) {
+                        console.warn('[known-device] pending id not kept:', e);
+                    }
+                }
+                // The proof signs every other session out. One that lands
+                // while this sign-in runs would miss this session, so a
+                // sign-in that finds the gate gone doesn't keep it.
+                const fresh = await deps.user.getById(user.id, { force: true });
+                if (!fresh || !owesProofOnFile(fresh)) {
+                    await deps.auth.revokeSession(String(session.uuid));
+                    throw new HttpError(409, 'Please sign in again.', {
+                        legacyCode: 'conflict',
+                        code: 'signin_retry',
+                    });
+                }
             } else if (recordDevice) {
                 await rememberDevice(req, res, user.uuid, deps);
             }
@@ -129,44 +142,35 @@ export async function startWebSession(
     });
 }
 
-/** Sessions opened while the account owed proof of its phone or card on file. */
-const unprovenSessionPrefix = (userUuid: string): string =>
-    `signin-unproven:${userUuid}:`;
-const UNPROVEN_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
-const UNPROVEN_SESSIONS_READ = 100;
+const owesProofOnFile = (user: UserRow): boolean =>
+    isPhoneOnFileStep(user) || isCardOnFileStep(user);
+
+/** The device id of a session opened while proof on file was owed. */
+const unprovenDeviceKey = (sessionUuid: string): string =>
+    `signin-unproven-device:${sessionUuid}`;
+// As long as an idle web session lasts.
+const UNPROVEN_DEVICE_TTL_SECONDS = 180 * 24 * 60 * 60;
 
 /**
- * Call when a request proves the phone or card on file, before the gate is
- * cleared: the session that proved it keeps going and its device is remembered,
- * and every other session opened while the proof was owed is revoked, since
- * clearing the gate would otherwise let them in too. Rejects if one can't be
- * revoked, so the gate stays.
+ * Remember the device of the session that just proved the phone or card on
+ * file. Best effort: a device that isn't recorded is only asked again.
  */
-export async function settleProofOnFile(
+export async function rememberProvenDevice(
     req: Request,
     userUuid: string,
-    deps: { auth: AuthService } & Pick<KnownDeviceDeps, 'kv'>,
+    deps: Pick<KnownDeviceDeps, 'kv'>,
 ): Promise<void> {
-    const prefix = unprovenSessionPrefix(userUuid);
-    const { res } = await deps.kv.list({
-        pattern: prefix,
-        as: 'entries',
-        limit: UNPROVEN_SESSIONS_READ,
-    });
-    const entries = ((res as { items?: unknown[] })?.items ?? []) as Array<{
-        key: string;
-        value: { deviceId?: string | null } | null;
-    }>;
     const session = req.actor?.session;
-    const proving = new Set([session?.uid, session?.parentUid]);
-    for (const { key, value } of entries) {
-        const sessionUuid = key.slice(prefix.length);
-        if (proving.has(sessionUuid)) {
-            if (value?.deviceId)
-                await recordKnownDevice(userUuid, value.deviceId, deps);
-        } else {
-            await deps.auth.revokeSession(sessionUuid);
+    for (const sessionUuid of [session?.uid, session?.parentUid]) {
+        if (!sessionUuid) continue;
+        try {
+            const key = unprovenDeviceKey(sessionUuid);
+            const { res } = await deps.kv.get({ key });
+            if (typeof res !== 'string' || !res) continue;
+            await recordKnownDevice(userUuid, res, deps);
+            await deps.kv.del({ key });
+        } catch (e) {
+            console.warn('[known-device] proven device not recorded:', e);
         }
-        await deps.kv.del({ key });
     }
 }
