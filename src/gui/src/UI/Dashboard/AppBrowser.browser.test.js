@@ -603,6 +603,44 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('keeps keyboard focus on Upgrade through the sign-in it asks for and the upgrade after it', async () => {
+            const context = await menuContext(null);
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu').evaluate(el => el.setAttribute('show-upgrade', ''));
+                const button = page.locator('puter-user-menu .upgrade-button');
+                await button.waitFor();
+                // What `puter.auth.signIn()` does once its popup hands back a token.
+                await page.evaluate(() => {
+                    puter.auth.signIn = async () => {
+                        puter.setAuthToken('app-token-session-user');
+                        return { success: true, token: 'app-token-session-user' };
+                    };
+                });
+                await button.focus();
+                await page.keyboard.press('Enter');
+                const frame = page.locator('dialog.puter-popup-frame iframe');
+                await frame.waitFor({ state: 'attached' });
+                expect(await frame.getAttribute('src')).toBe(`${origin}/embed/upgrade#user=${sessionUser}`);
+
+                await page.evaluate((guiOrigin) => {
+                    const source = document.querySelector('dialog.puter-popup-frame iframe').contentWindow;
+                    for ( const state of ['ready', 'closed'] ) {
+                        window.dispatchEvent(new MessageEvent('message', {
+                            data: { msg: 'puterPopupFrame', state }, origin: guiOrigin, source,
+                        }));
+                    }
+                }, origin);
+                await page.locator('dialog.puter-popup-frame').waitFor({ state: 'detached' });
+                expect(await page.evaluate(() => document.activeElement.shadowRoot?.activeElement?.className ?? document.activeElement.tagName)).toBe('upgrade-button');
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('reads Manage plan on the Upgrade button of an account with a plan', async () => {
             const context = await menuContext('app-token-subscriber');
             try {

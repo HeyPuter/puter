@@ -871,9 +871,16 @@ class PuterUserMenu extends PuterWebComponent {
             void globalThis.puter.ui.showUpgrade_();
             return;
         }
+        const button = this.$('.upgrade-button');
+        const hadFocus = this.shadowRoot.activeElement === button;
         // The upgrade follows the sign-in, for the account that signed in, unless its team pays.
         void this._signIn().then((signedIn) => {
-            if ( signedIn && !isSeat(signedIn.user) ) void globalThis.puter.ui.showUpgrade_();
+            if ( ! signedIn ) return;
+            // Loading the new account hid the button, which dropped the focus. The upgrade
+            // frame hands the focus back to wherever it is when the frame opens.
+            const active = document.activeElement;
+            if ( hadFocus && !button.hidden && (!active || active === document.body) ) button.focus({ preventScroll: true });
+            if ( ! isSeat(signedIn.user) ) void globalThis.puter.ui.showUpgrade_();
         });
     }
 
