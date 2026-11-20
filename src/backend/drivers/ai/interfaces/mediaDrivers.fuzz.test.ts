@@ -24,6 +24,8 @@
  * each provider's request building, and the mapping of the refusal.
  */
 
+import { Readable } from 'node:stream';
+
 import { PollyClient } from '@aws-sdk/client-polly';
 import { TextractClient } from '@aws-sdk/client-textract';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -34,12 +36,16 @@ import { setupTestServer } from '../../../testUtil.js';
 import { isDriverStreamResult } from '../../meta.js';
 import {
     fuzzCalls,
+    caseRandom,
+    Findings,
+    unclassifiedFailure,
     fuzzCases,
     hostileValue,
     pick,
     pickStable,
     type Random,
     upstream,
+    type UpstreamReply,
 } from '../shared/fuzzTestUtil.js';
 import {
     readStreamResult,
@@ -180,6 +186,7 @@ const TARGETS: Target[] = [
             'gemini',
             'kling',
             'openai',
+            'speechify',
             'xai',
         ],
         routes: providerRoutes,
@@ -278,6 +285,301 @@ const TARGETS: Target[] = [
     },
 ];
 
+
+// -- Malformed successes --
+
+const realSetTimeout = globalThis.setTimeout;
+const MEDIA_URL = 'https://media.upstream.test/a.bin';
+const DONE = [
+    'succeeded',
+    'completed',
+    'success',
+    'Success',
+    'succeed',
+    'SUCCEEDED',
+    'COMPLETED',
+    'done',
+    'finished',
+    'failed',
+    'Fail',
+    'error',
+    'canceled',
+    'expired',
+];
+const PENDING = [
+    'queued',
+    'processing',
+    'running',
+    'submitted',
+    'starting',
+    'in_progress',
+    'Queueing',
+    'Processing',
+    'Preparing',
+];
+const REPLY_KEYS = [
+    'status',
+    'message',
+    'usage',
+    'data',
+    'id',
+    'model',
+    'text',
+    'error',
+    'output',
+    'outputs',
+    'url',
+    'urls',
+    'get',
+    'stream',
+    'b64_json',
+    'image',
+    'images',
+    'video',
+    'videos',
+    'video_url',
+    'result',
+    'results',
+    'content',
+    'duration',
+    'seconds',
+    'words',
+    'pages',
+    'language',
+    'task_id',
+    'task_status',
+    'task_status_msg',
+    'task_result',
+    'code',
+    'success',
+    'result_info',
+    'errors',
+    'file_id',
+    'file',
+    'download_url',
+    'base_resp',
+    'status_code',
+    'status_msg',
+    'audio_data',
+    'audio',
+    'audio_format',
+    'audio_base64',
+    'alignment',
+    'usageInfo',
+    'usage_info',
+    'pagesProcessed',
+    'pages_processed',
+    'markdown',
+    'index',
+    'documentAnnotation',
+    'document_annotation',
+    'metrics',
+    'predict_time',
+    'image_count',
+    'input_tokens',
+    'output_tokens',
+    'total_tokens',
+    'completion_tokens',
+    'prompt_tokens',
+    'input_tokens_details',
+    'output_tokens_details',
+    'image_tokens',
+    'text_tokens',
+    'generated_images',
+    'cost',
+    'cost_in_usd_ticks',
+    'resolution',
+    'ratio',
+    'width',
+    'height',
+    'size',
+    'quality',
+    'last_frame_image',
+    'first_frame_image',
+    'image_list',
+    'final_unit_deduction',
+    'unit_deduction',
+    'video_width',
+    'video_height',
+    'created_at',
+    'completed_at',
+    'version',
+    'logs',
+    'input',
+    'voices',
+    'voice_id',
+    'name',
+    'type',
+    'has_more',
+    'request_id',
+    'character_count',
+    'characters',
+    'segments',
+    'speakers',
+    'channels',
+    'start',
+    'end',
+    'speaker',
+    'logprobs',
+    'tokens',
+    'info',
+    'AudioStream',
+    'Blocks',
+    'BlockType',
+    'Text',
+    'Confidence',
+    'Id',
+    'RequestCharacters',
+    'ContentType',
+    'DocumentMetadata',
+    'Pages',
+    'Relationships',
+    'Ids',
+    'Type',
+    'Page',
+    'Geometry',
+    'Voices',
+];
+
+const replyLeaf = (random: Random): unknown => {
+    const roll = Math.floor(random() * 12);
+    if (roll <= 1) return MEDIA_URL;
+    if (roll === 2) return PNG.split(',')[1];
+    if (roll === 3) return PNG;
+    if (roll <= 5) return pick(random, DONE);
+    if (roll === 6) return random() < 0.3 ? pick(random, PENDING) : 0;
+    if (roll === 7) return pick(random, [1, 5, 0, 200, 1024, 3.5]);
+    if (roll === 8) return pick(random, ['id_1', 'LINE', 'PAGE', 'mp3', 'en']);
+    if (roll === 9) return random() < 0.5;
+    return hostileValue(random);
+};
+
+const ID_KEY = /(^id$|_id$|^Id$|request_id)/;
+const URL_KEY = /(url|^get$|^stream$|^output$|_image$|^video$|^image$|^file$)/i;
+const STATUS_KEY = /(status$|^code$|^success$|^type$|BlockType)/;
+const COUNT_KEY =
+    /(duration|seconds|tokens|count|^cost|deduction|width|height|time|Pages|pagesProcessed|pages_processed|characters|Confidence|^index$|^start$|^end$)/;
+const LIST_KEY =
+    /(^data$|outputs?$|images$|videos$|results$|words$|pages$|segments$|voices$|Blocks$|image_list|errors$|content$)/;
+
+/** Mostly the kind of value the vendors put under `key`, sometimes not. */
+const replyValue = (random: Random, depth: number, key = ''): unknown => {
+    if (random() < 0.7) {
+        if (ID_KEY.test(key)) return 'id_1';
+        if (STATUS_KEY.test(key) && random() < 0.8) {
+            return pick(random, [
+                ...DONE,
+                ...DONE,
+                0,
+                200,
+                true,
+                'LINE',
+                'PAGE',
+                pick(random, PENDING),
+            ]);
+        }
+        if (COUNT_KEY.test(key)) {
+            return pick(random, [
+                1,
+                5,
+                0,
+                3.5,
+                1024,
+                '5',
+                -1,
+                1e308,
+                2 ** 53,
+                null,
+                '1e309',
+            ]);
+        }
+        if (LIST_KEY.test(key) && depth <= 4 && random() < 0.75) {
+            return Array.from({ length: 1 + Math.floor(random() * 2) }, () =>
+                random() < 0.8
+                    ? replyObject(random, depth + 1)
+                    : replyLeaf(random),
+            );
+        }
+        if (URL_KEY.test(key) && random() < 0.7) {
+            return pick(random, [
+                MEDIA_URL,
+                MEDIA_URL,
+                PNG,
+                PNG.split(',')[1],
+                [MEDIA_URL],
+                { url: MEDIA_URL },
+            ]);
+        }
+    }
+    const roll = random();
+    if (depth > 4 || roll < 0.4) return replyLeaf(random);
+    if (roll < 0.55) {
+        return Array.from({ length: Math.floor(random() * 4) }, () =>
+            replyValue(random, depth + 1),
+        );
+    }
+    return replyObject(random, depth + 1);
+};
+
+const replyObject = (
+    random: Random,
+    depth: number,
+): Record<string, unknown> => {
+    const object: Record<string, unknown> = {};
+    for (let count = 2 + Math.floor(random() * 10); count > 0; count--) {
+        const key = pick(random, REPLY_KEYS);
+        object[key] = replyValue(random, depth, key);
+    }
+    return object;
+};
+
+/** A 2xx answer shaped like no vendor's, built from the fields they use. */
+const vendorReply = (random: Random, url: URL): UpstreamReply => {
+    const roll = random();
+    if (roll < 0.04) return refused;
+    if (roll < 0.1) {
+        return {
+            body: pick(random, [
+                '',
+                '<html>Bad gateway</html>',
+                '{',
+                'null',
+                '[]',
+                '0',
+                '"x"',
+            ]),
+            contentType: pick(random, [
+                'text/html',
+                'application/json',
+                'text/plain',
+            ]),
+        };
+    }
+    if (roll < 0.2 || url.hostname === 'media.upstream.test') {
+        return {
+            body: pick(random, ['bytes', '', 'RIFF', '\u0089PNG']),
+            contentType:
+                pick(random, [
+                    'image/png',
+                    'audio/mpeg',
+                    'video/mp4',
+                    'application/octet-stream',
+                    'text/html',
+                    '',
+                ]) || undefined,
+        };
+    }
+    const body = replyObject(random, 1);
+    for (const key of ['id', 'task_id', 'data', 'status', 'output', 'code']) {
+        if (random() < 0.6) body[key] = replyValue(random, 1, key);
+    }
+    return { body, contentType: 'application/json' };
+};
+
+let awsReply: ((command: unknown) => unknown) | undefined;
+// Charges no vendor answer should be able to cause.
+const charges: string[] = [];
+
 const key = { apiKey: 'fuzz-key' };
 const aws = {
     aws: { access_key: 'AKIAFUZZ', secret_key: 'x', region: 'us-west-2' },
@@ -293,6 +595,7 @@ const providers = {
     'together-ai': key,
     byteplus: key,
     elevenlabs: key,
+    speechify: key,
     kling: key,
     'replicate-image-generation': key,
     'cloudflare-image-generation': { apiToken: 'fuzz-key', accountId: 'acct' },
@@ -310,7 +613,8 @@ let actor: Actor;
 beforeAll(async () => {
     upstream.install();
     upstream.respond = () => refused;
-    const refuse = async () => {
+    const refuse = async (command: unknown) => {
+        if (awsReply) return awsReply(command);
         throw Object.assign(new Error('refused'), {
             name: 'ValidationException',
             $metadata: { httpStatusCode: 400 },
@@ -329,6 +633,45 @@ beforeAll(async () => {
         email: 'media-fuzz@test.local',
         requires_email_confirmation: false,
     });
+    // Poll intervals pass at once; request timeouts are far longer.
+    globalThis.setTimeout = ((
+        fn: () => void,
+        ms?: number,
+        ...rest: unknown[]
+    ) =>
+        realSetTimeout(
+            fn,
+            ms && ms >= 400 && ms <= 6000 ? 1 : ms,
+            ...rest,
+        )) as typeof setTimeout;
+    const metering = server.services.metering as unknown as Record<string, any>;
+    const realBatch = metering.batchIncrementUsages.bind(metering);
+    metering.batchIncrementUsages = (who: unknown, usages: any[]) => {
+        // A flagged charge is recorded and dropped, so it can't drain the
+        // balance the later cases run on.
+        const sane = (usages ?? []).filter((usage) => {
+            let ok = true;
+            for (const [name, value] of [
+                ['amount', usage?.usageAmount],
+                ['cost', usage?.costOverride],
+            ] as const) {
+                if (value === undefined || value === null) continue;
+                if (
+                    typeof value !== 'number' ||
+                    !Number.isFinite(value) ||
+                    value < 0 ||
+                    value > 1e12
+                ) {
+                    charges.push(
+                        `${name} ${usage?.usageType} ${String(value)}`,
+                    );
+                    ok = false;
+                }
+            }
+            return ok;
+        });
+        return realBatch(who, sane);
+    };
     actor = {
         user: {
             id: user.id,
@@ -343,6 +686,7 @@ beforeAll(async () => {
 afterAll(async () => {
     await server?.shutdown();
     upstream.uninstall();
+    globalThis.setTimeout = realSetTimeout;
     vi.restoreAllMocks();
 });
 
@@ -400,4 +744,142 @@ describe.each(TARGETS)('$name driver seeded fuzzing', (target) => {
         // Some of the requests have to get as far as a vendor.
         expect(upstream.asked).toBeGreaterThan(askedBefore);
     }, 600_000);
+    it('settles every request when the vendor answers with a malformed success', async () => {
+        const driver = (server.drivers as unknown as Record<string, any>)[
+            target.driver
+        ];
+        const routes = await target.routes(driver);
+        const only = process.env.PUTER_FUZZ_PROVIDER;
+        const names = target.providers.filter((name) => !only || name === only);
+        if (!names.length) return;
+        const findings = new Findings();
+        const seed = Number(process.env.PUTER_FUZZ_SEED ?? 0x5eed);
+        for (let index = 0; index < fuzzCases(1500); index++) {
+            const random = caseRandom(seed, index);
+            const provider = pickStable(random, names, (name) => name);
+            const candidates = routes.filter((r) => r.provider === provider);
+            const route = pickStable(random, candidates, (c) =>
+                String(c.model),
+            );
+            const args = {
+                ...(random() < 0.6
+                    ? target.corpus[0]
+                    : pick(random, target.corpus)),
+                ...route,
+            };
+            const replies: unknown[] = [];
+            let asks = 0;
+            const replyRandom = caseRandom(seed ^ 0x77, index);
+            upstream.respond = ({ url }) => {
+                if (++asks > 8) return refused;
+                const reply = vendorReply(replyRandom, url);
+                replies.push(`${url.hostname}${url.pathname}`, reply.body);
+                return reply;
+            };
+            // The SDK types its output, so only optional fields vary.
+            awsReply = (command) => {
+                const name = (command as object).constructor.name;
+                if (name === 'DescribeVoicesCommand') {
+                    return {
+                        Voices: [
+                            {
+                                Id: 'Joanna',
+                                Name: 'Joanna',
+                                LanguageCode: 'en-US',
+                                LanguageName: 'US English',
+                                SupportedEngines: [
+                                    'neural',
+                                    'standard',
+                                    'generative',
+                                    'long-form',
+                                ],
+                            },
+                        ],
+                    };
+                }
+                const maybe = <T>(value: T) =>
+                    replyRandom() < 0.25 ? undefined : value;
+                if (name === 'SynthesizeSpeechCommand') {
+                    return {
+                        AudioStream: maybe(Readable.from(Buffer.from('mp3'))),
+                        RequestCharacters: maybe(
+                            pick(replyRandom, [5, 0, -1, 2 ** 31]),
+                        ),
+                        ContentType: maybe('audio/mpeg'),
+                    };
+                }
+                return {
+                    DocumentMetadata: maybe({
+                        Pages: maybe(pick(replyRandom, [1, 0, 3000])),
+                    }),
+                    Blocks: maybe(
+                        Array.from(
+                            { length: Math.floor(replyRandom() * 5) },
+                            () => ({
+                                BlockType: maybe(
+                                    pick(replyRandom, [
+                                        'PAGE',
+                                        'LINE',
+                                        'WORD',
+                                        'TABLE',
+                                    ]),
+                                ),
+                                Text: maybe(
+                                    pick(replyRandom, ['hi', '', '\u0000']),
+                                ),
+                                Confidence: maybe(
+                                    pick(replyRandom, [99.5, 0, NaN]),
+                                ),
+                                Id: maybe('b1'),
+                                Page: maybe(pick(replyRandom, [1, 0, 7])),
+                            }),
+                        ),
+                    ),
+                };
+            };
+            charges.length = 0;
+            let timer: ReturnType<typeof realSetTimeout> | undefined;
+            try {
+                await Promise.race([
+                    (async () => {
+                        const result = await withTestActor(
+                            () => driver[target.method](structuredClone(args)),
+                            actor,
+                        );
+                        if (isDriverStreamResult(result))
+                            await readStreamResult(result);
+                        else JSON.stringify(result);
+                    })(),
+                    new Promise((_, reject) => {
+                        timer = realSetTimeout(
+                            () => reject(new Error('the call did not finish')),
+                            15_000,
+                        );
+                    }),
+                ]);
+            } catch (error) {
+                const failure = unclassifiedFailure(error);
+                if (failure)
+                    findings.add(
+                        `${provider} ${failure.replace(/"[^"]*"\.*/g, '…').replace(/Body:.*/, '')}`,
+                        index,
+                        `${route.model ?? ''}`,
+                        replies,
+                    );
+            } finally {
+                clearTimeout(timer);
+            }
+            for (const charge of charges.splice(0)) {
+                findings.add(
+                    `${provider} metering ${charge.split(' ')[0]}`,
+                    index,
+                    `${route.model ?? ''} ${charge}`,
+                    replies,
+                );
+            }
+        }
+        upstream.respond = () => refused;
+        awsReply = undefined;
+        findings.assertNone();
+    }, 1_800_000);
 });
