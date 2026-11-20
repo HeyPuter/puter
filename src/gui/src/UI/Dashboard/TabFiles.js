@@ -19,7 +19,8 @@
 
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
-import { createUploadThumbnailGenerator } from '../../services/pdfThumbnails/index.js';
+import { createUploadThumbnailGenerator } from '../../services/uploadThumbnails/index.js';
+import { createMissingThumbnailFiller, createRememberedFailures } from '../../services/uploadThumbnails/missing.js';
 import path from '../../lib/path.js';
 import open_item from '../../helpers/openItem.js';
 import UIContextMenu from '../UIContextMenu.js';
@@ -37,6 +38,8 @@ import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
 import { openPublishWebsiteDialog, openPublishWorkerDialog } from './UIPublishDialogs.js';
 import { dedupedName } from '../../helpers/dedupedName.js';
+import { readFileAsDataUrl } from '../../helpers/readFileAsDataUrl.js';
+import { runLimited } from '../../helpers/runLimited.js';
 import { compareEntries, compareNames } from './sortEntries.js';
 import { middleTruncate } from './middleTruncate.js';
 import { resolveTypedPath } from './typedPath.js';
@@ -49,10 +52,18 @@ import { parent_path_for, parse_shared_path, shared_crumbs_for, shared_uids_from
 import resolve_shared_item from '../../helpers/resolveSharedItem.js';
 import { is_owned_by_me } from '../../helpers/pathOwner.js';
 import parse_item_metadata from '../../helpers/parseItemMetadata.js';
-import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sharerFilterHtml, summarizeSharers } from './sharedBy.js';
+import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sharerFilterHtml, sharerOf, summarizeSharers } from './sharedBy.js';
 import { paintAvatars } from '../../helpers/profilePictures.js';
 
 const { html_encode, SelectionArea } = window;
+
+// Permanent deletes in flight at once: a browser's connections to one host.
+const DELETE_CONCURRENCY = 6;
+
+// The "New" menu's stand-ins for window.create_file, one per create in
+// flight (newest last), and the function they stand in for.
+const createFileInterceptors = [];
+let realCreateFile = null;
 
 /**
  * `p` with the folder `from` (itself, or anything under it) moved to `to`;
@@ -231,6 +242,49 @@ const TabFiles = {
         // the actual trash contents once known.
         window.refresh_trash_state();
 
+        // A file an app wrote or edited has no thumbnail; make one as its row
+        // comes into view. fetch rather than puter.fs.read() so leaving the
+        // folder can cancel the download.
+        this.missingThumbnails?.reset();
+        this.missingThumbnails = createMissingThumbnailFiller({
+            download: (uid, signal, byteCount) => fetch(`${window.api_origin}/read?${new URLSearchParams({
+                file: uid,
+                ...(byteCount ? { byte_count: byteCount } : {}),
+            })}`, {
+                headers: { 'Authorization': `Bearer ${window.auth_token}` },
+                cache: 'no-store',
+                signal,
+            }),
+            store: (body) => fetch(`${window.api_origin}/update-fsentry-thumbnail`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${window.auth_token}`,
+                },
+                body: JSON.stringify(body),
+            }),
+            generate: file => createUploadThumbnailGenerator()(file),
+            failures: createRememberedFailures(() => window.localStorage),
+            onStored: (row, fsentry, thumbnail) => {
+                // The update the server announces can get here first, with
+                // the stored thumbnail's own URL.
+                if ( fsentry.thumbnail ) return;
+                fsentry.thumbnail = thumbnail;
+                if ( ! row.isConnected ) return;
+                _this.rowIcon(fsentry).then(icon => {
+                    _this.showRowIcon($(row).find('.item-icon > img').first(), icon);
+                });
+            },
+            // The row kept its old thumbnail for a new one that isn't
+            // coming. The same item in an open file dialog kept it too.
+            onDropped: (row, fsentry) => {
+                if ( ! row.isConnected ) return;
+                _this.rowIcon(fsentry).then(icon => {
+                    _this.showRowIcon($(`.item[data-uid='${fsentry.uid}']`).find('.item-icon > img'), icon);
+                });
+            },
+        });
+
         // Refresh an existing row in place from an fs entry. Shared with
         // UIDashboard's item.updated socket handler so the two paths can't
         // drift — e.g. trashed items must show metadata.original_name, not
@@ -251,8 +305,9 @@ const TabFiles = {
             // keep it current so a remote rename or move doesn't leave them
             // opening, copying or sharing the old path.
             const fsentry = $row.data('fsentry');
+            const thumbnailBefore = fsentry?.thumbnail ?? null;
             if ( fsentry ) {
-                for ( const key of ['name', 'path', 'type', 'size', 'modified', 'metadata'] ) {
+                for ( const key of ['name', 'path', 'type', 'size', 'modified', 'metadata', 'thumbnail'] ) {
                     if ( file[key] !== undefined ) fsentry[key] = file[key];
                 }
             }
@@ -286,12 +341,21 @@ const TabFiles = {
                 $row.attr('data-modified', file.modified);
                 $row.find('.item-modified').text(formatRelativeTime(file.modified * 1000, Date.now(), window.locale));
             }
-            if (
-                _this.isGridView() &&
-                typeof file.thumbnail === 'string' &&
-                file.thumbnail.length > 0
-            ) {
-                $row.find('.item-icon img').attr('src', file.thumbnail);
+            // An overwrite clears the thumbnail and a new one follows, so the
+            // row keeps showing the old one while that's made. Every update
+            // carries the key, so the icon is only worked out again when the
+            // thumbnail changed. An open file dialog's item matches too.
+            if ( file.thumbnail !== undefined && fsentry ) {
+                const keepsOld = _this.fillMissingThumbnail($row[0], fsentry, { showsOld: !!thumbnailBefore, changed: true });
+                if ( !keepsOld && (file.thumbnail ?? null) !== thumbnailBefore ) {
+                    _this.rowIcon(fsentry).then(icon => {
+                        _this.showRowIcon($row.find('.item-icon > img'), icon);
+                    });
+                }
+            } else if ( !fsentry && typeof file.thumbnail === 'string' && file.thumbnail.length > 0 ) {
+                // Only a file dialog's item matched, with the folder on
+                // screen here being another one. It has no entry of its own.
+                _this.showRowIcon($row.find('.item-icon > img'), { image: file.thumbnail, type: 'thumb' });
             }
             if ( displayName && displayName !== oldName && fsentry ) _this.followRename($row, fsentry, oldPath);
             // The footer's item-count/total-size line is computed from the
@@ -333,7 +397,7 @@ const TabFiles = {
 
             // A weblink's or app's icon is read from the file. Another folder
             // may have opened meanwhile, or the row arrived another way.
-            const icon = await item_icon(file);
+            const icon = await _this.rowIcon(file);
             if ( _this.renderingDirectory || _this.currentPath !== parentDir ) return;
             if ( _this.$el_window.find(`.files-tab .files .item[data-uid='${file.uid}']`).length > 0 ) return;
 
@@ -1242,8 +1306,9 @@ const TabFiles = {
                 return false;
             }
 
-            // Arrow keys, Home/End and PageUp/PageDown - Navigate items
-            if ( e.which >= 33 && e.which <= 40 ) {
+            // Arrow keys, Home/End and PageUp/PageDown - Navigate items. Not
+            // with Alt or Cmd: those are the browser's (Alt+Left is Back).
+            if ( e.which >= 33 && e.which <= 40 && ! e.altKey && ! e.metaKey ) {
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -1492,7 +1557,13 @@ const TabFiles = {
             this.closeImagePreview();
             return;
         }
-        const imageUrl = URL.createObjectURL(new Blob([blob], { type: mime.getType(fileName) ?? '' }));
+        const image = new Blob([blob], { type: mime.getType(fileName) ?? '' });
+        // Opened in its own tab, an SVG at a blob: URL renders as a page on
+        // this origin; at a data: URL it gets an opaque one.
+        const imageUrl = image.type === 'image/svg+xml'
+            ? await readFileAsDataUrl(image)
+            : URL.createObjectURL(image);
+        if ( seq !== this.previewSeq ) return;
 
         // Remove any existing preview
         $('.image-preview-popover').remove();
@@ -1907,9 +1978,9 @@ const TabFiles = {
         if ( confirmed !== 'delete' ) return;
         // The phone selection bar acts on rows that are going away.
         this.$el_window.find('.files-selection-actions').removeClass('visible');
-        for ( const row of list ) {
-            await window.delete_item(row);
-        }
+        // A few at a time rather than one after another: a few hundred items
+        // took a round trip each. delete_item reports its own failures.
+        await runLimited(list, DELETE_CONCURRENCY, row => window.delete_item(row));
         await window.refresh_trash_state();
     },
 
@@ -1942,8 +2013,8 @@ const TabFiles = {
      */
     followRename ($row, fsentry, oldPath) {
         this.insertAtSortedPosition($row, fsentry);
-        item_icon(fsentry).then(({ image }) => {
-            $row.find('.item-icon > img').first().attr('src', image);
+        this.rowIcon(fsentry).then(icon => {
+            this.showRowIcon($row.find('.item-icon > img').first(), icon);
         });
         if ( fsentry.is_dir && oldPath && fsentry.path && fsentry.path !== oldPath ) {
             this.folderMoved(oldPath, fsentry.path);
@@ -2383,11 +2454,19 @@ const TabFiles = {
         };
 
         if ( isList ) {
-            for ( const el of names ) {
-                // 8px padding on each side; an auto-width column shows the
-                // full name, clipped by CSS.
-                write(el, nameWidth ? truncateFilenameToWidth(fullNameOf(el), nameWidth - 16, font) : fullNameOf(el));
-            }
+            // The name's padding (8px a side) takes room from a set width. An
+            // auto-width column fills the row, so its room is read off the
+            // name's wrapper, less the wrapper's padding: all reads before any
+            // write, so the writes don't force a layout each.
+            const paddingOf = s => (parseFloat(s.paddingLeft) || 0) + (parseFloat(s.paddingRight) || 0);
+            const padding = paddingOf(style);
+            const wrapperPadding = nameWidth ? 0 : paddingOf(getComputedStyle(names[0].parentElement));
+            const rooms = nameWidth ? null : names.map(el => el.parentElement.clientWidth - wrapperPadding);
+            names.forEach((el, i) => {
+                const room = (nameWidth || rooms[i]) - padding;
+                // A listing that isn't laid out yet (hidden tab) has no room to fit to.
+                write(el, room > 0 ? truncateFilenameToWidth(fullNameOf(el), room, font) : fullNameOf(el));
+            });
             return;
         }
 
@@ -2965,7 +3044,7 @@ const TabFiles = {
         // Rebuilding the chips drops focus and scroll; carry both across.
         const focused = $bar.find('.sharer-chip:focus').attr('data-sharer');
         const scrollLeft = bar.scrollLeft;
-        const html = sharerFilterHtml(sharers, this.sharerFilter);
+        const html = sharerFilterHtml(sharers, this.sharerFilter, rows.filter((row) => sharerOf(row)).length);
         $bar.html(html).prop('hidden', ! html);
         paintAvatars(bar);
         bar.scrollLeft = scrollLeft;
@@ -3035,6 +3114,7 @@ const TabFiles = {
         const prevScrollTop = isSameDirRefresh ? $files.scrollTop() : 0;
 
         const clearListing = () => {
+            this.missingThumbnails?.reset();
             $files.html('');
             document.querySelectorAll('.files-tab .row.selected').forEach(r => {
                 r.classList.remove('selected');
@@ -3284,7 +3364,7 @@ const TabFiles = {
         // theirs from the file) and a row is appended once its icon lands, so
         // resolve every icon first and append in sorted order. allSettled so
         // one failure can't reject the batch and leave renderingDirectory stuck.
-        const iconResults = await Promise.allSettled(sortedContents.map(file => item_icon(file)));
+        const iconResults = await Promise.allSettled(sortedContents.map(file => this.rowIcon(file)));
         if ( seq !== this.renderSeq ) return;
 
         // Same-directory refresh: the stale rows stayed on screen during the
@@ -3312,6 +3392,9 @@ const TabFiles = {
         // the directories sidebar is hidden — Home carries a row for each.
         this.renderPlaceRows();
 
+        // Something that ran while the listing loaded (a restore finishing,
+        // a failed mkdir) may have found the pane empty and said so.
+        $files.find('.files-empty-notice').remove();
         if ( directoryContents.length === 0 ) {
             this.renderEmptyPlaceholderIfNeeded();
             this.updateFooterStats();
@@ -3482,8 +3565,8 @@ const TabFiles = {
         const is_shortcut = file.is_shortcut ? 1 : 0;
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
-        if ( ! iconResult ) iconResult = await item_icon(file);
-        const icon = `<img alt="" src="${html_encode(iconResult.image)}"/>`;
+        if ( ! iconResult ) iconResult = await this.rowIcon(file);
+        const icon = `<img alt=""${iconResult.type === 'thumb' ? ' class="row-thumb"' : ''} src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
         // A dot-file only reaches this point when the preference reveals it;
         // `item-revealed` dims it the same way the desktop Explorer does.
@@ -3568,6 +3651,25 @@ const TabFiles = {
         if ( this.currentPath === window.shared_path ) paintAvatars(row);
 
         this.createItemListeners(row, file);
+        this.fillMissingThumbnail(row, file);
+    },
+
+    /**
+     * Makes a thumbnail for a row's file if it has none and the row would
+     * show one, once the row is on screen.
+     *
+     * @param {HTMLElement} row
+     * @param {Object} fsentry - The row's entry
+     * @param {{ showsOld?: boolean, changed?: boolean }} [options] - `showsOld` for a row showing the thumbnail of
+     *     the version before, `changed` for an entry an update just arrived for
+     * @returns {boolean} Whether the row should keep showing that thumbnail while the new one is made
+     */
+    fillMissingThumbnail (row, fsentry, options) {
+        return this.missingThumbnails?.observe(row, fsentry, {
+            listRow: !this.isGridView(),
+            homePath: window.home_path,
+            excludedPaths: [window.trash_path, window.appdata_path],
+        }, options) ?? false;
     },
 
     /**
@@ -3918,8 +4020,8 @@ const TabFiles = {
                 if ( ! _this.applyHiddenRule($(el_item), fsentry.name ?? new_name) ) return;
                 $(el_item).attr('data-type', fsentry.type ?? '');
                 _this.insertAtSortedPosition($(el_item), fsentry);
-                item_icon(fsentry).then(({ image }) => {
-                    $(el_item).find('.item-icon > img').first().attr('src', image);
+                _this.rowIcon(fsentry).then(icon => {
+                    _this.showRowIcon($(el_item).find('.item-icon > img').first(), icon);
                 });
             });
         }
@@ -4394,15 +4496,26 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async openRow (row) {
+        const isDir = row.getAttribute('data-is_dir') === '1';
+        // A file opens in a new browser tab. The tab is opened now, inside
+        // the user's gesture, because popup blockers refuse one opened after
+        // the awaits below; open_item closes it if the file opens no app.
+        // Without 'noopener': the app asks this tab for its token (see
+        // launch_app). Blocked (e.g. the second file of a multi-select
+        // Enter), the file opens in-page. A file in the Trash opens nothing
+        // (open_item only says why), so it gets no tab to flash open and shut.
+        const target = row.getAttribute('data-shortcut_to_path') || row.getAttribute('data-path') || '';
+        const inTrash = target.startsWith(`${window.trash_path}/`);
+        const newTab = isDir || inTrash ? null : window.open('', '_blank');
         // Not for ever: the rename settles in rename_file's last step, which
         // a failure after the rename itself (refreshing websites) never reaches.
         if ( row._pendingRename ) await Promise.race([row._pendingRename, new Promise(resolve => setTimeout(resolve, 5000))]);
-        if ( row.getAttribute('data-is_dir') === '1' ) {
+        if ( isDir ) {
             const folderPath = row.getAttribute('data-path');
             this.pushNavHistory(folderPath);
             this.renderDirectory(folderPath);
         } else {
-            open_item({ item: row });
+            open_item({ item: row, ...(newTab ? { newTab } : {}) });
         }
     },
 
@@ -4422,11 +4535,14 @@ const TabFiles = {
         const metadata = metadataStr ? JSON.parse(metadataStr) : {};
 
         // Only a direct child of Trash carries restore metadata.
+        const name = $(el_item).attr('data-name') || '';
         if ( path.dirname($(el_item).attr('data-path') || '') !== window.trash_path ) {
-            throw new Error('Cannot restore: only top-level Trash items can be restored');
+            throw new Error(i18n('restore_only_trash_items', { name }, false));
         }
+        // An item an app or the API moved into the Trash has no record of
+        // where it came from.
         if ( ! metadata.original_path ) {
-            throw new Error('Cannot restore: original path not found in metadata');
+            throw new Error(i18n('restore_location_unknown', { name }, false));
         }
 
         const destPath = path.dirname(metadata.original_path);
@@ -4719,6 +4835,29 @@ const TabFiles = {
      */
     isGridView () {
         return this.currentView === 'grid' || this.currentView === 'grid-sm';
+    },
+
+    /**
+     * The icon a row shows for an entry in the current view. Thumbnails fill the
+     * grid views; in the list, a document shows its type icon.
+     *
+     * @param {Object} fsentry
+     * @returns {Promise<{ image: string, type: string }>}
+     */
+    rowIcon (fsentry) {
+        return item_icon(fsentry, { listRow: !this.isGridView() });
+    },
+
+    /**
+     * Shows an icon from rowIcon() in a row's image. A thumbnail gets the
+     * `row-thumb` class, which the grid views draw with a shadow.
+     *
+     * @param {jQuery} $img
+     * @param {{ image: string, type: string }} icon
+     * @returns {void}
+     */
+    showRowIcon ($img, icon) {
+        $img.attr('src', icon.image).toggleClass('row-thumb', icon.type === 'thumb');
     },
 
     /**
@@ -5180,6 +5319,8 @@ const TabFiles = {
             },
             // Custom open handler for Dashboard (avoids window_nav_history issues)
             onOpen: (el) => _this.openRow(el),
+            // Like opening the row, Open With opens the app in a new tab.
+            openWithInNewTab: true,
             onShowProperties: ({ name, path: item_path, uid }) => {
                 // Dashboard uses a responsive modal instead of the desktop UIWindow.
                 UIItemPropertiesModal({
@@ -5357,10 +5498,14 @@ const TabFiles = {
                     return async () => {
                         $('.context-menu').remove();
 
+                        // Where the user was, so an upload that lands after
+                        // they've moved on neither pulls them back nor draws
+                        // its row into another folder's listing.
+                        const pathAtClick = _this.currentPath;
+
                         // Temporarily intercept create_file to capture the upload promise
                         let uploadPromise = null;
-                        const origCreateFile = window.create_file;
-                        window.create_file = (options) => {
+                        const createFile = (options) => {
                             // Counted from here, not from the click: Web Link
                             // waits on a prompt first, and other items added
                             // to the folder meanwhile must still show up.
@@ -5371,6 +5516,12 @@ const TabFiles = {
                             // a caller that awaits this.
                             return uploadPromise.catch(() => undefined);
                         };
+                        // Creates can overlap. Each one's interceptor stays
+                        // installed until it finishes, the newest on top, and
+                        // the real create_file comes back once none is left.
+                        if ( createFileInterceptors.length === 0 ) realCreateFile = window.create_file;
+                        createFileInterceptors.push(createFile);
+                        window.create_file = createFile;
 
                         try {
                             await originalOnClick();
@@ -5388,7 +5539,10 @@ const TabFiles = {
                                     operation: 'create_file',
                                     data: $('<div>').attr({ 'data-uid': result.uid, 'data-path': result.path }),
                                 });
-                                if ( targetPath === _this.currentPath ) {
+                                // Not mid-way to another folder (currentPath
+                                // only moves once its listing arrives).
+                                const settled = ! _this.loadingFolder;
+                                if ( settled && targetPath === _this.currentPath ) {
                                     // Remove empty-directory placeholder if present
                                     _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row):not(.tabfiles-selection-area)').remove();
                                     // Add the new file incrementally
@@ -5399,11 +5553,15 @@ const TabFiles = {
                                         _this.applyColumnWidths();
                                         _this.updateFooterStats();
                                     }
-                                } else {
+                                } else if ( settled && _this.currentPath === pathAtClick ) {
                                     // Same navigate-to-target treatment as New
                                     // Folder above.
                                     _this.pushNavHistory(targetPath);
                                     await _this.renderDirectory(targetPath, { consistency: 'strong' });
+                                } else {
+                                    // The user went elsewhere meanwhile; the
+                                    // file is there when they come back.
+                                    return;
                                 }
                                 const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
                                 if ( $newRow.length > 0 ) {
@@ -5414,7 +5572,8 @@ const TabFiles = {
                         } catch ( err ) {
                             UIAlert(err?.message || i18n('error_unknown_cause', [], false));
                         } finally {
-                            window.create_file = origCreateFile;
+                            createFileInterceptors.splice(createFileInterceptors.indexOf(createFile), 1);
+                            window.create_file = createFileInterceptors.at(-1) ?? realCreateFile;
                             if ( uploadPromise ) _this.doneCreating();
                         }
                     };
@@ -5956,8 +6115,10 @@ const TabFiles = {
             shared_with_me: true,
             share_mode: share.mode,
             shared_by: share.issuer,
+            shared_by_all: share.issuers,
             owner: share.owner,
             holder_team: share.holderTeam,
+            also_team_share: share.alsoHeldByTeam,
         }));
 
         const linked = this.pendingSharedLinks ?? [];

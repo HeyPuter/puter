@@ -647,6 +647,22 @@ describe('FSService overwrite and dedupe resolution', () => {
         expect(await readBack(second)).toBe('second');
     });
 
+    it('leaves one readable file when two overwrites create the same path at once', async () => {
+        const path = `${user.home}/Documents/raced.txt`;
+        const written = await Promise.all([
+            writeFile(user, path, 'short', { overwrite: true }),
+            writeFile(user, path, 'a much longer body', { overwrite: true }),
+        ]);
+
+        // Both started before the row existed, so each uploaded under its own
+        // key; the row has to end up describing bytes that are really there.
+        expect(written[0].uuid).toBe(written[1].uuid);
+        const stored = (await entryAt(user, '/Documents/raced.txt'))!;
+        const body = await readBack(stored);
+        expect(['short', 'a much longer body']).toContain(body);
+        expect(stored.size).toBe(Buffer.byteLength(body));
+    });
+
     it('dedupes into an unused " (n)" name, skipping names already taken', async () => {
         await writeFile(user, `${user.home}/Documents/d.txt`, 'a');
         await writeFile(user, `${user.home}/Documents/d (1).txt`, 'a');
@@ -3716,7 +3732,9 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
                     );
                     expect(error.statusCode).toBe(status);
                     // The target was looked up, and that lookup changed nothing.
-                    expect(lookups).toHaveBeenCalledWith(path);
+                    expect(lookups).toHaveBeenCalledWith(path, {
+                        foldedNames: true,
+                    });
                     expect(
                         writes.mock.calls.filter(([sql]) =>
                             /fsentries/i.test(String(sql)),
@@ -4408,6 +4426,16 @@ describe('FSService home directory guard', () => {
     });
 });
 
+// The column itself: a path lookup would heal a stale row on the way.
+const storedPaths = async (...entries: FSEntry[]) => {
+    const rows = (await server.clients.db.read(
+        `SELECT uuid, path FROM fsentries WHERE uuid IN (${entries.map(() => '?').join(', ')})`,
+        entries.map((entry) => entry.uuid),
+    )) as Array<{ uuid: string; path: string }>;
+    const byUuid = new Map(rows.map((row) => [row.uuid, row.path]));
+    return entries.map((entry) => byUuid.get(entry.uuid) ?? null);
+};
+
 describe('FSService names starting with a supplementary character', () => {
     let user: TestUser;
     beforeAll(async () => {
@@ -4427,16 +4455,6 @@ describe('FSService names starting with a supplementary character', () => {
         );
         const dir = (await entryAt(user, `/Documents/${top}`))!;
         return { dir, inner, file };
-    };
-
-    // The column itself: a path lookup would heal a stale row on the way.
-    const storedPaths = async (...entries: FSEntry[]) => {
-        const rows = (await server.clients.db.read(
-            `SELECT uuid, path FROM fsentries WHERE uuid IN (${entries.map(() => '?').join(', ')})`,
-            entries.map((entry) => entry.uuid),
-        )) as Array<{ uuid: string; path: string }>;
-        const byUuid = new Map(rows.map((row) => [row.uuid, row.path]));
-        return entries.map((entry) => byUuid.get(entry.uuid) ?? null);
     };
 
     it('rewrites the subtree when the directory is renamed', async () => {
@@ -4491,6 +4509,63 @@ describe('FSService names starting with a supplementary character', () => {
                 file.bucketRegion!,
             ),
         ).rejects.toMatchObject({ name: 'NoSuchKey' });
+    });
+});
+
+describe('FSService sibling folders a prefix pattern cannot tell apart', () => {
+    let user: TestUser;
+    beforeAll(async () => {
+        user = await makeUser();
+    });
+
+    // `Notes/a.txt` beside `notes/b.txt`: SQLite's LIKE folds ASCII case.
+    const seed = async (top: string) => {
+        const base = `${user.home}/Documents/${top}`;
+        const upper = await fs.mkdir(user.userId, {
+            path: `${base}/Notes`,
+            createMissingParents: true,
+        });
+        const lower = await fs.mkdir(user.userId, { path: `${base}/notes` });
+        expect(lower.uuid).not.toBe(upper.uuid);
+        const inUpper = await writeFile(user, `${base}/Notes/a.txt`, 'a');
+        const inLower = await writeFile(user, `${base}/notes/b.txt`, 'b');
+        return { base, upper, inUpper, inLower };
+    };
+
+    it('renames one and leaves the other subtree where it was', async () => {
+        const { base, upper, inUpper, inLower } = await seed('twin-rename');
+
+        await fs.rename(user.userId, upper, 'Archive');
+
+        expect(await storedPaths(inUpper, inLower)).toEqual([
+            `${base}/Archive/a.txt`,
+            `${base}/notes/b.txt`,
+        ]);
+        const kept = await entryAt(user, '/Documents/twin-rename/notes/b.txt');
+        expect(kept?.uuid).toBe(inLower.uuid);
+        expect(await readBack(kept!)).toBe('b');
+    });
+
+    it('moves one, nested folders included, and leaves the other subtree where it was', async () => {
+        const { base, upper, inUpper, inLower } = await seed('twin-move');
+        await fs.mkdir(user.userId, { path: `${base}/Notes/deep` });
+        const nested = await writeFile(user, `${base}/Notes/deep/c.txt`, 'c');
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        await fs.move(user.userId, {
+            source: upper,
+            destinationParent: destination,
+            newName: 'twin-moved',
+        });
+
+        expect(await storedPaths(inUpper, nested, inLower)).toEqual([
+            `${user.home}/Desktop/twin-moved/a.txt`,
+            `${user.home}/Desktop/twin-moved/deep/c.txt`,
+            `${base}/notes/b.txt`,
+        ]);
+        expect(
+            await entryAt(user, '/Documents/twin-move/Notes/a.txt'),
+        ).toBeNull();
     });
 });
 

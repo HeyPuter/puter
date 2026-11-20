@@ -4,9 +4,11 @@ description: End a persistent subscription.
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Ends a subscription created with [`puter.events.onPersistent()`](/Events/onPersistent/).
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Ends a subscription created with [`puter.events.onPersistent()`](/Events/onPersistent/). It stops right away, and any undelivered backlog is dropped. For a session subscription from [`puter.events.onLocal()`](/Events/onLocal/), use [`subscription.off()`](/Events/off/).
+It stops right away, and any undelivered backlog is dropped. For a session subscription from [`puter.events.onLocal()`](/Events/onLocal/), use [`subscription.off()`](/Events/off/).
 
 An app can end only the subscriptions it created. Outside an app, you can end any of yours, including ones left by deleted apps. A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, can't end any.
 
@@ -26,6 +28,8 @@ The `subId` of the subscription, from [`onPersistent()`](/Events/onPersistent/) 
 
 A `Promise` that resolves when the subscription is gone.
 
+## Errors
+
 An id you don't hold, because it already ended or another app created it, is reported as not existing, so the call doesn't reveal which subscriptions exist. If the call rejects with any other code, the subscription is still running, and so is any handler it runs on this page.
 
 The promise rejects with `{ message, code }`:
@@ -41,7 +45,7 @@ The promise rejects with `{ message, code }`:
 
 ## Examples
 
-<strong class="example-title">Create a persistent subscription, then end it</strong>
+### Create a persistent subscription, then end it
 
 ```html;events-unsubscribe
 <html>

@@ -18,6 +18,7 @@
  */
 
 import { isAttestedOrigin } from './attestedOrigin.js';
+import { jwtPayload } from './jwtPayload.js';
 
 /**
  * Godmode apps that run on their own full-access token instead of the
@@ -73,14 +74,7 @@ export const shouldRenew = (expiresAt, nowMs) =>
     !Number.isFinite(expiresAt) || expiresAt * 1000 - nowMs < RENEW_WHEN_LEFT_MS;
 
 /** The token row a JWT belongs to; renewals of a live row keep it. */
-const tokenRowOf = (token) => {
-    try {
-        const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-        return JSON.parse(atob(part))?.token_uid ?? null;
-    } catch {
-        return null;
-    }
-};
+const tokenRowOf = (token) => jwtPayload(token)?.token_uid ?? null;
 
 /**
  * Whether two tokens are the same row, so the app already holds a working one.

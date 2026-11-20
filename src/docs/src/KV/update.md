@@ -4,7 +4,9 @@ description: Update one or more paths within a stored value in the user's own ke
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Updates one or more paths inside the value stored at a key, without replacing the whole value. A missing or expired key is built from the paths you give, with no TTL unless you pass one.
+Updates one or more paths inside the value stored at a key, without replacing the whole value.
+
+A missing or expired key is built from the paths you give, with no TTL unless you pass one.
 
 ## Syntax
 
@@ -39,8 +41,10 @@ Time-to-live in seconds. Omit it, or pass an empty string or `false`, to keep th
 
 The last argument. It takes these properties:
 
-- `handle` (String): Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `handle` | `String` | Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`. |
 
 ## Return value
 
@@ -72,7 +76,7 @@ A rejection carries an `Error` with a stable `code`:
 
 ## Examples
 
-<strong class="example-title">Update an element of a root array</strong>
+### Update an element of a root array
 
 ```html
 <html>
@@ -89,7 +93,7 @@ A rejection carries an `Error` with a stable `code`:
 </html>
 ```
 
-<strong class="example-title">Update nested fields and refresh the TTL</strong>
+### Update nested fields and refresh the TTL
 
 ```html;kv-update
 <html>

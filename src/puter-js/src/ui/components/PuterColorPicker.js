@@ -220,8 +220,7 @@ class PuterColorPicker extends PuterWebComponent {
     }
 
     render () {
-        const defaultColor = this.getAttribute('default-color') || '#3b82f6';
-        this.#currentColor = this._normalizeHex(defaultColor);
+        this.#currentColor = this._normalizeHex(this.getAttribute('default-color')) ?? '#3b82f6';
 
         const swatches = PRESET_COLORS.map(c =>
             `<div class="swatch${c.toLowerCase() === this.#currentColor.toLowerCase() ? ' selected' : ''}"
@@ -293,8 +292,9 @@ class PuterColorPicker extends PuterWebComponent {
         });
 
         // Escape to cancel
-        dialog.addEventListener('cancel', (e) => {
+        dialog.addEventListener('cancel', () => {
             this.emitEvent('response', null);
+            this.close();
         });
     }
 
@@ -329,6 +329,8 @@ class PuterColorPicker extends PuterWebComponent {
         if ( ! str ) return null;
         str = str.trim();
         if ( str[0] !== '#' ) str = `#${ str}`;
+        // A default can carry alpha (`#rrggbbaa`); the picker has no alpha, so it's dropped.
+        if ( /^#[0-9a-f]{8}$/i.test(str) ) str = str.slice(0, 7);
         // Expand shorthand
         if ( /^#[0-9a-f]{3}$/i.test(str) ) {
             str = `#${ str[1] }${str[1] }${str[2] }${str[2] }${str[3] }${str[3]}`;

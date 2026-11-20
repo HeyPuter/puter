@@ -32,20 +32,28 @@ Without `newName`, the destination is looked up first to tell the two cases apar
 
 The options for the `move` operation. The following options are supported:
 
-- `source` (String) - Path to the file or directory to move. Required when passing options as the only argument.
-- `destination` (String) - Path to the destination. Required when passing options as the only argument.
-- `overwrite` (Boolean) - Whether to overwrite the destination file or directory if it already exists. Defaults to `false`.
-- `dedupeName` (Boolean) - Whether to deduplicate the file or directory name if it already exists. Defaults to `false`.
-- `newName` (String) - The name to give the moved file or directory. When set, `destination` is always treated as the directory to move into. Defaults to the source's own name.
-- `createMissingParents` (Boolean) - Whether to create missing parent directories. Defaults to `false`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `source` | `String` | Path to the file or directory to move. Required when passing options as the only argument. |
+| `destination` | `String` | Path to the destination. Required when passing options as the only argument. |
+| `overwrite` | `Boolean` | Whether to overwrite the destination file or directory if it already exists. Defaults to `false`. |
+| `newName` | `String` | The name to give the moved file or directory. When set, `destination` is always treated as the directory to move into. Defaults to the source's own name. |
+| `createMissingParents` | `Boolean` | Whether to create missing parent directories. Defaults to `false`. |
+| `dedupeName` | `Boolean` | Whether to deduplicate the file or directory name if it already exists. Defaults to `false`. |
 
 ## Return value
 
-A `Promise` that will resolve to the [`FSItem`](/Objects/fsitem) object of the moved file or directory. If the source file or directory does not exist, the promise will be rejected with an error.
+A `Promise` that will resolve to the [`FSItem`](/Objects/fsitem) object of the moved file or directory.
+
+## Errors
+
+If the source file or directory does not exist, the promise will be rejected with an error.
+
+If the destination already holds an item whose name differs from the new name only by accents or emoji, such as `😀.txt` for `😁.txt`, that item is never replaced. With `overwrite: true` the promise rejects with a `conflict` error, and otherwise with `item_with_same_name_exists`. To move the item under a new name instead, set `dedupeName: true`.
 
 ## Examples
 
-<strong class="example-title">Move a file</strong>
+### Move a file
 
 ```html;fs-move
 <html>
@@ -76,7 +84,7 @@ A `Promise` that will resolve to the [`FSItem`](/Objects/fsitem) object of the m
 </html>
 ```
 
-<strong class="example-title">Move a file and create missing parent directories</strong>
+### Move a file and create missing parent directories
 
 ```html;fs-move-create-missing-parents
 <html>

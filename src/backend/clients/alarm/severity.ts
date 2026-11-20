@@ -54,22 +54,20 @@ export function withinMaxSeverity(
 }
 
 /**
- * Look up the operator override for an alarm id. Exact ids win over prefix
- * patterns (`cronMonitor:*`); among patterns the longest prefix wins, so a
- * specific rule can carve an exception out of a broad one.
+ * The rule keyed by an alarm id, or by a prefix pattern ending in `*`
+ * (`cronMonitor:*`). Exact ids win over patterns; among patterns the longest
+ * prefix wins, so a specific rule can carve an exception out of a broad one.
  */
-export function resolveSeverityOverride(
+export function matchIdRule<T>(
     id: string,
-    overrides: Record<string, SeverityRule> | undefined,
-): SeverityRule | undefined {
-    if (!overrides) return undefined;
-
-    const exact = overrides[id];
-    if (exact !== undefined) return validRule(id, exact);
+    rules: Record<string, T> | undefined,
+): T | undefined {
+    if (!rules) return undefined;
+    if (Object.hasOwn(rules, id)) return rules[id];
 
     let bestLength = -1;
-    let best: SeverityRule | undefined;
-    for (const [pattern, rule] of Object.entries(overrides)) {
+    let best: T | undefined;
+    for (const [pattern, rule] of Object.entries(rules)) {
         if (!pattern.endsWith('*')) continue;
         const prefix = pattern.slice(0, -1);
         if (!id.startsWith(prefix)) continue;
@@ -77,7 +75,35 @@ export function resolveSeverityOverride(
         bestLength = prefix.length;
         best = rule;
     }
-    return best === undefined ? undefined : validRule(id, best);
+    return best;
+}
+
+/** The operator override for an alarm id; see {@link matchIdRule}. */
+export function resolveSeverityOverride(
+    id: string,
+    overrides: Record<string, SeverityRule> | undefined,
+): SeverityRule | undefined {
+    const rule = matchIdRule(id, overrides);
+    return rule === undefined ? undefined : validRule(id, rule);
+}
+
+/** Call groups end up in storage keys and query strings. */
+export const CALL_GROUP_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** The call group config assigns an alarm id; see {@link matchIdRule}. */
+export function resolveCallGroup(
+    id: string,
+    rules: Record<string, string> | undefined,
+): string | undefined {
+    const group = matchIdRule(id, rules);
+    if (group === undefined) return undefined;
+    if (typeof group === 'string' && CALL_GROUP_PATTERN.test(group))
+        return group;
+    console.warn(
+        `[alarm] ignoring invalid call group "${group}" for ${id} ` +
+            '(expected letters, digits, _ or -, up to 64)',
+    );
+    return undefined;
 }
 
 /**

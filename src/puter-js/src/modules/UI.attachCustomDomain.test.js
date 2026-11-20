@@ -172,3 +172,70 @@ describe('attachCustomDomain_ where no dialog can be shown', () => {
         });
     });
 });
+
+const detachCalls = () =>
+    parentWindow.postMessage.mock.calls.filter(([m]) => m?.msg === 'detachCustomDomain');
+
+describe('detachCustomDomain_ inside the Puter desktop', () => {
+    beforeEach(() => {
+        globalThis.location = { search: '?puter.gui_features=custom-domains,custom-domains-detach' };
+    });
+
+    it('asks the desktop and resolves the domains the user removed', async () => {
+        const ui = makeUI('app');
+        const promise = ui.detachCustomDomain_('mysite');
+
+        const [[msg]] = detachCalls();
+        expect(msg).toMatchObject({ msg: 'detachCustomDomain', subdomain: 'mysite' });
+
+        await deliver({
+            source: parentWindow,
+            origin: GUI_ORIGIN,
+            data: { msg: 'customDomainDetached', original_msg_id: msg.uuid, domains: [DOMAIN] },
+        });
+        await expect(promise).resolves.toEqual([DOMAIN]);
+    });
+
+    it('rejects on a desktop that can attach but not remove, instead of hanging', async () => {
+        globalThis.location = { search: '?puter.gui_features=custom-domains' };
+        const ui = makeUI('app');
+
+        await expect(ui.detachCustomDomain_('mysite')).rejects.toMatchObject({
+            code: 'not_supported',
+        });
+        expect(detachCalls()).toHaveLength(0);
+    });
+});
+
+describe('detachCustomDomain_ on a third-party site', () => {
+    it('opens the remove popup for the subdomain and resolves its answer', async () => {
+        const ui = makeUI('web');
+        const promise = ui.detachCustomDomain_('mysite');
+
+        const url = new URL(opened[0].url);
+        expect(url.pathname).toBe('/action/detach-custom-domain');
+        expect(url.searchParams.get('subdomain')).toBe('mysite');
+        const msg_id = url.searchParams.get('msg_id');
+
+        await deliver({ source: opened[0], origin: GUI_ORIGIN, data: { msg: 'customDomainDetached', original_msg_id: msg_id, domains: [DOMAIN] } });
+        await expect(promise).resolves.toEqual([DOMAIN]);
+    });
+
+    it('resolves none once the popup is closed without an answer', async () => {
+        const ui = makeUI('web');
+        const promise = ui.detachCustomDomain_('mysite');
+        opened[0].closed = true;
+
+        await vi.advanceTimersByTimeAsync(1200);
+        await expect(promise).resolves.toEqual([]);
+    });
+});
+
+describe('detachCustomDomain_ where no dialog can be shown', () => {
+    it.each(['nodejs', 'web-worker', 'service-worker'])('rejects in %s', async (env) => {
+        await expect(makeUI(env).detachCustomDomain_('mysite')).rejects.toMatchObject({
+            code: 'not_available',
+            message: 'puter.hosting.detach() needs a browser page or a Puter app',
+        });
+    });
+});

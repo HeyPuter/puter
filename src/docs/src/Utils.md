@@ -9,5 +9,5 @@ The Utilities API provides helpful utility functions and properties that make de
 
 - **[`puter.print()`](/Utils/print/)** - Print text to console or output
 - **[`puter.randName()`](/Utils/randName/)** - Generate random names
-- **[`puter.appID`](/Utils/appID/)** - Get the current application ID
 - **[`puter.env`](/Utils/env/)** - Access environment variables
+- **[`puter.appID`](/Utils/appID/)** - Get the current application ID

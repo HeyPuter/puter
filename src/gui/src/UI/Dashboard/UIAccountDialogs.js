@@ -25,6 +25,7 @@ import check_password_strength from '../../helpers/checkPasswordStrength.js';
 import create_access_token from '../../helpers/createAccessToken.js';
 import postUserProtected from '../../helpers/postUserProtected.js';
 import update_username_in_gui from '../../helpers/updateUsernameInGui.js';
+import changeLanguage from '../../i18n/i18nChangeLanguage.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 import UIDashboardFormDialog, { copyRowHtml } from './UIDashboardFormDialog.js';
 
@@ -115,6 +116,42 @@ export function openEditProfileDialog ({ onSave, ...opts } = {}) {
             }
             onSave?.(profile);
             dialog.close();
+        },
+    });
+}
+
+/**
+ * Changes the language Puter is shown in, then reloads the page in it.
+ *
+ * @param {AccountDialogOptions} [opts]
+ */
+export function openChangeLanguageDialog (opts = {}) {
+    return UIDashboardFormDialog({
+        ...opts,
+        title: t('change_language'),
+        submitLabel: t('save'),
+        fields: [
+            {
+                name: 'language',
+                type: 'select',
+                label: i18n('language'),
+                value: window.locale,
+                options: window.listSupportedLanguages().map((lang) => ({
+                    value: lang.code,
+                    label: html_encode(lang.name),
+                })),
+            },
+        ],
+        async onSubmit (dialog) {
+            const { language } = dialog.values();
+            if ( language === window.locale ) {
+                dialog.close();
+                return;
+            }
+            // On success the page reloads, so the dialog stays in progress.
+            if ( ! await changeLanguage(language) ) {
+                dialog.setStatus(t('language_save_failed'), { field: 'language' });
+            }
         },
     });
 }
@@ -362,6 +399,75 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
         });
     });
     return dialog;
+}
+
+/**
+ * Turns two-factor authentication off, given the account password (or a
+ * sign-in with the linked provider) and an authenticator or recovery code.
+ *
+ * @param {AccountDialogOptions} [opts]
+ * @returns {Promise<boolean>} Whether 2FA was turned off before the dialog closed.
+ */
+export function openDisable2FADialog (opts = {}) {
+    return new Promise((resolve) => {
+        let disabled = false;
+        let closed = false;
+        let submitting = false;
+        const submit = async (dialog) => {
+            const { password, code } = dialog.values();
+            if ( ! isOidcOnly() && ! password ) {
+                dialog.setStatus(t('all_fields_required'), { field: 'password' });
+                return;
+            }
+            let result;
+            try {
+                // A pasted recovery code is normalized like the sign-in dialog's.
+                result = await postUserProtected('disable-2fa', { code: code.trim().toUpperCase() || undefined }, {
+                    password,
+                    onRevalidate: revalidating(dialog),
+                });
+            } catch {
+                // The request never got an answer (offline).
+                dialog.setStatus(t('something_went_wrong'));
+                return;
+            }
+            if ( ! result.ok ) {
+                dialog.setStatus(result.message, result.data.factor === 'otp' ? { field: 'code' } : wrongPassword(result, 'password'));
+                return;
+            }
+            if ( window.user ) window.user.otp = false;
+            disabled = true;
+            dialog.close();
+        };
+        UIDashboardFormDialog({
+            ...opts,
+            title: t('disable_2fa'),
+            intro: `<p>${i18n('disable_2fa_instructions')}</p>${oidcNotice()}`,
+            submitLabel: t('disable_2fa'),
+            fields: [
+                passwordField(i18n('account_password')),
+                {
+                    name: 'code',
+                    label: i18n('disable_2fa_code_instruction'),
+                    attrs: { autocomplete: 'one-time-code', maxlength: 64, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' },
+                },
+            ],
+            // Closed while the request is out, the result waits for its answer.
+            onClose: () => {
+                closed = true;
+                if ( ! submitting ) resolve(disabled);
+            },
+            async onSubmit (dialog) {
+                submitting = true;
+                try {
+                    await submit(dialog);
+                } finally {
+                    submitting = false;
+                    if ( closed ) resolve(disabled);
+                }
+            },
+        });
+    });
 }
 
 /**

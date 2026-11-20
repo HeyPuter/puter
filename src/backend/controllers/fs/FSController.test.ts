@@ -1486,6 +1486,33 @@ describe('FSController.moveEntry', () => {
         const body = captured.body as { path: string };
         expect(body.path).toBe(`/${username}/Pictures/movable`);
     });
+
+    it('answers 400 for a destination that is neither a path nor a reference, and moves nothing', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/stays-put`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: src }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        for (const destination of [undefined, 42, ['/somewhere']]) {
+            await expect(
+                withActor(actor, () =>
+                    controller.moveEntry(
+                        makeReq({
+                            body: { source: { path: src }, destination },
+                            actor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+        expect(await server.stores.fsEntry.getEntryByPath(src)).not.toBeNull();
+    });
 });
 
 // ── /copy (copyEntry) ───────────────────────────────────────────────

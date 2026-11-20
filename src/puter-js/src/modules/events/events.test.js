@@ -32,11 +32,22 @@ class FakeSocket {
         return this;
     }
 
+    /** socket.io's `timeout(ms).emit`: the ack takes `(error, response)`. */
+    timeout (timeoutMs) {
+        return {
+            emit: (verb, payload, ack) => {
+                this.sent.push({ verb, payload, ack, timeoutMs });
+                return this;
+            },
+        };
+    }
+
     /** Answer the most recent send of `verb`. */
     answer (verb, response) {
         const call = [...this.sent].reverse().find(sent => sent.verb === verb);
         if ( ! call ) throw new Error(`nothing was sent for ${verb}`);
-        call.ack(response);
+        if ( call.timeoutMs !== undefined ) call.ack(null, response);
+        else call.ack(response);
     }
 
     removeAllListeners () {
@@ -1113,6 +1124,138 @@ describe('persistent delivery routing', () => {
                 { id: 'entry-n', reason: 'failed', retry: true },
                 { id: 'entry-r', reason: 'failed', retry: true },
             ]);
+    });
+
+    it('tells the server which subscriptions it runs a handler for', async () => {
+        const events = makeModule();
+        events.channel.registerDurable('app-1#a', () => {});
+        events.channel.registerDurable('app-1#b', () => {});
+        await Promise.resolve();
+        events.channel.deregisterDurable('app-1#a');
+        await Promise.resolve();
+
+        const announced = sockets[0].sent.filter(s => s.verb === 'events.handle');
+        expect(announced.map(s => s.payload.subIds)).toEqual([
+            ['app-1#a', 'app-1#b'],
+            ['app-1#b'],
+        ]);
+    });
+
+    it('sends an empty announce once the last handler is gone', async () => {
+        const events = makeModule();
+        await subscribed(events, 'fs:~/Documents', () => {});
+        events.channel.registerDurable('app-1#a', () => {});
+        await Promise.resolve();
+        events.channel.deregisterDurable('app-1#a');
+        await Promise.resolve();
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.handle').map(s => s.payload.subIds))
+            .toEqual([['app-1#a'], []]);
+    });
+
+    it('announces nothing on a connection that never had a persistent handler', async () => {
+        const events = makeModule();
+        await subscribed(events, 'fs:~/Documents', () => {});
+
+        sockets[0].fire('connect');
+        await Promise.resolve();
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.handle')).toEqual([]);
+    });
+
+    it('announces again once a refusal for the call budget has had time to clear', async () => {
+        vi.useFakeTimers();
+        try {
+            const events = makeModule();
+            events.channel.registerDurable('app-1#a', () => {});
+            await Promise.resolve();
+            sockets[0].answer('events.handle', {
+                ok: false,
+                error: { code: 'too_many_requests', message: 'Too many subscription changes' },
+            });
+            events.channel.registerDurable('app-1#b', () => {});
+            await Promise.resolve();
+            sockets[0].answer('events.handle', {
+                ok: false,
+                error: { code: 'too_many_requests', message: 'Too many subscription changes' },
+            });
+
+            await vi.advanceTimersByTimeAsync(10000);
+            const announced = sockets[0].sent.filter(s => s.verb === 'events.handle');
+            expect(announced.map(s => s.payload.subIds)).toEqual([
+                ['app-1#a'],
+                ['app-1#a', 'app-1#b'],
+                ['app-1#a', 'app-1#b'],
+            ]);
+
+            sockets[0].answer('events.handle', { ok: true });
+            await vi.advanceTimersByTimeAsync(60000);
+            expect(sockets[0].sent.filter(s => s.verb === 'events.handle')).toHaveLength(3);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not repeat an announce a server ignores or refuses for another reason', async () => {
+        vi.useFakeTimers();
+        try {
+            const events = makeModule();
+            events.channel.registerDurable('app-1#a', () => {});
+            await Promise.resolve();
+            const [ignored] = sockets[0].sent.filter(s => s.verb === 'events.handle');
+            // What socket.io reports when an older server never answers.
+            ignored.ack(new Error('operation has timed out'));
+            events.channel.registerDurable('app-1#b', () => {});
+            await Promise.resolve();
+            sockets[0].answer('events.handle', {
+                ok: false,
+                error: { code: 'events_disabled', message: 'Events are disabled' },
+            });
+
+            await vi.advanceTimersByTimeAsync(60000);
+            expect(sockets[0].sent.filter(s => s.verb === 'events.handle')).toHaveLength(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('drops a pending announce retry when the connection is replaced', async () => {
+        vi.useFakeTimers();
+        try {
+            const events = makeModule();
+            events.channel.registerDurable('app-1#a', () => {});
+            await Promise.resolve();
+            sockets[0].answer('events.handle', {
+                ok: false,
+                error: { code: 'too_many_requests', message: 'Too many subscription changes' },
+            });
+            events.channel.reset();
+            await Promise.resolve();
+
+            await vi.advanceTimersByTimeAsync(10000);
+            expect(sockets[0].sent.filter(s => s.verb === 'events.handle')).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('announces its handlers again on every connect, and not before one', async () => {
+        const events = makeModule();
+        events.channel.registerDurable('app-1#a', () => {});
+        await Promise.resolve();
+        const socket = sockets[0];
+        socket.sent.length = 0;
+
+        socket.connected = false;
+        events.channel.registerDurable('app-1#b', () => {});
+        await Promise.resolve();
+        expect(socket.sent.filter(s => s.verb === 'events.handle')).toEqual([]);
+
+        socket.connected = true;
+        socket.fire('connect');
+        await Promise.resolve();
+        expect(socket.sent.filter(s => s.verb === 'events.handle').map(s => s.payload))
+            .toEqual([{ subIds: ['app-1#a', 'app-1#b'] }]);
     });
 
     it('declines a queued delivery it has no handler for, at once', async () => {

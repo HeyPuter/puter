@@ -20,7 +20,9 @@ None
 
 A promise that resolves to a [`User`](/Objects/user) object containing the user's basic information.
 
-## Example
+## Examples
+
+### Get the signed-in user
 
 ```html;auth-get-user
 <html>

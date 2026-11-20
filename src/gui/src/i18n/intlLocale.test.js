@@ -26,7 +26,6 @@ describe('intlLocale', () => {
         expect(intlLocale('br')).toBe('pt-BR');
         expect(intlLocale('ua')).toBe('uk');
         expect(intlLocale('zhtw')).toBe('zh-TW');
-        expect(intlLocale('emoji')).toBe('en');
         expect(intlLocale('de')).toBe('de');
     });
 

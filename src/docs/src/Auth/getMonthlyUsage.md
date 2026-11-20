@@ -26,7 +26,9 @@ None
 
 A `Promise` that resolves to a [`MonthlyUsage`](/Objects/monthlyusage) object containing the user's monthly usage information.
 
-## Example
+## Examples
+
+### Get the user's monthly usage
 
 ```html;auth-get-monthly-usage
 <html>

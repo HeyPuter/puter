@@ -19,6 +19,7 @@
 
 import UIItem from '../UI/UIItem.js';
 import item_icon from './itemIcon.js';
+import { atPath } from './pathElements.js';
 import { select_added_item_if_pending } from './uploadSelection.js';
 
 /**
@@ -37,7 +38,7 @@ import { select_added_item_if_pending } from './uploadSelection.js';
  * @param {object} item fsentry from the `item.added` event
  */
 const apply_item_added_to_containers = async function (item) {
-    const $containers = $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`);
+    const $containers = atPath('.item-container', item.dirpath);
     if ( $containers.length === 0 ) {
         return;
     }

@@ -25,6 +25,7 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { UserRow, UserStore } from '../../stores/user/UserStore.js';
 import * as uuid from 'uuid';
+import { lineEndingOf, stripHeaderFields } from './rawMessage.js';
 
 /**
  * The user mailbox, shared by everything that fills one: external ingress,
@@ -48,6 +49,84 @@ export const MAIL_CONTENT_TYPE = 'message/rfc822';
 export const MAX_MESSAGE_BYTES = 25 * 1024 * 1024;
 
 export type MailFolder = 'objects' | 'sent' | 'outbox';
+
+/**
+ * Written by the platform alone, through {@link stampSenderAuth}: every copy a
+ * sender supplied is removed before a message is stored, so one on a stored
+ * message was put there by us. `<result>; from=<domains>;
+ * signed-by=<domains|none>`, plus `; via=local` on mail the platform filed
+ * itself without the ingress.
+ */
+export const SENDER_AUTH_HEADER = 'X-Puter-Sender-Auth';
+
+export type SenderAuthResult = 'pass' | 'fail' | 'temperror';
+
+export interface SenderAuthOutcome {
+    /** `temperror`: the check could not finish, which is not a failure. */
+    result: SenderAuthResult;
+    /** The deployment's own domains the From header names. */
+    fromDomains: string[];
+    /** Every DKIM signing domain on the message, verified or not. */
+    signingDomains: string[];
+}
+
+/**
+ * Where a sender check was made: on mail arriving from outside, or on mail the
+ * platform files itself.
+ */
+export type SenderAuthSource = 'ingress' | 'local';
+
+const SENDER_AUTH_RESULTS = new Set<string>(['pass', 'fail', 'temperror']);
+const DNS_NAME =
+    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
+const MAX_HEADER_DOMAINS = 10;
+
+/**
+ * The header line recording `outcome`, or null for an unknown result. Anything
+ * that is not a plain DNS name is left out, so no listener can fold a header of
+ * its own into the stored message.
+ */
+const senderAuthHeaderLine = (
+    outcome: SenderAuthOutcome,
+    eol: string,
+    source: SenderAuthSource,
+): string | null => {
+    if (!SENDER_AUTH_RESULTS.has(outcome.result)) return null;
+    const names = (list: readonly string[]) => {
+        const kept = [
+            ...new Set(
+                list
+                    .map((name) => String(name).toLowerCase())
+                    .filter(
+                        (name) => name.length <= 253 && DNS_NAME.test(name),
+                    ),
+            ),
+        ].slice(0, MAX_HEADER_DOMAINS);
+        return kept.length > 0 ? kept.join(',') : 'none';
+    };
+    const via = source === 'local' ? '; via=local' : '';
+    return `${SENDER_AUTH_HEADER}: ${outcome.result}; from=${names(outcome.fromDomains)}; signed-by=${names(outcome.signingDomains)}${via}${eol}`;
+};
+
+/**
+ * `head` with every copy of {@link SENDER_AUTH_HEADER} removed and, given an
+ * outcome, ours put first in the block's own line ending. Every path that files
+ * mail into a mailbox stamps it here. Returns `head` itself when nothing
+ * changed.
+ */
+export function stampSenderAuth(
+    head: Buffer,
+    outcome: SenderAuthOutcome | null,
+    source: SenderAuthSource = 'ingress',
+): Buffer {
+    const stripped = stripHeaderFields(head, [SENDER_AUTH_HEADER]);
+    const line = outcome
+        ? senderAuthHeaderLine(outcome, lineEndingOf(head), source)
+        : null;
+    return line
+        ? Buffer.concat([Buffer.from(line, 'latin1'), stripped])
+        : stripped;
+}
 
 const SUBJECT_NAME_CHARS = 80;
 

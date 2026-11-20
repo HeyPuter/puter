@@ -172,6 +172,34 @@ export class AbstractDatabaseClient extends PuterClient {
         return result.value;
     }
 
+    /** Reads the primary only when every replica read is empty or fails. */
+    @Span('db.tryHardReadAll', (reads: unknown[]) => ({
+        'db.batch_size': reads.length,
+    }))
+    async tryHardReadAll(
+        reads: { query: string; params?: unknown[] }[],
+    ): Promise<Record<string, unknown>[][]> {
+        if (!this.hasReadReplica()) {
+            return Promise.all(
+                reads.map(({ query, params = [] }) => this.read(query, params)),
+            );
+        }
+        const onReplica = await Promise.all(
+            reads.map(async ({ query, params = [] }) => {
+                try {
+                    return await this.replicaRead(query, params);
+                } catch {
+                    // A failed replica read counts as a miss.
+                    return [];
+                }
+            }),
+        );
+        if (onReplica.some((rows) => rows.length > 0)) return onReplica;
+        return Promise.all(
+            reads.map(({ query, params = [] }) => this.pread(query, params)),
+        );
+    }
+
     /**
      * Apply the `.sql` files named `<engineName>*` in each configured migration
      * directory, in filename order. Files must be idempotent: nothing records

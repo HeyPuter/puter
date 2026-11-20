@@ -117,7 +117,12 @@ export class SmtpReceiver {
         }
         const message = Buffer.concat(chunks);
 
-        const fields = await readHeaderFields(message);
+        const fields = {
+            ...(await readHeaderFields(message)),
+            mailFrom: session.envelope.mailFrom
+                ? session.envelope.mailFrom.address
+                : '',
+        };
         // The envelope recipient, not the To: header - a blind-copied address
         // never appears in the header at all.
         const recipients = acceptedRecipients(

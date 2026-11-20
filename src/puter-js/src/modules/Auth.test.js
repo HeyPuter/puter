@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { fetchUrlMock } = vi.hoisted(() => ({ fetchUrlMock: vi.fn() }));
+const { fetchUrlMock, xhrMocks } = vi.hoisted(() => ({
+    fetchUrlMock: vi.fn(),
+    xhrMocks: { initXhr: vi.fn(), setupXhrEventHandlers: vi.fn() },
+}));
 vi.mock('../lib/networkUtils.js', () => ({ fetchUrl: fetchUrlMock }));
+vi.mock('../lib/utils.js', async (importOriginal) => ({
+    ...(await importOriginal()),
+    ...xhrMocks,
+}));
 
 const { AuthModule } = await import('./Auth.js');
 
@@ -304,5 +311,70 @@ describe('signOut', () => {
             vi.unstubAllGlobals();
         }
         expect(puter.resetAuthToken).toHaveBeenCalled();
+    });
+});
+
+describe('in a tab the GUI opened, before its token arrives', () => {
+    /** A puter whose token lands when `handOver` is called. */
+    const awaitingHandOver = () => {
+        const puter = { authToken: null, APIOrigin: API_ORIGIN };
+        let handOver;
+        puter.openerLaunch_ = new Promise((resolve) => {
+            handOver = () => {
+                puter.authToken = 'app-token';
+                puter.openerLaunch_ = null;
+                resolve();
+            };
+        });
+        return { puter, handOver };
+    };
+
+    it('whoami waits for the token instead of failing', async () => {
+        fetchUrlMock.mockResolvedValue(respond({ username: 'alice' }));
+        const { puter, handOver } = awaitingHandOver();
+        const user = new AuthModule(puter).whoami();
+        handOver();
+        await expect(user).resolves.toEqual({ username: 'alice' });
+    });
+
+    it('getProfile waits for the token instead of answering null', async () => {
+        const { puter, handOver } = awaitingHandOver();
+        const result = new AuthModule(puter).getProfile();
+        handOver();
+        expect(await result).toEqual(profile);
+    });
+
+    it('getUser waits for the token instead of throwing', async () => {
+        const { puter, handOver } = awaitingHandOver();
+        const auth = new AuthModule(puter);
+        puter.auth = auth;
+        const xhr = {};
+        xhrMocks.initXhr.mockReturnValue(xhr);
+        xhrMocks.setupXhrEventHandlers.mockImplementation(
+            (target, _success, _error, resolve) => {
+                target.send = () => resolve({ username: 'alice' });
+            },
+        );
+        vi.stubGlobal('puter', puter);
+        try {
+            const user = auth.getUser();
+            handOver();
+            await expect(user).resolves.toEqual({ username: 'alice' });
+            expect(xhrMocks.initXhr).toHaveBeenCalledWith(
+                '/whoami', API_ORIGIN, 'app-token', 'get',
+            );
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('still fails once no token came', async () => {
+        const puter = { authToken: null, APIOrigin: API_ORIGIN };
+        puter.openerLaunch_ = Promise.resolve().then(() => {
+            puter.openerLaunch_ = null;
+        });
+        await expect(new AuthModule(puter).whoami()).rejects.toMatchObject({
+            status: 401,
+        });
     });
 });

@@ -1,0 +1,178 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
+import { SHEET_CELL_MAX_CHARACTERS, SHEET_MAX_COLUMNS, SHEET_MAX_ROWS, TEXT_MAX_READ_BYTES } from './config.js';
+import { parseCsv, readCsvPreview } from './csv.js';
+
+// A default column holds 8.43 characters, which is about 48 points, and a default row is 15 points tall.
+const COLUMN = (8.43 * 7 + 5) * 0.75;
+const ROW = 15;
+let drawn;
+/** Draw a CSV and return the text drawn, by what it says. */
+const draw = async (content) => {
+    const preview = await readCsvPreview(new File([content], 'data.csv'));
+    expect(preview).toBeInstanceOf(File);
+    expect(preview.type).toBe('image/png');
+    return Object.fromEntries(drawn.text.map(word => [word.text, word]));
+};
+
+beforeEach(() => {
+    const canvas = createRecordingCanvas();
+    drawn = canvas.drawn;
+    vi.stubGlobal('OffscreenCanvas', canvas.Canvas);
+});
+
+afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+});
+
+describe('parseCsv', () => {
+    it('splits lines into fields at commas', () => {
+        expect(parseCsv('name,age\nAda,36\n')).toEqual([['name', 'age'], ['Ada', '36']]);
+    });
+
+    it('reads quoted fields that hold commas, line breaks and quotes written twice', () => {
+        expect(parseCsv('"a,b","line\nbreak","say ""hi"""\nnext')).toEqual([['a,b', 'line\nbreak', 'say "hi"'], ['next']]);
+    });
+
+    it('keeps a quote inside a field that does not start with one', () => {
+        expect(parseCsv('5" pipe,x\n')).toEqual([['5" pipe', 'x']]);
+    });
+
+    it('keeps empty fields in their place', () => {
+        expect(parseCsv(',b,,\n')).toEqual([['', 'b', '', '']]);
+    });
+
+    it.each([
+        ['semicolons', 'a;b;1,5\nc;d;2,5', [['a', 'b', '1,5'], ['c', 'd', '2,5']]],
+        ['tabs', 'a\tb\tc, d\n', [['a', 'b', 'c, d']]],
+        ['bars', 'a|b|c\n', [['a', 'b', 'c']]],
+        ['commas, when a quoted header holds semicolons', '"a;b",c\n', [['a;b', 'c']]],
+        ['semicolons, when a header holds a quote inside a field', 'Size 5";Length;Weight\n1;2;3\n',
+            [['Size 5"', 'Length', 'Weight'], ['1', '2', '3']]],
+        ['tabs, when a quoted header holds a quote written twice', '"say ""a,b"""\tc\td\n', [['say "a,b"', 'c', 'd']]],
+    ])('finds a file separated by %s', (_label, content, expected) => {
+        expect(parseCsv(content)).toEqual(expected);
+    });
+
+    it('uses the delimiter a first line of `sep=` names, and leaves that line out', () => {
+        expect(parseCsv('sep=;\na;b,c\n1;2\n')).toEqual([['a', 'b,c'], ['1', '2']]);
+        expect(parseCsv('sep=|\n')).toEqual([]);
+    });
+
+    it('reads a line the read cut off in the middle of a quoted field', () => {
+        expect(parseCsv('a,"open')).toEqual([['a', 'open']]);
+    });
+
+    it(`keeps at most ${SHEET_MAX_ROWS} rows, ${SHEET_MAX_COLUMNS} columns and ${SHEET_CELL_MAX_CHARACTERS} characters a field`, () => {
+        const wide = Array.from({ length: SHEET_MAX_COLUMNS + 10 }, (_, index) => index).join(',');
+        const rows = parseCsv(`${'x'.repeat(SHEET_CELL_MAX_CHARACTERS * 2)}\n${wide}\n${'r\n'.repeat(SHEET_MAX_ROWS * 2)}`);
+        expect(rows).toHaveLength(SHEET_MAX_ROWS);
+        expect(rows[0][0]).toHaveLength(SHEET_CELL_MAX_CHARACTERS);
+        expect(rows[1]).toHaveLength(SHEET_MAX_COLUMNS);
+        expect(rows[1].at(-1)).toBe(String(SHEET_MAX_COLUMNS - 1));
+    });
+});
+
+describe('readCsvPreview', () => {
+    it('draws each field in its column and row, on a square canvas with gridlines', async () => {
+        const cells = await draw('Name,,Total\n\nx,Below\n');
+        expect(drawn).toMatchObject({ width: 256, height: 256 });
+        expect(Object.keys(cells)).toEqual(['Name', 'Total', 'x', 'Below']);
+        expect(cells.Name).toMatchObject({ x: 2, font: '11px sans-serif', color: '#000' });
+        expect(cells.Total.x).toBeCloseTo(2 * COLUMN + 2);
+        expect(cells.Below.x).toBeCloseTo(COLUMN + 2);
+        expect(cells.Below.y - cells.Name.y).toBeCloseTo(2 * ROW);
+        expect(drawn.lines.length).toBeGreaterThan(0);
+    });
+
+    it('aligns numbers right and other text left, as a spreadsheet does', async () => {
+        const cells = await draw('label,12,-3.5e2,40%,1.2.3\n');
+        // The recording canvas measures a character as half its font size, so a cell's text ends 2 points from its right.
+        const rightOf = (word, column) => (column + 1) * COLUMN - 2 - word.length * 5.5;
+        expect(cells.label.x).toBe(2);
+        expect(cells['12'].x).toBeCloseTo(rightOf('12', 1));
+        expect(cells['-3.5e2'].x).toBeCloseTo(rightOf('-3.5e2', 2));
+        expect(cells['40%'].x).toBeCloseTo(rightOf('40%', 3));
+        expect(cells['1.2.3'].x).toBeCloseTo(4 * COLUMN + 2);
+    });
+
+    it('aligns a number written with a decimal comma right', async () => {
+        const cells = await draw('Name;Price\nApple;1,50\n');
+        expect(cells['1,50'].x).toBeCloseTo(2 * COLUMN - 2 - 4 * 5.5);
+    });
+
+    it.each([
+        ['a date with slashes', '1/5/24'],
+        ['a date with dots', '5.1.24'],
+        ['a time', '1:45 PM'],
+        ['a number with grouped thousands', '1,234.5'],
+        ['a number with dots between thousands and a decimal comma', '1.234,5'],
+        ['an amount of money', '-$12.50'],
+        ['an amount of money written after', '12,50 €'],
+    ])('aligns %s right, as a spreadsheet reads it as a number', async (_label, value) => {
+        const cells = await draw(`label,"${value}"\n`);
+        expect(cells[value].x).toBeCloseTo(2 * COLUMN - 2 - value.length * 5.5);
+    });
+
+    it('draws a number too wide for its cell from the left and cuts it off there, so its leading digits show', async () => {
+        const values = ['2024-01-15', '2024-01-15T13:45:00Z', '"1,234,567,890.12"', '', '1/15/2024 1:45 PM'];
+        const cells = await draw(`${values.join(',')}\n`);
+        for ( const [column, value] of [[0, '2024-01-15'], [1, '2024-01-15T13:45:00Z'], [2, '1,234,567,890.12'], [4, '1/15/2024 1:45 PM']] ) {
+            expect(cells[value].x).toBeCloseTo(column * COLUMN + 2);
+            // Unlike text, a number doesn't run on over the empty cell after it.
+            expect(cells[value].clip.x).toBeCloseTo(column * COLUMN);
+            expect(cells[value].clip.width).toBeCloseTo(COLUMN);
+        }
+    });
+
+    it.each([['a version', '1.2.3'], ['a phone number', '555-0100'], ['a word with a currency sign', '$abc']])(
+        'aligns %s left',
+        async (_label, value) => {
+            const cells = await draw(`label,"${value}"\n`);
+            expect(cells[value].x).toBeCloseTo(COLUMN + 2);
+        },
+    );
+
+    it('draws a formula as the text it is', async () => {
+        const cells = await draw('=SUM(A1:A2),=1+1\n');
+        expect(Object.keys(cells)).toEqual(['=SUM(A1:A2)', '=1+1']);
+    });
+
+    it('draws a field that holds a line break on one line', async () => {
+        const cells = await draw('"first\nsecond",x\n');
+        expect(Object.keys(cells)).toEqual(['first second', 'x']);
+    });
+
+    it('reads text saved in the Windows code page, as Excel saves a CSV by default', async () => {
+        // `Café,Größe` in Windows-1252, which isn't valid UTF-8.
+        const cells = await draw(new Uint8Array([0x43, 0x61, 0x66, 0xE9, 0x2C, 0x47, 0x72, 0xF6, 0xDF, 0x65, 0x0A]));
+        expect(Object.keys(cells)).toEqual(['Café', 'Größe']);
+    });
+
+    it('reads UTF-8 the read cut off in the middle of a character as UTF-8', async () => {
+        const start = 'Café,x\n';
+        // The `é` at the end starts on the last byte read.
+        const filler = '\n'.repeat(TEXT_MAX_READ_BYTES - 1 - new TextEncoder().encode(start).length);
+        const bytes = new TextEncoder().encode(`${start}${filler}é`);
+        expect(bytes.length).toBe(TEXT_MAX_READ_BYTES + 1);
+        const cells = await draw(bytes);
+        expect(Object.keys(cells)).toContain('Café');
+    });
+
+    it('reads only the start of a large file', async () => {
+        const read = vi.spyOn(Blob.prototype, 'arrayBuffer');
+        const cells = await draw(`first,row\n${'1,2\n'.repeat(TEXT_MAX_READ_BYTES)}`);
+        expect(cells.first).toBeDefined();
+        expect(read.mock.contexts.map(blob => blob.size)).toEqual([TEXT_MAX_READ_BYTES]);
+    });
+
+    it.each([
+        ['an empty file', ''],
+        ['a file of blank lines', '\n\n'],
+        ['a file of empty fields', ',,,\n, ,\n'],
+        ['a file that is not text', 'PK\x03\x04\0\0a,b'],
+    ])('makes nothing of %s', async (_label, content) => {
+        expect(await readCsvPreview(new File([content], 'data.csv'))).toBeUndefined();
+    });
+});

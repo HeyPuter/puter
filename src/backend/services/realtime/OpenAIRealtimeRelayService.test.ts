@@ -24,7 +24,6 @@ import {
     checkRateLimit,
     sweepMemoryWindows,
 } from '../../core/http/middleware/rateLimit.js';
-import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
 import type { IConfig } from '../../types';
 import type { PuterServer } from '../../server';
 import { installSeatStub } from '../../testFixtures/seatStub';
@@ -33,12 +32,14 @@ import {
     createTestUser,
     setupTestServer,
     type TestUserCredentials,
+    withAiCostFactorHook,
 } from '../../testUtil';
 import { kv } from '../../util/kvSingleton';
 import {
     MAX_REALTIME_MESSAGE_BYTES,
     MAX_UPSTREAM_MESSAGE_BYTES,
     OpenAIRealtimeRelayService,
+    promptMessagesOf,
     REALTIME_PATH,
     type RealtimeUsage,
     type RealtimeTranscriptionUsage,
@@ -119,6 +120,65 @@ describe('realtimeUsageRows', () => {
         expect(realtimeUsageRows('constructor', {})).toEqual([]);
         expect(realtimeUsageRows('gpt-4o', {})).toEqual([]);
         expect(realtimeUsageRows('gpt-realtime', undefined)).toEqual([]);
+    });
+});
+
+describe('promptMessagesOf', () => {
+    it('reads message text, transcripts and function output from items', () => {
+        expect(
+            promptMessagesOf({
+                type: 'conversation.item.create',
+                item: {
+                    type: 'message',
+                    role: 'assistant',
+                    content: [
+                        { type: 'output_text', text: 'Hi' },
+                        { type: 'output_audio', transcript: 'Spoken' },
+                        { type: 'input_audio', audio: 'AAAA' },
+                    ],
+                },
+            }),
+        ).toEqual([
+            { role: 'assistant', content: 'Hi' },
+            { role: 'assistant', content: 'Spoken' },
+        ]);
+        expect(
+            promptMessagesOf({
+                type: 'conversation.item.create',
+                item: { type: 'function_call_output', output: '{"ok":1}' },
+            }),
+        ).toEqual([{ role: 'tool', content: '{"ok":1}' }]);
+    });
+
+    it('reads response instructions and out-of-band input', () => {
+        expect(
+            promptMessagesOf({
+                type: 'response.create',
+                response: {
+                    instructions: 'Summarize.',
+                    input: [
+                        { type: 'item_reference', id: 'item_1' },
+                        {
+                            type: 'message',
+                            role: 'user',
+                            content: [{ type: 'input_text', text: 'Text' }],
+                        },
+                    ],
+                },
+            }),
+        ).toEqual([
+            { role: 'system', content: 'Summarize.' },
+            { role: 'user', content: 'Text' },
+        ]);
+    });
+
+    it('returns nothing for audio and other events', () => {
+        expect(
+            promptMessagesOf({ type: 'input_audio_buffer.append', audio: 'x' }),
+        ).toEqual([]);
+        expect(
+            promptMessagesOf({ type: 'session.update', session: {} }),
+        ).toEqual([]);
     });
 });
 
@@ -784,8 +844,8 @@ describe('OpenAIRealtimeRelayService relay', () => {
             'realtime_unreported_response',
             expect.any(String),
             expect.objectContaining({ inFlight: 1 }),
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'ai_providers' },
         );
     });
 
@@ -821,6 +881,33 @@ describe('OpenAIRealtimeRelayService relay', () => {
         await vi.waitFor(async () =>
             expect(await metering.getOutstandingHolds(actor)).toBe(0),
         );
+    });
+
+    it('holds each response for the conversation the last one reported', async () => {
+        const talker = await createTestUser(server, {
+            username: 'realtime-context',
+            password: 'realtime-context-password',
+        });
+        const row = await server.stores.user.getByUsername(talker.username);
+        const actor = { user: row } as never;
+        const metering = server.services.metering;
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${talker.token}`,
+        );
+        await c.waitFor('session.created');
+        // The upstream's reply reports 7 input and 3 output tokens.
+        c.ws.send(JSON.stringify({ type: 'response.create' }));
+        await c.waitFor('response.done');
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(
+                MINI_HOLD + 10 * 1000,
+            ),
+        );
+        c.ws.close();
     });
 
     const mcpTool = {
@@ -1378,6 +1465,139 @@ describe('OpenAIRealtimeRelayService relay', () => {
         } finally {
             server.clients.event.off('ip.validate', deny);
         }
+    });
+
+    describe('prompt checks', () => {
+        type Check = {
+            completionId: string;
+            allow: boolean;
+            parameters: { model: string; messages: unknown[] };
+        };
+        let checks: Check[];
+        let costs: Record<string, unknown>[];
+        let refuse: (check: Check) => boolean;
+        const validate = (_key: string, data: Check) => {
+            checks.push(structuredClone(data));
+            if (refuse(data)) data.allow = false;
+        };
+        const costCalculated = (_key: string, data: Record<string, unknown>) =>
+            void costs.push(data);
+
+        beforeEach(() => {
+            checks = [];
+            costs = [];
+            refuse = () => false;
+            server.clients.event.on('ai.prompt.validate', validate as never);
+            server.clients.event.on(
+                'ai.prompt.cost-calculated',
+                costCalculated as never,
+            );
+        });
+        afterEach(() => {
+            server.clients.event.off('ai.prompt.validate', validate as never);
+            server.clients.event.off(
+                'ai.prompt.cost-calculated',
+                costCalculated as never,
+            );
+        });
+
+        it('checks the text sent before each response and logs its cost under the same id', async () => {
+            const c = open(
+                `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+            );
+            await c.waitFor('session.created');
+            c.ws.send(
+                JSON.stringify({
+                    type: 'session.update',
+                    session: { instructions: 'Be brief.' },
+                }),
+            );
+            c.ws.send(
+                JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                        type: 'message',
+                        role: 'user',
+                        content: [{ type: 'input_text', text: 'Hello' }],
+                    },
+                }),
+            );
+            c.ws.send(JSON.stringify({ type: 'response.create' }));
+            await vi.waitFor(() => expect(costs).toHaveLength(1));
+            expect(checks).toEqual([
+                expect.objectContaining({
+                    allow: true,
+                    parameters: {
+                        model: 'gpt-realtime-mini',
+                        messages: [
+                            { role: 'system', content: 'Be brief.' },
+                            { role: 'user', content: 'Hello' },
+                        ],
+                    },
+                }),
+            ]);
+            expect(costs[0]).toMatchObject({
+                completionId: checks[0].completionId,
+                input_tokens: 7,
+                output_tokens: 3,
+                input_ucents: 7 * 60,
+                output_ucents: 3 * 240,
+                total_ucents: 7 * 60 + 3 * 240,
+                model_used: 'gpt-realtime-mini',
+            });
+
+            // A response with no new text is still logged.
+            c.ws.send(JSON.stringify({ type: 'response.create' }));
+            await vi.waitFor(() => expect(costs).toHaveLength(2));
+            expect(checks[1].parameters.messages).toEqual([]);
+            expect(costs[1].completionId).toBe(checks[1].completionId);
+            c.ws.close();
+        });
+
+        it('closes the session when the check refuses the text', async () => {
+            refuse = (check) =>
+                JSON.stringify(check.parameters.messages).includes('refuse me');
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            c.ws.send(
+                JSON.stringify({
+                    type: 'response.create',
+                    response: { instructions: 'refuse me' },
+                }),
+            );
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'permission_denied' },
+            });
+            expect((await c.closed).code).toBe(1008);
+            expect(costs).toHaveLength(0);
+        });
+
+        it('checks pending text on its own once it passes 64 KiB', async () => {
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            const item = (text: string) =>
+                JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                        type: 'message',
+                        role: 'user',
+                        content: [{ type: 'input_text', text }],
+                    },
+                });
+            c.ws.send(item('a'.repeat(40 * 1024)));
+            c.ws.send(item('b'.repeat(40 * 1024)));
+            c.ws.send(JSON.stringify({ type: 'response.create' }));
+            await vi.waitFor(() => expect(costs).toHaveLength(1));
+            expect(
+                checks.map((check) =>
+                    (check.parameters.messages as { content: string }[]).map(
+                        (m) => m.content[0],
+                    ),
+                ),
+            ).toEqual([['a'], ['b']]);
+            expect(costs[0].completionId).toBe(checks[1].completionId);
+            c.ws.close();
+        });
     });
 
     it('does not allocate credential limiter buckets for many unique invalid signatures', async () => {
@@ -2161,6 +2381,35 @@ describe('OpenAIRealtimeRelayService relay', () => {
         b.ws.close();
     });
 
+    it('evicts an access token revoked on another node', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row! });
+        const token = await server.services.auth.createAccessToken(actor, [
+            [FULL_API_ACCESS],
+        ]);
+        const { token_uid } = server.services.token.verify<{
+            token_uid: string;
+        }>('auth', token);
+        const c = open(`${relayUrl}?auth_token=${token}`);
+        await c.waitFor('session.created');
+
+        // As a peer cluster delivers it, after a malformed payload it ignores.
+        server.clients.event.emit(
+            'outer.auth.access-token.revoked',
+            { token_uid: 42 } as never,
+            { from_outside: true },
+        );
+        server.clients.event.emit(
+            'outer.auth.access-token.revoked',
+            { token_uid },
+            { from_outside: true },
+        );
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        await c.closed;
+    });
+
     it('closes with a retryable error after a sustained verification outage', async () => {
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         await c.waitFor('session.created');
@@ -2667,8 +2916,12 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 ),
             ).toHaveLength(64),
         );
+        // Holds are reserved and usage recorded one at a time, which a loaded
+        // runner takes past vi.waitFor's default second.
+        const settled = (check: () => Promise<void> | void) =>
+            vi.waitFor(check, { timeout: 5_000 });
         // The pool grew one item per commit, with nothing spare at the cap.
-        await vi.waitFor(async () =>
+        await settled(async () =>
             expect(
                 await server.services.metering.getOutstandingHolds(actor),
             ).toBe(64 * 10_896_000),
@@ -2697,7 +2950,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
         for (let batch = 0; batch < 8; batch++) {
             for (let i = Math.max(1, batch * 8); i < (batch + 1) * 8; i++)
                 complete(i);
-            await vi.waitFor(() =>
+            await settled(() =>
                 expect(
                     recorded.mock.calls
                         .flatMap(([, rows]) => rows)
@@ -2713,13 +2966,13 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 .filter((row) => row.usageType.includes('transcription_'))
                 .reduce((sum, row) => sum + row.costOverride!, 0),
         ).toBe(640);
-        await vi.waitFor(async () =>
+        await settled(async () =>
             expect(
                 await server.services.metering.getOutstandingHolds(actor),
             ).toBe(2 * 10_896_000),
         );
         c.ws.close();
-        await vi.waitFor(async () =>
+        await settled(async () =>
             expect(
                 await server.services.metering.getOutstandingHolds(actor),
             ).toBe(0),

@@ -2010,6 +2010,7 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
     let host: string;
     let appUid: string;
     let token: string;
+    let sessionUuid: string;
     const allow = (
         _key: string,
         data: { appUid: string; result: { allowed: boolean } },
@@ -2040,9 +2041,11 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
             'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
             [appUid, sub, sub, `http://${host}/`, owner.id, 1],
         );
-        ({ token } = await server.services.auth.createSessionToken(
+        const signedIn = await server.services.auth.createSessionToken(
             visitor as never,
-        ));
+        );
+        token = signedIn.token;
+        sessionUuid = (signedIn.session as { uuid: string }).uuid;
         server.clients.event.on('app.privateAccess.check', allow as never);
     });
 
@@ -2106,6 +2109,7 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
             {
                 appUid,
                 userUid: visitor.uuid,
+                sessionUuid,
                 subdomain: sub,
                 host,
             },
@@ -2115,6 +2119,34 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
             cookies: { [cookieName()]: cookie },
         });
         expect(out.redirected).toEqual({ status: 302, url: '/?a=1&b=x%20y' });
+        expect(out.cookies[cookieName()]).toBeUndefined();
+    });
+
+    it('replaces a cookie that names no session with one bound to the sign-in', async () => {
+        const unbound = server.services.token.sign('hosted-asset', {
+            kind: 'private',
+            version: '2',
+            user_uid: visitor.uuid,
+            app_uid: appUid,
+            subdomain: sub,
+            host,
+        });
+        const out = await visit({
+            dest: 'iframe',
+            cookies: { [cookieName()]: unbound },
+        });
+        expect(out.statusCode).toBe(200);
+        const minted = out.cookies[cookieName()];
+        expect(minted).toBeTruthy();
+        const claims = await server.services.auth.verifyHostedAssetToken(
+            'private',
+            String(minted),
+            { appUid },
+        );
+        expect(claims).toMatchObject({
+            userUid: visitor.uuid,
+            sessionUuid: expect.any(String),
+        });
     });
 
     it('serves without redirecting when the cookie could not be minted', async () => {
@@ -2760,6 +2792,321 @@ describe('public hosted asset billing identity', () => {
         } finally {
             create.mockRestore();
         }
+    });
+});
+
+describe('public hosted assets requested with the launch token in the Referer', () => {
+    const cookieName = HOSTED_ASSET_COOKIES.public.name;
+
+    const makeLaunchedApp = async () => {
+        const owner = await makeUserWithHome();
+        const home = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}`,
+        ))!;
+        const sub = `ref-${uuidv4().slice(0, 8)}`;
+        const host = `${sub}.site.puter.localhost`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: home.id,
+        });
+        await writeFile(
+            owner.id,
+            `/${owner.username}/index.html`,
+            Buffer.from('<html></html>'),
+        );
+        await writeFile(
+            owner.id,
+            `/${owner.username}/app.css`,
+            Buffer.from('body{}'),
+        );
+        const app = await server.stores.app.create(
+            { name: sub, title: sub, index_url: `http://${host}/` },
+            { ownerUserId: owner.id },
+        );
+        return { owner, sub, host, appUid: app.uid };
+    };
+
+    const cookieFor = async (
+        token: string,
+        site: { sub: string; host: string; appUid: string },
+    ) => {
+        const actor = (await server.services.auth.authenticateFromToken(
+            token,
+        ))!;
+        return server.services.auth.createHostedAssetToken('public', {
+            appUid: site.appUid,
+            userUid: actor.user.uuid,
+            sessionUuid: actor.session?.uid,
+            subdomain: site.sub,
+            host: site.host,
+        });
+    };
+
+    const refererFor = (host: string, token: string) =>
+        `http://${host}/?puter.app_instance_id=x&puter.auth.token=${encodeURIComponent(token)}`;
+
+    const serve = async (
+        host: string,
+        init: {
+            path?: string;
+            cookies?: Record<string, string>;
+            headers?: Record<string, string>;
+            query?: Record<string, string>;
+        } = {},
+    ) => {
+        const req = makeReq({ hostname: host, path: '/app.css', ...init });
+        const { res, out } = makeRes();
+        await buildMiddleware()(req, res, vi.fn());
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(out.statusCode).toBe(200);
+        return { req, out };
+    };
+
+    const claimsOf = (cookie: string, appUid: string, host: string) =>
+        server.services.auth.verifyHostedAssetToken('public', cookie, {
+            appUid,
+            host,
+        });
+
+    const REDIS_METHODS = [
+        'get',
+        'mget',
+        'exists',
+        'hget',
+        'hgetall',
+        'smembers',
+        'set',
+        'del',
+        'expire',
+        'incr',
+        'incrby',
+        'hset',
+        'sadd',
+        'pipeline',
+        'multi',
+    ];
+
+    /** Redis calls, JWT signs and full authentications made by `fn`. */
+    const measure = async <T>(fn: () => Promise<T>) => {
+        const redis = server.clients.redis as unknown as Record<
+            string,
+            unknown
+        >;
+        const redisSpies = REDIS_METHODS.filter(
+            (m) => typeof redis[m] === 'function',
+        ).map((m) => [m, vi.spyOn(redis as never, m as never)] as const);
+        const sign = vi.spyOn(server.services.token, 'sign');
+        const authenticate = vi.spyOn(server.services.auth, 'authenticate');
+        try {
+            const result = await fn();
+            const redisCalls: Record<string, number> = {};
+            for (const [m, spy] of redisSpies) {
+                const n = (spy as unknown as { mock: { calls: unknown[] } })
+                    .mock.calls.length;
+                if (n) redisCalls[m] = n;
+            }
+            return {
+                result,
+                redisCalls,
+                signs: sign.mock.calls.length,
+                authentications: authenticate.mock.calls.length,
+            };
+        } finally {
+            for (const [, spy] of redisSpies) spy.mockRestore();
+            sign.mockRestore();
+            authenticate.mockRestore();
+        }
+    };
+
+    it('costs the same as the cookie alone when the token names the cookie user and session', async () => {
+        const site = await makeLaunchedApp();
+        const visitor = await makeUser();
+        const token = await server.services.auth.getUserAppToken(
+            actorFor(visitor),
+            site.appUid,
+        );
+        const cookies = { [cookieName]: await cookieFor(token, site) };
+        const headers = { referer: refererFor(site.host, token) };
+
+        // Warm the caches both paths read.
+        await serve(site.host, { cookies });
+        await serve(site.host, { cookies, headers });
+
+        const cookieOnly = await measure(() => serve(site.host, { cookies }));
+        const withReferer = await measure(() =>
+            serve(site.host, { cookies, headers }),
+        );
+
+        expect(withReferer.result.req.egressActor?.user?.uuid).toBe(
+            visitor.uuid,
+        );
+        expect(withReferer.result.out.cookies).toEqual({});
+        expect(withReferer.signs).toBe(0);
+        expect(withReferer.authentications).toBe(0);
+        expect(withReferer.redisCalls).toEqual(cookieOnly.redisCalls);
+        expect(cookieOnly.signs).toBe(0);
+    });
+
+    it('bills the token account when the launch could not replace an older cookie', async () => {
+        const site = await makeLaunchedApp();
+        const previous = await makeUser();
+        const current = await makeUser();
+        const previousToken = await server.services.auth.getUserAppToken(
+            actorFor(previous),
+            site.appUid,
+        );
+        const currentToken = await server.services.auth.getUserAppToken(
+            actorFor(current),
+            site.appUid,
+        );
+        const oldCookies = {
+            [cookieName]: await cookieFor(previousToken, site),
+        };
+
+        const mint = vi
+            .spyOn(server.services.auth, 'createHostedAssetToken')
+            .mockRejectedValueOnce(new Error('mint failed'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        let launch;
+        try {
+            launch = await serve(site.host, {
+                path: '/index.html',
+                cookies: oldCookies,
+                query: { 'puter.auth.token': currentToken },
+            });
+        } finally {
+            mint.mockRestore();
+            warn.mockRestore();
+        }
+        expect(launch.out.cookies).toEqual({});
+        expect(launch.req.egressActor?.user?.uuid).toBe(current.uuid);
+
+        const asset = await serve(site.host, {
+            cookies: oldCookies,
+            headers: { referer: refererFor(site.host, currentToken) },
+        });
+        expect(asset.req.egressActor?.user?.uuid).toBe(current.uuid);
+        const replaced = asset.out.cookies[cookieName];
+        expect(replaced).toBeTruthy();
+        expect((await claimsOf(replaced, site.appUid, site.host)).userUid).toBe(
+            current.uuid,
+        );
+    });
+
+    it('bills the token account when a cached page of another account loads assets', async () => {
+        // The document never reaches the server (served from an app's own
+        // cache), so only the assets show which account launched it.
+        const site = await makeLaunchedApp();
+        const previous = await makeUser();
+        const current = await makeUser();
+        const previousToken = await server.services.auth.getUserAppToken(
+            actorFor(previous),
+            site.appUid,
+        );
+        const currentToken = await server.services.auth.getUserAppToken(
+            actorFor(current),
+            site.appUid,
+        );
+        const oldCookies = {
+            [cookieName]: await cookieFor(previousToken, site),
+        };
+
+        for (const path of ['/app.css', '/index.html']) {
+            const asset = await serve(site.host, {
+                path,
+                cookies: oldCookies,
+                headers: { referer: refererFor(site.host, currentToken) },
+            });
+            expect(asset.req.egressActor?.user?.uuid).toBe(current.uuid);
+            const replaced = asset.out.cookies[cookieName];
+            expect(
+                (await claimsOf(replaced, site.appUid, site.host)).userUid,
+            ).toBe(current.uuid);
+        }
+    });
+
+    it('re-mints the cookie when the token names the same user under another session', async () => {
+        const site = await makeLaunchedApp();
+        const visitor = await makeUser();
+        const appToken = await server.services.auth.getUserAppToken(
+            actorFor(visitor),
+            site.appUid,
+        );
+        const cookies = { [cookieName]: await cookieFor(appToken, site) };
+        const { session, token: sessionToken } =
+            await server.services.auth.createSessionToken(visitor as never);
+
+        const asset = await serve(site.host, {
+            cookies,
+            headers: { referer: refererFor(site.host, sessionToken) },
+        });
+        expect(asset.req.egressActor?.user?.uuid).toBe(visitor.uuid);
+        const replaced = asset.out.cookies[cookieName];
+        expect(replaced).toBeTruthy();
+        expect(
+            (await claimsOf(replaced, site.appUid, site.host)).sessionUuid,
+        ).toBe(session.uuid);
+    });
+
+    it('falls back to the cookie when the Referer token does not verify', async () => {
+        const site = await makeLaunchedApp();
+        const visitor = await makeUser();
+        const token = await server.services.auth.getUserAppToken(
+            actorFor(visitor),
+            site.appUid,
+        );
+        const cookies = { [cookieName]: await cookieFor(token, site) };
+        const tampered = `${token.slice(0, -4)}AAAA`;
+
+        const asset = await serve(site.host, {
+            cookies,
+            headers: { referer: refererFor(site.host, tampered) },
+        });
+        expect(asset.req.egressActor?.user?.uuid).toBe(visitor.uuid);
+        expect(asset.out.cookies).toEqual({});
+    });
+
+    it('bills the site owner once the shared session is revoked', async () => {
+        const site = await makeLaunchedApp();
+        const visitor = await makeUser();
+        const token = await server.services.auth.getUserAppToken(
+            actorFor(visitor),
+            site.appUid,
+        );
+        const cookies = { [cookieName]: await cookieFor(token, site) };
+        await server.services.auth.revokeAllSessionsForUserId(visitor.id);
+
+        const asset = await serve(site.host, {
+            cookies,
+            headers: { referer: refererFor(site.host, token) },
+        });
+        expect(asset.req.egressActor?.user?.uuid).toBe(site.owner.uuid);
+        expect(asset.out.cookies).toEqual({});
+    });
+
+    it('keeps responses that set the cookie out of shared caches', async () => {
+        const site = await makeLaunchedApp();
+        const visitor = await makeUser();
+        const token = await server.services.auth.getUserAppToken(
+            actorFor(visitor),
+            site.appUid,
+        );
+
+        const launch = await serve(site.host, {
+            path: '/index.html',
+            query: { 'puter.auth.token': token },
+        });
+        const cookie = launch.out.cookies[cookieName];
+        expect(cookie).toBeTruthy();
+        expect(launch.out.headers['Cache-Control']).toBe('private');
+
+        const asset = await serve(site.host, {
+            cookies: { [cookieName]: cookie },
+            headers: { referer: refererFor(site.host, token) },
+        });
+        expect(asset.out.cookies).toEqual({});
+        expect(asset.out.headers['Cache-Control']).toBeUndefined();
     });
 });
 

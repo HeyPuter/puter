@@ -735,26 +735,16 @@ export class PermissionService extends PuterService {
         // `#scanAccessToken`, bounded by its own rows. Reading the chain here
         // would hand it the issuing app's grants unbounded.
         if (!actor.app) return;
-        const issuerActor = userRelatedActor(actor);
-        const issuerReading = await this.scan(issuerActor, options);
-        const hasTerminal = readingHasTerminal(issuerReading);
         const appUid = actor.app.uid;
 
+        const found: Array<{ permission: string; by: string; data: unknown }> =
+            [];
         for (const permission of options) {
             const implied = (
                 default_implicit_user_app_permissions as Record<string, unknown>
             )[permission];
             if (implied) {
-                reading.push({
-                    $: 'path',
-                    permission,
-                    has_terminal: hasTerminal,
-                    source: 'user-app-implied',
-                    by: 'user-app-hc-1',
-                    data: implied,
-                    issuer_username: actor.user?.username,
-                    reading: issuerReading,
-                });
+                found.push({ permission, by: 'user-app-hc-1', data: implied });
             }
 
             // per-app hardcoded overrides
@@ -768,17 +758,29 @@ export class PermissionService extends PuterService {
                 }
             }
             if (hits[permission]) {
-                reading.push({
-                    $: 'path',
+                found.push({
                     permission,
-                    has_terminal: hasTerminal,
-                    source: 'user-app-implied',
                     by: 'user-app-hc-2',
                     data: hits[permission],
-                    issuer_username: actor.user?.username,
-                    reading: issuerReading,
                 });
             }
+        }
+        // The user is scanned only when an option is implied for the app.
+        if (found.length === 0) return;
+
+        const issuerReading = await this.scan(userRelatedActor(actor), options);
+        const hasTerminal = readingHasTerminal(issuerReading);
+        for (const { permission, by, data } of found) {
+            reading.push({
+                $: 'path',
+                permission,
+                has_terminal: hasTerminal,
+                source: 'user-app-implied',
+                by,
+                data,
+                issuer_username: actor.user?.username,
+                reading: issuerReading,
+            });
         }
     }
 
@@ -919,22 +921,23 @@ export class PermissionService extends PuterService {
         permissions: string[],
     ): Promise<ReadingNode[]> {
         if (!actor.user?.id) return [];
-        const values = await this.stores.permission.getFlatUserPerms(
-            actor.user.id,
-            permissions,
+        const userId = actor.user.id;
+        const entries = await this.stores.permission.getFlatUserPermsForRefs(
+            [...new Set(permissions)].map((permission) => ({
+                holderUserId: userId,
+                permission,
+            })),
         );
-
-        let anyDeleted = false;
-        for (const v of values) {
-            if (v.deleted) {
-                anyDeleted = true;
-                continue;
-            }
-            const { permission, issuer_user_id, ...extra } = v;
-            if (!permission) continue;
-            const issuer = issuer_user_id
-                ? await this.stores.user.getById(issuer_user_id)
-                : null;
+        const { kept, issuers } =
+            await this.stores.permission.withoutOrphanedFlatPerms(
+                entries.filter(
+                    ({ value }) => !value.deleted && value.permission,
+                ),
+            );
+        const anyDeleted = entries.some(({ value }) => value.deleted);
+        for (const { value } of kept) {
+            const { permission, issuer_user_id, ...extra } = value;
+            const issuer = issuers.get(Number(issuer_user_id));
             return [
                 {
                     $: 'option',
@@ -1155,9 +1158,13 @@ export class PermissionService extends PuterService {
     }
 
     /** Batched: one event for the whole group, not one per member. */
-    async #bumpGroupCacheGeneration(groupId: number): Promise<void> {
+    async #bumpGroupCacheGeneration(
+        groupId: number,
+        memberUuids?: string[],
+    ): Promise<void> {
         const uuids =
-            await this.stores.permission.listGroupMemberUuids(groupId);
+            memberUuids ??
+            (await this.stores.permission.listGroupMemberUuids(groupId));
         if (uuids.length === 0) return;
         await this.stores.permission.bumpCacheGenerations(
             uuids.map((uuid) => `user:${uuid}`),
@@ -1238,11 +1245,12 @@ export class PermissionService extends PuterService {
 
         await this.#assertCanManage(actor, permission);
 
-        const revoked = await this.stores.permission.deleteUserGroupPerm(
-            groupId,
-            issuerId,
-            permission,
-        );
+        const { removed: revoked, members } =
+            await this.stores.permission.deleteUserGroupPerm(
+                groupId,
+                issuerId,
+                permission,
+            );
 
         this.#audit(
             this.stores.permission.auditUserGroupPerm({
@@ -1257,15 +1265,18 @@ export class PermissionService extends PuterService {
         );
 
         // Bumped even when nothing matched: a cached allow must not survive.
-        await this.#bumpGroupCacheGeneration(groupId);
+        await this.#bumpGroupCacheGeneration(
+            groupId,
+            members
+                .map((member) => member.uuid)
+                .filter((uuid): uuid is string => Boolean(uuid)),
+        );
 
         // Nothing but the membership names the holders, so without this their
         // watches outlive the revoke.
         if (revoked) {
-            for (const memberId of await this.stores.permission.listGroupMemberIds(
-                groupId,
-            )) {
-                this.#announceRevoked(memberId, null, permission);
+            for (const member of members) {
+                this.#announceRevoked(member.id, null, permission);
             }
         }
         return revoked;

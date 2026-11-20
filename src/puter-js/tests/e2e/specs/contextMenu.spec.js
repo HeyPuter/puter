@@ -44,4 +44,55 @@ test.describe('puter.ui.contextMenu (env=app)', () => {
             await deleteTestApp(page, appName);
         }
     });
+
+    test('choosing an item in a submenu of a submenu closes the whole menu', async ({ page }) => {
+        const appName = await registerTestApp(page);
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+
+            await appFrame.locator('#ctx-trigger-nested').click();
+
+            // Each submenu opens a moment after its row is pointed at or tapped.
+            const row = (label) => page.locator('.context-menu:visible .context-menu-item', { hasText: label }).last();
+            await row('CtxOuter').click();
+            await expect(row('CtxOuterItem')).toBeVisible();
+            await row('CtxInner').click();
+            await expect(row('CtxInnerItem')).toBeVisible();
+
+            await row('CtxInnerItem').click();
+
+            await expect(page.locator('.context-menu')).toHaveCount(0);
+            // On a phone the menu is a sheet over a backdrop, which goes with it.
+            await expect(page.locator('.context-menu-sheet-backdrop')).toHaveCount(0);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+
+    test('a submenu of a submenu closes with the submenu it belongs to', async ({ page, isMobile }) => {
+        // A phone shows one sheet at a time, so there is no row to point back at.
+        test.skip(isMobile, 'pointer only');
+        const appName = await registerTestApp(page);
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+
+            await appFrame.locator('#ctx-trigger-nested').click();
+
+            const row = (label) => page.locator('.context-menu:visible .context-menu-item', { hasText: label }).last();
+            await row('CtxOuter').click();
+            await expect(row('CtxOuterItem')).toBeVisible();
+            await row('CtxInner').click();
+            await expect(row('CtxInnerItem')).toBeVisible();
+            await expect(page.locator('.context-menu')).toHaveCount(3);
+
+            // Move onto another row of the root menu, as a hand does: in steps.
+            const plain = await row('CtxPlain').boundingBox();
+            await page.mouse.move(plain.x + 20, plain.y + plain.height / 2, { steps: 5 });
+            await page.mouse.move(plain.x + 40, plain.y + plain.height / 2, { steps: 5 });
+
+            await expect(page.locator('.context-menu')).toHaveCount(1);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
 });

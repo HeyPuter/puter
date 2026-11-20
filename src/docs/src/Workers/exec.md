@@ -26,13 +26,13 @@ The worker to execute. Accepts the same input as the Fetch API's first argument:
 
 A standard [RequestInit](https://developer.mozilla.org/en-US/docs/Web/API/RequestInit) object
 
-## Return Value
+## Return value
 
 A `Promise` that resolves to a `Response` object (similar to the Fetch API).
 
 ## Examples
 
-<strong class="example-title">Execute a worker</strong>
+### Execute a worker
 
 ```html
 <html>

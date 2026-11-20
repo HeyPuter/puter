@@ -54,11 +54,13 @@ How much access to grant. Defaults to `'read'`.
 
 An object with the following properties:
 
-- `path` (String) - Item to share. Required when passing options as the only argument.
-- `uid` (String) - Item to share, by UID. Can be used instead of `path`.
-- `paths` (Array) - Several items to share in one call.
-- `recipient` (String | Object | Array) - Who to share with.
-- `mode` (String) - Access to grant. Defaults to `'read'`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `path` | `String` | Item to share. Required when passing options as the only argument. |
+| `recipient` | `String \| Object \| Array` | Who to share with. |
+| `mode` | `String` | Access to grant. Defaults to `'read'`. |
+| `paths` | `Array` | Several items to share in one call. |
+| `uid` | `String` | Item to share, by UID. Can be used instead of `path`. |
 
 ## Return value
 
@@ -144,48 +146,6 @@ if ( share.pending ) {
 }
 ```
 
-## Examples
-
-<strong class="example-title">Share a file with another user</strong>
-
-```html;fs-share
-<html>
-<body>
-    <script src="https://js.puter.com/v2/"></script>
-    <script>
-        (async () => {
-            // (1) create a file
-            await puter.fs.write('report.txt', 'Quarterly numbers');
-
-            // (2) share it, read-only
-            const shares = await puter.fs.share('report.txt', 'friend@example.com');
-            puter.print(`Shared with ${shares[0].holder} as ${shares[0].mode}<br>`);
-        })()
-    </script>
-</body>
-</html>
-```
-
-<strong class="example-title">Let someone edit, and let someone else re-share</strong>
-
-```js
-// An editor can change the file but cannot pass it on.
-await puter.fs.share('report.txt', 'editor@example.com', 'write');
-
-// A manager can edit it AND share it with other people.
-await puter.fs.share('report.txt', 'manager@example.com', 'manage');
-```
-
-<strong class="example-title">Share one item with several people</strong>
-
-```js
-await puter.fs.share({
-    path: 'report.txt',
-    recipient: ['a@example.com', 'b@example.com'],
-    mode: 'read',
-});
-```
-
 ## Live updates
 
 Changes inside a shared item are not pushed to recipients in real time —
@@ -236,3 +196,45 @@ Trash does not bring them back; share it again.
 - [`puter.fs.unshare()`](/FS/unshare/) - Withdraw access
 - [`puter.fs.getShares()`](/FS/getShares/) - See who can reach an item
 - [`puter.fs.listShared()`](/FS/listShared/) - See what others have shared with you
+
+## Examples
+
+### Share a file with another user
+
+```html;fs-share
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) create a file
+            await puter.fs.write('report.txt', 'Quarterly numbers');
+
+            // (2) share it, read-only
+            const shares = await puter.fs.share('report.txt', 'friend@example.com');
+            puter.print(`Shared with ${shares[0].holder} as ${shares[0].mode}<br>`);
+        })()
+    </script>
+</body>
+</html>
+```
+
+### Let someone edit, and let someone else re-share
+
+```js
+// An editor can change the file but cannot pass it on.
+await puter.fs.share('report.txt', 'editor@example.com', 'write');
+
+// A manager can edit it AND share it with other people.
+await puter.fs.share('report.txt', 'manager@example.com', 'manage');
+```
+
+### Share one item with several people
+
+```js
+await puter.fs.share({
+    path: 'report.txt',
+    recipient: ['a@example.com', 'b@example.com'],
+    mode: 'read',
+});
+```

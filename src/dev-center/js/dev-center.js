@@ -38,22 +38,27 @@ window.user = null;
     }
 })();
 
-// domain and APIOrigin
-if ( window.url_params.has('puter.domain') ) {
-    window.domain = window.url_params.get('puter.domain');
+// domain and port are built into links and deploy URLs, so anything other
+// than a bare hostname and a numeric port is ignored
+const domainParam = window.url_params.get('puter.domain');
+if ( domainParam && /^[a-z0-9-]+(\.[a-z0-9-]+)*$/i.test(domainParam) ) {
+    window.domain = domainParam;
 }
+
+const portParam = window.url_params.get('puter.port');
+window.port = portParam && /^\d{1,5}$/.test(portParam) ? portParam : '';
 
 // static hosting domain
 window.static_hosting_domain = 'puter.site';
-   if ( window.domain === 'puter.localhost' ) {
-       window.static_hosting_domain = 'site.puter.localhost';
-   } else if ( window.domain && window.domain !== 'puter.com' ) {
-       window.static_hosting_domain = `site.${window.domain}`;
-   }
+if ( window.domain === 'puter.localhost' ) {
+    window.static_hosting_domain = 'site.puter.localhost';
+} else if ( window.domain && window.domain !== 'puter.com' ) {
+    window.static_hosting_domain = `site.${window.domain}`;
+}
 
 // add port to static_hosting_domain if provided
-if ( window.url_params.has('puter.port') && window.url_params.get('puter.port') ) {
-    window.static_hosting_domain = `${window.static_hosting_domain }:${ html_encode(window.url_params.get('puter.port'))}`;
+if ( window.port ) {
+    window.static_hosting_domain = `${window.static_hosting_domain}:${window.port}`;
 }
 
 // protocol
@@ -61,12 +66,6 @@ window.protocol = 'https';
 if ( window.url_params.has('puter.protocol') && window.url_params.get('puter.protocol') === 'http' )
 {
     window.protocol = 'http';
-}
-
-// port
-window.port = '';
-if ( window.url_params.has('puter.port') && window.url_params.get('puter.port') ) {
-    window.port = html_encode(window.url_params.get('puter.port'));
 }
 
 // source_path
@@ -139,7 +138,7 @@ $(document).on('click', '.tab-btn', async function (e) {
             puter.apps.getDeveloperProfile(function (dev_profile) {
                 // show payout method tab if dev has joined incentive program
                 if ( dev_profile.joined_incentive_program ) {
-                    $('#payout-method-email').html(dev_profile.paypal);
+                    $('#payout-method-email').text(dev_profile.paypal);
                 }
                 puter.ui.hideSpinner();
                 if ( activeTab === 'payout-method' )
@@ -209,7 +208,7 @@ $('.jip-submit-btn').on('click', async function (e) {
             //enable submit button
             $('.jip-submit-btn').prop('disabled', false);
             // update dev profile
-            $('#payout-method-email').html(paypal);
+            $('#payout-method-email').text(paypal);
             // show separator
             $('.tab-btn-separator').show();
             // show payout method tab

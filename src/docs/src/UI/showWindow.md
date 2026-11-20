@@ -4,7 +4,7 @@ description: Shows the window of your application.
 platforms: [apps]
 ---
 
-The `showWindow` method allows you to show the window of your application.
+Shows the window of your application.
 
 ## Syntax
 
@@ -16,11 +16,13 @@ puter.ui.showWindow()
 
 None.
 
-## Return Value
+## Return value
 
 None.
 
-## Example
+## Examples
+
+### Show the app's window
 
 ```html
 <html>

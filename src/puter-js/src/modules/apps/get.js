@@ -5,12 +5,13 @@ import { addUserIteration } from './lib/appUsers.js';
 /** @typedef {import('./types.js').AppListOptions} AppListOptions */
 
 /**
- * Returns the app with the given name. Rejects if the app does not exist.
- * The options object (`stats_period`, `icon_size`) may be passed as the second
- * argument, or as the sole argument.
+ * Returns the app with the given name, or the app at a URL's origin when given
+ * a URL (any string with `://`, which no app name contains). Rejects if the app
+ * does not exist. The options object (`stats_period`, `icon_size`) may be
+ * passed as the second argument, or as the sole argument.
  *
  * @this {import('./index.js').AppsModule}
- * @param {string | AppListOptions} nameOrOptions
+ * @param {string | AppListOptions} nameOrOptions The app's name or a URL.
  * @param {AppListOptions} [options]
  * @returns {Promise<App>}
  */
@@ -20,7 +21,9 @@ export async function get (nameOrOptions, options) {
     const driverArgs = {};
     if ( typeof nameOrOptions === 'string' ) {
         if ( typeof options === 'object' && options !== null ) driverArgs.params = options;
-        driverArgs.id = { name: nameOrOptions };
+        driverArgs.id = nameOrOptions.includes('://')
+            ? { url: nameOrOptions }
+            : { name: nameOrOptions };
     }
     if ( typeof nameOrOptions === 'object' && nameOrOptions !== null ) {
         driverArgs.params = nameOrOptions;

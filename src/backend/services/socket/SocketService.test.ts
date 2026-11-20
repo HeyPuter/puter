@@ -428,6 +428,43 @@ describe('SocketService (live socket.io)', () => {
         sessionSocket.disconnect();
     });
 
+    it('drops a token`s socket on a revocation that reached it from elsewhere', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row as never });
+        const doomed = await runWithContext({ actor }, () =>
+            server.services.auth.createAccessToken(actor, [[FULL_API_ACCESS]], {
+                label: 'revoke-fanout-probe',
+            }),
+        );
+        const { token_uid } = server.services.token.verify<{
+            token_uid: string;
+        }>('auth', doomed);
+        const tokenSocket = await connect({ auth_token: doomed });
+        expect(tokenSocket.connected).toBe(true);
+
+        // A malformed peer payload is ignored.
+        for (const data of [null, {}, { token_uid: 42 }]) {
+            server.clients.event.emit(
+                'outer.auth.access-token.revoked',
+                data as never,
+                { from_outside: true },
+            );
+        }
+        await new Promise((r) => setTimeout(r, 200));
+        expect(tokenSocket.connected).toBe(true);
+
+        // As a peer cluster delivers it: the token was revoked on another node.
+        server.clients.event.emit(
+            'outer.auth.access-token.revoked',
+            { token_uid },
+            { from_outside: true },
+        );
+
+        await vi.waitFor(() => expect(tokenSocket.connected).toBe(false), {
+            timeout: 5000,
+        });
+    });
+
     it('rejects an app-under-user token while events are off', async () => {
         const row = await server.stores.user.getByUsername(user.username);
         const appUid = `app-${uuidv4()}`;
@@ -924,6 +961,31 @@ describe('SocketService (live socket.io)', () => {
 
         expect(socket.connected).toBe(true);
         socket.disconnect();
+    });
+
+    it('keeps a connection up when its re-check lookup fails', async () => {
+        const user = await createTestUser(server, {
+            username: 'sock-lookup-down',
+            password: 'sock-lookup-down-password',
+        });
+        const socket = await connect({ auth_token: `Bearer ${user.token}` });
+        const authenticate = vi
+            .spyOn(server.services.auth, 'authenticate')
+            .mockRejectedValue(
+                Object.assign(new Error('Database operation failed'), {
+                    code: 'dbBatchFailed',
+                }),
+            );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            await socketService.reauthenticateSockets();
+            await new Promise((r) => setTimeout(r, 200));
+            expect(socket.connected).toBe(true);
+        } finally {
+            authenticate.mockRestore();
+            warn.mockRestore();
+            socket.disconnect();
+        }
     });
 
     it('re-checks without recording session activity', async () => {

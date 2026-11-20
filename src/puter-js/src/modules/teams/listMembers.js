@@ -28,7 +28,7 @@ import { mapListResult, toMember } from './lib/shapes.js';
  * Returns the accounts belonging to a team. Any member may call it. From an
  * app it needs the team's directory open (else `team_not_found`), lists
  * active accounts only, and never carries `uuid`. The response carries no
- * email, activation state or usage.
+ * email or usage, and only the team owner gets `passwordPending`.
  *
  * @this {import('./index.js').TeamsModule}
  * @param {string} uid

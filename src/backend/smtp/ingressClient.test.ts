@@ -31,6 +31,15 @@ describe('building the request url', () => {
         expect(u.searchParams.get('SECRET')).toBe(SECRET);
     });
 
+    test('carries the envelope sender when there is one', () => {
+        expect(
+            url({ mailFrom: 'bounce@elsewhere.test' }).searchParams.get(
+                'mailfrom',
+            ),
+        ).toBe('bounce@elsewhere.test');
+        expect(url().searchParams.has('mailfrom')).toBe(false);
+    });
+
     test('encodes a unicode subject', () => {
         const u = url({ subject: 'héllo → wörld' });
         expect(u.searchParams.get('subject')).toBe('héllo → wörld');
@@ -101,6 +110,14 @@ describe('turning a status into an SMTP reply', () => {
         expect(replyForStatus(status).code).toBe(code);
     });
 
+    test('a policy refusal is permanent and quotes one line of its reason', () => {
+        expect(replyForStatus(422, 'Not from us\r\nX-Injected: 1')).toEqual({
+            code: 550,
+            text: '5.7.1 Not from us X-Injected: 1',
+        });
+        expect(replyForStatus(422).text).toBe('5.7.1 Message refused');
+    });
+
     test('a rejected secret is temporary, so mail is held not bounced', () => {
         // 403 means this end is misconfigured; bouncing would discard the mail.
         expect(replyForStatus(403).code).toBe(451);
@@ -116,6 +133,7 @@ describe('delivering to the endpoint', () => {
         body: Buffer;
     }> = [];
     let status = 200;
+    let responseBody = '';
     let hang = false;
 
     beforeAll(async () => {
@@ -130,7 +148,7 @@ describe('delivering to the endpoint', () => {
                 });
                 if (hang) return;
                 res.statusCode = status;
-                res.end();
+                res.end(responseBody);
             });
         });
         await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -144,6 +162,7 @@ describe('delivering to the endpoint', () => {
     afterEach(() => {
         received = [];
         status = 200;
+        responseBody = '';
         hang = false;
     });
 
@@ -185,6 +204,15 @@ describe('delivering to the endpoint', () => {
     test('maps a refusal from the endpoint', async () => {
         status = 404;
         expect((await send()).code).toBe(550);
+    });
+
+    test("passes on the endpoint's reason for a policy refusal", async () => {
+        status = 422;
+        responseBody = 'Unauthenticated mail from example.com is not accepted';
+        expect(await send()).toEqual({
+            code: 550,
+            text: '5.7.1 Unauthenticated mail from example.com is not accepted',
+        });
     });
 
     test('treats an unreachable endpoint as temporary', async () => {

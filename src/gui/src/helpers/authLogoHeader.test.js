@@ -51,11 +51,15 @@ describe('authLogoHeader', () => {
         expect(h).toContain('class="auth-logo"');
         expect(h).not.toContain('auth-opener-logo');
         expect(h).not.toContain('auth-logo-connector');
-        expect(h).not.toContain('cursor: pointer');
+        expect(h).not.toContain('<a ');
+        // Decorative: the title beside it names the screen.
+        expect(h).toContain('alt=""');
     });
 
-    it('adds the pointer cursor when the logo is clickable', () => {
-        expect(authLogoHeader({ logoSrc: LOGO, logoClickable: true })).toContain('cursor: pointer');
+    it('makes the logo a named link when it leads somewhere', () => {
+        const h = authLogoHeader({ logoSrc: LOGO, logoHref: '/' });
+        expect(h).toContain('<a class="auth-logo-link" href="/">');
+        expect(h).toContain('alt="Puter"');
     });
 
     it('pairs the opener favicon with the Puter logo through a connector', () => {

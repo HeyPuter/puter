@@ -19,7 +19,7 @@
 
 import { toMicroCents } from '../../services/metering/utils';
 
-// Microcents per byte of TURN egress ($0.05/GB).
+// Microcents per byte of TURN egress ($0.10/GB).
 export const PEER_COSTS = {
     'turn:egress-bytes': toMicroCents(0.1 / 1000 ** 3),
 } as const;

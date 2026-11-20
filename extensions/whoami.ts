@@ -1,10 +1,10 @@
 import { Context } from '@heyputer/backend/src/core';
 import { extension } from '@heyputer/backend/src/extensions';
-import { APP_ICON_SIZES } from '@heyputer/backend/src/util/appIcon.js';
 import {
     buildUserDetails,
     scrubSensitive,
 } from '@heyputer/backend/src/util/userDetails.js';
+import type { UserRow } from '@heyputer/backend/src/stores/user/UserStore.js';
 import type { Request, Response } from 'express';
 import TimeAgo from 'javascript-time-ago';
 import localeEn from 'javascript-time-ago/locale/en';
@@ -48,25 +48,21 @@ export const handleWhoami = async (
     };
     // Started beside the row read: the actor carries the row's uuid.
     const emailCheck = isUser ? null : canReadEmail(actor.user.uuid);
-    const user = await stores.user.getById(actor.user.id);
+    // Token auth loaded this request's row already; `hasPassword` marks an
+    // actor built from it.
+    const user =
+        actor.user.hasPassword === undefined
+            ? await stores.user.getById(actor.user.id)
+            : (actor.user as UserRow & { hasPassword: boolean });
     if (!user) {
         res.status(404).json({ error: 'User not found' });
         return;
     }
 
-    const rawIconSize =
-        typeof req.query?.icon_size === 'string'
-            ? Number(req.query.icon_size)
-            : undefined;
-    const iconSize =
-        rawIconSize !== undefined && APP_ICON_SIZES.includes(rawIconSize)
-            ? rawIconSize
-            : undefined;
-
     const details = await buildUserDetails(
         user,
         { config: extension.config, clients, stores, services },
-        { isUser, iconSize, noIcons: !iconSize },
+        { isUser },
     );
     details.human_readable_age = user.timestamp
         ? timeago.format(new Date(user.timestamp as string))
@@ -81,9 +77,6 @@ export const handleWhoami = async (
             delete details.email;
             delete details.unconfirmed_email;
         }
-        delete details.desktop_bg_url;
-        delete details.desktop_bg_color;
-        delete details.desktop_bg_fit;
         delete details.human_readable_age;
         delete details.created_ts;
         delete details.is_user_token;
@@ -121,8 +114,7 @@ export const handleWhoami = async (
     }
 
     const subscription = details.subscription as
-        | { offering?: Record<string, unknown> }
-        | undefined;
+        { offering?: Record<string, unknown> } | undefined;
     if (subscription?.offering) {
         delete subscription.offering.group;
         delete subscription.offering.benefits;

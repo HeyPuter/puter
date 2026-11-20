@@ -26,6 +26,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import { RedisClient } from '../clients/redis/RedisClient.ts';
+import { startSilentRedis } from '../testFixtures/silentRedis.ts';
 import { setupTestServer } from '../testUtil.ts';
 import type { PuterServer } from '../server.ts';
 import type { IConfig } from '../types';
@@ -301,4 +303,42 @@ describe('RowCache', () => {
             row,
         );
     });
+});
+
+describe('PuterStore.publishCacheKeys', () => {
+    it('sends an invalidation while Redis is failing fast', async () => {
+        const silent = await startSilentRedis(true);
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const redis = new RedisClient({
+            redis: {
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 200,
+                failFastMs: 60_000,
+            },
+        } as unknown as IConfig);
+        try {
+            await new Promise<void>((r) => redis.once('ready', () => r()));
+            await expect(redis.set('a', '1')).rejects.toThrow(
+                'Command timed out',
+            );
+            await expect(redis.get('b')).rejects.toThrow('Redis unavailable');
+
+            const store = new WidgetStore(
+                {} as IConfig,
+                {
+                    redis,
+                } as unknown as PuterServer['clients'],
+            );
+            const dropped = store.tombstone(['widget:id:1']);
+            silent.answer();
+            await dropped;
+            expect(silent.seen).toEqual(['set', 'set', 'del']);
+        } finally {
+            redis.disconnect();
+            await silent.close();
+            vi.restoreAllMocks();
+        }
+    }, 5000);
 });

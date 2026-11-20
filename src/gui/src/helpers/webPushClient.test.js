@@ -18,20 +18,94 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { webPushClient } from './webPushClient.js';
+import {
+    RECEIPT_PREFIX,
+    SUBSCRIPTION_CHANGED_PREFIX,
+    SYNCED_PREFIX,
+} from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
+import { cachedPushApps } from './notificationApi.js';
+import { registerPushClient } from './pushClient.js';
+import { syncBrowserPush } from './pushSync.js';
+import { LAST_ENDPOINT_PREFIX, ON_KEPT_MS, webPushClient } from './webPushClient.js';
 
-const make = ({ on = true, devices = [], permission = 'granted', subscription = {} } = {}) => {
+const SCOPE = 'https://puter.test/';
+const LAST_ENDPOINT_KEY = `${LAST_ENDPOINT_PREFIX}u-1`;
+const CHANGED = `${SUBSCRIPTION_CHANGED_PREFIX}${SCOPE}`;
+const RECEIPT = `${RECEIPT_PREFIX}${SCOPE}`;
+const synced = (endpoint, user = 'u-1') => ({ [`${SYNCED_PREFIX}${user}`]: { endpoint, at: 1 } });
+
+/** `localStorage` over a Map. */
+const fakeStorage = (entries = {}) => {
+    const map = new Map(Object.entries(entries));
+    return { map, getItem: (k) => map.get(k) ?? null, setItem: (k, v) => void map.set(k, String(v)), removeItem: (k) => void map.delete(k) };
+};
+
+/** IndexedDB with one store's worth of entries, answering on a microtask. */
+const fakeIdb = (entries = {}) => {
+    const map = new Map(Object.entries(entries));
+    const later = (run) => {
+        const req = {};
+        queueMicrotask(() => {
+            req.result = run();
+            req.onsuccess?.();
+        });
+        return req;
+    };
+    const store = {
+        get: (key) => later(() => map.get(key)),
+        delete: (key) => later(() => void map.delete(key)),
+    };
+    return {
+        map,
+        open: () => later(() => ({ transaction: () => ({ objectStore: () => store }), close: () => {} })),
+    };
+};
+
+/** A client over a stand-in puter.js that keeps its push record in a Map. */
+const make = ({ on = true, devices = [], permission = 'granted', subscription = { endpoint: 'https://push.test/1' }, user = 'u-1', serverState = 'active', kept = {}, storage = fakeStorage(), idb = fakeIdb(), oldSdk = false, takesBackground = true } = {}) => {
+    const sdk = new Map(Object.entries(kept));
+    const state = { subscription, user, serverState, now: 0 };
     const notifications = {
-        enable: vi.fn(async () => on),
+        enable: vi.fn(async () => {
+            if ( on ) {
+                sdk.set(`${SYNCED_PREFIX}${state.user}`, { endpoint: state.subscription?.endpoint, at: state.now });
+                sdk.delete(CHANGED);
+            }
+            return on;
+        }),
+        _enableWebPush: vi.fn(async () => {}),
+        ...(takesBackground ? { _enableTakesBackground: true } : {}),
         disable: vi.fn(async () => true),
         listDevices: vi.fn(async () => devices),
+        _webPushRecord: vi.fn(async ({ endpoint = true } = {}) => ({ endpoint: endpoint ? sdk.get(`${SYNCED_PREFIX}${state.user}`)?.endpoint ?? null : null, changed: sdk.get(CHANGED) ?? null })),
+        _noteWebPushSynced: vi.fn(async (endpoint) => {
+            sdk.set(`${SYNCED_PREFIX}${state.user}`, { endpoint, at: state.now });
+            return true;
+        }),
+        _dropRemovedWebPush: vi.fn(async () => {
+            await state.subscription?.unsubscribe?.();
+            sdk.delete(RECEIPT);
+            sdk.delete(CHANGED);
+        }),
     };
+    if ( oldSdk ) {
+        delete notifications._webPushRecord;
+        delete notifications._noteWebPushSynced;
+        delete notifications._dropRemovedWebPush;
+    }
+    const listeners = new Set();
     const nav = {
         serviceWorker: {
-            getRegistration: vi.fn(async () => ({ pushManager: { getSubscription: async () => subscription } })),
+            getRegistration: vi.fn(async () => ({ scope: SCOPE, pushManager: { getSubscription: async () => state.subscription } })),
+            addEventListener: (type, fn) => listeners.add(fn),
         },
     };
-    return { notifications, client: webPushClient({ notifications, NotificationApi: { permission }, nav }) };
+    const post = (data) => {
+        for ( const fn of listeners ) fn({ data });
+    };
+    const endpointState = vi.fn(async () => state.serverState);
+    const client = webPushClient({ notifications, NotificationApi: { permission }, nav, userUid: () => state.user, idb, endpointState, storage, now: () => state.now });
+    return { notifications, client, post, state, endpointState, sdk, storage, idb };
 };
 
 const current = { uid: 'd1', platform: 'webpush', current: true };
@@ -56,9 +130,502 @@ describe('webPushClient', () => {
         await expect(make({ permission: 'denied' }).client.status()).resolves.toEqual({ permission: 'denied', registered: false });
     });
 
+    it('is registered only while the server has this subscription`s endpoint', async () => {
+        const { client, endpointState } = make({ devices: [current], serverState: 'unknown' });
+        await expect(client.status()).resolves.toEqual({ permission: 'granted', registered: false });
+        expect(endpointState).toHaveBeenCalledWith('https://push.test/1');
+        await expect(make({ devices: [current], serverState: 'removed' }).client.status()).resolves.toEqual({ permission: 'granted', registered: false });
+        // A server that can't tell leaves the session match.
+        await expect(make({ devices: [current], serverState: null }).client.status()).resolves.toEqual({ permission: 'granted', registered: true, deviceUid: 'd1' });
+    });
+
+    it('is not registered once the worker marked the subscription replaced, until enable() registers it', async () => {
+        const { client, endpointState, sdk } = make({ devices: [current], kept: { [CHANGED]: 1 } });
+        await expect(client.status()).resolves.toEqual({ permission: 'granted', registered: false });
+        expect(endpointState).not.toHaveBeenCalled();
+
+        await expect(client.enable()).resolves.toEqual({ deviceUid: 'd1' });
+        expect(sdk.has(CHANGED)).toBe(false);
+        await expect(client.status()).resolves.toEqual({ permission: 'granted', registered: true, deviceUid: 'd1' });
+    });
+
+    it('has the next load register a replaced subscription in full', async () => {
+        globalThis.gui_params = { pushEnabled: true };
+        const { client, notifications } = make({ devices: [current], kept: { [CHANGED]: 1 } });
+        registerPushClient(client);
+        const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+        await expect(syncBrowserPush({}, { NotificationApi: { permission: 'granted' }, userUid: 'u-1', storage, holdsPush: async () => true })).resolves.toBe('on');
+        expect(notifications.enable).toHaveBeenCalledTimes(1);
+        expect(notifications.enable).toHaveBeenCalledWith({ background: true });
+    });
+
     it('turns off through puter.notifications', async () => {
         const { notifications, client } = make();
         await client.disable();
         expect(notifications.disable).toHaveBeenCalled();
     });
+
+    it('turns on from a click through enable(), which replaces a browser removed in Puter', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        await client.enable();
+        expect(notifications.enable).toHaveBeenCalledTimes(1);
+        expect(notifications._enableWebPush).not.toHaveBeenCalled();
+    });
+
+    it('turns on in the background through enable({ background: true }), not the internal method', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        await expect(client.enable({ background: true })).resolves.toEqual({ deviceUid: 'd1' });
+        expect(notifications.enable).toHaveBeenCalledWith({ background: true });
+        expect(notifications._enableWebPush).not.toHaveBeenCalled();
+
+        const removed = Object.assign(new Error('removed'), { code: 'push_device_removed' });
+        notifications.enable.mockRejectedValue(removed);
+        await expect(client.enable({ background: true })).rejects.toBe(removed);
+    });
+
+    it('turns on in the background through the internal call with a puter.js whose enable() has no background option', async () => {
+        const { notifications, client } = make({ devices: [current], takesBackground: false });
+        await expect(client.enable({ background: true })).resolves.toEqual({ deviceUid: 'd1' });
+        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { background: true });
+        expect(notifications.enable).not.toHaveBeenCalled();
+
+        const removed = Object.assign(new Error('removed'), { code: 'push_device_removed' });
+        notifications._enableWebPush.mockRejectedValue(removed);
+        await expect(client.enable({ background: true })).rejects.toBe(removed);
+        expect(notifications.enable).not.toHaveBeenCalled();
+    });
+
+    it('rejects in the background when enable() resolves false', async () => {
+        const { notifications, client } = make({ devices: [current], on: false, permission: 'default' });
+        await expect(client.enable({ background: true })).rejects.toThrow('notifications default');
+        expect(notifications.listDevices).not.toHaveBeenCalled();
+    });
+
+    it('rejects with unavailable, not the permission, when push isn`t available though permission is granted', async () => {
+        const { notifications, client } = make({ devices: [current], on: false, permission: 'granted' });
+        await expect(client.enable({ background: true })).rejects.toMatchObject({
+            code: 'unavailable',
+            message: expect.not.stringContaining('notifications granted'),
+        });
+        expect(notifications.listDevices).not.toHaveBeenCalled();
+    });
 });
+
+describe('webPushClient and puter.js`s push record', () => {
+    const ENDPOINT = 'https://push.test/1';
+    const spiedStorage = (entries) => {
+        const storage = fakeStorage(entries);
+        storage.setItem = vi.fn(storage.setItem);
+        return storage;
+    };
+
+    it('reads the confirmed endpoint and the mark through puter.js and keeps no localStorage record', async () => {
+        const storage = spiedStorage();
+        const { client, notifications } = make({ devices: [current], storage });
+        await expect(client.status()).resolves.toEqual({ permission: 'granted', registered: true, deviceUid: 'd1' });
+        expect(notifications._webPushRecord).toHaveBeenCalled();
+        expect(notifications._noteWebPushSynced).toHaveBeenCalledWith(ENDPOINT);
+        await client.enable({ background: true });
+        expect(storage.setItem).not.toHaveBeenCalled();
+        expect(storage.map.size).toBe(0);
+
+        notifications._noteWebPushSynced.mockClear();
+        await client.status();
+        expect(notifications._noteWebPushSynced).not.toHaveBeenCalled();
+    });
+
+    it('moves an earlier build`s localStorage endpoint into puter.js on a confirmed status, with no new registration', async () => {
+        globalThis.gui_params = { pushEnabled: true };
+        const storage = spiedStorage({ [LAST_ENDPOINT_KEY]: ENDPOINT });
+        const made = make({ devices: [current], storage });
+        registerPushClient(made.client);
+        await expect(syncBrowserPush({}, { NotificationApi: { permission: 'granted' }, userUid: 'u-1', storage, holdsPush: async () => true })).resolves.toBe('on');
+        expect(made.notifications.enable).not.toHaveBeenCalled();
+        expect(made.notifications._noteWebPushSynced).toHaveBeenCalledWith(ENDPOINT);
+        await expect(made.notifications._webPushRecord()).resolves.toEqual({ endpoint: ENDPOINT, changed: null });
+        expect(storage.map.has(LAST_ENDPOINT_KEY)).toBe(false);
+        expect(storage.setItem).not.toHaveBeenCalled();
+    });
+
+    it('deletes the localStorage endpoint only once puter.js recorded the endpoint', async () => {
+        const storage = spiedStorage({ [LAST_ENDPOINT_KEY]: ENDPOINT });
+        const { client, notifications } = make({ devices: [current], storage });
+        notifications._noteWebPushSynced.mockResolvedValueOnce(false);
+        await client.status();
+        expect(notifications._noteWebPushSynced).toHaveBeenCalledWith(ENDPOINT);
+        expect(storage.map.get(LAST_ENDPOINT_KEY)).toBe(ENDPOINT);
+        await client.status();
+        expect(storage.map.has(LAST_ENDPOINT_KEY)).toBe(false);
+    });
+
+    it('reads only the mark, not the endpoint, before a cached answer', async () => {
+        const { client, notifications } = make({ devices: [current] });
+        await client.status();
+        notifications._webPushRecord.mockClear();
+        await client.status({ cached: true });
+        expect(notifications._webPushRecord.mock.calls).toEqual([[{ endpoint: false }]]);
+    });
+});
+
+describe('webPushClient status with cached', () => {
+    const on = { permission: 'granted', registered: true, deviceUid: 'd1' };
+
+    /** A client whose last read was `on`. */
+    const readOn = async () => {
+        const made = make({ devices: [current] });
+        await expect(made.client.status()).resolves.toEqual(on);
+        made.notifications.listDevices.mockClear();
+        return made;
+    };
+
+    it('answers with the last on this page read, without listing devices', async () => {
+        const { notifications, client } = await readOn();
+        await expect(client.status({ cached: true })).resolves.toEqual(on);
+        expect(notifications.listDevices).not.toHaveBeenCalled();
+    });
+
+    it('lists devices for a read without cached', async () => {
+        const { notifications, client } = await readOn();
+        await client.status();
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it('lists devices when nothing was read yet', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        await expect(client.status({ cached: true })).resolves.toEqual(on);
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        ['the worker says the subscription changed', ({ post }) => post({ type: 'puter-push-subscription-changed' })],
+        ['the subscription has another endpoint', ({ state }) => {
+            state.subscription = { endpoint: 'https://push.test/2' };
+        }],
+        ['another user signed in', ({ state }) => {
+            state.user = 'u-2';
+        }],
+        ['the user signed out', ({ state }) => {
+            state.user = undefined;
+        }],
+        ['the last on is older than a page keeps it', ({ state }) => {
+            state.now += ON_KEPT_MS;
+        }],
+        ['enable() failed', async ({ client, notifications }) => {
+            notifications.enable.mockResolvedValueOnce(false);
+            await client.enable().catch(() => {});
+        }],
+        ['disable() ran', async ({ client }) => {
+            await client.disable();
+        }],
+        ['a read found this browser unregistered', async ({ client, notifications }) => {
+            notifications.listDevices.mockResolvedValueOnce([]);
+            await client.status();
+        }],
+    ])('asks the server again once %s', async (_label, change) => {
+        const made = await readOn();
+        await change(made);
+        made.notifications.listDevices.mockClear();
+        await made.client.status({ cached: true });
+        expect(made.notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers with the on enable() read, without listing devices again', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        await client.enable({ background: true });
+        notifications.listDevices.mockClear();
+        await expect(client.status({ cached: true })).resolves.toEqual(on);
+        expect(notifications.listDevices).not.toHaveBeenCalled();
+    });
+
+    it('keeps answering with the last on until it is too old', async () => {
+        const { notifications, client, state } = await readOn();
+        state.now += ON_KEPT_MS - 1;
+        await expect(client.status({ cached: true })).resolves.toEqual(on);
+        expect(notifications.listDevices).not.toHaveBeenCalled();
+    });
+
+    it('reports off after disable()', async () => {
+        const { notifications, client } = await readOn();
+        await client.disable();
+        notifications.listDevices.mockResolvedValue([]);
+        await expect(client.status({ cached: true })).resolves.toEqual({ permission: 'granted', registered: false });
+    });
+
+    it('keeps no on read before a disable() that ended first', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        let list;
+        notifications.listDevices.mockImplementationOnce(() => new Promise((resolve) => {
+            list = resolve;
+        }));
+        const reading = client.status();
+        await vi.waitFor(() => expect(list).toBeDefined());
+        await client.disable();
+        list([current]);
+        await reading;
+        notifications.listDevices.mockResolvedValue([]);
+        await expect(client.status({ cached: true })).resolves.toEqual({ permission: 'granted', registered: false });
+    });
+
+    it('ignores the last on while the worker`s subscription-changed mark is set', async () => {
+        const made = await readOn();
+        made.sdk.set(CHANGED, 1);
+        await expect(made.client.status({ cached: true })).resolves.toEqual({ permission: 'granted', registered: false });
+        made.sdk.delete(CHANGED);
+        made.endpointState.mockClear();
+        await made.client.status({ cached: true });
+        expect(made.notifications.listDevices).toHaveBeenCalledTimes(1);
+        expect(made.endpointState).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps no on the server didn`t confirm for this endpoint', async () => {
+        for ( const serverState of ['unknown', null] ) {
+            const made = await readOn();
+            made.state.serverState = serverState;
+            await made.client.status();
+            made.state.serverState = 'active';
+            made.notifications.listDevices.mockClear();
+            made.endpointState.mockClear();
+            await made.client.status({ cached: true });
+            expect(made.notifications.listDevices).toHaveBeenCalledTimes(1);
+            expect(made.endpointState).toHaveBeenCalledTimes(1);
+        }
+    });
+
+    it('stays on right after enable() while the endpoint check doesn`t have it yet', async () => {
+        const { client, state } = make({ devices: [current], serverState: 'unknown' });
+        await client.enable();
+        await expect(client.status()).resolves.toEqual(on);
+        await expect(client.status()).resolves.toEqual(on);
+        state.now += ON_KEPT_MS;
+        await expect(client.status()).resolves.toEqual({ permission: 'granted', registered: false });
+    });
+
+    it('answers a cached launch without the endpoint check', async () => {
+        const made = await readOn();
+        made.endpointState.mockClear();
+        await expect(made.client.status({ cached: true })).resolves.toEqual(on);
+        expect(made.endpointState).not.toHaveBeenCalled();
+    });
+
+    it('keeps no on from a device list that another user`s sign-in overlapped', async () => {
+        const { notifications, client, state } = make({ devices: [current] });
+        let list;
+        notifications.listDevices.mockImplementationOnce(() => new Promise((resolve) => {
+            list = resolve;
+        }));
+        const reading = client.status();
+        await vi.waitFor(() => expect(list).toBeDefined());
+        state.user = 'u-2';
+        list([current]);
+        await reading;
+        state.user = 'u-1';
+        notifications.listDevices.mockClear();
+        await client.status({ cached: true });
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps no on read while an enable() that failed was running', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        let fail;
+        notifications.enable.mockImplementationOnce(() => new Promise((_, reject) => {
+            fail = reject;
+        }));
+        const enabling = client.enable({ background: true });
+        await expect(client.status()).resolves.toEqual(on);
+        fail(new Error('no push service'));
+        await expect(enabling).rejects.toThrow('no push service');
+        notifications.listDevices.mockClear();
+        await client.status({ cached: true });
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it('is off without listing devices once the browser has no subscription or permission', async () => {
+        const { notifications, client, state } = await readOn();
+        state.subscription = null;
+        await expect(client.status({ cached: true })).resolves.toEqual({ permission: 'granted', registered: false });
+        expect(notifications.listDevices).not.toHaveBeenCalled();
+    });
+});
+
+describe('webPushClient and a browser removed from another device', () => {
+    const OLD = 'https://push.test/0';
+    const NEW = { endpoint: 'https://push.test/1', unsubscribe: vi.fn(async () => true) };
+    const OPT_OUT = 'puter.push.browser-off:u-1';
+    const sync = (storage) => syncBrowserPush({}, { NotificationApi: { permission: 'granted' }, userUid: 'u-1', storage, holdsPush: async () => true });
+
+    const removedElsewhere = (over) => {
+        globalThis.gui_params = { pushEnabled: true };
+        NEW.unsubscribe.mockClear();
+        const made = make({ devices: [], subscription: NEW, ...over });
+        made.endpointState.mockImplementation(async (endpoint) => (endpoint === OLD ? 'removed' : 'unknown'));
+        registerPushClient(made.client);
+        return made;
+    };
+
+    it('stays off after a subscription change, and records it as turned off', async () => {
+        const made = removedElsewhere({ kept: { [CHANGED]: { at: 1, oldEndpoint: OLD } } });
+        await expect(sync(made.storage)).resolves.toBe('removed');
+        expect(made.endpointState).toHaveBeenCalledWith(OLD);
+        expect(made.notifications.enable).not.toHaveBeenCalled();
+        expect(NEW.unsubscribe).toHaveBeenCalledTimes(1);
+        expect(made.sdk.has(CHANGED)).toBe(false);
+        expect(made.storage.map.get(OPT_OUT)).toBe('1');
+        await expect(sync(made.storage)).resolves.toBe('opted_out');
+    });
+
+    it('has puter.js forget the removed endpoint`s receipt when it stays off', async () => {
+        const made = removedElsewhere({ kept: { [CHANGED]: { at: 1, oldEndpoint: OLD }, [RECEIPT]: { endpoint: OLD, receipt: 'r.sig' } } });
+        await expect(sync(made.storage)).resolves.toBe('removed');
+        expect(made.notifications._dropRemovedWebPush).toHaveBeenCalledTimes(1);
+        expect(made.sdk.has(RECEIPT)).toBe(false);
+    });
+
+    it('stays off after the browser dropped the subscription, from the endpoint puter.js recorded', async () => {
+        const made = removedElsewhere({ subscription: null, kept: synced(OLD) });
+        await expect(sync(made.storage)).resolves.toBe('removed');
+        expect(made.endpointState).toHaveBeenCalledWith(OLD);
+        expect(made.notifications.enable).not.toHaveBeenCalled();
+        expect(made.storage.map.get(OPT_OUT)).toBe('1');
+    });
+
+    it('stays off from the endpoint an earlier build kept in localStorage while puter.js has none', async () => {
+        const made = removedElsewhere({ subscription: null, storage: fakeStorage({ [LAST_ENDPOINT_KEY]: OLD }) });
+        await expect(sync(made.storage)).resolves.toBe('removed');
+        expect(made.notifications.enable).not.toHaveBeenCalled();
+        expect(made.storage.map.get(OPT_OUT)).toBe('1');
+    });
+
+    it('also asks about a newer endpoint only localStorage holds, and stays off when it was removed', async () => {
+        const made = removedElsewhere({ subscription: null, kept: synced('https://push.test/x'), storage: fakeStorage({ [LAST_ENDPOINT_KEY]: OLD }) });
+        await expect(sync(made.storage)).resolves.toBe('removed');
+        expect(made.endpointState).toHaveBeenCalledWith('https://push.test/x');
+        expect(made.endpointState).toHaveBeenCalledWith(OLD);
+        expect(made.notifications.enable).not.toHaveBeenCalled();
+        expect(made.storage.map.get(OPT_OUT)).toBe('1');
+    });
+
+    it('asks about the endpoint confirmed for the signed-in user only', async () => {
+        const made = removedElsewhere({ subscription: null, user: 'u-2', kept: synced(OLD), storage: fakeStorage({ [LAST_ENDPOINT_KEY]: OLD }) });
+        made.notifications.listDevices.mockResolvedValue([current]);
+        await expect(made.client.enable({ background: true })).resolves.toEqual({ deviceUid: 'd1' });
+        expect(made.endpointState).not.toHaveBeenCalledWith(OLD);
+    });
+
+    it('turns back on from a click, which keeps the new endpoint', async () => {
+        const made = removedElsewhere({ kept: { [CHANGED]: { at: 1, oldEndpoint: OLD } } });
+        await sync(made.storage);
+        made.notifications.listDevices.mockResolvedValue([current]);
+        await expect(made.client.enable()).resolves.toEqual({ deviceUid: 'd1' });
+        expect(made.notifications.enable).toHaveBeenCalledTimes(1);
+        await expect(made.notifications._webPushRecord()).resolves.toEqual({ endpoint: NEW.endpoint, changed: null });
+        expect(made.storage.map.has(LAST_ENDPOINT_KEY)).toBe(false);
+    });
+
+    it('stays off when the removed endpoint is two subscription changes back', async () => {
+        const made = removedElsewhere({
+            kept: { [CHANGED]: { at: 2, oldEndpoint: 'https://push.test/0b' }, ...synced(OLD) },
+        });
+        await expect(sync(made.storage)).resolves.toBe('removed');
+        expect(made.endpointState).toHaveBeenCalledWith('https://push.test/0b');
+        expect(made.endpointState).toHaveBeenCalledWith(OLD);
+        expect(made.notifications.enable).not.toHaveBeenCalled();
+        expect(made.storage.map.get(OPT_OUT)).toBe('1');
+    });
+
+    it('registers nothing while the server answers 429, keeps the mark, and goes ahead on the next run', async () => {
+        const made = removedElsewhere({ kept: { [CHANGED]: { at: 1, oldEndpoint: OLD } } });
+        made.endpointState.mockResolvedValue('busy');
+        await expect(sync(made.storage)).resolves.toBe('later');
+        expect(made.notifications.enable).not.toHaveBeenCalled();
+        expect(made.sdk.has(CHANGED)).toBe(true);
+        expect(made.storage.map.has(OPT_OUT)).toBe(false);
+
+        made.endpointState.mockResolvedValue('unknown');
+        made.notifications.listDevices.mockResolvedValue([current]);
+        await expect(sync(made.storage)).resolves.toBe('on');
+        expect(made.notifications.enable).toHaveBeenCalledWith({ background: true });
+    });
+
+    it('turns on from a click while the server answers 429', async () => {
+        const made = removedElsewhere({ kept: { [CHANGED]: { at: 1, oldEndpoint: OLD } } });
+        made.endpointState.mockResolvedValue('busy');
+        made.notifications.listDevices.mockResolvedValue([current]);
+        await expect(made.client.enable()).resolves.toEqual({ deviceUid: 'd1' });
+    });
+
+    describe('with a puter.js that has no push record', () => {
+        it('leaves a replaced subscription off when its old endpoint was removed elsewhere', async () => {
+            const made = removedElsewhere({ oldSdk: true, idb: fakeIdb({ [CHANGED]: { at: 1, oldEndpoint: OLD } }) });
+            await expect(sync(made.storage)).resolves.toBe('removed');
+            expect(made.endpointState).toHaveBeenCalledWith(OLD);
+            expect(made.notifications.enable).not.toHaveBeenCalled();
+            expect(made.storage.map.get(OPT_OUT)).toBe('1');
+        });
+
+        it('stays off from the endpoint a newer puter.js recorded on an earlier load', async () => {
+            const made = removedElsewhere({ oldSdk: true, takesBackground: false, subscription: null, idb: fakeIdb(synced(OLD)) });
+            await expect(sync(made.storage)).resolves.toBe('removed');
+            expect(made.endpointState).toHaveBeenCalledWith(OLD);
+            expect(made.notifications._enableWebPush).not.toHaveBeenCalled();
+            expect(made.notifications.enable).not.toHaveBeenCalled();
+            expect(made.storage.map.get(OPT_OUT)).toBe('1');
+        });
+
+        it('ends the subscription and forgets its receipt and the mark on a removed answer', async () => {
+            const made = removedElsewhere({ oldSdk: true, idb: fakeIdb({ [CHANGED]: { at: 1, oldEndpoint: OLD }, [RECEIPT]: { endpoint: OLD, receipt: 'r.sig' } }) });
+            await expect(sync(made.storage)).resolves.toBe('removed');
+            expect(NEW.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(made.idb.map.has(RECEIPT)).toBe(false);
+            expect(made.idb.map.has(CHANGED)).toBe(false);
+        });
+
+        it('clears the mark after enable(), so the next status reads on', async () => {
+            const made = make({ oldSdk: true, devices: [current], idb: fakeIdb({ [CHANGED]: { at: 1 } }) });
+            await expect(made.client.status()).resolves.toEqual({ permission: 'granted', registered: false });
+            await expect(made.client.enable()).resolves.toEqual({ deviceUid: 'd1' });
+            expect(made.idb.map.has(CHANGED)).toBe(false);
+            await expect(made.client.status()).resolves.toEqual({ permission: 'granted', registered: true, deviceUid: 'd1' });
+        });
+
+        it('keeps the confirmed endpoint in localStorage', async () => {
+            const made = make({ oldSdk: true, devices: [current] });
+            await made.client.status();
+            expect(made.storage.map.get(LAST_ENDPOINT_KEY)).toBe('https://push.test/1');
+        });
+    });
+
+    it('registers in the background as before when the old endpoint wasn`t removed', async () => {
+        const made = removedElsewhere({ kept: { [CHANGED]: { at: 1, oldEndpoint: OLD } } });
+        made.endpointState.mockResolvedValue('unknown');
+        made.notifications.listDevices.mockResolvedValue([current]);
+        await expect(sync(made.storage)).resolves.toBe('on');
+        expect(made.notifications.enable).toHaveBeenCalledWith({ background: true });
+    });
+});
+
+describe('webPushClient requests', () => {
+    it('shares one real check among status reads of the same user and endpoint', async () => {
+        const { client, notifications, endpointState } = make({ devices: [current] });
+        const reads = await Promise.all([client.status({ cached: true }), client.status({ cached: true }), client.status()]);
+        expect(reads.every((r) => r.registered)).toBe(true);
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+        expect(endpointState).toHaveBeenCalledTimes(1);
+    });
+
+    it('drops the page`s /push/apps answer on enable() and disable()', async () => {
+        globalThis.window = globalThis.window ?? globalThis;
+        window.api_origin = 'https://api.puter.test';
+        globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ apps: [] }), { status: 200 }));
+        const { client } = make({ devices: [current] });
+        await cachedPushApps();
+        await cachedPushApps();
+        expect(fetch).toHaveBeenCalledTimes(1);
+        await client.enable();
+        await cachedPushApps();
+        expect(fetch).toHaveBeenCalledTimes(2);
+        await client.disable();
+        await cachedPushApps();
+        expect(fetch).toHaveBeenCalledTimes(3);
+    });
+});
+

@@ -159,8 +159,8 @@ export interface AppSummaryOptions {
 
 /**
  * The summary the desktop launches from directly, without re-reading the app
- * (suggested, recommended, recent and taskbar apps), so every launch-relevant
- * flag belongs here.
+ * (suggested, recommended and recent apps), so every launch-relevant flag
+ * belongs here.
  */
 export function toAppSummary(
     app: AppRow,

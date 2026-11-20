@@ -29,6 +29,8 @@ import {
     vi,
 } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { isSendingUndo } from '../../../clients/redis/commandTimeout.ts';
+import { Context, runWithContext } from '../../context.js';
 import { isHttpError } from '../HttpError.js';
 import { setupTestServer } from '../../../testUtil.ts';
 import {
@@ -45,6 +47,7 @@ import {
     listConfiguredRateLimitBackends,
     peekRateLimit,
     rateLimitGate,
+    reserveRateLimit,
     sweepMemoryWindows,
 } from './rateLimit.js';
 
@@ -977,6 +980,27 @@ describe('concurrencyGate — memory backend', () => {
         expect(isHttpError(third.err)).toBe(true);
     });
 
+    it('holds the slot past the response for work the handler keeps', async () => {
+        const opts = { limit: 1, key: 'ip', scope: 'cg-kept-work' };
+        let finishWork;
+        const work = new Promise((resolve) => {
+            finishWork = resolve;
+        });
+        const res = makeRes();
+        await runWithContext({}, async () => {
+            await concurrencyGate(opts)(baseReq(), res, () => {
+                Context.get('keepConcurrencySlot')(work);
+            });
+        });
+        res.emit('close');
+        await new Promise((r) => setImmediate(r));
+        expect((await runGate(opts, baseReq())).err?.statusCode).toBe(429);
+
+        finishWork();
+        await new Promise((r) => setImmediate(r));
+        expect((await runGate(opts, baseReq())).err).toBeUndefined();
+    });
+
     it('different keys do not share slots', async () => {
         const opts = { limit: 1, key: 'ip', scope: 'cg-keyed' };
         const a = await runGate(opts, baseReq({ ip: '1.1.1.1' }));
@@ -1131,6 +1155,28 @@ describe('acquireConcurrent — orphan recovery (redis)', () => {
         await slot.renew();
 
         expect((await acquireConcurrent(key, 1)).ok).toBe(true);
+    });
+
+    it('takes back a slot whose MULTI timed out but landed', async () => {
+        configureRateLimit({ default: 'redis', redis });
+        const key = 'timed-out-acquire';
+        const realMulti = redis.multi.bind(redis);
+        const multi = vi.spyOn(redis, 'multi').mockImplementationOnce(() => {
+            const chain = realMulti();
+            const exec = chain.exec.bind(chain);
+            chain.exec = async () => {
+                await exec();
+                throw new Error('Command timed out');
+            };
+            return chain;
+        });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        await acquireConcurrent(key, 1);
+        multi.mockRestore();
+        warn.mockRestore();
+
+        expect(await redis.zcard(`concurrent:${key}`)).toBe(0);
     });
 
     it('heals a legacy string counter key and enforces the limit again', async () => {
@@ -1735,6 +1781,91 @@ describe('peekRateLimit', () => {
     });
 });
 
+describe('reserveRateLimit', () => {
+    beforeEach(() => configureRateLimit());
+    afterEach(() => configureRateLimit());
+
+    it.each([
+        ['memory', () => ({})],
+        ['redis', () => ({ redis: new RedisMock() })],
+    ])(
+        'admits only what fits however many reserve at once, and takes a release back (%s)',
+        async (name, wiring) => {
+            const cfg = wiring();
+            configureRateLimit(cfg);
+            const key = `reserve-${name}-${Math.random()}`;
+            expect(await checkRateLimit(key, 3, 60_000, name)).toBe(true);
+            const held = await Promise.all(
+                Array.from({ length: 5 }, () =>
+                    reserveRateLimit(key, 3, 60_000, name),
+                ),
+            );
+            expect(held.filter((r) => r.ok)).toHaveLength(2);
+            expect(await peekRateLimit(key, 3, 60_000, name)).toBe(false);
+
+            const admitted = held.filter((r) => r.ok);
+            await admitted[0].release();
+            await admitted[0].release();
+            expect(await reserveRateLimit(key, 3, 60_000, name)).toMatchObject({
+                ok: true,
+            });
+            expect(await peekRateLimit(key, 3, 60_000, name)).toBe(false);
+            await cfg.redis?.quit?.();
+        },
+    );
+
+    it('releases each overlapping memory reservation from its own slot', async () => {
+        const key = `reserve-memory-overlap-${Math.random()}`;
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        try {
+            const first = reserveRateLimit(key, 2, 60_000, 'memory');
+            clock.mockReturnValue(1_000_001);
+            const second = reserveRateLimit(key, 2, 60_000, 'memory');
+            const held = await Promise.all([first, second]);
+            expect(held.map((r) => r.ok)).toEqual([true, true]);
+
+            await Promise.all(held.map((r) => r.release()));
+            expect(await peekRateLimit(key, 1, 60_000, 'memory')).toBe(true);
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it('takes a kv hit back', async () => {
+        const server = await setupTestServer();
+        try {
+            configureRateLimit({ kv: server.stores.kv });
+            const key = `reserve-kv-${Math.random().toString(36).slice(2, 10)}`;
+            const first = await reserveRateLimit(key, 1, 60_000, 'kv');
+            expect(first.ok).toBe(true);
+            expect((await reserveRateLimit(key, 1, 60_000, 'kv')).ok).toBe(
+                false,
+            );
+            await first.release();
+            expect(await peekRateLimit(key, 1, 60_000, 'kv')).toBe(true);
+        } finally {
+            configureRateLimit();
+            await server.shutdown();
+        }
+    });
+
+    it('fails open when the backend throws', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis down');
+                },
+            },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const reserved = await reserveRateLimit('boom', 1, 60_000);
+        expect(reserved.ok).toBe(true);
+        await expect(reserved.release()).resolves.toBeUndefined();
+        spy.mockRestore();
+    });
+});
+
 // ── Failure paths on the driver helpers ─────────────────────────────
 
 describe('driver helpers — backend failures', () => {
@@ -1829,6 +1960,79 @@ describe('driver helpers — backend failures', () => {
             expect.any(Error),
         );
         spy.mockRestore();
+    });
+
+    it('swallows a release that throws synchronously', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                ...stubConcurrentRedis(),
+                zrem: () => {
+                    throw new Error('zrem threw');
+                },
+            },
+        });
+        const handle = await acquireDriverConcurrent(req, 'iface', 'm', {
+            limit: 5,
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        await expect(handle.release()).resolves.toBeUndefined();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(spy).toHaveBeenCalledWith(
+            '[concurrent] driver release failed:',
+            expect.any(Error),
+        );
+        spy.mockRestore();
+    });
+
+    it('takes back a denied window charge past fail-fast, and still denies', async () => {
+        const undoScoped = [];
+        const takeBack = () => {
+            undoScoped.push(isSendingUndo());
+            return Promise.resolve(1);
+        };
+        const chain = (results) => {
+            const multi = {};
+            for (const name of [
+                'zremrangebyscore',
+                'zadd',
+                'zcard',
+                'pexpire',
+                'incrby',
+                'get',
+            ]) {
+                multi[name] = () => multi;
+            }
+            multi.exec = async () => results;
+            return multi;
+        };
+        const over = [
+            [null, 0],
+            [null, 1],
+            [null, 99],
+            [null, 1],
+        ];
+        configureRateLimit({
+            default: 'redis',
+            redis: { multi: () => chain(over), zrem: takeBack },
+        });
+        expect(await checkRateLimit('tb-check', 5, 60_000)).toBe(false);
+        expect(await claimRateLimit('tb-claim', 5, 60_000, 3)).toBe(0);
+
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () =>
+                    chain([
+                        [null, 99],
+                        [null, 1],
+                        [null, '0'],
+                    ]),
+                decrby: takeBack,
+            },
+        });
+        expect(await claimCountedRateLimit('tb-count', 5, 60_000, 3)).toBe(0);
+        expect(undoScoped).toEqual([true, true, true]);
     });
 
     it('concurrencyGate logs but does not throw when release fails', async () => {

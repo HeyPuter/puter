@@ -4,7 +4,9 @@ description: List all apps in your Puter account.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns an array of all apps belonging to the user and that this app has access to. If the user has no apps, the array will be empty.
+Returns an array of all apps belonging to the user and that this app has access to.
+
+If the user has no apps, the array will be empty.
 
 ## Syntax
 
@@ -19,19 +21,15 @@ puter.apps.list(options)
 
 An object containing the following properties:
 
-- `stats_period` (optional): A string representing the period for which to get the user and open count. Possible values are `today`, `yesterday`, `7d`, `30d`, `this_month`, `last_month`, `this_year`, `last_year`, `month_to_date`, `year_to_date`, `last_12_months`. Default is `all` (all time).
-
-- `icon_size` (optional): An integer representing the size of the icons to return. Possible values are `null`, `16`, `32`, `64`, `128`, `256`, and `512`. Default is `null` (the original size).
-
-- `limit` (optional): Maximum number of apps to return in a single call.
-
-- `offset` (optional): Skips the given number of apps. Prefer `cursor` for paging through large lists.
-
-- `cursor` (optional): Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one.
-
-- `includeTotal` (optional): If `true`, the paginated result includes a `total` count of the user's apps.
-
-- `stream` (optional): If `true`, the method returns an async iterator of page objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `limit` | `Number` | Maximum number of apps to return in a single call. |
+| `cursor` | `String \| null` | Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one. |
+| `stream` | `Boolean` | If `true`, the method returns an async iterator of page objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`. |
+| `includeTotal` | `Boolean` | If `true`, the paginated result includes a `total` count of the user's apps. |
+| `offset` | `Number` | Skips the given number of apps. Prefer `cursor` for paging through large lists. |
+| `icon_size` | `Number \| null` | An integer representing the size of the icons to return. Possible values are `null`, `16`, `32`, `64`, `128`, `256`, and `512`. Default is `null` (the original size). |
+| `stats_period` | `String` | The period for which to get the user and open count. Possible values are `today`, `yesterday`, `7d`, `30d`, `this_month`, `last_month`, `this_year`, `last_year`, `month_to_date`, `year_to_date`, `last_12_months`. Default is `all` (all time). |
 
 ## Return value
 
@@ -57,7 +55,7 @@ for await (const page of puter.apps.list({ stream: true })) {
 
 ## Examples
 
-<strong class="example-title">Create 3 random apps and then list them</strong>
+### Create 3 random apps and then list them
 
 ```html;app-list
 <html>

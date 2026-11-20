@@ -747,59 +747,17 @@ describe('push-sw notificationclick', () => {
     });
 });
 
-describe('push-sw notifications a page shows', () => {
-    const show = async (worker, source, options = {}) => {
+describe('push-sw messages from a page', () => {
+    it('shows nothing a page posts, only pushes', async () => {
+        const worker = loadWorker();
         const port = { postMessage: vi.fn() };
         await worker.fire('message', {
-            data: {
-                type: 'puter-push-show',
-                title: 'Hi',
-                options: { tag: 'n1', data: { puter: { uid: 'n1' } }, ...options },
-            },
-            source,
+            data: { type: 'puter-push-show', title: 'Hi', options: { tag: 'n1' } },
+            source: { id: 'w1' },
             ports: [port],
         });
-        return port.postMessage.mock.calls[0]?.[0];
-    };
-
-    it('shows one for a page that is away, and says so', async () => {
-        const away = windowClient(`${ORIGIN}/`, { visibilityState: 'hidden' });
-        const worker = loadWorker({ windows: [away, windowClient(`${ORIGIN}/b`)] });
-        expect(await show(worker, away)).toEqual({ shown: true });
-        expect(worker.shown).toEqual([
-            { title: 'Hi', options: { tag: 'n1', data: { puter: { uid: 'n1' } } } },
-        ]);
-    });
-
-    it('holds it back while another window of the app has focus', async () => {
-        const away = windowClient(`${ORIGIN}/`);
-        const worker = loadWorker({
-            windows: [away, windowClient(`${ORIGIN}/b`, { focused: true })],
-        });
-        expect(await show(worker, away)).toEqual({ shown: false });
         expect(worker.shown).toEqual([]);
-    });
-
-    it('passes the page`s action buttons to showNotification', async () => {
-        const worker = loadWorker();
-        const actions = [{ action: 'accept', title: 'Accept' }, { action: 'decline', title: 'Decline' }];
-        expect(await show(worker, null, { actions })).toEqual({ shown: true });
-        expect(worker.shown[0].options.actions).toEqual(actions);
-    });
-
-    it('shows it while only a nested frame of the app has focus', async () => {
-        const away = windowClient(`${ORIGIN}/`);
-        const worker = loadWorker({
-            windows: [away, windowClient(`${ORIGIN}/embed`, { focused: true, frameType: 'nested' })],
-        });
-        expect(await show(worker, away)).toEqual({ shown: true });
-    });
-
-    it('ignores other messages', async () => {
-        const worker = loadWorker();
-        await worker.fire('message', { data: { type: 'something-else' } });
-        await worker.fire('message', { data: null });
-        expect(worker.shown).toEqual([]);
+        expect(port.postMessage).not.toHaveBeenCalled();
     });
 });
 

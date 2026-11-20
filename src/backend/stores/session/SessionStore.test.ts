@@ -19,15 +19,102 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { setupTestServer } from '../../testUtil.ts';
+import { lagReadReplica, setupTestServer } from '../../testUtil.ts';
 import { PuterServer } from '../../server.ts';
 import {
     APP_WINDOW_SECONDS,
     GODMODE_TOKEN_MAX_AGE_SECONDS,
     GODMODE_TOKEN_WINDOW_SECONDS,
+    IDLE_WINDOW_SECONDS,
+    isSessionExpired,
     WEB_WINDOW_SECONDS,
     WORKER_WINDOW_SECONDS,
 } from './SessionStore.js';
+
+const DAY = 24 * 60 * 60;
+
+describe('isSessionExpired', () => {
+    const now = 1_900_000_000;
+    const row = (fields: Record<string, unknown>) => ({
+        kind: 'web',
+        expires_at: null,
+        created_at: now - 1000 * DAY,
+        last_activity: now - 1000 * DAY,
+        ...fields,
+    });
+
+    it('ends a sliding row with no expires_at a window after its last activity', () => {
+        for (const kind of ['web', 'app']) {
+            const at = (days: number) =>
+                isSessionExpired(
+                    row({ kind, last_activity: now - days * DAY }),
+                    now,
+                );
+            expect(at(364)).toBe(false);
+            expect(at(365)).toBe(true);
+        }
+        const asset = (days: number) =>
+            isSessionExpired(
+                row({ kind: 'asset', last_activity: now - days * DAY }),
+                now,
+            );
+        expect(asset(6)).toBe(false);
+        expect(asset(7)).toBe(true);
+    });
+
+    it('falls back to created_at when the row has no activity', () => {
+        expect(
+            isSessionExpired(
+                row({ last_activity: 0, created_at: now - 10 * DAY }),
+                now,
+            ),
+        ).toBe(false);
+        expect(
+            isSessionExpired(row({ last_activity: 0, created_at: 0 }), now),
+        ).toBe(true);
+    });
+
+    it('never ends an access token, worker or debug row for a NULL expires_at', () => {
+        for (const kind of ['access_token', 'worker', 'debug_app']) {
+            expect(
+                isSessionExpired(row({ kind }), now, { idleEnds: true }),
+            ).toBe(false);
+        }
+    });
+
+    it('ends an idle web or app row only when asked, whatever expires_at says', () => {
+        for (const kind of ['web', 'app']) {
+            const idle = row({
+                kind,
+                expires_at: now + 100 * DAY,
+                last_activity: now - IDLE_WINDOW_SECONDS,
+            });
+            expect(isSessionExpired(idle, now)).toBe(false);
+            expect(isSessionExpired(idle, now, { idleEnds: true })).toBe(true);
+            expect(
+                isSessionExpired(
+                    { ...idle, last_activity: now - 179 * DAY },
+                    now,
+                    { idleEnds: true },
+                ),
+            ).toBe(false);
+        }
+        const token = row({
+            kind: 'access_token',
+            expires_at: now + DAY,
+        });
+        expect(isSessionExpired(token, now, { idleEnds: true })).toBe(false);
+    });
+
+    it('still ends any row whose expires_at passed', () => {
+        expect(
+            isSessionExpired(
+                row({ kind: 'access_token', expires_at: now }),
+                now,
+            ),
+        ).toBe(true);
+    });
+});
 
 describe('SessionStore', () => {
     let server: PuterServer;
@@ -253,6 +340,74 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('getByUserIds', () => {
+        it('returns the active sessions of every listed user in one query', async () => {
+            const [a, b, other] = [
+                await makeUser(),
+                await makeUser(),
+                await makeUser(),
+            ];
+            const mine = [await target.create(a.id), await target.create(b.id)];
+            const revoked = await target.create(a.id);
+            await target.removeByUuid(revoked.uuid);
+            await target.create(other.id);
+
+            const read = vi.spyOn(server.clients.db, 'read');
+            let queries: number;
+            let rows: { uuid: string }[];
+            try {
+                rows = await target.getByUserIds([a.id, b.id, a.id]);
+            } finally {
+                queries = read.mock.calls.length;
+                read.mockRestore();
+            }
+
+            expect(queries).toBe(1);
+            expect(rows.map((r) => r.uuid).sort()).toEqual(
+                mine.map((r: { uuid: string }) => r.uuid).sort(),
+            );
+            const all = await target.getByUserIds([a.id, b.id], {
+                includeRevoked: true,
+            });
+            expect(all.map((r: { uuid: string }) => r.uuid)).toContain(
+                revoked.uuid,
+            );
+        });
+
+        it('runs no query for an empty list', async () => {
+            const read = vi.spyOn(server.clients.db, 'read');
+            try {
+                expect(await target.getByUserIds([])).toEqual([]);
+                expect(await target.getByUserIds([0])).toEqual([]);
+                expect(read).not.toHaveBeenCalled();
+            } finally {
+                read.mockRestore();
+            }
+        });
+
+        it('with primary=true finds sessions the replica has not seen yet', async () => {
+            const [a, b] = [await makeUser(), await makeUser()];
+            const first = await target.create(a.id);
+            const second = await target.create(b.id);
+
+            const restore = lagReplica({
+                [first.uuid]: null,
+                [second.uuid]: null,
+            });
+            try {
+                expect(await target.getByUserIds([a.id, b.id])).toEqual([]);
+                const rows = await target.getByUserIds([a.id, b.id], {
+                    primary: true,
+                });
+                expect(
+                    rows.map((r: { uuid: string }) => r.uuid).sort(),
+                ).toEqual([first.uuid, second.uuid].sort());
+            } finally {
+                restore();
+            }
+        });
+    });
+
     describe('removeByUuid', () => {
         it('soft-revokes — row remains in DB with revoked_at set', async () => {
             const user = await makeUser();
@@ -354,6 +509,28 @@ describe('SessionStore', () => {
             expect(await rawRow(webOld)).toBeNull();
             expect(await rawRow(webRecent)).not.toBeNull();
             expect(await rawRow(live)).not.toBeNull();
+        });
+    });
+
+    describe('deleteExpiredDebugAppSessions', () => {
+        it('deletes only expired debug_app rows', async () => {
+            const user = await makeUser();
+            const now = Math.floor(Date.now() / 1000);
+            const mk = async (kind: string, expiresAt: number | null) => {
+                const { uuid } = await target.create(user.id, {
+                    kind,
+                    expires_at: expiresAt,
+                });
+                return uuid;
+            };
+            const expired = await mk('debug_app', now - 10);
+            const live = await mk('debug_app', now + 3600);
+            const otherKind = await mk('app', now - 10);
+
+            expect(await target.deleteExpiredDebugAppSessions(now)).toBe(1);
+            expect(await rawRow(expired)).toBeNull();
+            expect(await rawRow(live)).not.toBeNull();
+            expect(await rawRow(otherKind)).not.toBeNull();
         });
     });
 
@@ -769,6 +946,130 @@ describe('SessionStore', () => {
                 restore();
             }
         });
+    });
+
+    describe('findActiveByAccessTokenUid', () => {
+        const tokenRow = (userId: number, fields: Record<string, unknown>) =>
+            target.create(userId, { kind: 'access_token', ...fields });
+
+        it('finds a token row by its access_token_uid', async () => {
+            const user = await makeUser();
+            const tokenUid = uuidv4();
+            const row = await tokenRow(user.id, { access_token_uid: tokenUid });
+
+            const found = await target.findActiveByAccessTokenUid(tokenUid);
+            expect(found?.uuid).toBe(row.uuid);
+        });
+
+        it('finds a migrated row by its legacy token uid', async () => {
+            const user = await makeUser();
+            const legacyUid = uuidv4();
+            const row = await tokenRow(user.id, {
+                legacy_token_uid: legacyUid,
+                created_via: 'legacy_backfill',
+            });
+
+            const found = await target.findActiveByAccessTokenUid(legacyUid);
+            expect(found?.uuid).toBe(row.uuid);
+        });
+
+        it('returns null for a uid no token row carries', async () => {
+            const user = await makeUser();
+            await tokenRow(user.id, { access_token_uid: uuidv4() });
+
+            expect(
+                await target.findActiveByAccessTokenUid(uuidv4()),
+            ).toBeNull();
+        });
+
+        it('skips revoked and expired rows under either uid', async () => {
+            const user = await makeUser();
+            const revokedUid = uuidv4();
+            const revokedLegacyUid = uuidv4();
+            const expiredUid = uuidv4();
+            const revoked = await tokenRow(user.id, {
+                access_token_uid: revokedUid,
+            });
+            const revokedLegacy = await tokenRow(user.id, {
+                legacy_token_uid: revokedLegacyUid,
+            });
+            await tokenRow(user.id, {
+                access_token_uid: expiredUid,
+                expires_at: Math.floor(Date.now() / 1000) - 60,
+            });
+            await target.removeByUuid(revoked.uuid);
+            await target.removeByUuid(revokedLegacy.uuid);
+
+            for (const uid of [revokedUid, revokedLegacyUid, expiredUid]) {
+                expect(await target.findActiveByAccessTokenUid(uid)).toBeNull();
+            }
+        });
+
+        it('ignores a non-token row carrying the uid', async () => {
+            const user = await makeUser();
+            const tokenUid = uuidv4();
+            await target.create(user.id, {
+                kind: 'web',
+                access_token_uid: tokenUid,
+            });
+
+            expect(
+                await target.findActiveByAccessTokenUid(tokenUid),
+            ).toBeNull();
+        });
+
+        const TOKEN_UID_QUERIES =
+            /`(access_token_uid|legacy_token_uid|legacy_token_unique_key)` = \?/;
+        const byColumn = [
+            ['access_token_uid', {}],
+            ['legacy_token_uid', { created_via: 'legacy_backfill' }],
+        ] as const;
+
+        it.each(byColumn)(
+            'finds a row just written under %s while the replica lags',
+            async (column, extra) => {
+                const user = await makeUser();
+                const tokenUid = uuidv4();
+                const row = await tokenRow(user.id, {
+                    [column]: tokenUid,
+                    ...extra,
+                });
+                const replica = await lagReadReplica(server, TOKEN_UID_QUERIES);
+                try {
+                    const found =
+                        await target.findActiveByAccessTokenUid(tokenUid);
+                    expect(found?.uuid).toBe(row.uuid);
+                    expect(replica.primaryReads()).toBe(2);
+                } finally {
+                    replica.catchUp();
+                }
+            },
+        );
+
+        it.each(byColumn)(
+            'skips the primary when the replica has the row under %s',
+            async (column, extra) => {
+                const user = await makeUser();
+                const tokenUid = uuidv4();
+                const row = await tokenRow(user.id, {
+                    [column]: tokenUid,
+                    ...extra,
+                });
+                const replica = await lagReadReplica(
+                    server,
+                    TOKEN_UID_QUERIES,
+                    { mode: 'current' },
+                );
+                try {
+                    const found =
+                        await target.findActiveByAccessTokenUid(tokenUid);
+                    expect(found?.uuid).toBe(row.uuid);
+                    expect(replica.primaryReads()).toBe(0);
+                } finally {
+                    replica.catchUp();
+                }
+            },
+        );
     });
 
     describe('getOrCreateGodmodeToken', () => {
@@ -1652,6 +1953,251 @@ describe('SessionStore', () => {
         it('returns false on falsy uuid / userId', async () => {
             expect(await target.setLabel('', 1, 'x')).toBe(false);
             expect(await target.setLabel('some-uuid', 0, 'x')).toBe(false);
+        });
+    });
+
+    describe('rows that predate expires_at or went idle', () => {
+        const nowS = () => Math.floor(Date.now() / 1000);
+
+        /** Age a row in the database and drop its cached copy. */
+        const age = async (
+            uuid: string,
+            fields: { expires_at: number | null; activeDaysAgo: number },
+        ) => {
+            const at = nowS() - fields.activeDaysAgo * DAY;
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ?, `last_activity` = ?, `created_at` = ? WHERE `uuid` = ?',
+                [fields.expires_at, at, at, uuid],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${uuid}`);
+        };
+
+        it('getByUuid refuses a web row with no expires_at idle past its window, from the database and from cache', async () => {
+            const user = await makeUser();
+            const { uuid } = await target.create(user.id);
+            await age(uuid, { expires_at: null, activeDaysAgo: 400 });
+            expect(await target.getByUuid(uuid)).toBeNull();
+
+            const row = await rawRow(uuid);
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${uuid}`,
+                JSON.stringify(row),
+            );
+            expect(await target.getByUuidAny(uuid)).toBeTruthy();
+            expect(await target.getByUuid(uuid)).toBeNull();
+        });
+
+        it('getByUuid still accepts a recent web row with no expires_at', async () => {
+            const user = await makeUser();
+            const { uuid } = await target.create(user.id);
+            await age(uuid, { expires_at: null, activeDaysAgo: 30 });
+            expect(await target.getByUuid(uuid)).toBeTruthy();
+        });
+
+        it('getByUuid accepts an access token with no expires_at however old', async () => {
+            const user = await makeUser();
+            const { uuid } = await target.create(user.id, {
+                kind: 'access_token',
+            });
+            await age(uuid, { expires_at: null, activeDaysAgo: 2000 });
+            expect(await target.getByUuid(uuid)).toBeTruthy();
+        });
+
+        it('purgeEndedInRange deletes dead sliding rows with no expires_at on their retention, and never an access token for it', async () => {
+            const user = await makeUser();
+            const cutoffs = {
+                cutoff: nowS() - 30 * DAY,
+                webCutoff: nowS() - 365 * DAY,
+            };
+            const make = async (kind: string, activeDaysAgo: number) => {
+                const { uuid } = await target.create(user.id, { kind });
+                await age(uuid, { expires_at: null, activeDaysAgo });
+                return uuid as string;
+            };
+            const purged = [
+                await make('web', 731),
+                await make('app', 396),
+                await make('asset', 38),
+            ];
+            const kept = [
+                await make('web', 729),
+                await make('app', 394),
+                await make('asset', 36),
+                await make('access_token', 5000),
+                await make('worker', 5000),
+            ];
+            const firstId = Number((await rawRow(purged[0])).id);
+            const lastId = Number((await rawRow(kept[kept.length - 1])).id);
+
+            expect(
+                await target.purgeEndedInRange(
+                    firstId - 1,
+                    lastId - firstId + 1,
+                    cutoffs,
+                ),
+            ).toBe(3);
+            for (const uuid of purged) expect(await rawRow(uuid)).toBeNull();
+            for (const uuid of kept) expect(await rawRow(uuid)).not.toBeNull();
+        });
+
+        it('getOrCreateApp replaces a lapsed row that still holds the unique slot', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            await age(first.uuid, {
+                expires_at: nowS() - 60,
+                activeDaysAgo: 366,
+            });
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+            );
+
+            const second = await target.getOrCreateApp(user.id, appUid);
+            expect(second.uuid).not.toBe(first.uuid);
+            expect((await rawRow(first.uuid)).revoked_at).not.toBeNull();
+            expect(await target.getByUuid(second.uuid)).toBeTruthy();
+        });
+
+        it('getOrCreateApp replaces an idle row only when idleEnds is set', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            await age(first.uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 181,
+            });
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+            );
+
+            expect((await target.getOrCreateApp(user.id, appUid)).uuid).toBe(
+                first.uuid,
+            );
+            // The composite cache now holds the idle row; it is skipped too.
+            const second = await target.getOrCreateApp(user.id, appUid, {
+                idleEnds: true,
+            });
+            expect(second.uuid).not.toBe(first.uuid);
+            expect((await rawRow(first.uuid)).revoked_at).not.toBeNull();
+        });
+
+        it('getOrCreateApp keeps a row a lagging replica shows idle but the primary shows active', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            await age(first.uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 181,
+            });
+            const idle = await rawRow(first.uuid);
+            // Resumed on another node: the primary has the touch, this
+            // region's replica and cache do not.
+            await target.updateActivity(first.uuid, nowS());
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+                `sessions:v2:uuid:${first.uuid}`,
+            );
+
+            const restore = lagReplica({ [first.uuid]: idle });
+            let found;
+            try {
+                found = await target.getOrCreateApp(user.id, appUid, {
+                    idleEnds: true,
+                });
+            } finally {
+                restore();
+            }
+            expect(found.uuid).toBe(first.uuid);
+            expect((await rawRow(first.uuid)).revoked_at).toBeNull();
+        });
+
+        it('getOrCreateApp leaves an idle row alone when it is touched before the revoke lands', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            await age(first.uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 181,
+            });
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+            );
+            // The touch lands between the primary read and the revoke.
+            const db = server.clients.db;
+            const pread = db.pread.bind(db);
+            let touched = false;
+            const spy = vi
+                .spyOn(db, 'pread')
+                .mockImplementation(async (sql: string, params?: unknown[]) => {
+                    const rows = await pread(sql, params);
+                    if (!touched && params?.includes(first.uuid)) {
+                        touched = true;
+                        await target.updateActivity(first.uuid, nowS());
+                    }
+                    return rows;
+                });
+            try {
+                await target.getOrCreateApp(user.id, appUid, {
+                    idleEnds: true,
+                });
+            } finally {
+                spy.mockRestore();
+            }
+            expect(touched).toBe(true);
+            expect((await rawRow(first.uuid)).revoked_at).toBeNull();
+        });
+
+        it('getOrCreateFirstPartySession skips an idle row when idleEnds is set', async () => {
+            const user = await makeUser();
+            const parent = await target.create(user.id, {
+                expires_at: nowS() + 3600,
+            });
+            const opts = {
+                parentSessionUid: parent.uuid,
+                origin: 'https://first-party.example',
+                expiresAt: nowS() + 3600,
+            };
+            const first = await target.getOrCreateFirstPartySession(
+                user.id,
+                opts,
+            );
+            await age(first.uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 181,
+            });
+
+            expect(
+                (await target.getOrCreateFirstPartySession(user.id, opts)).uuid,
+            ).toBe(first.uuid);
+            expect(
+                (
+                    await target.getOrCreateFirstPartySession(user.id, {
+                        ...opts,
+                        idleEnds: true,
+                    })
+                ).uuid,
+            ).not.toBe(first.uuid);
+        });
+
+        it('a touch after a long idle drops the cached copy, so its old activity ends nothing', async () => {
+            const user = await makeUser();
+            const { uuid } = await target.create(user.id);
+            await age(uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 179,
+            });
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${uuid}`,
+                JSON.stringify(await rawRow(uuid)),
+            );
+
+            await target.updateActivity(uuid, nowS(), { ip: '10.0.0.1' });
+
+            expect(
+                await server.clients.redis.get(`sessions:v2:uuid:${uuid}`),
+            ).toBeNull();
+            const fresh = await target.getByUuidAny(uuid);
+            expect(fresh.last_activity).toBeGreaterThan(nowS() - 60);
         });
     });
 

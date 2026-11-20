@@ -5111,9 +5111,8 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
 // ── GET /get-launch-apps ────────────────────────────────────────────
 //
 // `recent` is a launch-metadata producer: it returns `index_url` for
-// apps the user has opened before. The taskbar happens to launch these
-// by name (so AppDriver's hosted-backing guard applies), but the field
-// is served regardless, so the guard is applied here too.
+// apps the user has opened before. The field is served whoever reads it,
+// so AppDriver's hosted-backing guard is applied here too.
 
 describe('LegacyFSController GET /get-launch-apps', () => {
     const hostedUrl = (sub: string) => `https://${sub}.site.puter.localhost/`;
@@ -5327,5 +5326,116 @@ describe('LegacyFSController GET /get-launch-apps', () => {
         } finally {
             opens.mockRestore();
         }
+    });
+});
+
+describe('LegacyFSController.batch malformed operations', () => {
+    type OpResult = {
+        error?: boolean;
+        status?: number;
+        message?: string;
+        code?: string;
+        entry_name?: string;
+    };
+    const runBatch = async (
+        operations: (username: string) => Record<string, unknown>[],
+    ) => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.batch(
+                makeReq({
+                    body: { operations: operations(username) },
+                    headers: { 'content-type': 'application/json' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        return {
+            username,
+            statusCode: captured.statusCode,
+            results: (captured.body as { results: OpResult[] }).results,
+        };
+    };
+
+    it('rejects a reference with no name, and one nothing has produced', async () => {
+        const { statusCode, results } = await runBatch((username) => [
+            { op: 'mkdir', parent: '$', path: '/a' },
+            { op: 'mkdir', parent: '$/sub', path: '/b' },
+            { op: 'mkdir', parent: '$missing', path: '/c' },
+            { op: 'mkdir', path: `/${username}/Documents`, name: 'ok-dir' },
+        ]);
+
+        expect(statusCode).toBe(218);
+        expect(results.slice(0, 3)).toMatchObject([
+            { error: true, status: 400, message: 'Invalid batch reference' },
+            { error: true, status: 400, message: 'Invalid batch reference' },
+            {
+                error: true,
+                status: 400,
+                message: 'Unknown batch reference: $missing',
+            },
+        ]);
+        // The bad references fail alone; the rest of the batch still runs.
+        expect(results[3]?.error).toBeFalsy();
+    });
+
+    it('rejects a mkdir that names no directory', async () => {
+        const { username, results } = await runBatch((name) => [
+            { op: 'mkdir', parent: `/${name}/Documents`, path: '/' },
+            { op: 'mkdir' },
+        ]);
+
+        expect(results).toMatchObject([
+            { error: true, status: 400, message: 'mkdir op missing `name`' },
+            { error: true, status: 400, message: 'mkdir op missing `name`' },
+        ]);
+        expect(
+            await server.stores.fsEntry.listChildren(
+                (await server.stores.fsEntry.getEntryByPath(
+                    `/${username}/Documents`,
+                ))!.uuid,
+            ),
+        ).toEqual([]);
+    });
+
+    it('rejects a shortcut with no name', async () => {
+        const { results } = await runBatch((username) => [
+            {
+                op: 'shortcut',
+                path: `/${username}/Pictures`,
+                shortcut_to: `/${username}/Documents`,
+            },
+        ]);
+
+        expect(results).toMatchObject([
+            {
+                error: true,
+                status: 400,
+                message: 'shortcut op missing `name`',
+                code: 'shortcut_target_not_found',
+            },
+        ]);
+    });
+
+    it('carries the extra fields of a failure into its result', async () => {
+        // The home already holds a `Documents`, so the move collides.
+        const { results } = await runBatch((username) => [
+            { op: 'mkdir', path: `/${username}/Pictures`, name: 'Documents' },
+            {
+                op: 'move',
+                source: `/${username}/Pictures/Documents`,
+                destination: `/${username}`,
+            },
+        ]);
+
+        expect(results[1]).toMatchObject({
+            error: true,
+            status: 409,
+            code: 'item_with_same_name_exists',
+            entry_name: 'Documents',
+        });
     });
 });

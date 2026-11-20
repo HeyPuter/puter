@@ -87,6 +87,7 @@ module.exports = async ({ dir, options }) => {
 
     return new webpack.BannerPlugin({
         banner: prefix_text,
+        include: /bundle\.min\.js$/,
         raw: true,
     });
 };

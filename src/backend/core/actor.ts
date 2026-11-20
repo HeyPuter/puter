@@ -47,10 +47,19 @@ export interface ActorAccessToken {
      * reach while revokes, audits and gate hooks can still name the app.
      */
     godmodeApp?: ActorApp | null;
+    /**
+     * The token's own session row, checked live when it authenticated. Unset
+     * when the token carries no `session_uid` naming its row.
+     */
+    sessionUid?: string;
 }
 
 export interface Actor {
-    user: Partial<UserRow>;
+    /**
+     * The account. Token auth builds it from the user's row without the
+     * password hash, and sets `hasPassword` in its place.
+     */
+    user: Partial<UserRow> & { hasPassword?: boolean };
     /**
      * The app this actor carries _directly_, empty on an access token an app
      * issued. Answers "is this an app acting as itself" — `isAppActor` is
@@ -71,8 +80,14 @@ export interface Actor {
     /**
      * Set when authenticated by a session token or an app-under-user token
      * carrying one. `kind` mirrors the session row (`web`, `app`, `worker`).
+     * `parentUid` is the sign-in a `web` session was handed out under, set only
+     * on a first-party page's session.
      */
-    session?: { uid: string; kind?: string | null } | null;
+    session?: {
+        uid: string;
+        kind?: string | null;
+        parentUid?: string | null;
+    } | null;
     /**
      * Events handler runs behind this actor's writes; set only from an events
      * handler token or a token one minted. Provenance, not authority, so

@@ -27,7 +27,7 @@ const copy = defineOperation({
         return {
             endpoint: '/copy',
             body: {
-                // No socket at all for a client that opted out (`puter.socketEnabled`).
+                // No socket at all when the client doesn't open one (see `wantsSocket`).
                 original_client_socket_id: this.socket?.id,
                 socket_id: this.socket?.id,
                 source: getAbsolutePathOrUidForApp(options.source),

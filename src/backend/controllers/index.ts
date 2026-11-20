@@ -17,11 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { AlarmController } from './alarm/AlarmController.js';
 import { AppController } from './apps/AppController.js';
 import { AppFeedbackController } from './feedback/AppFeedbackController.js';
 import { AuthController } from './auth/AuthController.js';
 import { BroadcastController } from './broadcast/BroadcastController.js';
-import { DesktopController } from './desktop/DesktopController.js';
 import { DriverController } from './drivers/DriverController.js';
 import { EventsController } from './events/EventsController.js';
 import { FSController } from './fs/FSController.js';
@@ -49,7 +49,6 @@ export const puterControllers = {
     profile: ProfileController,
     apps: AppController,
     appFeedback: AppFeedbackController,
-    desktop: DesktopController,
     hosting: HostingController,
     system: SystemController,
     fs: FSController,
@@ -65,6 +64,7 @@ export const puterControllers = {
     oidc: OIDCController,
     wisp: WispController,
     peer: PeerController,
+    alarm: AlarmController,
     // Last so its catch-all static fallback doesn't shadow earlier routes.
     homepage: HomepageController,
 } satisfies IPuterControllerRegistry;

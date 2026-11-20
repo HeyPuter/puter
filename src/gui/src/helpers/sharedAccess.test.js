@@ -64,6 +64,19 @@ describe('shared_access', () => {
             );
         });
 
+        it('keeps the strongest mode when a path is granted more than once', async () => {
+            remember_shared_roots([
+                { path: `/jf/${BUDGET}/Budget`, mode: 'manage' },
+                { path: `/jf/${BUDGET}/Budget`, mode: 'read' },
+                { path: `/jf/${REPORT}/report.pdf`, mode: 'read' },
+                { path: `/jf/${REPORT}/report.pdf`, mode: 'write' },
+            ]);
+            expect(await shared_mode_for(`/jf/${BUDGET}/Budget`)).toBe('manage');
+            expect(await shared_mode_for(`/jf/${REPORT}/report.pdf`)).toBe('write');
+            expect(await can_share(`/jf/${BUDGET}/Budget/q1.xlsx`)).toBe(true);
+            expect(await can_rename(`/jf/${REPORT}/report.pdf`)).toBe(true);
+        });
+
         it('reports nothing outside every shared root', async () => {
             expect(await shared_mode_for(`/jf/${CONTENTS}/Private/a.txt`)).toBe(null);
         });

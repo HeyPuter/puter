@@ -47,13 +47,13 @@ const receiptLog = (sdk) =>
 export const notificationSocketAcks = (sdk = globalThis.puter) =>
     receiptLog(sdk) ? ['notif.receipt'] : [];
 
-/** Notes each live `notif.message` in the receipt log and answers the server's asks from it. */
+/** Notes each live `notif.message` in the receipt log, reporting over `socket` one the desktop handled, and answers the server's asks from it. */
 export const answerNotificationReceipts = (socket, sdk = globalThis.puter) => {
     const log = receiptLog(sdk);
     if ( ! log ) return;
     socket.on('notif.message', (message) => {
         if ( typeof message?.uid !== 'string' ) return;
-        if ( ! isAppOnlyNotification(message.notification) ) log._noteReceived(message.uid);
+        if ( ! isAppOnlyNotification(message.notification) ) log._noteReceived(message.uid, undefined, socket);
     });
     socket.on('notif.receipt', (data, ack) => log._answerReceipt(data, ack));
 };

@@ -4,9 +4,11 @@ description: List the schedules this caller holds, one page at a time.
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Lists the schedules created with [`puter.events.onSchedule()`](/Events/onSchedule/), and the notifications your app stored to send later with [`puter.notifications.notify()`](/Notifications/notify/#send-it-later).
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Lists the schedules created with [`puter.events.onSchedule()`](/Events/onSchedule/), and the notifications your app stored to send later with [`puter.notifications.notify()`](/Notifications/notify/#send-it-later). Ended schedules stay in the list for 7 days, with the reason they ended.
+Ended schedules stay in the list for 7 days, with the reason they ended.
 
 An app sees only the schedules it created for the user it runs for. An account session, such as the Puter desktop, sees all of the user's schedules, including ones left by apps they no longer use, so that's where to clean up stray schedules. A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, sees none.
 
@@ -24,9 +26,11 @@ puter.events.listSchedules(options)
 
 #### `options` (Object) (optional)
 
-- `limit` (Number): Maximum schedules per page. Capped at 200, and defaults to 50.
-- `cursor` (String | null): The `cursor` from the previous page. Leave it out, or pass `null`, for the first page.
-- `includeTotal` (Boolean): Adds `total`, the number of schedules across every page. Ask for it on the first page only.
+| Option | Type | Description |
+|--------|------|-------------|
+| `limit` | `Number` | Maximum schedules per page. Capped at 200, and defaults to 50. |
+| `cursor` | `String \| null` | The `cursor` from the previous page. Leave it out, or pass `null`, for the first page. |
+| `includeTotal` | `Boolean` | Adds `total`, the number of schedules across every page. Ask for it on the first page only. |
 
 ## Return value
 
@@ -39,6 +43,8 @@ A `Promise` for one page, `{ items, cursor?, total? }`:
 Pages can be shorter than `limit` before the last one, so keep going until `cursor` is absent.
 
 The `context` a schedule was created with is never returned, since it often holds secrets. The `contextKeys` field lists its key names, and `contextHash` changes whenever a value does.
+
+## Errors
 
 The promise rejects with `{ message, code }`:
 
@@ -53,7 +59,7 @@ The promise rejects with `{ message, code }`:
 
 ## Examples
 
-<strong class="example-title">List every schedule, page by page</strong>
+### List every schedule, page by page
 
 ```html;events-list-schedules
 <html>

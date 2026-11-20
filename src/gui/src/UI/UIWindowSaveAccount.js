@@ -91,7 +91,6 @@ async function UIWindowSaveAccount (options) {
             allow_user_select: true,
             width: 350,
             dominant: true,
-            show_in_taskbar: false,
             ...options.window_options,
             onAppend: function (this_window) {
                 if ( options.default_username )
@@ -116,6 +115,12 @@ async function UIWindowSaveAccount (options) {
                 'backdrop-filter': 'blur(3px)',
             },
         });
+
+        // One is already open, which UIWindow focused instead of opening this.
+        if ( ! el_window ) {
+            resolve(false);
+            return;
+        }
 
         $(el_window).find('.signup-btn').on('click', function (e) {
             // todo do some basic validation client-side
@@ -164,10 +169,15 @@ async function UIWindowSaveAccount (options) {
 
                     //close this window
                     if ( data.user.requires_email_confirmation && !data.user.email_confirmed ) {
+                        // The code window brings its own backdrop; this
+                        // one under it would dim the page twice.
+                        const $backdrop = $(el_window).closest('.window-backdrop');
+                        $backdrop.css('visibility', 'hidden');
                         let is_verified = await UIWindowEmailConfirmationRequired({
                             stay_on_top: true,
                             has_head: true,
                         });
+                        $backdrop.css('visibility', '');
                         resolve(is_verified);
                     } else {
                         resolve(true);

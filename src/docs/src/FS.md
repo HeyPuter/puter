@@ -298,15 +298,14 @@ These cloud storage features are supported out of the box when using Puter.js:
 
 - **[`puter.fs.write()`](/FS/write/)** - Write data to a file
 - **[`puter.fs.read()`](/FS/read/)** - Read data from a file
-- **[`puter.fs.mkdir()`](/FS/mkdir/)** - Create a directory
-- **[`puter.fs.readdir()`](/FS/readdir/)** - List contents of a directory
-- **[`puter.fs.rename()`](/FS/rename/)** - Rename a file or directory
-- **[`puter.fs.copy()`](/FS/copy/)** - Copy a file or directory
-- **[`puter.fs.move()`](/FS/move/)** - Move a file or directory
-- **[`puter.fs.stat()`](/FS/stat/)** - Get information about a file or directory
-- **[`puter.fs.space()`](/FS/space/)** - Get the user's storage capacity and usage
-- **[`puter.fs.delete()`](/FS/delete/)** - Delete a file or directory
 - **[`puter.fs.upload()`](/FS/upload/)** - Upload a file from the local system
+- **[`puter.fs.readdir()`](/FS/readdir/)** - List contents of a directory
+- **[`puter.fs.mkdir()`](/FS/mkdir/)** - Create a directory
+- **[`puter.fs.delete()`](/FS/delete/)** - Delete a file or directory
+- **[`puter.fs.stat()`](/FS/stat/)** - Get information about a file or directory
+- **[`puter.fs.rename()`](/FS/rename/)** - Rename a file or directory
+- **[`puter.fs.move()`](/FS/move/)** - Move a file or directory
+- **[`puter.fs.copy()`](/FS/copy/)** - Copy a file or directory
 - **[`puter.fs.getReadURL()`](/FS/getReadURL/)** - Generate a URL that can be used to read a file
 - **[`puter.fs.revokeReadURL()`](/FS/revokeReadURL/)** - Revoke a URL created by `getReadURL()`
 - **[`puter.fs.share()`](/FS/share/)** - Give another user access to a file or directory
@@ -315,6 +314,7 @@ These cloud storage features are supported out of the box when using Puter.js:
 - **[`puter.fs.listSharedByMe()`](/FS/listSharedByMe/)** - List everything you have shared out
 - **[`puter.fs.getShares()`](/FS/getShares/)** - List who has access to an item
 - **[`puter.fs.getShareLink()`](/FS/getShareLink/)** - Build a link that opens a file in an app
+- **[`puter.fs.space()`](/FS/space/)** - Get the user's storage capacity and usage
 
 ## Examples
 

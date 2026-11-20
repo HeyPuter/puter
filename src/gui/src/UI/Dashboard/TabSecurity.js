@@ -17,12 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindowDisable2FA from '../Settings/UIWindowDisable2FA.js';
-import UIWindow2FASetup from '../UIWindow2FASetup.js';
-import UIWindowBlockedSenders from '../UIWindowBlockedSenders.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 import { isOrgSeat } from './orgSeat.js';
-import { openChangePasswordDialog } from './UIAccountDialogs.js';
+import { openChangePasswordDialog, openDisable2FADialog } from './UIAccountDialogs.js';
+import UIDashboard2FASetupDialog from './UIDashboard2FASetupDialog.js';
+import UIDashboardBlockedSendersDialog from './UIDashboardBlockedSendersDialog.js';
 
 const TabSecurity = {
     id: 'security',
@@ -143,18 +142,8 @@ const TabSecurity = {
             });
         });
 
-        $el_window.find('.dashboard-section-security .manage-blocked-senders').on('click', function (e) {
-            const opener = this;
-            UIWindowBlockedSenders({
-                window_options: {
-                    on_close: () => setTimeout(() => returnFocus(opener)),
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                },
-            });
+        $el_window.find('.dashboard-section-security .manage-blocked-senders').on('click', function () {
+            UIDashboardBlockedSendersDialog({ $container: $el_window, returnFocusTo: this });
         });
 
         $el_window.find('.dashboard-section-security .toggle-2fa').on('change', async function (e) {
@@ -164,19 +153,7 @@ const TabSecurity = {
             $toggle.prop('disabled', true);
             $label.addClass('dashboard-switch-pending');
 
-            const window_options = {
-                parent_uuid: $el_window.attr('data-element_uuid'),
-                backdrop: true,
-                close_on_backdrop_click: true,
-                parent_center: true,
-                stay_on_top: true,
-                has_head: false,
-            };
-
-            const { promise } = enabling
-                ? await UIWindow2FASetup({ window_options })
-                : await UIWindowDisable2FA({ window_options });
-            const succeeded = await promise;
+            const succeeded = await (enabling ? UIDashboard2FASetupDialog : openDisable2FADialog)({ $container: $el_window });
 
             $toggle.prop('disabled', false);
             $label.removeClass('dashboard-switch-pending');
@@ -193,8 +170,7 @@ const TabSecurity = {
             if ( ! succeeded ) {
                 $toggle.prop('checked', ! enabling);
                 // 2FA may have changed regardless: turned on in another tab
-                // (setup then refuses, "already enabled"), or by a code the
-                // server accepted after the dialog was closed.
+                // (setup then refuses, "already enabled").
                 await window.refresh_user_data?.(window.auth_token);
                 if ( typeof window.user?.otp === 'boolean' ) showState(window.user.otp);
                 return;

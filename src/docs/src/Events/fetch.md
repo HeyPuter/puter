@@ -4,9 +4,11 @@ description: Read what a subject recorded while nothing was listening.
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Reads the events a subject has stored, a page at a time.
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Reads the events a subject has stored, a page at a time. A subscription only delivers while something is listening, and `fetch()` catches up on what happened while the client was closed or offline. Only `notif:` subjects (the notification mailbox) store events. Subjects for `fs:` and `kv:` are refused with `fetch_unsupported_subject`.
+A subscription only delivers while something is listening, and `fetch()` catches up on what happened while the client was closed or offline. Only `notif:` subjects (the notification mailbox) store events. Subjects for `fs:` and `kv:` are refused with `fetch_unsupported_subject`.
 
 It's a plain query. Nothing is registered and no position is saved, so calling it twice returns the same result. You keep the `cursor` and pass it back.
 
@@ -25,11 +27,13 @@ puter.events.fetch(options)
 
 #### `options` (Object) (required)
 
-- `subject` (String) (required): What to read. Use `notif:app-user` for your app's notifications for the user, and `notif:developer` for notifications about your app, for its owner. The full form is `notif:<appId>:<audience>`, where the audience is `account`, `developer`, or `app-user`. Apps and websites never see `account` notifications, so `notif:account` returns an empty page for them.
-- `cursor` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept. A read from a cursor returns the notifications created after it, plus any notification [replaced](/Notifications/notify/#groups) since that page was read, even one from an earlier page.
-- `after` (String): The older name for `cursor`, still accepted. If both are given, `cursor` is used.
-- `from` (String): Where a read without a cursor starts. `'start'`, the default, starts from the oldest notification still kept. `'end'` skips what's already there: it returns no items and a `cursor` at the newest notification, and reads from that cursor return only notifications created or replaced after it. Ignored when a cursor is given.
-- `limit` (Number): Events per page. Defaults to 50, max 200.
+| Option | Type | Description |
+|--------|------|-------------|
+| `subject` | `String` | Required. What to read. Use `notif:app-user` for your app's notifications for the user, and `notif:developer` for notifications about your app, for its owner. The full form is `notif:<appId>:<audience>`, where the audience is `account`, `developer`, or `app-user`. Apps and websites never see `account` notifications, so `notif:account` returns an empty page for them. |
+| `cursor` | `String` | The `cursor` from the previous page. Leave it off to start from the oldest notification still kept. A read from a cursor returns the notifications created after it, plus any notification [replaced](/Notifications/notify/#groups) since that page was read, even one from an earlier page. |
+| `limit` | `Number` | Events per page. Defaults to 50, max 200. |
+| `from` | `String` | Where a read without a cursor starts. The default, `'start'`, starts from the oldest notification still kept. With `'end'`, the read skips what's already there. It returns no items and a `cursor` at the newest notification, and reads from that cursor return only notifications created or replaced after it. Ignored when a cursor is given. |
+| `after` | `String` | The older name for `cursor`, still accepted. If both are given, `cursor` is used. |
 
 ## Return value
 
@@ -42,18 +46,18 @@ Each item is a notification event:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `id` | String | The notification's uid. Live deliveries carry the same id, so you can drop duplicates. A replacement keeps the id, so tell it apart by `replaced` and `ts`. |
-| `subject` | String | `notif:<appId or userId>:<audience>`, the part of the mailbox it belongs to. |
-| `op` | String | Always `post`. |
-| `uid` | String | The notification's uid. |
-| `type` | String | The kind of notification, such as `share.received`, `app.worker.deployed`, or `app.message`. The types are listed below. |
-| `audience` | String | `account`, `developer`, or `app-user`. |
-| `appUid` | String \| null | The app it's about, or `null` for one that names no app. |
-| `notification` | Object | The stored payload. It always has `type`, and every type except `kv.share.received` has a `title`. Other fields depend on `type`. |
-| `replaced` | Boolean | Present and `true` when the notification replaced an earlier one with the same `uid`, as an app's notification with a [`group`](/Notifications/notify/#groups) does. |
-| `self` | Boolean | Always `true`, since a mailbox is your own. |
-| `ts` | Number | When it was created, in milliseconds since the epoch. On a replacement, when it was replaced, and the same on its live and fetched copies. |
-| `seq` | Number | Position within the page. |
+| `id` | `String` | The notification's uid. Live deliveries carry the same id, so you can drop duplicates. A replacement keeps the id, so tell it apart by `replaced` and `ts`. |
+| `subject` | `String` | `notif:<appId or userId>:<audience>`, the part of the mailbox it belongs to. |
+| `op` | `String` | Always `post`. |
+| `uid` | `String` | The notification's uid. |
+| `type` | `String` | The kind of notification, such as `share.received`, `app.worker.deployed`, or `app.message`. The types are listed below. |
+| `audience` | `String` | `account`, `developer`, or `app-user`. |
+| `appUid` | `String \| null` | The app it's about, or `null` for one that names no app. |
+| `notification` | `Object` | The stored payload. It always has `type`, and every type except `kv.share.received` has a `title`. Other fields depend on `type`. |
+| `replaced` | `Boolean` | Present and `true` when the notification replaced an earlier one with the same `uid`, as an app's notification with a [`group`](/Notifications/notify/#groups) does. |
+| `self` | `Boolean` | Always `true`, since a mailbox is your own. |
+| `ts` | `Number` | When it was created, in milliseconds since the epoch. On a replacement, when it was replaced, and the same on its live and fetched copies. |
+| `seq` | `Number` | Position within the page. |
 
 Besides `type` and `title`, `notification` carries these fields for each type:
 
@@ -74,6 +78,8 @@ Apps see `developer` notifications only for apps the user owns. Asking for a par
 
 Notifications are kept for the server's retention window. A client away for longer starts from what's left.
 
+## Errors
+
 The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
@@ -89,7 +95,7 @@ The promise rejects with `{ message, code }`:
 
 ## Examples
 
-<strong class="example-title">Catch up on everything missed</strong>
+### Catch up on everything missed
 
 ```html;events-fetch
 <html>
@@ -118,7 +124,7 @@ The promise rejects with `{ message, code }`:
 </html>
 ```
 
-<strong class="example-title">Read the missed ones, then keep listening</strong>
+### Read the missed ones, then keep listening
 
 ```html;events-fetch-then-listen
 <html>

@@ -21,6 +21,8 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { existsSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -197,6 +199,77 @@ describe('S3Client — remote endpoint configuration', () => {
 
         expect(remote.partSize).toBe(64 * 1024 * 1024);
         expect(remote.maxSingleUploadSize).toBe(128 * 1024 * 1024);
+    });
+});
+
+describe('S3Client — bucket in another region', () => {
+    let server: Server;
+    let client: S3Client;
+    let signedRegions: string[];
+
+    // Answers like a bucket that lives in us-west-2: a request signed for any
+    // other region gets S3's 301 naming the bucket's region.
+    beforeEach(async () => {
+        signedRegions = [];
+        server = createServer((req, res) => {
+            const region =
+                /Credential=[^/]+\/\d{8}\/([^/]+)\//.exec(
+                    req.headers.authorization ?? '',
+                )?.[1] ?? '';
+            signedRegions.push(region);
+            if (region !== 'us-west-2') {
+                res.writeHead(301, {
+                    'content-type': 'application/xml',
+                    'x-amz-bucket-region': 'us-west-2',
+                });
+                res.end(
+                    '<?xml version="1.0" encoding="UTF-8"?><Error><Code>PermanentRedirect</Code><Message>The bucket you are attempting to access must be addressed using the specified endpoint.</Message></Error>',
+                );
+                return;
+            }
+            res.writeHead(200, {
+                'content-type': 'text/plain',
+                'content-length': '5',
+            });
+            res.end('hello');
+        });
+        await new Promise<void>((resolve) =>
+            server.listen(0, '127.0.0.1', resolve),
+        );
+        const { port } = server.address() as AddressInfo;
+        client = new S3Client({
+            port: 0,
+            extensions: [],
+            s3: {
+                s3Config: {
+                    endpoint: `http://127.0.0.1:${port}`,
+                    accessKeyId: 'fakeAccessKeyId',
+                    secretAccessKey: 'fakeSecretAccessKey',
+                    forcePathStyle: true,
+                },
+            },
+        } as unknown as IConfig);
+        await client.onServerStart();
+    });
+
+    afterEach(async () => {
+        await client.onServerShutdown();
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+
+    it("retries a read in the bucket's region when S3 redirects it", async () => {
+        const result = await client
+            .get('ap-northeast-2')
+            .send(
+                new GetObjectCommand({
+                    Bucket: 'other-bucket',
+                    Key: 'index.html',
+                }),
+            );
+
+        expect(await result.Body?.transformToString()).toBe('hello');
+        expect(signedRegions).toEqual(['ap-northeast-2', 'us-west-2']);
     });
 });
 

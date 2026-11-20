@@ -4,7 +4,9 @@ description: Check whether the user lets your app send push notifications, witho
 platforms: [websites, apps]
 ---
 
-Whether the user lets your app send push notifications. It never prompts, so use it to decide whether to ask with [`requestPermission()`](/Notifications/requestPermission/).
+Checks whether the user lets your app send push notifications.
+
+It never prompts, so use it to decide whether to ask with [`requestPermission()`](/Notifications/requestPermission/).
 
 The user gives this permission in Puter's prompt, or on a website by turning pushes on with [`enable()`](/Notifications/enable/). It says nothing about the browser the user is in. To check whether pushes reach this browser, use [`status()`](/Notifications/status/).
 
@@ -23,7 +25,7 @@ A `Promise` that resolves to `true` or `false`.
 
 ## Examples
 
-<strong class="example-title">Ask only when the app isn't allowed yet</strong>
+### Ask only when the app isn't allowed yet
 
 ```js
 if (!await puter.notifications.hasPermission()) {

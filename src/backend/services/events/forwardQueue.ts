@@ -57,6 +57,11 @@ export interface ForwardDelivery {
     origin?: string;
     /** Client skips its handler: the event is past the handler-chain limit. */
     skipHandler?: true;
+    /**
+     * Set on a queued delivery with a worker behind it: only connections that
+     * run the subscription's handler get it, and with none it is declined.
+     */
+    toHandlers?: true;
 }
 
 /** A client's settle, on its way back to the region that owns the lease. */

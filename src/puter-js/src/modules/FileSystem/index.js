@@ -1,7 +1,7 @@
 import path from 'path-browserify';
 import { io } from 'socket.io-client';
 import { PuterModule } from '../../lib/PuterModule.js';
-import { socketAutoUnref } from '../../lib/socketOptions.js';
+import { socketAutoUnref, socketTransportOptions } from '../../lib/socketOptions.js';
 import * as utils from '../../lib/utils.js';
 import { RECEIPT_EVENT } from '../notifications/lib/receipts.js';
 
@@ -9,6 +9,35 @@ import { RECEIPT_EVENT } from '../notifications/lib/receipts.js';
 //
 // The last valid time of the local cache.
 const LAST_VALID_TS = 'last_valid_ts';
+
+/**
+ * Drops what the SDK cache holds for one file: its entry and its folder's
+ * listing, under its path and under any other path it's still cached at,
+ * since a rename arrives as an update naming only the new path.
+ *
+ * @param {{ path: string, uid?: string }} file
+ */
+const forgetCachedFile = (file) => {
+    const cache = puter._cache;
+    const forget = (filePath) => {
+        cache.del(puter.fsCacheKey('item', filePath));
+        cache.del(puter.fsCacheKey('readdir', path.dirname(filePath)));
+    };
+    forget(file.path);
+    if ( ! file.uid ) return;
+    const itemPrefix = puter.fsCacheKey('item', '');
+    const listingPrefix = puter.fsCacheKey('readdir', '');
+    for ( const key of cache.keys('*') ) {
+        if ( key.startsWith(itemPrefix) ) {
+            if ( cache.get(key)?.uid === file.uid ) forget(key.slice(itemPrefix.length));
+        } else if ( key.startsWith(listingPrefix) ) {
+            const listing = cache.get(key);
+            if ( Array.isArray(listing) && listing.some((entry) => entry?.uid === file.uid) ) {
+                cache.del(key);
+            }
+        }
+    }
+};
 
 // Operations
 import FSItem from '../FSItem.js';
@@ -83,8 +112,7 @@ export class PuterJSFileSystemModule extends PuterModule {
     constructor (puter) {
         super(puter);
         this.cacheUpdateTimer = null;
-        // Connect socket, unless this client opted out (see `puter.socketEnabled`).
-        if (puter.socketEnabled) {
+        if (this.wantsSocket()) {
             this.initializeSocket();
         }
         puter.onAuthStateChanged(() => this.onAuthStateChanged());
@@ -113,10 +141,7 @@ export class PuterJSFileSystemModule extends PuterModule {
                 auth_token: this.authToken,
                 acks: [RECEIPT_EVENT],
             },
-            // socket.io's autoUnref path expects ws._socket.unref() to exist.
-            // Enable it only for Node runtimes that expose a ws-like WebSocket.
-            autoUnref: this.shouldUseSocketAutoUnref(),
-            transports: ['websocket', 'polling'],
+            ...socketTransportOptions(this.puter),
             withCredentials: true,
         });
 
@@ -125,6 +150,19 @@ export class PuterJSFileSystemModule extends PuterModule {
 
     shouldUseSocketAutoUnref () {
         return socketAutoUnref(this.puter);
+    }
+
+    /**
+     * Whether this client opens the socket: not when it opted out (see
+     * `puter.socketEnabled`), nor in Node when the socket can't be unref'd
+     * and would keep the process alive.
+     *
+     * @internal
+     * @returns {boolean}
+     */
+    wantsSocket () {
+        return this.puter.socketEnabled &&
+            (this.puter.env !== 'nodejs' || this.shouldUseSocketAutoUnref());
     }
 
     bindSocketEvents () {
@@ -149,7 +187,12 @@ export class PuterJSFileSystemModule extends PuterModule {
         });
 
         this.socket.on('item.updated', (item) => {
-            puter._cache.flushall();
+            // A directory's change reaches what's cached under it.
+            if ( item?.is_dir !== false || !item.path ) {
+                puter._cache.flushall();
+                return;
+            }
+            forgetCachedFile(item);
         });
 
         this.socket.on('item.moved', (item) => {
@@ -221,7 +264,7 @@ export class PuterJSFileSystemModule extends PuterModule {
             this.startCacheUpdateTimer();
         }
 
-        if ( this.puter.socketEnabled ) {
+        if ( this.wantsSocket() ) {
             if (this.socket?.active &&
                 this.socketToken_ === this.authToken &&
                 this.socketOrigin_ === this.APIOrigin) return;

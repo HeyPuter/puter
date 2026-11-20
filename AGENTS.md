@@ -9,6 +9,8 @@ Use these as the source of truth before exploring further:
 - [README.md](README.md) — project overview and quickstart.
 - [doc/architecture.md](doc/architecture.md) — backend layered stack (controllers → drivers → services → stores → clients), `PuterServer` wiring, `Context` (ALS), actors, and extensions.
 - [doc/contributing-apis.md](doc/contributing-apis.md) — adding and maintaining public APIs end to end (backend surface → puter.js → types → docs → tests). Follow it for any API work.
+- [doc/ai-drivers.md](doc/ai-drivers.md) — where AI driver code lives (interfaces, providers, protocols, shared), the import rules between those folders, and how to add a provider or an AI interface.
+- [doc/benchmarks.md](doc/benchmarks.md) — the backend benchmarks: what a scenario measures, how to add one, and what to do when CI reports a regression.
 - [doc/pagination.md](doc/pagination.md) — the one pagination convention for list APIs (limit/cursor/offset/includeTotal, envelope shape, cursor semantics).
 - [doc/alarms.md](doc/alarms.md) — raising alarms and picking a severity (what pages, what only gets recorded), plus the config that routes them.
 - [doc/self-hosting.md](doc/self-hosting.md) — running Puter outside hosted infra.
@@ -63,14 +65,28 @@ Commit messages and PR descriptions never credit anyone or mention a bug report.
 - Build clients, catalogs, and config-derived lookups once, not per request.
 - Listeners on fleet-wide events (`fs.write.file`, route lifecycle) return before any I/O for requests they don't concern.
 
+### Distributed deployment
+
+Puter runs as many backend processes in several regions at once. The tests boot one process with in-memory clients that answer in microseconds, which hides every cost below. Write for the deployed shape:
+
+- **Every round trip is latency.** Issue independent reads together (`Promise.all`, or the store's batch method) instead of awaiting them one after another. Five awaits in a row cost five round trips of waiting where one would do.
+- **SQL has one writable primary.** A region reads from a replica near it (`db.read`), but every write and every primary read (`db.pread`, the fallback in `tryHardRead`) travels to the primary's region, which from most regions costs tens of milliseconds. Count them: batch writes into one `batchWrite`, and don't read the primary where a replica's answer is acceptable.
+- **Replicas lag.** A row written a moment ago may not be on the replica yet. Use `tryHardRead` where a request must see a write that was just made, and only there.
+- **Caches are per process or per region; correctness is not.** A module-level map exists once per process, and Redis is shared only within a region. State that must hold everywhere (limits, locks, ownership) can't live in a variable, and a write must invalidate through the owning store so the other nodes hear about it.
+- **Hot read paths are cached on purpose.** Resolving the actor, permission checks, FS entry lookups, and hosted-site resolution run on nearly every request and are answered from cache. A new lookup on one of them needs a cache with invalidation, or a stated reason.
+- **Data crosses regions asynchronously.** The key-value store and events between nodes converge eventually; file contents live in one region's object storage. Don't assume another region has already seen a write.
+
+The [benchmarks](#benchmarks) measure these costs on each pull request.
+
 ### Working rules of thumb
 
 - **Run it, don't just compile it.** "It type-checks" is not "it works." Exercise the code path end-to-end at least once.
 - **Read the neighbors before writing.** Match the shape of similar things already in the tree. If you think the existing pattern is wrong, raise it — don't quietly diverge.
+- **Run `npm run check` before opening a pull request.** It lints and type-checks the files you changed, runs the tests that import them, and compares the benchmarks with the base commit: the gates CI applies, in one command. Fix what it reports rather than leaving it for CI.
 - **Test new behavior.** Every new function, endpoint, driver method, or logic branch gets a test; every bug fix gets a regression test that fails before the fix. If something is genuinely hard to test, skip it but say so in the PR.
 - **Boy Scout Rule, proportional to the change.** In files you're already touching, fix the typo, the dead import, the missing test, the bit you had to read twice. Don't ride a refactor along with a bug fix.
 - **Understand what you commit.** AI assistance is fine; shipping code you couldn't have written, debugged, or defended in review is not.
-- **A limit change is not done until the docs change with it.** Every rate limit, concurrency cap, quota, and allowance in the code is published in [src/docs/src/rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) — an undisclosed limit is one developers discover as a service failure. If a PR moves any of these numbers, the same PR updates that page. The numbers live in `src/backend/controllers/fs/limits.ts` (filesystem), `src/backend/drivers/util/aiLimits.ts` (all AI drivers), per-driver `rateLimit`/`concurrent` configs, and `src/backend/data/subPolicies/` (free-tier allowances).
+- **A limit change is not done until the docs change with it.** Every rate limit, concurrency cap, quota, and allowance in the code is published in [src/docs/src/rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) — an undisclosed limit is one developers discover as a service failure. If a PR moves any of these numbers, the same PR updates that page. The numbers live in `src/backend/controllers/fs/limits.ts` (filesystem), `src/backend/drivers/ai/shared/aiLimits.ts` (all AI drivers), per-driver `rateLimit`/`concurrent` configs, and `src/backend/data/subPolicies/` (free-tier allowances).
 
 ---
 
@@ -97,6 +113,10 @@ Layer rules:
 - **Drivers and controllers stay thin.** Domain rules a second entry point needs (signup, app CRUD, worker deploy, AI routing/billing) live in a service, not in the first driver or controller that needed them.
 - **Prefer explicit arguments over [`Context`](src/backend/core/context.ts) (ALS).** Use it only for request-scoped values that would otherwise thread through many layers; today that's mostly `actor` and `req`.
 
+### AI drivers
+
+AI drivers live in [src/backend/drivers/ai/](src/backend/drivers/ai/): `interfaces/` holds the Puter-facing drivers, `providers/<vendor>/<interface>/` holds vendor code, `protocols/` holds wire protocols several vendors speak, and `shared/` holds helpers more than one interface uses. Follow [doc/ai-drivers.md](doc/ai-drivers.md) when adding or moving AI code.
+
 ### Extensions
 
 [extensions/](extensions/) is for **non-crucial parts of the system**: Puter must still work with the extension removed. If core needs to call it, it belongs in core ([whoami](extensions/whoami.ts) is the cautionary example). Inside an extension, follow the same layered structure, unless it only needs a few route handlers, in which case the `extension.get/post/...` helpers are enough on their own. The `extension` API is in [doc/architecture.md](doc/architecture.md#extension-api).
@@ -108,6 +128,15 @@ Layer rules:
 - **Prefer the test server over mocking deps.** `setupPuterTestEnv()` in [src/backend/testUtil.ts](src/backend/testUtil.ts) boots a fully in-memory backend; hit a real database/client shape where reasonable — integration shapes catch what mocked unit tests miss.
 - **Test code, not docs.** Never write a test that reads a file under `src/docs/` and asserts on its wording or numbers. Docs are kept in step by the PR (see the limits rule above) and checked in review; a test that greps a markdown page fails on every rewording and verifies nothing about behavior.
 
+### Benchmarks
+
+`*.bench.ts` files sit next to the code they exercise and run with `npm run bench`. A scenario ([`useBenchEnv()`](src/backend/benchUtil.ts)) runs a request against the in-memory backend while each database, key-value, cache and object-storage round trip takes the latency it would in a multi-region deployment, and reports the round trips per destination, how many of them ran one after another, and the latency that adds up to. [doc/benchmarks.md](doc/benchmarks.md) is the full reference.
+
+- **CI compares every pull request with its base commit** and fails it when a scenario makes more round trips, runs more of them serially, or waits longer. Run `npm run bench:compare` before pushing a backend change.
+- **A regression is a finding about the change.** Fix it by batching, issuing calls together, or caching; never by editing the scenario.
+- **An intended trade-off is stated, not hidden.** Put a `bench-accept: <benchmark> -- <reason>` line in the pull request description so a reviewer sees the cost and why it's worth it.
+- **Add a scenario** with each endpoint or driver method that will be called often, and with each performance fix.
+
 ---
 
 ## puter.js (the SDK)
@@ -116,13 +145,14 @@ Layer rules:
 
 Layout: SDK modules in [src/puter-js/src/modules/](src/puter-js/src/modules/) (one file or directory per area — `FileSystem/`, `kv/`, `ai/`, …), shared plumbing in [src/puter-js/src/lib/](src/puter-js/src/lib/), generated (gitignored) type declarations in `src/puter-js/types/`, API tests in [src/puter-js/tests/api/](src/puter-js/tests/api/), UI e2e tests in [src/puter-js/tests/e2e/](src/puter-js/tests/e2e/), developer docs in [src/docs/](src/docs/).
 
-Every SDK change carries all five of these, or the PR is incomplete. [doc/contributing-apis.md](doc/contributing-apis.md) has the steps for each.
+Every SDK change carries all six of these, or the PR is incomplete. [doc/contributing-apis.md](doc/contributing-apis.md) has the steps for each.
 
 1. **Backward compatibility**, unless a maintainer explicitly signs off on a break ([rules](doc/contributing-apis.md#maintaining-an-existing-api)).
 2. **Tests** in the cross-platform API suite, or the Playwright harness for desktop-rendered `puter.ui.*` ([steps](doc/contributing-apis.md#6-tests)).
 3. **Docs** in [src/docs/src/](src/docs/src/) that match the implementation exactly ([steps](doc/contributing-apis.md#5-docs), [writing rules](#developer-docs)).
 4. **Types**, per the rules below.
 5. **Error handling**: `{ message, code }` with stable `snake_case` codes, as in [modules/kv/](src/puter-js/src/modules/kv/) ([steps](doc/contributing-apis.md#3-puterjs)).
+6. **Changelog** entry for anything a developer would notice ([rules](#changelog)).
 
 ### Types
 
@@ -159,7 +189,9 @@ The reference has two kinds of page:
 
 An overview page answers "what is this API and is it what I need?", and a function page answers "how exactly does this call behave?". A change to one function usually only touches that function's page, so a new `kv.list()` option goes in `KV/list.md` without a matching update to `KV.md`. Don't copy a function's options, limits, or edge cases onto the overview page for completeness. Where a detail goes is a judgment call, not a hard rule: update the overview when a change affects how someone would describe the API as a whole.
 
-When you add a page, add it to [src/docs/src/sidebar.js](src/docs/src/sidebar.js) under its area, or it won't show up in the navigation. When you add a runnable example, add its HTML to `src/docs/src/playground/examples/<slug>.html`, register the slug in [src/docs/src/examples.js](src/docs/src/examples.js), and link the code block to it by putting the slug after the language with a semicolon (` ```html;kv-set `).
+When you add a page, add it to [src/docs/src/sidebar.js](src/docs/src/sidebar.js) under its area, or it won't show up in the navigation.
+
+**Sidebar order.** Order the API areas in the sidebar by how often developers use them, most common first. Overview stays first and Objects stays last. Inside an area, order the pages by use too, and keep pages that make up one feature next to each other, such as `share()`, `unshare()`, `listShared()`, and `listSharedByMe()`. A group goes where its most-used page would go. A helper that only supports another function, such as `listModels()` for `chat()`, goes by its own use. Put create, list, get, update, and delete in that order, and constants such as `MAX_KEY_SIZE` last. The function list on the area's overview page uses the sidebar's order. When you add a runnable example, add its HTML to `src/docs/src/playground/examples/<slug>.html`, register the slug in [src/docs/src/examples.js](src/docs/src/examples.js), and link the code block to it by putting the slug after the language with a semicolon (` ```html;kv-set `).
 
 ### Function page layout
 
@@ -193,13 +225,14 @@ These apply to reference pages and recipes alike.
 
 - **Document the developer-facing side only.** The reader is building on top of puter.js, so cover what affects their code: signatures, defaults, return shapes, errors, limits, and behavior they can observe. Leave out internal workings (which service handles the call, storage layout, caching, retries) unless they change what the developer has to do. [rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) is the exception: it publishes every limit, including timeouts and caps that come from how the backend works.
 - **Document Puter as it runs on puter.com.** The docs are for developers building on production Puter. Leave out behavior that only happens on a self-hosted or differently configured server, such as a provider that isn't set up there.
-- **Describe the current state.** Docs aren't a changelog. Write how the API behaves now, without "now", "no longer", "existing code is unaffected", or other wording that compares it to an older version.
+- **Describe the current state.** Docs aren't a changelog; [changelog.md](src/docs/src/changelog.md) is the one file that describes changes ([rules](#changelog)). Write how the API behaves now, without "now", "no longer", "existing code is unaffected", or other wording that compares it to an older version.
 - **Verify before you document.** Run the calls you describe against a running Puter instead of inferring behavior from the source.
 - **Write plainly.** Use the literal words a developer would say out loud, with contractions and everyday words. No idioms or figurative verbs ("walk away from something shared with you" → "remove your own access", "nothing to page through" → "without pagination"). No formal register ("present only while more pages remain" → "includes a `cursor` if there are more pages to load"). Prefer dev terms such as atomic, concurrent, and insertion order.
 - **State the rule, then its consequence, in short sentences.** No metaphor in place of a rule. Name a concrete action ("you can create any files and folders inside it") over an abstract permission ("yours to organize freely"). Cut a sentence that only repeats the next one.
 - **Describe behavior directly.** No quoted inner-voice phrases. Write "`isNew` is `true` when the person did not have access before", not "this tells 'I just gave this to someone' from 'they already had it'".
 - **Keep references easy to follow.** Name what a list or code block belongs to in the sentence directly above it. Name a thing once and keep that name. Introduce an actor as "a user" before giving them a role: "A user can create a team. The user who creates the team becomes its owner."
 - **Sentence mechanics.** Never start a sentence with inline code: write "To store data, use the [`set()`](/KV/set/) method." Link every inline mention of an API to its page, every time. No em dashes, and no colons or semicolons mid-sentence; a colon that introduces a code block is fine.
+- **No `##` or `###` headings inside tabs.** The table of contents lists every `##` and `###` heading on the page, including the ones in a hidden tab (an `example-content` block switched by the `example-group` pills), so its links lead to content the reader can't see. Put the heading above the tabs, or use `####` inside a tab, which the table of contents skips.
 - **Show the correct way.** No "don't" and no wrong-way-first examples, in recipes and playground examples alike. Mention a wrong approach only when developers already hit it in practice, and state how it fails as a fact: "`add()` reads a plain object as a path map, so the call rejects with …".
 
 ### Recipes
@@ -217,6 +250,22 @@ Recipes are tested, copy-pasteable patterns for a task, one layer above the per-
 - **Code.** Platform-neutral: just the code, with top-level `await`. No `<script>` or `<html>` wrapper, no IIFE.
 - **Tradeoffs.** Justify a choice with one scenario the reader can picture right away, in about two short paragraphs, or fold each point into the section where it matters. The description states the benefit only.
 - **Notes.** Leave out `## Notes` by default. Use it only to point to an architecturally different approach. A limit the recipe needs goes in the section it applies to, and other facts belong on the linked reference page.
+
+### Changelog
+
+[src/docs/src/changelog.md](src/docs/src/changelog.md) lists the changes a developer building on puter.js would notice, newest first. A PR that makes one adds its entry in the same PR, whether the change is in puter.js, the backend, or the docs. [src/docs/src/changelog.js](src/docs/src/changelog.js) builds it into a standalone `/changelog/` page, not a docs page, into Markdown at `https://docs.puter.com/changelog.md`, and into an RSS feed at `https://docs.puter.com/changelog/rss.xml`. The docs sidebar links to it only through the "What's new" button. It stays out of the sidebar's page list, search, the sitemap, and `llms.txt`, so don't add it to [sidebar.js](src/docs/src/sidebar.js). The build fails on a `##` heading that isn't a date, a day listed twice, or days out of order.
+
+- **What gets an entry.** A change gets an entry only if a developer whose app relies on puter.js would change their code, or handle something new, because of it. The entry says what they can do now or what their code sees differently. That's usually:
+  - new, changed, or removed methods, options, return fields, events, and error codes
+  - an AI model that's removed, or a model name that points to a different model
+  - bug fixes with an effect a developer can see
+  - a `puter.*` call that behaves differently because of a change in the Puter desktop or GUI
+- **Billing, limits, and quotas get no entry by default.** [rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) already publishes every number, and a short changelog is one developers read. The PR's author adds an entry for one only when they decide developers need to hear about it, such as a lowered limit that makes working calls fail. An agent doesn't add one unless the author asks.
+- **What doesn't get an entry.** Adding a model or provider, a model's price or billing unit, docs changes such as a new recipe or a moved page, refactors, internal fixes, GUI-only changes, tests, APIs only Puter's own apps can call, and a new check that rejects input no working app sends and returns an existing error such as `bad_request`.
+- **One heading per day.** Entries go under a `## Month D, YYYY` heading, such as `## November 12, 2026`, for the UTC day the PR merges. Use the day you open the PR, and move the entry if it merges on a later day. If that day's heading already exists, add your bullet under it. A day never gets two headings, and a day with no changes gets none. When two PRs conflict on the same day's heading, keep one heading and both bullets.
+- **One bullet per change.** Start with a past-tense verb (Added, Changed, Fixed, Removed, Renamed, Deprecated, Raised, Lowered) and keep it to one or two sentences. Link the page that has the details instead of copying options or limits into the entry. A removal or rename says what to use instead.
+- **Same writing rules as the other pages** ([above](#writing-docs)), so link every API mention and skip em dashes.
+- **Write each entry as of its day.** A later change gets its own entry, and earlier entries don't mention it, so write "Added `puter.ai.convo()`", not "Added `puter.ai.convo()`, now `puter.ai.realtime()`". Leave past entries as written, except to fix a link after a page moves.
 
 ---
 

@@ -27,10 +27,10 @@ import {
 } from '../../util/dbError.js';
 import { PuterStore } from '../types';
 
-// `updateActivity` / `updateUserActivity` intentionally skip cache
-// invalidation — they're throttled UPDATEs, stale `last_activity` in
-// the cached row doesn't gate anything, and eating a Redis write per
-// request isn't worth it.
+// `updateActivity` / `updateUserActivity` skip cache invalidation on the
+// common path: a cached `last_activity` a few minutes behind can't reach the
+// idle window, and a Redis write per request isn't worth it. A copy cached
+// before a long idle is dropped (see `ACTIVITY_CACHE_SLACK_SECONDS`).
 
 // Prefix is versioned so a schema change (new columns added to the
 // row shape) doesn't leak stale cached rows through Redis on a
@@ -49,6 +49,9 @@ const TOUCH_GATE_PREFIX = 'sessions:touch';
 const TOUCH_THROTTLE_MAX_ENTRIES = 10000;
 // Roots per batched revoke statement; each is bound twice.
 const REVOKE_CHUNK_SIZE = 500;
+// A cached row whose `last_activity` trails a touch by more than this is
+// dropped, so a session resumed after a long idle isn't judged on the old one.
+const ACTIVITY_CACHE_SLACK_SECONDS = 24 * 60 * 60;
 
 // Per-kind sliding-expiry windows. The `touch` path bumps `expires_at`
 // to `now + window` for the session's kind on activity, so an active
@@ -60,6 +63,26 @@ export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite);
 
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
+// A `web` or `app` session of an account that can sign in again ends after
+// this long without activity, whatever its `expires_at` says. The store can't
+// tell which accounts those are; callers holding the user row pass `idleEnds`.
+export const IDLE_WINDOW_SECONDS = 180 * 24 * 60 * 60; // 180d
+// A sliding row with a NULL `expires_at` predates the column; it lapses this
+// long after its last activity instead of never.
+const SLIDING_WINDOWS = {
+    web: WEB_WINDOW_SECONDS,
+    app: APP_WINDOW_SECONDS,
+    asset: ASSET_WINDOW_SECONDS,
+};
+// An app session created on a user's behalf for debugging: hard expiry, never
+// slid, and hidden from the user's own session list.
+export const DEBUG_APP_SESSION_KIND = 'debug_app';
+// `created_via` of a `web` row handed to one of the deployment's own pages
+// under another sign-in (its `parent_session_id`).
+export const FIRST_PARTY_SESSION_VIA = 'first_party';
+// `created_via` of an `asset` row minted under an access token's row, so a
+// cookie on it is held to that token on every use.
+export const ACCESS_TOKEN_ASSET_VIA = 'access_token';
 // A godmode app's token lapses at most this long after the desktop last asked
 // for it, so a closed desktop's tokens die on their own. A token past the max
 // age is never renewed again; the next ask replaces it and revokes the old one.
@@ -74,9 +97,40 @@ const sqlTimestamp = (ms) =>
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
-/** True when a row's `expires_at` has passed. NULL == no row-level expiry. */
-const isExpired = (row, now = nowSeconds()) =>
-    row?.expires_at != null && row.expires_at <= now;
+/** Unix seconds of a row's last activity, or of its creation without one. */
+const lastActiveAt = (row) =>
+    Number(row.last_activity) || Number(row.created_at) || 0;
+
+/**
+ * True when a row has lapsed: its `expires_at` passed, or a sliding kind with
+ * none went its window without activity. NULL on any other kind (an access
+ * token minted without `expiresIn`) never lapses. With `idleEnds`, a `web` or
+ * `app` row also lapses after `IDLE_WINDOW_SECONDS` without activity.
+ *
+ * @param {Record<string, any> | null | undefined} row
+ * @param {number} [now] - Unix seconds.
+ * @param {{ idleEnds?: boolean }} [opts]
+ */
+export const isSessionExpired = (
+    row,
+    now = nowSeconds(),
+    { idleEnds = false } = {},
+) => {
+    if (!row) return false;
+    if (row.expires_at != null) {
+        if (Number(row.expires_at) <= now) return true;
+    } else if (
+        Object.hasOwn(SLIDING_WINDOWS, row.kind) &&
+        lastActiveAt(row) + SLIDING_WINDOWS[row.kind] <= now
+    ) {
+        return true;
+    }
+    return (
+        idleEnds &&
+        (row.kind === 'web' || row.kind === 'app') &&
+        lastActiveAt(row) + IDLE_WINDOW_SECONDS <= now
+    );
+};
 
 /**
  * True when a row was created before `notBefore` (unix seconds): an app or
@@ -95,15 +149,15 @@ export class SessionStore extends PuterStore {
 
     /**
      * Look up an active session by its uuid. Returns `null` if not found,
-     * soft-revoked, or past its `expires_at`. The cached row is gated by both
-     * `revoked_at` and `expires_at` so a stale-but- expired row in cache
-     * doesn't grant access.
+     * soft-revoked, or lapsed (`isSessionExpired`). The cached row is gated the
+     * same way, so a stale-but-expired row in cache doesn't grant access. The
+     * idle window needs the user row and is the caller's to apply.
      */
     async getByUuid(uuid) {
         const row = await this.getByUuidAny(uuid);
         if (!row) return null;
         if (row.revoked_at != null) return null;
-        if (isExpired(row, nowSeconds())) return null;
+        if (isSessionExpired(row)) return null;
         return row;
     }
 
@@ -138,16 +192,27 @@ export class SessionStore extends PuterStore {
      * includeRevoked: true }` to include soft-revoked rows. Revoke paths pass
      * `{ primary: true }` so a session created moments ago isn't missed.
      */
-    async getByUserId(
-        userId,
+    async getByUserId(userId, options) {
+        return this.getByUserIds([userId], options);
+    }
+
+    /**
+     * `getByUserId` for several users in one query. The caller bounds the list.
+     *
+     * @param {number[]} userIds
+     * @param {{ includeRevoked?: boolean; primary?: boolean }} [options]
+     */
+    async getByUserIds(
+        userIds,
         { includeRevoked = false, primary = false } = {},
     ) {
-        const sql = includeRevoked
-            ? 'SELECT * FROM `sessions` WHERE `user_id` = ?'
-            : 'SELECT * FROM `sessions` WHERE `user_id` = ? AND `revoked_at` IS NULL';
-        const rows = await this.clients.db[primary ? 'pread' : 'read'](sql, [
-            userId,
-        ]);
+        const ids = [...new Set(userIds.filter(Boolean))];
+        if (ids.length === 0) return [];
+        const rows = await this.clients.db[primary ? 'pread' : 'read'](
+            `SELECT * FROM \`sessions\` WHERE \`user_id\` IN (${ids.map(() => '?').join(', ')})` +
+                (includeRevoked ? '' : ' AND `revoked_at` IS NULL'),
+            ids,
+        );
         return rows.map((r) => this.#normalizeRow(r)).filter(Boolean);
     }
 
@@ -163,7 +228,8 @@ export class SessionStore extends PuterStore {
      * Interactive sign-ins for a user, newest first, for the account's own
      * activity view. Revoked rows are included -- a session someone opened and
      * closed is exactly what the reader is looking for. Derived kinds (app,
-     * access token, asset, worker) are not sign-ins and stay out.
+     * access token, asset, worker) and sessions handed out under another
+     * sign-in are not sign-ins and stay out.
      *
      * Uncached and keyset-paginated on `id`: the caller merges this with
      * another stream, so it asks for one page at a time rather than the whole
@@ -176,7 +242,7 @@ export class SessionStore extends PuterStore {
     async listSignIns(userId, { limit, beforeId = null }) {
         const rows = await this.clients.db.read(
             'SELECT `id`, `created_at`, `last_ip`, `last_user_agent` FROM `sessions` ' +
-                "WHERE `user_id` = ? AND `kind` = 'web'" +
+                "WHERE `user_id` = ? AND `kind` = 'web' AND `parent_session_id` IS NULL" +
                 (beforeId === null ? '' : ' AND `id` < ?') +
                 ' ORDER BY `id` DESC LIMIT ?',
             beforeId === null ? [userId, limit] : [userId, beforeId, limit],
@@ -490,13 +556,19 @@ export class SessionStore extends PuterStore {
      * sessions costs a few primary round trips rather than a few per session.
      * Returns `{ userId, uuids }` for each user that had rows revoked.
      *
+     * A first-party page's session, revoked under its sign-in, is cascaded from
+     * in turn: it has derived rows of its own.
+     *
      * @param {string[]} rootUuids
      */
     async revokeCascades(rootUuids) {
         const roots = [...new Set(rootUuids.filter(Boolean).map(String))];
+        const queued = new Set(roots);
         const uuidsByUser = new Map();
-        for (let i = 0; i < roots.length; i += REVOKE_CHUNK_SIZE) {
+        // `roots` grows as it is walked, so each pass takes what is there.
+        for (let i = 0; i < roots.length; ) {
             const chunk = roots.slice(i, i + REVOKE_CHUNK_SIZE);
+            i += chunk.length;
             const placeholders = chunk.map(() => '?').join(', ');
             const scope = `(\`uuid\` IN (${placeholders}) OR \`parent_session_id\` IN (${placeholders})) AND \`revoked_at\` IS NULL`;
             const scopeParams = [...chunk, ...chunk];
@@ -528,6 +600,14 @@ export class SessionStore extends PuterStore {
                 const userId = Number(r.user_id);
                 if (!uuidsByUser.has(userId)) uuidsByUser.set(userId, []);
                 uuidsByUser.get(userId).push(String(r.uuid));
+                if (
+                    r.kind === 'web' &&
+                    r.parent_session_id &&
+                    !queued.has(String(r.uuid))
+                ) {
+                    queued.add(String(r.uuid));
+                    roots.push(String(r.uuid));
+                }
             }
         }
         return [...uuidsByUser].map(([userId, uuids]) => ({ userId, uuids }));
@@ -658,12 +738,22 @@ export class SessionStore extends PuterStore {
      */
     async findActiveByAccessTokenUid(tokenUid) {
         if (!tokenUid) return null;
+        // One indexed lookup per column: an OR across both can't use either
+        // index on MySQL. MySQL indexes the legacy uid only through its
+        // active-row generated column, equal to it while `revoked_at` is NULL.
+        const legacyColumn = this.clients.db.case({
+            mysql: 'legacy_token_unique_key',
+            otherwise: 'legacy_token_uid',
+        });
         const now = nowSeconds();
-        const rows = await this.clients.db.read(
-            "SELECT * FROM `sessions` WHERE `kind` = 'access_token' AND (`access_token_uid` = ? OR `legacy_token_uid` = ?) AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) ORDER BY `id` DESC LIMIT 1",
-            [tokenUid, tokenUid, now],
+        // A token minted moments ago is found while the replica catches up.
+        const [own, legacy] = await this.clients.db.tryHardReadAll(
+            ['access_token_uid', legacyColumn].map((column) => ({
+                query: `SELECT * FROM \`sessions\` WHERE \`kind\` = 'access_token' AND \`${column}\` = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) ORDER BY \`id\` DESC LIMIT 1`,
+                params: [tokenUid, now],
+            })),
         );
-        return this.#normalizeRow(rows[0]);
+        return this.#normalizeRow(own[0]) ?? this.#normalizeRow(legacy[0]);
     }
 
     /**
@@ -702,7 +792,7 @@ export class SessionStore extends PuterStore {
         const renewable = (row) =>
             !!row &&
             row.revoked_at == null &&
-            !isExpired(row, now) &&
+            !isSessionExpired(row, now) &&
             Number(row.created_at) > now - maxAgeSeconds;
 
         const pointerKey = this.#cacheKeyGodmode(
@@ -747,6 +837,59 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * The `web` session one of the deployment's own pages runs on under a
+     * sign-in: the live one for (`parentSessionUid`, `origin`) if there is one,
+     * else a new row. Revoking the parent cascades here. Concurrent first asks
+     * can each insert a row; both stay valid.
+     *
+     * @param {number} userId - User row id.
+     * @param {{
+     *     parentSessionUid: string;
+     *     origin: string;
+     *     expiresAt: number;
+     *     meta?: Record<string, unknown>;
+     *     auth_id?: string;
+     *     idleEnds?: boolean;
+     * }} opts
+     *   - `origin` is the page's origin, kept in `meta.first_party_origin`. `meta`
+     *       is the request context, as on any `web` row. `idleEnds` skips a row
+     *       past the idle window (see `isSessionExpired`).
+     */
+    async getOrCreateFirstPartySession(
+        userId,
+        { parentSessionUid, origin, expiresAt, meta = {}, auth_id, idleEnds },
+    ) {
+        if (!userId || !parentSessionUid || !origin) return null;
+
+        const now = nowSeconds();
+        // One per listed origin under a sign-in, so a handful at most.
+        const rows = await this.clients.db.pread(
+            "SELECT * FROM `sessions` WHERE `kind` = 'web' AND `user_id` = ? AND `parent_session_id` = ? AND `created_via` = ? AND `revoked_at` IS NULL ORDER BY `id` DESC LIMIT 20",
+            [userId, parentSessionUid, FIRST_PARTY_SESSION_VIA],
+        );
+        const found = rows
+            .map((row) => this.#normalizeRow(row))
+            .find(
+                (row) =>
+                    row &&
+                    !isSessionExpired(row, now, { idleEnds }) &&
+                    row.meta?.first_party_origin === origin,
+            );
+        if (found) return found;
+
+        return this.create(userId, {
+            kind: 'web',
+            parent_session_id: parentSessionUid,
+            created_via: FIRST_PARTY_SESSION_VIA,
+            meta: { ...meta, first_party_origin: origin },
+            last_ip: meta.ip ?? null,
+            last_user_agent: meta.user_agent ?? null,
+            expires_at: expiresAt,
+            auth_id,
+        });
+    }
+
+    /**
      * Idempotent "give me the app session for this (user, app)" lookup. Returns
      * the existing active app session if one exists, or creates a new one.
      * Concurrent callers converge on a single row via the partial unique index
@@ -767,6 +910,8 @@ export class SessionStore extends PuterStore {
      *   carried on every v2 JWT so manage-sessions can group by identity.
      * @param opts.notBefore - Unix seconds. A live row created earlier belongs
      *   to a previous app with this uid; it is revoked and replaced.
+     * @param opts.idleEnds - A row past the idle window counts as lapsed (see
+     *   `isSessionExpired`).
      */
     async getOrCreateApp(userId, appUid, opts = {}) {
         if (!userId || !appUid) return null;
@@ -774,29 +919,41 @@ export class SessionStore extends PuterStore {
         const cacheKey = this.#cacheKeyApp(userId, appUid);
         const now = nowSeconds();
         const notBefore = opts.notBefore ?? null;
+        const live = (row) =>
+            row.revoked_at == null &&
+            !isSessionExpired(row, now, { idleEnds: opts.idleEnds });
 
         const cached = await this.#readCacheKey(cacheKey);
-        const cachedLive =
-            cached && cached.revoked_at == null && !isExpired(cached, now);
+        const cachedLive = cached && live(cached);
         if (cachedLive && !predates(cached, notBefore)) {
             return cached;
         }
 
         const selectRow = (opts) => this.#selectAppRow(userId, appUid, opts);
-        const { row: existing, primary: onlyOnPrimary } =
+        const { row: found, primary: onlyOnPrimary } =
             await this.#selectUnlessEnded(selectRow);
-        if (existing && !predates(existing, notBefore)) {
+        if (found && live(found) && !predates(found, notBefore)) {
             // Auth that misses the cache reads the replica, which already has
             // a row it returned here; a row only the primary had is cached
             // before the token goes out.
-            const caching = awaitLater(
-                this.#cacheComposite(cacheKey, existing),
-            );
+            const caching = awaitLater(this.#cacheComposite(cacheKey, found));
             if (onlyOnPrimary) await caching;
-            return existing;
+            return found;
         }
-        const stale = existing ?? (cachedLive ? cached : null);
-        if (stale) await this.revokeCascade(stale.uuid);
+        // A lapsed row still holds the unique index slot until it is revoked.
+        const stale = found ?? (cachedLive ? cached : null);
+        if (stale && predates(stale, notBefore)) {
+            await this.revokeCascade(stale.uuid);
+        } else if (stale) {
+            const resumed = await this.#revokeIfLapsed(stale.uuid, {
+                now,
+                idleEnds: opts.idleEnds,
+            });
+            if (resumed) {
+                await this.#cacheComposite(cacheKey, resumed);
+                return resumed;
+            }
+        }
 
         // INSERT-or-IGNORE so concurrent racers don't throw on the
         // partial unique index; we re-SELECT below to find the row
@@ -824,6 +981,54 @@ export class SessionStore extends PuterStore {
         const row = winner ?? created;
         await this.#cacheComposite(cacheKey, row);
         return row;
+    }
+
+    /**
+     * Revoke a lapsed `app` row and the rows derived from it, judged on the
+     * primary: a replica can still show the activity from before another node's
+     * touch. The UPDATE is conditional on the row still being lapsed, so a
+     * touch landing after the read keeps it. Returns the row when it turned out
+     * live.
+     *
+     * @param {string} uuid
+     * @param {{ now: number; idleEnds?: boolean }} opts
+     */
+    async #revokeIfLapsed(uuid, { now, idleEnds = false }) {
+        const [current] = await this.clients.db.pread(
+            'SELECT * FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
+            [uuid],
+        );
+        const row = this.#normalizeRow(current);
+        if (!row) return null;
+        if (!isSessionExpired(row, now, { idleEnds })) return row;
+
+        const lastActive = this.clients.db.nullCoalesce(
+            'NULLIF(`last_activity`, 0)',
+            '`created_at`',
+            '0',
+        );
+        const lapsed = [
+            '`expires_at` <= ?',
+            `(\`expires_at\` IS NULL AND ${lastActive} <= ?)`,
+            ...(idleEnds ? [`${lastActive} <= ?`] : []),
+        ].join(' OR ');
+        const keys = this.#allCacheKeysForRow(row);
+        await this.publishCacheKeys({ keys, broadcast: true });
+        const result = await this.clients.db.write(
+            `UPDATE \`sessions\` SET \`revoked_at\` = ? WHERE \`uuid\` = ? AND \`revoked_at\` IS NULL AND (${lapsed})`,
+            [
+                now,
+                uuid,
+                now,
+                now - APP_WINDOW_SECONDS,
+                ...(idleEnds ? [now - IDLE_WINDOW_SECONDS] : []),
+            ],
+        );
+        if (!result.anyRowsAffected) return null;
+        await this.#publishRevoked([row]);
+        // The root is revoked now, so this reaches only what hangs off it.
+        await this.revokeCascade(uuid);
+        return null;
     }
 
     /**
@@ -921,7 +1126,11 @@ export class SessionStore extends PuterStore {
         const now = nowSeconds();
 
         const cached = await this.#readCacheKey(cacheKey);
-        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
+        if (
+            cached &&
+            cached.revoked_at == null &&
+            !isSessionExpired(cached, now)
+        ) {
             return cached;
         }
 
@@ -979,17 +1188,49 @@ export class SessionStore extends PuterStore {
     /**
      * Hard-delete rows with ids in `(afterId, afterId + span]` that were
      * revoked or expired before `webCutoff` (web rows, which `listSignIns`
-     * reads) or `cutoff` (every other kind), both unix seconds. Bounded by
+     * reads) or `cutoff` (every other kind), both unix seconds. A sliding row
+     * with a NULL `expires_at` ended its window after its last activity (see
+     * `isSessionExpired`); a NULL on any other kind never ends. Bounded by
      * primary key instead of an index on either column, since `touch` rewrites
      * `expires_at` constantly. Cached copies need no invalidation: they still
      * read as revoked or expired.
      */
     async purgeEndedInRange(afterId, span, { cutoff, webCutoff }) {
+        const lastActive = this.clients.db.nullCoalesce(
+            'NULLIF(`last_activity`, 0)',
+            '`created_at`',
+            '0',
+        );
+        const lapsed = `(\`expires_at\` IS NULL AND ${lastActive} < ?)`;
         const result = await this.clients.db.write(
             'DELETE FROM `sessions` WHERE `id` > ? AND `id` <= ? AND (' +
-                "(`kind` = 'web' AND (`revoked_at` < ? OR `expires_at` < ?)) OR " +
-                "(`kind` <> 'web' AND (`revoked_at` < ? OR `expires_at` < ?)))",
-            [afterId, afterId + span, webCutoff, webCutoff, cutoff, cutoff],
+                `(\`kind\` = 'web' AND (\`revoked_at\` < ? OR \`expires_at\` < ? OR ${lapsed})) OR ` +
+                "(`kind` <> 'web' AND (`revoked_at` < ? OR `expires_at` < ?)) OR " +
+                `(\`kind\` = 'app' AND ${lapsed}) OR ` +
+                `(\`kind\` = 'asset' AND ${lapsed}))`,
+            [
+                afterId,
+                afterId + span,
+                webCutoff,
+                webCutoff,
+                webCutoff - WEB_WINDOW_SECONDS,
+                cutoff,
+                cutoff,
+                cutoff - APP_WINDOW_SECONDS,
+                cutoff - ASSET_WINDOW_SECONDS,
+            ],
+        );
+        return result?.affectedRows ?? result?.changes ?? 0;
+    }
+
+    /**
+     * Hard-delete debug app sessions that expired before `cutoff` (unix
+     * seconds). Cached copies still read as expired, so need no invalidation.
+     */
+    async deleteExpiredDebugAppSessions(cutoff) {
+        const result = await this.clients.db.write(
+            'DELETE FROM `sessions` WHERE `kind` = ? AND `expires_at` IS NOT NULL AND `expires_at` < ?',
+            [DEBUG_APP_SESSION_KIND, cutoff],
         );
         return result?.affectedRows ?? result?.changes ?? 0;
     }
@@ -1045,14 +1286,18 @@ export class SessionStore extends PuterStore {
         // `sessions:v2:uuid:<uuid>` is now stale (it carries the old
         // `last_ip` / `last_user_agent`). Manage-sessions reads off the
         // cached row, so without this invalidate the UI keeps showing the
-        // pre-roam values until the 15-minute TTL expires.
+        // pre-roam values until the 15-minute TTL expires. A copy cached
+        // before a long idle goes too: the idle window reads its activity.
         if (ip != null || userAgent != null) {
             const cached = await this.#readCache(uuid);
             if (cached) {
                 const ipChanged = ip != null && cached.last_ip !== ip;
                 const uaChanged =
                     userAgent != null && cached.last_user_agent !== userAgent;
-                if (ipChanged || uaChanged) {
+                const idleCopy =
+                    lastActiveAt(cached) <
+                    lastActivity - ACTIVITY_CACHE_SLACK_SECONDS;
+                if (ipChanged || uaChanged || idleCopy) {
                     await this.publishCacheKeys({
                         keys: [this.#cacheKey(uuid)],
                         broadcast: true,
@@ -1349,16 +1594,16 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Active app session for (userId, appUid). Matches the partial unique index
-     * `idx_sessions_user_app_active`. Kept private — public callers should go
-     * through `getOrCreateApp` so cache and idempotency stay in sync.
+     * Unrevoked app session for (userId, appUid), lapsed or not: the row
+     * holding the partial unique index `idx_sessions_user_app_active`. Kept
+     * private — public callers should go through `getOrCreateApp` so cache and
+     * idempotency stay in sync.
      */
     async #selectAppRow(userId, appUid, { primary = false } = {}) {
-        const now = nowSeconds();
         const read = primary ? 'pread' : 'read';
         const rows = await this.clients.db[read](
-            "SELECT * FROM `sessions` WHERE `kind` = 'app' AND `user_id` = ? AND `app_uid` = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) LIMIT 1",
-            [userId, appUid, now],
+            "SELECT * FROM `sessions` WHERE `kind` = 'app' AND `user_id` = ? AND `app_uid` = ? AND `revoked_at` IS NULL LIMIT 1",
+            [userId, appUid],
         );
         return this.#normalizeRow(rows[0]);
     }

@@ -75,6 +75,8 @@ export interface UserRow {
      * "verified a card".
      */
     card_fingerprint?: string | null;
+    /** TLS fingerprint of the request that created the account, if known. */
+    signup_tls_fingerprint?: string | null;
     /**
      * Home region this account's data belongs in - a node id from
      * `IConfig.servers`, not a storage region. Null for accounts that predate
@@ -297,34 +299,37 @@ export class UserStore extends PuterStore {
         const numericIds = (Array.isArray(ids) ? ids : []).filter(
             (id): id is number => typeof id === 'number',
         );
-        return this.#cache.getMany(
-            'id',
-            numericIds,
-            async (missing, primary) => {
-                const users: UserRow[] = [];
-                for (
-                    let offset = 0;
-                    offset < missing.length;
-                    offset += BULK_QUERY_CHUNK_SIZE
-                ) {
-                    const chunk = missing.slice(
-                        offset,
-                        offset + BULK_QUERY_CHUNK_SIZE,
-                    );
-                    const placeholders = chunk.map(() => '?').join(', ');
-                    const sql = `SELECT * FROM \`user\` WHERE \`id\` IN (${placeholders})`;
-                    const rows = (
-                        primary
-                            ? await this.clients.db.pread(sql, chunk)
-                            : await this.clients.db.tryHardRead(sql, chunk, {
-                                  race: false,
-                              })
-                    ) as Array<Record<string, unknown>>;
-                    for (const row of rows) users.push(this.#normalizeRow(row));
-                }
-                return users;
-            },
+        return this.#cache.getMany('id', numericIds, (missing, primary) =>
+            this.#readByIds(missing, primary),
         );
+    }
+
+    /** `getByIds` from the primary, uncached: for a row a replica may lack. */
+    async getByIdsFromPrimary(ids: number[]): Promise<Map<number, UserRow>> {
+        const users = await this.#readByIds([...new Set(ids)], true);
+        return new Map(users.map((user) => [Number(user.id), user]));
+    }
+
+    async #readByIds(ids: number[], primary: boolean): Promise<UserRow[]> {
+        const users: UserRow[] = [];
+        for (
+            let offset = 0;
+            offset < ids.length;
+            offset += BULK_QUERY_CHUNK_SIZE
+        ) {
+            const chunk = ids.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const sql = `SELECT * FROM \`user\` WHERE \`id\` IN (${placeholders})`;
+            const rows = (
+                primary
+                    ? await this.clients.db.pread(sql, chunk)
+                    : await this.clients.db.tryHardRead(sql, chunk, {
+                          race: false,
+                      })
+            ) as Array<Record<string, unknown>>;
+            for (const row of rows) users.push(this.#normalizeRow(row));
+        }
+        return users;
     }
 
     /**
@@ -419,6 +424,10 @@ export class UserStore extends PuterStore {
     ): Promise<UserRow | null> {
         const cached = options.cached ?? true;
         const force = options.force ?? false;
+
+        // Only a string or number can equal a stored value. The driver expands
+        // an array or object into SQL of its own.
+        if (typeof value !== 'string' && typeof value !== 'number') return null;
 
         // Reject lookup values that can't exist in a latin1 column before
         // the driver turns them into a collation-mix error at MySQL.
@@ -531,6 +540,7 @@ export class UserStore extends PuterStore {
         signup_ip?: string | null;
         signup_ip_forwarded?: string | null;
         signup_user_agent?: string | null;
+        signup_tls_fingerprint?: string | null;
         signup_origin?: string | null;
         signup_server?: string | null;
         referrer?: string | null;
@@ -557,6 +567,7 @@ export class UserStore extends PuterStore {
              signup_ip,
              signup_ip_forwarded,
              signup_user_agent,
+             signup_tls_fingerprint,
              signup_origin,
              signup_server,
              referrer,
@@ -565,7 +576,7 @@ export class UserStore extends PuterStore {
              phone,
              requires_phone_verification,
              requires_card_verification)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
             [
                 fields.username,
                 fields.email,
@@ -585,6 +596,7 @@ export class UserStore extends PuterStore {
                 fields.signup_ip ?? null,
                 fields.signup_ip_forwarded ?? null,
                 fields.signup_user_agent ?? null,
+                fields.signup_tls_fingerprint ?? null,
                 fields.signup_origin ?? null,
                 fields.signup_server ?? null,
                 fields.referrer ?? null,

@@ -4,7 +4,7 @@ description: Fetch web resources securely without being bound by CORS restrictio
 platforms: [websites, apps]
 ---
 
-The puter fetch API lets you securely fetch a http/https resource without being bound by CORS restrictions.
+Securely fetches an HTTP or HTTPS resource without being bound by CORS restrictions.
 
 ## Syntax
 
@@ -13,7 +13,7 @@ puter.net.fetch(url)
 puter.net.fetch(url, options)
 ```
 
-## Parameters 
+## Parameters
 
 #### `url` (String) (Required)
 The url of the resource to access. The URL can be either http or https.
@@ -25,6 +25,8 @@ A standard [RequestInit](https://developer.mozilla.org/en-US/docs/Web/API/Reques
 A `Promise` to a `Response` object.
 
 ## Examples
+
+### Send a GET request
 
 ```html;net-fetch
 <html>

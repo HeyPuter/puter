@@ -317,12 +317,94 @@ describe('kv.get GUI boot cache', () => {
             result: body.args.key.map((key) => `${key}-value`),
         });
         await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
-        await expect(kv.get('menubar_style')).resolves.toBe('menubar_style-value');
+        await expect(kv.get('window_sidebar_width')).resolves.toBe('window_sidebar_width-value');
         expect(FakeXHR.requests).toHaveLength(1);
         const body = lastBody();
         expect(body.method).toBe('get');
         expect(Array.isArray(body.args.key)).toBe(true);
         expect(body.args.key).toContain('sidebar_items');
+    });
+
+    it('leaves keys the GUI no longer reads out of the batch', async () => {
+        FakeXHR.respondWith = (body) => ({
+            success: true,
+            result: body.args.key.map(() => null),
+        });
+        await kv.get('sidebar_items');
+        expect(lastBody().args.key).not.toContain('desktop_icons_hidden');
+        expect(lastBody().args.key).not.toContain('menubar_style');
+        expect(lastBody().args.key).not.toContain('user_preferences.clock_visible');
+        expect(lastBody().args.key).not.toContain('has_set_default_app_user_permissions');
+        expect(lastBody().args.key).not.toContain('user_preferences.auto_arrange_desktop');
+        expect(lastBody().args.key).not.toContain('desktop_item_positions');
+    });
+
+    describe('the keys the booted interface reads', () => {
+        afterEach(() => {
+            delete globalThis.is_dashboard_mode;
+        });
+
+        it('batches the dashboard tabs\' keys on a dashboard boot', async () => {
+            globalThis.is_dashboard_mode = true;
+            kv = new KV(fakePuter);
+            FakeXHR.respondWith = (body) => ({
+                success: true,
+                result: body.args.key.map((key) => `${key}-value`),
+            });
+            await expect(kv.get('view_mode')).resolves.toBe('view_mode-value');
+            await expect(kv.get('dashboard_apps_order')).resolves.toBe('dashboard_apps_order-value');
+            await expect(kv.get('user_preferences.language')).resolves.toBe('user_preferences.language-value');
+            expect(FakeXHR.requests).toHaveLength(1);
+            const keys = lastBody().args.key;
+            expect(keys).toEqual(expect.arrayContaining([
+                'view_mode',
+                'sort_column',
+                'sort_direction',
+                'column_widths',
+                'dashboard_apps_order',
+                'dashboard_removed_apps',
+                'dashboard_app_groups',
+            ]));
+            expect(keys).not.toContain('sidebar_items');
+            expect(keys).not.toContain('window_sidebar_width');
+        });
+
+        it('leaves the dashboard\'s keys out of a desktop boot and reads them on their own', async () => {
+            FakeXHR.respondWith = (body) => ({
+                success: true,
+                result: Array.isArray(body.args.key)
+                    ? body.args.key.map((key) => `${key}-batched`)
+                    : `${body.args.key}-single`,
+            });
+            await kv.get('sidebar_items');
+            expect(lastBody().args.key).not.toContain('view_mode');
+            await expect(kv.get('view_mode')).resolves.toBe('view_mode-single');
+            expect(lastBody().args).toEqual({ key: 'view_mode' });
+        });
+    });
+
+    describe('after the auth token changes', () => {
+        beforeEach(() => {
+            FakeXHR.respondWith = (body) => ({
+                success: true,
+                result: Array.isArray(body.args.key)
+                    ? body.args.key.map(() => 'first-account')
+                    : 'second-account',
+            });
+        });
+
+        it('reads the store instead of the earlier account\'s batch', async () => {
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('first-account');
+            fakePuter.authToken = 'other-token';
+            await expect(kv.get('sidebar_items')).resolves.toBe('second-account');
+            expect(lastBody().args).toEqual({ key: 'sidebar_items' });
+        });
+
+        it('reads the store when it changes while the batch is in flight', async () => {
+            const pending = kv.get('sidebar_items');
+            fakePuter.authToken = 'other-token';
+            await expect(pending).resolves.toBe('second-account');
+        });
     });
 
     it('a failed batch makes get(bootKey) issue a normal call', async () => {
@@ -387,24 +469,24 @@ describe('kv.get GUI boot cache', () => {
             ['expireAt(key, timestamp)', () => kv.expireAt('sidebar_items', 1)],
             ['flush()', () => kv.flush()],
         ])('%s makes the next get(key) read the store', async (_label, write) => {
-            await expect(kv.get('menubar_style')).resolves.toBe('stale');
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('stale');
             await write();
             await expect(kv.get('sidebar_items')).resolves.toBe('fresh');
             expect(lastBody()).toMatchObject({ method: 'get', args: { key: 'sidebar_items' } });
         });
 
         it('keeps serving the boot keys that were not written', async () => {
-            await kv.get('menubar_style');
+            await kv.get('window_sidebar_width');
             await kv.set('sidebar_items', 'v');
             const requests = FakeXHR.requests.length;
-            await expect(kv.get('menubar_style')).resolves.toBe('stale');
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('stale');
             expect(FakeXHR.requests).toHaveLength(requests);
         });
 
         it('a write before the batch is fetched still bypasses it for that key', async () => {
             await kv.set('sidebar_items', 'v');
             await expect(kv.get('sidebar_items')).resolves.toBe('fresh');
-            await expect(kv.get('menubar_style')).resolves.toBe('stale');
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('stale');
         });
 
         it('a write issued while the batch is in flight bypasses it', async () => {
@@ -415,7 +497,7 @@ describe('kv.get GUI boot cache', () => {
         });
 
         it('a rejected write still bypasses the batch', async () => {
-            await kv.get('menubar_style');
+            await kv.get('window_sidebar_width');
             FakeXHR.respondWith = (body) => body.method === 'set'
                 ? { success: false, error: { code: 'insufficient_funds' } }
                 : { success: true, result: 'fresh' };
@@ -434,11 +516,11 @@ describe('kv.get boot keys outside the GUI', () => {
             FakeXHR.respondWith = (body) => ({ success: true, result: `${body.args.key}-value` });
             await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
             await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
-            await expect(kv.get('menubar_style')).resolves.toBe('menubar_style-value');
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('window_sidebar_width-value');
             expect(FakeXHR.requests.map((xhr) => JSON.parse(xhr.requestBody).args)).toEqual([
                 { key: 'sidebar_items' },
                 { key: 'sidebar_items' },
-                { key: 'menubar_style' },
+                { key: 'window_sidebar_width' },
             ]);
         },
     );

@@ -54,7 +54,7 @@ Example response:
 
 ## Examples
 
-<strong class="example-title">List engines for a specific provider</strong>
+### List engines for a specific provider
 
 ```html;ai-txt2speech-list-engines
 <html>
@@ -73,7 +73,7 @@ Example response:
 </html>
 ```
 
-<strong class="example-title">List engines using options object</strong>
+### List engines using options object
 
 ```js
 const engines = await puter.ai.txt2speech.listEngines({ provider: 'elevenlabs' });

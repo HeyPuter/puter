@@ -10,7 +10,7 @@ For `click`, the handler can open the screen the notification is about.
 
 Clicks reach your app in two ways:
 
-- **On a website**, from a tap on a push, or on a notification a page of your site showed itself. When a page of your site is open, the tap focuses it and calls its `click` handlers. A page without a `click` handler goes to the notification's `url` instead, which is the `url` your [`onPush()`](/Notifications/onPush/) handler returned, or else the notification's `target`. When no page is open, the tap opens that `url`, and the new page's first `click` handler gets the click.
+- **On a website**, from a tap on a push. When a page of your site is open, the tap focuses it and calls its `click` handlers. A page without a `click` handler goes to the notification's `url` instead, which is the `url` your [`onPush()`](/Notifications/onPush/) handler returned, or else the notification's `target`. When no page is open, the tap opens that `url`, and the new page's first `click` handler gets the click.
 - **Inside the Puter desktop**, from a tap on a push that Puter shows. Puter opens your app, or brings it to the front, and delivers the click.
 
 A click that arrives before your first `click` handler is added, such as the one that opened your app, goes to that first handler, once. Handlers added after it don't get it, so add your handler early during startup. On a website, a page a tap opened drops the click when no `click` handler is added within 10 seconds of the page loading.
@@ -49,7 +49,7 @@ It returns `puter.notifications`, so calls can be chained.
 
 ## Examples
 
-<strong class="example-title">Route a click to the right screen</strong>
+### Route a click to the right screen
 
 ```html
 <html>
@@ -66,7 +66,7 @@ It returns `puter.notifications`, so calls can be chained.
 </html>
 ```
 
-<strong class="example-title">Handle a button press</strong>
+### Handle a button press
 
 ```js
 puter.notifications.on('click', async ({ uid, action, data }) => {
@@ -77,7 +77,7 @@ puter.notifications.on('click', async ({ uid, action, data }) => {
 
 [Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/) shows the whole setup.
 
-<strong class="example-title">Remove a dismissed notification from your app</strong>
+### Remove a dismissed notification from your app
 
 ```js
 puter.notifications.on('dismiss', ({ uid }) => {

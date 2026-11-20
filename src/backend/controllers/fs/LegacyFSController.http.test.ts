@@ -168,6 +168,27 @@ describe('legacy file downloads over HTTP', () => {
         },
     );
 
+    it('GET /token-read types a file by its name, and one with no known extension as a byte stream', async () => {
+        const typed = await requestFor(
+            '/token-read',
+            await writeFile('notes.txt', Buffer.from('hello')),
+        );
+        expect(typed.headers.get('content-type')).toBe(
+            'text/plain; charset=utf-8',
+        );
+
+        for (const name of ['README', 'archive.unknownext']) {
+            const response = await requestFor(
+                '/token-read',
+                await writeFile(name, Buffer.from('hello')),
+            );
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe(
+                'application/octet-stream',
+            );
+        }
+    });
+
     it('GET /read answers byte_count on an empty file with an empty 200', async () => {
         const file = await writeFile('empty-byte-count.bin', Buffer.alloc(0));
         for (const query of ['byte_count=512', 'offset=0']) {

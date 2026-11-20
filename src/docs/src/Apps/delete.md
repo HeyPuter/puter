@@ -24,7 +24,7 @@ A `Promise` that will resolve to an object `{ success: true, uid: <app uid> }` i
 
 ## Examples
 
-<strong class="example-title">Create a random app then delete it</strong>
+### Create a random app then delete it
 
 ```html;app-delete
 <html>

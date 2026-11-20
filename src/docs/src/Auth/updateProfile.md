@@ -5,7 +5,9 @@ platforms: [websites, apps, nodejs, workers]
 draft: true
 ---
 
-Changes fields on the signed-in user's profile and returns the updated profile. Fields left out of the patch are left as they are; `null` clears a field.
+Changes fields on the signed-in user's profile and returns the updated profile.
+
+Fields left out of the patch are left as they are; `null` clears a field.
 
 ## Syntax
 
@@ -15,19 +17,27 @@ puter.auth.updateProfile(patch);
 
 ## Parameters
 
-### `patch` (required)
+#### `patch` (required)
 
 An object with any of these fields:
 
-- `picture` (String or `null`): a base64 image data URL such as `data:image/png;base64,...`. At most 512 KiB.
-- `displayName` (String or `null`): at most 64 characters. Surrounding whitespace is removed.
-- `bio` (String or `null`): at most 280 characters. Surrounding whitespace is removed.
+| Option | Type | Description |
+|--------|------|-------------|
+| `displayName` | `String \| null` | The user's display name, at most 64 characters. Surrounding whitespace is removed. |
+| `picture` | `String \| null` | A base64 image data URL such as `data:image/png;base64,...`. At most 512 KiB. |
+| `bio` | `String \| null` | The user's bio, at most 280 characters. Surrounding whitespace is removed. |
 
 Any other field is rejected.
 
 ## Return value
 
-A promise that resolves to the stored [`UserProfile`](/Objects/userprofile). It rejects with an object carrying a `code` and `message` when the patch is not accepted:
+A promise that resolves to the stored [`UserProfile`](/Objects/userprofile).
+
+The profile belongs to the account, so the call must be made with a user session; an app acting on a user's behalf cannot change it.
+
+## Errors
+
+The promise rejects with an object carrying a `code` and `message` when the patch is not accepted:
 
 | `code`                      | Meaning                                               |
 | --------------------------- | ----------------------------------------------------- |
@@ -37,9 +47,9 @@ A promise that resolves to the stored [`UserProfile`](/Objects/userprofile). It 
 | `profile_picture_too_large` | `picture` is over the size limit                      |
 | `profile_field_too_long`    | `displayName` or `bio` is over its length limit       |
 
-The profile belongs to the account, so the call must be made with a user session; an app acting on a user's behalf cannot change it.
+## Examples
 
-## Example
+### Change the user's display name
 
 ```html;auth-update-profile
 <html>

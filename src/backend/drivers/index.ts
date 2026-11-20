@@ -17,13 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ChatCompletionDriver } from './ai-chat/ChatCompletionDriver';
-import { ImageGenerationDriver } from './ai-image/ImageGenerationDriver';
-import { OCRDriver } from './ai-ocr/OCRDriver';
-import { VoiceChangerDriver } from './ai-speech2speech/VoiceChangerDriver';
-import { SpeechToTextDriver } from './ai-speech2txt/SpeechToTextDriver';
-import { TTSDriver } from './ai-tts/TTSDriver';
-import { VideoGenerationDriver } from './ai-video/VideoGenerationDriver';
+import { ChatCompletionDriver } from './ai/interfaces/chat/ChatCompletionDriver';
+import { ImageGenerationDriver } from './ai/interfaces/image/ImageGenerationDriver';
+import { OCRDriver } from './ai/interfaces/ocr/OCRDriver';
+import { VoiceChangerDriver } from './ai/interfaces/speechToSpeech/VoiceChangerDriver';
+import { SpeechToTextDriver } from './ai/interfaces/speechToText/SpeechToTextDriver';
+import { TTSDriver } from './ai/interfaces/textToSpeech/TTSDriver';
+import { VideoGenerationDriver } from './ai/interfaces/video/VideoGenerationDriver';
 import { AppDriver } from './apps/AppDriver.js';
 import { KVStoreDriver } from './kv/KVStoreDriver';
 import { NotificationDriver } from './notification/NotificationDriver';

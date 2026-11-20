@@ -17,7 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { FlatPermRef } from '../../stores/permission/PermissionStore.js';
+import type {
+    FlatPermRef,
+    GroupMember,
+} from '../../stores/permission/PermissionStore.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types.js';
 
@@ -134,11 +137,38 @@ export class UserAccountService extends PuterService {
             'DELETE FROM `sessions` WHERE `user_id` = ?',
             [userId],
         );
+        // Its group grants cascade too, so their members' readings change.
+        let granted: GroupMember[] = [];
+        try {
+            granted =
+                await this.stores.permission.listIssuedGroupMembers(userId);
+        } catch (e) {
+            console.warn('[cascade-delete-user] granted-group read failed:', e);
+        }
+        let holderUuids: string[] = [];
+        try {
+            const holders = await this.stores.user.getByIds([
+                ...new Set(issuedRefs.map((ref) => ref.holderUserId)),
+            ]);
+            holderUuids = [...holders.values()].map((user) => user.uuid);
+        } catch (e) {
+            console.warn('[cascade-delete-user] grant holder read failed:', e);
+        }
+
+        // Group reads go to the primary while the memberships cascade away.
+        await this.stores.permission.markGroupMembershipChanged([
+            userId,
+            ...granted.map((member) => member.id),
+        ]);
         await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
             userId,
         ]);
         if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
         else await this.stores.user.invalidateById(userId);
+        // Its issued grant rows cascaded; holders' cached copies still name it.
+        await this.stores.permission.markUserUserPermsChanged(
+            issuedRefs.map((ref) => ref.holderUserId),
+        );
         await this.stores.subdomain.forgetCascadeDeleted(appSites);
 
         if (issuedRefs.length > 0) {
@@ -162,6 +192,12 @@ export class UserAccountService extends PuterService {
                 e,
             );
         }
+        // Last: a check before the purges would cache the flat entries' answer.
+        await this.stores.permission.bumpCacheGenerations(
+            [userUuid, ...granted.map((m) => m.uuid), ...holderUuids]
+                .filter((uuid): uuid is string => Boolean(uuid))
+                .map((uuid) => `user:${uuid}`),
+        );
 
         // Fire-and-forget: let listeners purge external state tied to the
         // account (Stripe subscriptions are cancelled immediately, without

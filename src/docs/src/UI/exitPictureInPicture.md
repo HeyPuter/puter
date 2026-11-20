@@ -4,7 +4,9 @@ description: Closes the picture-in-picture window your app opened.
 platforms: [apps]
 ---
 
-Closes the picture-in-picture window opened with [`puter.ui.requestPictureInPicture()`](/UI/requestPictureInPicture/), if one is up. Its `onClose` callback does not run for this — you asked for the close.
+Closes the picture-in-picture window opened with [`puter.ui.requestPictureInPicture()`](/UI/requestPictureInPicture/), if one is open.
+
+The window's `onClose` callback doesn't run when your app closes the window this way.
 
 ## Syntax
 ```js
@@ -15,6 +17,8 @@ puter.ui.exitPictureInPicture()
 A `Promise` that resolves to `true` if there was a window to close, `false` otherwise.
 
 ## Examples
+
+### Close the picture-in-picture window from a button
 
 ```html
 <html>

@@ -17,7 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
+import type { EventClient } from '../../../clients/event/EventClient.js';
+import { secretsEqual } from '../../../util/secureCompare.js';
+import { onResponseClose } from '../onResponseClose.js';
 import { computeNetworkFingerprint } from './rateLimit.js';
 import '../expressAugmentation';
 
@@ -32,6 +35,20 @@ const DEVICE_FINGERPRINT_SHAPE = /^[A-Za-z0-9._-]{8,128}$/;
 
 /** Header the GUI may send the device fingerprint on for non-signup requests. */
 const DEVICE_FINGERPRINT_HEADER = 'x-puter-device-fingerprint';
+
+/** JA3 / JA4-style values; anything else is dropped. */
+const TLS_FINGERPRINT_SHAPE = /^[A-Za-z0-9_]{10,64}$/;
+
+function readTlsFingerprint(
+    req: { headers?: Record<string, unknown> },
+    header: string | undefined,
+): string | undefined {
+    if (!header) return undefined;
+    const value = req.headers?.[header];
+    return typeof value === 'string' && TLS_FINGERPRINT_SHAPE.test(value)
+        ? value
+        : undefined;
+}
 
 function readDeviceFingerprint(req: {
     body?: unknown;
@@ -51,6 +68,66 @@ function readDeviceFingerprint(req: {
     return undefined;
 }
 
+const NO_SIGNALS: readonly string[] = Object.freeze([]);
+
+/** `[header, signal]` pairs from `requestSignalHeaders`, header lowercased. */
+const signalHeaderPairs = (
+    headers: Record<string, string> | undefined,
+): Array<[string, string]> =>
+    Object.entries(headers ?? {}).flatMap(([header, signal]) =>
+        typeof header === 'string' &&
+        header &&
+        typeof signal === 'string' &&
+        signal
+            ? [[header.toLowerCase(), signal] as [string, string]]
+            : [],
+    );
+
+function readRequestSignals(
+    req: { headers?: Record<string, unknown> },
+    pairs: Array<[string, string]>,
+    expectedValue: string,
+): readonly string[] {
+    let signals: string[] | null = null;
+    for (const [header, signal] of pairs) {
+        const value = req.headers?.[header];
+        if (typeof value !== 'string' || !value) continue;
+        if (!secretsEqual(value, expectedValue)) continue;
+        signals ??= [];
+        if (!signals.includes(signal)) signals.push(signal);
+    }
+    return signals ?? NO_SIGNALS;
+}
+
+/** Announce a flagged request once it is done, when it had an actor. */
+function emitFlaggedOnClose(
+    req: Request,
+    res: Parameters<typeof onResponseClose>[0],
+    events: EventClient,
+): void {
+    const path = req.path;
+    onResponseClose(res, () => {
+        const actor = req.actor;
+        if (!actor?.user) return;
+        const route = req.route?.path;
+        events.emit(
+            'puter.request.flagged',
+            {
+                signals: req.requestSignals ?? NO_SIGNALS,
+                user_id: actor.user.id ?? null,
+                user_uuid: actor.user.uuid ?? null,
+                username: actor.user.username ?? null,
+                app_uid: actor.effectiveApp?.uid ?? null,
+                method: req.method,
+                route: typeof route === 'string' ? route : path,
+                ip: req.ip || req.socket?.remoteAddress || null,
+                tls_fingerprint: req.tlsFingerprint ?? null,
+            },
+            {},
+        );
+    });
+}
+
 /**
  * Stamp request-scoped fingerprints onto `req` so any downstream gate, handler,
  * or service (via the ALS `Context.get('req')`) can read them without
@@ -65,15 +142,48 @@ function readDeviceFingerprint(req: {
  *   and spoofable, but stable per real device across IP rotation. The rate
  *   limiter's 'fingerprint' strategy appends it to the network hash so each
  *   device behind a shared network gets its own bucket.
+ * - `req.tlsFingerprint` — set only when `tlsFingerprintHeader` is configured and
+ *   the request carries a well-shaped value in that header. It names the
+ *   client's TLS stack, so every client on the same build shares it.
+ * - `req.requestSignals` — the signals of the `requestSignalHeaders` the request
+ *   carries holding `requestSignalValue`; always empty without that value. A
+ *   flagged request with an actor emits `puter.request.flagged` once it closes;
+ *   an unflagged one costs nothing more.
  *
  * Install AFTER the body parsers (so the body fingerprint is readable) and
  * before `requestContext` (so the snapshot into ALS already carries them).
  * Never rejects — a missing/invalid device fingerprint is simply absent.
  */
-export const createFingerprintMiddleware = (): RequestHandler => {
-    return (req, _res, next) => {
+export const createFingerprintMiddleware = (
+    opts: {
+        tlsFingerprintHeader?: string;
+        requestSignalHeaders?: Record<string, string>;
+        requestSignalValue?: string;
+        events?: EventClient;
+    } = {},
+): RequestHandler => {
+    const tlsHeader = opts.tlsFingerprintHeader?.toLowerCase();
+    const signalValue = opts.requestSignalValue || undefined;
+    let signalPairs = signalHeaderPairs(opts.requestSignalHeaders);
+    // Without the shared value any client could raise a signal itself.
+    if (signalPairs.length > 0 && !signalValue) {
+        console.warn(
+            '[fingerprint] requestSignalHeaders is set without requestSignalValue; request signals are off',
+        );
+        signalPairs = [];
+    }
+    const { events } = opts;
+    return (req, res, next) => {
         req.networkFingerprint = computeNetworkFingerprint(req);
         req.deviceFingerprint = readDeviceFingerprint(req);
+        req.tlsFingerprint = readTlsFingerprint(req, tlsHeader);
+        req.requestSignals =
+            signalValue && signalPairs.length > 0
+                ? readRequestSignals(req, signalPairs, signalValue)
+                : NO_SIGNALS;
+        if (req.requestSignals.length > 0 && events) {
+            emitFlaggedOnClose(req, res, events);
+        }
         next();
     };
 };

@@ -83,3 +83,31 @@ describe('authenticateWithPuter with more than one concurrent caller', () => {
         ]);
     });
 });
+
+describe('authenticateWithPuter in a tab the GUI opened', () => {
+    it('waits for the handed-over token instead of prompting', async () => {
+        const puterArg = { env: 'web', authToken: null, appID: undefined, util: {} };
+        const ui = new UIModule(puterArg, {});
+        let handOver;
+        globalThis.puter.openerLaunch_ = new Promise((resolve) => {
+            handOver = resolve;
+        });
+        const auth = ui.authenticateWithPuter();
+
+        puterArg.authToken = 'app-token';
+        globalThis.puter.openerLaunch_ = null;
+        handOver();
+        await auth;
+        expect(globalThis.puter.auth.signIn).not.toHaveBeenCalled();
+    });
+
+    it('prompts as usual when no token came', async () => {
+        const ui = makeUI();
+        globalThis.puter.auth.signIn = vi.fn(async () => {});
+        globalThis.puter.openerLaunch_ = Promise.resolve().then(() => {
+            globalThis.puter.openerLaunch_ = null;
+        });
+        await ui.authenticateWithPuter();
+        expect(globalThis.puter.auth.signIn).toHaveBeenCalledOnce();
+    });
+});

@@ -4,7 +4,9 @@ description: Read a user's profile picture, returning null when unavailable.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns the `picture` field of a user's profile (see [`puter.auth.getProfile()`](/Auth/getProfile/)). A user can always read their own picture. Another user's picture is available only while that user is on a paid plan.
+Returns the `picture` field of a user's profile (see [`puter.auth.getProfile()`](/Auth/getProfile/)).
+
+A user can always read their own picture. Another user's picture is available only while that user is on a paid plan.
 
 ## Syntax
 
@@ -15,7 +17,7 @@ puter.auth.getProfilePicture(username);
 
 ## Parameters
 
-### `username` (optional)
+#### `username` (optional)
 
 The username to look up. Defaults to the signed-in user.
 
@@ -27,7 +29,9 @@ Missing users, profiles that are not public to the caller, profiles with no pict
 
 When signed out with no `username`, it resolves to `null` without opening a sign-in prompt.
 
-## Example
+## Examples
+
+### Show the user's profile picture
 
 ```html
 <html>

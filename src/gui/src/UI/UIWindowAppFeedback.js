@@ -40,7 +40,9 @@ let feedback_modal_seq = 0;
  * server is the authority on the app's canonical title — then submits to
  * `POST /app-feedback`.
  *
- * @param {{ app?: string, origin?: string, source?: 'app' | 'web' }} options
+ * @param {{ app?: string, origin?: string, source?: 'app' | 'web', fullpage?: boolean }} options
+ *   `fullpage` fills the viewport instead of floating over it, for a popup
+ *   window that exists only to host this dialog.
  * @returns {Promise<boolean>} true iff feedback was submitted successfully.
  *   Resolves false on cancel/close/unavailable — never rejects, so IPC and
  *   popup callers can always report an answer.
@@ -54,7 +56,8 @@ async function UIWindowAppFeedback (options) {
         let sending = false;
         let closed = false;
 
-        const authToken = puter.authToken ?? window.auth_token;
+        // The feedback embed runs without puter.js.
+        const authToken = globalThis.puter?.authToken ?? window.auth_token;
         const target_params = options.app
             ? { app: options.app }
             : { origin: options.origin };
@@ -70,7 +73,7 @@ async function UIWindowAppFeedback (options) {
 
         const titleId = `${modal_id}-title`;
         const h = `
-            <div class="app-feedback-overlay" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
+            <div class="app-feedback-overlay${options.fullpage ? ' app-feedback-fullpage' : ''}" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
                 <div class="app-feedback-modal" tabindex="-1">
                     <div class="app-feedback-head">
                         <h2 class="app-feedback-title" id="${titleId}">${i18n('app_feedback_title')}</h2>
@@ -79,16 +82,16 @@ async function UIWindowAppFeedback (options) {
                         </button>
                     </div>
                     <div class="app-feedback-body">
-                        <div class="app-feedback-loading">${i18n('loading')}…</div>
+                        <div class="app-feedback-pane app-feedback-loading">${i18n('loading')}…</div>
 
-                        <div class="app-feedback-unavailable" style="display:none;">
+                        <div class="app-feedback-pane app-feedback-unavailable" style="display:none;">
                             <p class="app-feedback-unavailable-message"></p>
                             <div class="app-feedback-actions">
                                 <button type="button" class="app-feedback-btn app-feedback-btn-primary app-feedback-close-btn">${i18n('close')}</button>
                             </div>
                         </div>
 
-                        <div class="app-feedback-form" style="display:none;">
+                        <div class="app-feedback-pane app-feedback-form" style="display:none;">
                             <div class="app-feedback-target">
                                 <div class="app-feedback-target-title"></div>
                                 <div class="app-feedback-target-name"></div>
@@ -104,7 +107,7 @@ async function UIWindowAppFeedback (options) {
                             </div>
                         </div>
 
-                        <div class="app-feedback-success" style="display:none;">
+                        <div class="app-feedback-pane app-feedback-success" style="display:none;">
                             <div class="app-feedback-success-check" aria-hidden="true">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                             </div>

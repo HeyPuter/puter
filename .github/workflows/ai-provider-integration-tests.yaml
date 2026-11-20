@@ -17,10 +17,12 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v7
+              uses: actions/checkout@v7.0.1
+              with:
+                  persist-credentials: false
 
             - name: Set up Node.js
-              uses: actions/setup-node@v7
+              uses: actions/setup-node@v7.1.0
               with:
                   node-version: '26'
                   cache: 'npm'
@@ -29,10 +31,9 @@ jobs:
               run: npm ci
 
             - name: Run AI provider integration tests
-              # Vitest treats positional args as filename substring filters.
-              # The pattern matches every `*.integration.test.ts` file and
-              # nothing else — the regular backend test suite stays out.
-              run: npm run test:backend -- integration.test
+              # Only the provider tests: the other `*.integration.test.ts`
+              # files need no credentials and run with the backend suite.
+              run: npm run test:backend -- $(git ls-files 'src/backend/drivers/ai/**/*.integration.test.ts')
               env:
                   CI: 'true'
                   PUTER_TEST_AI_CLAUDE_API_KEY: ${{ secrets.PUTER_TEST_AI_CLAUDE_API_KEY }}
@@ -47,13 +48,22 @@ jobs:
                   PUTER_TEST_AI_MOONSHOT_API_KEY: ${{ secrets.PUTER_TEST_AI_MOONSHOT_API_KEY }}
                   PUTER_TEST_AI_ZAI_API_KEY: ${{ secrets.PUTER_TEST_AI_ZAI_API_KEY }}
                   PUTER_TEST_AI_ELEVENLABS_API_KEY: ${{ secrets.PUTER_TEST_AI_ELEVENLABS_API_KEY }}
+                  PUTER_TEST_AI_ALIBABA_API_KEY: ${{ secrets.PUTER_TEST_AI_ALIBABA_API_KEY }}
+                  PUTER_TEST_AI_AZURE_OPENAI_API_KEY: ${{ secrets.PUTER_TEST_AI_AZURE_OPENAI_API_KEY }}
+                  PUTER_TEST_AI_AZURE_OPENAI_API_URL: ${{ secrets.PUTER_TEST_AI_AZURE_OPENAI_API_URL }}
+                  PUTER_TEST_AI_BYTEPLUS_API_KEY: ${{ secrets.PUTER_TEST_AI_BYTEPLUS_API_KEY }}
+                  PUTER_TEST_AI_HOONIFY_API_KEY: ${{ secrets.PUTER_TEST_AI_HOONIFY_API_KEY }}
+                  PUTER_TEST_AI_INFRON_API_KEY: ${{ secrets.PUTER_TEST_AI_INFRON_API_KEY }}
+                  PUTER_TEST_AI_KLING_API_KEY: ${{ secrets.PUTER_TEST_AI_KLING_API_KEY }}
+                  PUTER_TEST_AI_META_API_KEY: ${{ secrets.PUTER_TEST_AI_META_API_KEY }}
+                  PUTER_TEST_AI_MINIMAX_API_KEY: ${{ secrets.PUTER_TEST_AI_MINIMAX_API_KEY }}
 
             # Realtime conversations through the SDK against live OpenAI. Builds
             # the SDK bundle these tests load itself, so it runs even when the
             # step above fails; the tests skip themselves without the key.
             - name: Run live realtime conversation tests
               if: ${{ !cancelled() }}
-              run: npm run setupExtensions && (cd src/puter-js && npm run build) && npx vitest run --config src/puter-js/tests/api/vitest.config.ts src/puter-js/tests/api/realtime/convoLive.test.ts
+              run: npm run setupExtensions && (cd src/puter-js && npm run build) && npx vitest run --config src/puter-js/tests/api/vitest.config.ts src/puter-js/tests/api/realtime/realtimeLive.test.ts
               env:
                   CI: 'true'
                   PUTER_TEST_AI_OPENAI_API_KEY: ${{ secrets.PUTER_TEST_AI_OPENAI_API_KEY }}

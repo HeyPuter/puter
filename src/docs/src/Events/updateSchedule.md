@@ -4,9 +4,11 @@ description: Move a schedule to a new time, change its context, or edit a notifi
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Changes a schedule created with [`puter.events.onSchedule()`](/Events/onSchedule/), or a notification stored to send later with [`puter.notifications.notify()`](/Notifications/notify/#send-it-later).
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Changes a schedule created with [`puter.events.onSchedule()`](/Events/onSchedule/), or a notification stored to send later with [`puter.notifications.notify()`](/Notifications/notify/#send-it-later). The schedule keeps its `scheduleId`, its kind and its handler, so ids you saved elsewhere stay valid.
+The schedule keeps its `scheduleId`, its kind and its handler, so ids you saved elsewhere stay valid.
 
 An app can change only the schedules it created. An account session can change any of the user's schedules. A scoped access token can't change any. On a website with nobody signed in, the call asks the user to sign in first, as other Puter.js calls do.
 
@@ -26,19 +28,44 @@ The `scheduleId` from [`onSchedule()`](/Events/onSchedule/), [`notify()`](/Notif
 
 For a schedule from [`onSchedule()`](/Events/onSchedule/), pass new timing, a new `context`, or both:
 
-- **Timing.** Any of `at`, `every`, `cron`, `tz`, `startAt`, `expiresAt` and `maxRuns` replaces the whole timing, so pass exactly one of `at`, `every` or `cron`, together with every other timing option you want to keep. They take the same values as in [`onSchedule()`](/Events/onSchedule/#parameters). A recurring schedule can switch between `every` and `cron`, and an `at` schedule stays a one-time schedule. Without timing options, the timing stays as it is.
-- `context` (Object | null): Replaces the whole context. Pass `null` to clear it. Up to 4 KB serialized, as in [`onSchedule()`](/Events/onSchedule/#parameters).
+| Option | Type | Description |
+|--------|------|-------------|
+| `every` | `Number \| String` | The new interval. A recurring schedule can switch between `every` and `cron`. |
+| `cron` | `String` | The new cron expression. A recurring schedule can switch between `every` and `cron`. |
+| `at` | `Number \| String \| Date` | The new time for a one-time schedule. An `at` schedule stays a one-time schedule. |
+| `context` | `Object \| null` | Replaces the whole context. Pass `null` to clear it. Up to 4 KB serialized, as in [`onSchedule()`](/Events/onSchedule/#parameters). |
+| `tz` | `String` | The time zone the `cron` expression runs in. |
+| `startAt` | `Number \| String \| Date` | For `every`, the first run. For `cron`, the earliest time the schedule may run. |
+| `expiresAt` | `Number \| String \| Date` | The last time the schedule may run. |
+| `maxRuns` | `Number` | How many slots the schedule has. |
+
+The timing options are `at`, `every`, `cron`, `tz`, `startAt`, `expiresAt` and `maxRuns`. Any of them replaces the whole timing, so pass exactly one of `at`, `every` or `cron`, together with every other timing option you want to keep. They take the same values as in [`onSchedule()`](/Events/onSchedule/#parameters). Without timing options, the timing stays as it is.
 
 For a stored notification, pass a new `sendAt`, new content, or both:
 
-- `sendAt` (Number | String | Date): The new time to send it, as in [`notify()`](/Notifications/notify/#parameters). A time within 5 seconds, or in the past, sends it now, with the [retries](/Notifications/notify/#send-it-later) of any stored notification.
-- `title`, `text`, `icon`, `target`, `data`, `group`, `channel`, `sensitive`, `priority`, `ttl`: Replace the stored values, with the same rules as [`notify()`](/Notifications/notify/#parameters). Fields you leave out keep their values. Pass `null` to clear an optional field. The `title` can't be cleared.
+| Option | Type | Description |
+|--------|------|-------------|
+| `sendAt` | `Number \| String \| Date` | The new time to send it, as in [`notify()`](/Notifications/notify/#parameters). A time within 5 seconds, or in the past, sends it now, with the [retries](/Notifications/notify/#send-it-later) of any stored notification. |
+| `title` | `String` | Replaces the stored title. It can't be cleared. |
+| `text` | `String` | Replaces the stored text. |
+| `icon` | `String` | Replaces the stored icon. |
+| `target` | `String` | Replaces the stored target. |
+| `data` | `Any` | Replaces the stored data. |
+| `group` | `String` | Replaces the stored group. |
+| `channel` | `String` | Replaces the stored channel. |
+| `sensitive` | `Boolean` | Replaces the stored `sensitive` setting. |
+| `priority` | `String` | Replaces the stored priority. |
+| `ttl` | `Number` | Replaces the stored `ttl`. |
+
+The content options follow the same rules as in [`notify()`](/Notifications/notify/#parameters). Fields you leave out keep their values. Pass `null` to clear an optional field.
 
 The handler and the recipient can't change. Passing `handler`, `handlerName`, `handlerScope`, `handlerHash`, `handlerSource` or `to` rejects with `invalid_request`. To run different code, remove the schedule and create a new one.
 
 ## Return value
 
 A `Promise` that resolves to the updated schedule, in the shape [`getSchedule()`](/Events/getSchedule/#return-value) returns. Its `nextRunAt` is the next run under the new timing. It describes the context by its key names and a hash, and never includes a stored notification's content. A stored notification whose new `sendAt` is due now is sent during the call, so the schedule can come back already ended.
+
+## Errors
 
 The promise rejects with `{ message, code }`:
 
@@ -71,7 +98,7 @@ The promise rejects with `{ message, code }`:
 
 ## Examples
 
-<strong class="example-title">Move a reminder to a later time</strong>
+### Move a reminder to a later time
 
 ```html;events-update-reminder
 <html>
@@ -103,7 +130,7 @@ The promise rejects with `{ message, code }`:
 </html>
 ```
 
-<strong class="example-title">Move a weekday schedule to another time</strong>
+### Move a weekday schedule to another time
 
 ```html;events-update-cron
 <html>

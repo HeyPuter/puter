@@ -76,7 +76,14 @@ const attrs_html = (attrs) => Object.entries(attrs ?? {})
     .map(([key, value]) => (value === true ? ` ${key}` : ` ${key}="${html_encode(String(value))}"`))
     .join('');
 
-const field_html = (field, id) => {
+/**
+ * A labelled form field's markup, as the form dialog draws it.
+ *
+ * @param {FormDialogField} field
+ * @param {string} id Prefix for the control's id, unique to the dialog.
+ * @returns {string}
+ */
+export const formFieldHtml = (field, id) => {
     const control_id = `${id}-${field.name}`;
     const hint_id = `${control_id}-hint`;
     const suffix_id = `${control_id}-suffix`;
@@ -128,6 +135,25 @@ const field_html = (field, id) => {
 };
 
 /**
+ * Wires the show/hide toggles of the password fields under `$root`.
+ *
+ * @param {jQuery} $root
+ */
+export const bindPasswordReveal = ($root) => {
+    // Keep the field focused (and a phone's keyboard up) while toggling. The
+    // label names the action, so the button carries no aria-pressed as well.
+    $root.on('pointerdown mousedown', '.dashboard-form-reveal', (e) => e.preventDefault());
+    $root.on('click', '.dashboard-form-reveal', function () {
+        const $input = $(this).siblings('input');
+        const reveal = $input.attr('type') === 'password';
+        const label = i18n(reveal ? 'hide_password' : 'show_password', [], false);
+        $input.attr('type', reveal ? 'text' : 'password');
+        $(this).attr({ 'aria-label': label, title: label })
+            .html(reveal ? FORM_ICONS.hide : FORM_ICONS.show);
+    });
+};
+
+/**
  * A read-only value with a Copy button, for a `finish` screen. The dialog
  * wires the button.
  *
@@ -161,11 +187,12 @@ export const copyRowHtml = ({ value, label, copiedLabel, compact = false, after 
  *   the submit button or Enter, with the fields locked and the button busy
  *   until it settles. It reports back through the dialog: `setStatus`,
  *   `finish`, or `close`.
+ * @param {() => void} [opts.onClose] Runs once when the dialog closes, however it was closed.
  * @param {jQuery} [opts.$container] Where the overlay mounts; defaults to body.
  * @param {HTMLElement} [opts.returnFocusTo] Where focus goes on close.
  * @returns {FormDialog}
  */
-export default function UIDashboardFormDialog ({ title, intro, tone, fields = [], submitLabel, onSubmit, $container, returnFocusTo }) {
+export default function UIDashboardFormDialog ({ title, intro, tone, fields = [], submitLabel, onSubmit, onClose, $container, returnFocusTo }) {
     const id = `dashboard-form-${window.uuidv4?.() ?? Date.now()}`;
     const danger = tone === 'danger';
 
@@ -179,7 +206,7 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
     if ( danger ) h += `<div class="dashboard-dialog-icon">${ICONS.danger}</div>`;
     h += '<div class="dashboard-dialog-content">';
     if ( intro ) h += `<div class="dashboard-dialog-message" id="${id}-intro">${intro}</div>`;
-    h += fields.map((field) => field_html(field, id)).join('');
+    h += fields.map((field) => formFieldHtml(field, id)).join('');
     h += '<div class="dashboard-form-status" role="status" aria-live="polite"></div>';
     h += '</div></div>';
     h += '<div class="dashboard-dialog-footer">';
@@ -194,12 +221,18 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
     let keep_on_backdrop = false;
     // While the handler runs, the dialog is where its outcome will show, so
     // only the explicit ✕ closes it then; a stray click or Escape does not.
-    const { $dialog, close, isClosed } = mountDashboardOverlay({
+    const { $dialog, close: closeOverlay, isClosed } = mountDashboardOverlay({
         html: h,
         $container,
         returnFocusTo,
         canDismiss: (via) => via === 'close' || ! (busy || (keep_on_backdrop && via === 'backdrop')),
+        onDismiss: () => onClose?.(),
     });
+    const close = () => {
+        if ( isClosed() ) return;
+        closeOverlay();
+        onClose?.();
+    };
     const $status = $dialog.find('.dashboard-form-status');
     const $submit = $dialog.find('.dashboard-form-submit');
     const $controls = () => $dialog.find('.dashboard-form-input');
@@ -317,17 +350,7 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
         input.setSelectionRange(input.value.length, input.value.length);
     });
 
-    // Keep the field focused (and a phone's keyboard up) while toggling. The
-    // label names the action, so the button carries no aria-pressed as well.
-    $dialog.on('pointerdown mousedown', '.dashboard-form-reveal', (e) => e.preventDefault());
-    $dialog.on('click', '.dashboard-form-reveal', function () {
-        const $input = $(this).siblings('input');
-        const reveal = $input.attr('type') === 'password';
-        const label = i18n(reveal ? 'hide_password' : 'show_password', [], false);
-        $input.attr('type', reveal ? 'text' : 'password');
-        $(this).attr({ 'aria-label': label, title: label })
-            .html(reveal ? FORM_ICONS.hide : FORM_ICONS.show);
-    });
+    bindPasswordReveal($dialog);
 
     $dialog.on('submit', async (e) => {
         e.preventDefault();

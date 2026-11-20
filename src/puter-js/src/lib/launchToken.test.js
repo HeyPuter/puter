@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
+    requestLaunchFromOpener,
     urlWithoutQueryParam,
 } from './launchToken.js';
 
@@ -115,5 +116,110 @@ describe('isGodmodeTokenPayload', () => {
         expect(isGodmodeTokenPayload({ t: 'gui' })).toBe(false);
         expect(isGodmodeTokenPayload({ godmode_app_uid: '' })).toBe(false);
         expect(isGodmodeTokenPayload(null)).toBe(false);
+    });
+});
+
+describe('requestLaunchFromOpener', () => {
+    const GUI = 'https://puter.com';
+
+    /** A top-level tab whose opener answers with `reply` (or not at all). */
+    const makeScope = ({ reply } = {}) => {
+        const listeners = new Set();
+        const scope = {
+            addEventListener: (_type, fn) => listeners.add(fn),
+            removeEventListener: (_type, fn) => listeners.delete(fn),
+            listeners,
+        };
+        scope.emit = (event) => {
+            for (const fn of [...listeners]) fn(event);
+        };
+        scope.opener = {
+            postMessage: vi.fn((data, targetOrigin) => {
+                if (reply) queueMicrotask(() => reply(scope, data, targetOrigin));
+            }),
+        };
+        return scope;
+    };
+
+    it('takes the launch the GUI opener sends for this instance, then cuts the opener off', async () => {
+        const scope = makeScope({
+            reply: (s, data) => s.emit({
+                origin: GUI,
+                source: opener,
+                data: {
+                    msg: 'puter.launch',
+                    appInstanceID: data.appInstanceID,
+                    token: 'tok',
+                    item: { 'puter.item.uid': 'f-1', 'puter.item.read_url': 'r', other: 'x', 'puter.item.size': 5 },
+                },
+            }),
+        });
+        const opener = scope.opener;
+        const launch = await requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope });
+        expect(launch).toEqual({
+            token: 'tok',
+            item: { 'puter.item.uid': 'f-1', 'puter.item.read_url': 'r' },
+        });
+        expect(opener.postMessage).toHaveBeenCalledWith(
+            { msg: 'puter.requestLaunch', env: 'app-tab', appInstanceID: 'i-1' },
+            GUI,
+        );
+        expect(scope.opener).toBeNull();
+        expect(scope.listeners.size).toBe(0);
+    });
+
+    it('ignores replies from another origin, another window, or another instance', async () => {
+        vi.useFakeTimers();
+        try {
+            const scope = makeScope();
+            const opener = scope.opener;
+            const pending = requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope, timeoutMs: 1000 });
+            const data = { msg: 'puter.launch', appInstanceID: 'i-1', token: 'bad' };
+            scope.emit({ origin: 'https://evil.example', source: opener, data });
+            scope.emit({ origin: GUI, source: {}, data });
+            scope.emit({ origin: GUI, source: opener, data: { ...data, appInstanceID: 'i-2' } });
+            vi.advanceTimersByTime(1000);
+            expect(await pending).toBeNull();
+            expect(scope.opener).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('leaves alone a page this app opened from its own origin', () => {
+        const scope = makeScope();
+        scope.location = { origin: 'https://app.example' };
+        scope.opener.location = { origin: 'https://app.example' };
+        const opener = scope.opener;
+        expect(requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+        expect(opener.postMessage).not.toHaveBeenCalled();
+        expect(scope.opener).toBe(opener);
+    });
+
+    it('asks a cross-origin opener, as the GUI is', () => {
+        const scope = makeScope();
+        scope.location = { origin: 'https://app.example' };
+        Object.defineProperty(scope.opener, 'location', {
+            get () {
+                throw new DOMException('Blocked a frame', 'SecurityError');
+            },
+        });
+        expect(requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeInstanceOf(Promise);
+        expect(scope.opener.postMessage).toHaveBeenCalledOnce();
+    });
+
+    // Synchronously, so there is no pending launch for callers to wait on.
+    it('returns null without asking when there is no opener', () => {
+        const scope = makeScope();
+        scope.opener = null;
+        expect(requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+    });
+
+    it('returns null without waiting when the GUI tab was closed', () => {
+        const scope = makeScope();
+        scope.opener.closed = true;
+        expect(requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+        expect(scope.opener.postMessage).not.toHaveBeenCalled();
+        expect(scope.listeners.size).toBe(0);
     });
 });

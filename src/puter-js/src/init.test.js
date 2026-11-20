@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import Module, { createRequire } from 'node:module';
 import http from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
@@ -75,4 +76,55 @@ describe('node getAuthToken loopback callback', () => {
         expect(token).toBe('valid-token');
         await expect(fetch(redirect)).rejects.toThrow();
     });
+});
+
+describe('node init with a token', () => {
+    // Runs the built bundle in a child process against a real socket.io
+    // server. The child holds the event loop with a timer only until the
+    // server's probe arrives, so a prompt exit means the open socket isn't
+    // what keeps it alive.
+    it('exits on its own while its socket stays connected', async () => {
+        const { Server } = require('socket.io');
+        const server = http.createServer((req, res) => {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end('{}');
+        });
+        const io = new Server(server);
+        let connections = 0;
+        io.on('connection', (socket) => {
+            connections++;
+            socket.emit('probe');
+        });
+        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+
+        let child;
+        try {
+            const origin = `http://127.0.0.1:${server.address().port}`;
+            const script = `
+                globalThis.PUTER_API_ORIGIN = ${JSON.stringify(origin)};
+                const puter = require(${JSON.stringify(require.resolve('./init.cjs'))}).init('token');
+                const hold = setTimeout(() => {}, 10000);
+                puter.fs.socket.on('probe', () => {
+                    console.log('probe received');
+                    clearTimeout(hold);
+                });
+            `;
+            child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'ignore'] });
+            let stdout = '';
+            child.stdout.on('data', chunk => {
+                stdout += chunk;
+            });
+            const started = Date.now();
+            const code = await new Promise(resolve => child.on('exit', resolve));
+
+            expect(stdout).toContain('probe received');
+            expect(code).toBe(0);
+            expect(connections).toBe(1);
+            expect(Date.now() - started).toBeLessThan(8000);
+        } finally {
+            child?.kill();
+            io.close();
+            server.close();
+        }
+    }, 20000);
 });

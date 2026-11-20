@@ -47,10 +47,22 @@ const deviceIconSvg = (session) => {
     if ( session.kind === 'worker' ) return ICONS.worker;
     if ( session.kind === 'access_token' ) return ICONS.key;
     if ( session.kind === 'app' ) return ICONS.app;
+    if ( firstPartyHost(session) ) return ICONS.globe;
     const { os } = parseUserAgent(session.last_user_agent);
     if ( os === 'iOS' || os === 'Android' ) return ICONS.phone;
     if ( os ) return ICONS.laptop;
     return ICONS.globe;
+};
+
+// Host of the first-party page a session was handed to under a sign-in, or
+// null for any other session.
+export const firstPartyHost = (session) => {
+    if ( typeof session?.first_party_origin !== 'string' ) return null;
+    try {
+        return new URL(session.first_party_origin).host || null;
+    } catch {
+        return null;
+    }
 };
 
 // Short, human label for the kind pill (falls back to the raw kind).
@@ -303,7 +315,8 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                 || i18n('ui_session_kind_access_token') || 'Access token';
         }
         if ( session.kind === 'web' ) {
-            return session.label || i18n('ui_session_kind_web') || 'Browser session';
+            return session.label || firstPartyHost(session)
+                || i18n('ui_session_kind_web') || 'Browser session';
         }
         return session.label || session.kind || 'Session';
     };
@@ -320,6 +333,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             sessionTitle(session),
             session.label,
             session.kind,
+            firstPartyHost(session),
             session.last_ip,
             session.app?.title,
             session.app?.name,
@@ -508,6 +522,11 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             const b = document.createElement('span');
             b.classList.add('session-widget-badge', `session-widget-badge-${session.kind}`);
             b.textContent = kindBadgeLabel(session.kind);
+            el_badges.appendChild(b);
+        } else if ( firstPartyHost(session) ) {
+            const b = document.createElement('span');
+            b.classList.add('session-widget-badge', 'session-widget-badge-site');
+            b.textContent = i18n('ui_session_kind_site') || 'Site session';
             el_badges.appendChild(b);
         }
         el_titleline.appendChild(el_badges);

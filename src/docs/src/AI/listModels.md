@@ -22,12 +22,15 @@ A string containing the provider you want to list the models for.
 
 Resolves to an array of model objects. Each object always contains `id` and `provider`, and may include fields such as `name`, `aliases`, `context`, `max_tokens`, and a `cost` object (`currency`, `tokens`, `input` and `output` costs in cents). Additional provider-specific capability fields may also be present.
 
+The `puterId` field contains the qualified model name in `<service>:<provider>/<model>` form. Pass this name as the `model` option to [`puter.ai.chat()`](/AI/chat/). The `id` field and aliases also remain accepted model names. When an upstream catalog supplies no provider namespace, the qualified name uses the service name as its namespace.
+
 Example model entry:
 
 ```json
 [
   {
     "id": "claude-opus-4-8",
+    "puterId": "anthropic:anthropic/claude-opus-4-8",
     "provider": "claude",
     "name": "Claude Opus 4.8",
     "aliases": ["claude-opus-4-8-latest"],
@@ -43,12 +46,14 @@ Example model entry:
 ]
 ```
 
+<div class="info">Successful results are cached for 60 seconds per provider.</div>
+
+## Errors
+
 Network and server failures reject the promise; they do not resolve to an empty
 catalogue. Network failures use `{ message, code: "network_error" }`, invalid
 catalogue responses use `invalid_response`, idle timeouts use `request_timeout`,
 and server errors pass through unchanged.
-
-<div class="info">Successful results are cached for 60 seconds per provider.</div>
 
 ## Model variants
 
@@ -63,6 +68,8 @@ Some models have variants. A variant is the same model with a different price, r
 The model ID without a suffix is the standard variant. Not every model has variants. `:flex` and `:priority` are the provider's service tiers. To use a variant, pass its full ID as the `model` option. Options and response shape are the same as the base model. Price, context window, and max output length can differ. The model's page lists its variants and their limits.
 
 ## Examples
+
+### List all models
 
 ```html;ai-list-models
 <html>

@@ -4,7 +4,9 @@ description: Send a transactional email from your app — authorized by a worker
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Sends one transactional email from your app. Every send must be authorized by a worker: call it from inside a worker, or pass the worker's token as `emailAccessToken`. The account that makes the call is the one billed and rate-limited.
+Sends one transactional email from your app.
+
+Every send must be authorized by a worker: call it from inside a worker, or pass the worker's token as `emailAccessToken`. The account that makes the call is the one billed and rate-limited.
 
 <div class="info">Transactional email is available to accounts on a paid plan for now. A call from a free account fails with <code>402</code> <code>subscription_required</code>. Under the <a href="/user-pays-model/">User-Pays Model</a> that is the plan of the <em>calling</em> account — your users when your app sends with their session, your own when the worker sends directly.</div>
 
@@ -31,21 +33,25 @@ A plain-text body. Shorthand for `text`; use the options form for anything else.
 
 #### `options` (Object)
 
-- `to` (String | Array) (required) - Recipient address(es).
-- `subject` (String) (required) - As above.
-- `text` (String) - Plain-text body. At least one of `text` and `html` is required.
-- `html` (String) - HTML body. An inline image is shown with `<img src="cid:...">` — see `cid` under `attachments`.
-- `cc` (String | Array) - Carbon-copy recipient(s).
-- `bcc` (String | Array) - Blind-copy recipient(s). At most **10** recipients across `to`, `cc` and `bcc`.
-- `replyTo` (String) - Where replies go. Defaults to the confirmed account email of the worker's owner when the worker has no app binding, or its owner owns the bound app and that app wasn't created by another app. Otherwise, or while the address is unconfirmed, the message goes out without a Reply-To.
-- `emailAccessToken` (String) - A worker's auth token — inside a worker, `me.puter.authToken`. Required when the caller is not itself a worker. The caller stays the billed and rate-limited identity.
-- `attachments` (Array) - Up to **10** attachments, **25 MB** in total. Each is an object:
-  - `filename` (String) - Required with `content`; defaults to the file's name for a `path`/`uid` attachment.
-  - `content` (String) - The file body as base64. Mutually exclusive with `path`/`uid`.
-  - `path` (String) - A Puter path (`~/` allowed, meaning the caller's home). The file is read on the server with the caller's file permissions only, and streamed rather than uploaded — prefer this over `content` for anything larger than a few hundred kilobytes.
-  - `uid` (String) - A Puter file uid, as an alternative to `path`. Read with the caller's file permissions, falling back to the worker owner's — use a uid to attach a file from the worker owner's storage.
-  - `contentType` (String) - MIME type. Detected from the file for `path`/`uid` attachments.
-  - `cid` (String) - Content-ID that makes the attachment an inline part of the `html` body: with `cid: 'logo'`, `<img src="cid:logo">` shows it. Printable ASCII with no whitespace or angle brackets. Inline parts are billed like any other attachment.
+| Option | Type | Description |
+|--------|------|-------------|
+| `to` | `String \| Array` | Required. One recipient address, or an array of them. |
+| `subject` | `String` | Required. As above. |
+| `text` | `String` | Plain-text body. At least one of `text` and `html` is required. |
+| `html` | `String` | HTML body. An inline image is shown with `<img src="cid:...">`. See `attachments.cid`. |
+| `emailAccessToken` | `String` | A worker's auth token. Inside a worker, that's `me.puter.authToken`. Required when the caller is not itself a worker. The caller stays the billed and rate-limited identity. |
+| `attachments` | `Array` | Up to **10** attachments, **25 MB** in total. Each attachment is an object with the `attachments.*` fields in the rows that follow. |
+| `attachments.path` | `String` | A Puter path (`~/` allowed, meaning the caller's home). The file is read on the server with the caller's file permissions only, and streamed rather than uploaded. Prefer this over `content` for anything larger than a few hundred kilobytes. |
+| `attachments.uid` | `String` | A Puter file uid, as an alternative to `path`. Read with the caller's file permissions, falling back to the worker owner's. Use a uid to attach a file from the worker owner's storage. |
+| `attachments.content` | `String` | The file body as base64. Mutually exclusive with `path`/`uid`. |
+| `attachments.filename` | `String` | Required with `content`. Defaults to the file's name for a `path`/`uid` attachment. |
+| `attachments.contentType` | `String` | MIME type. Detected from the file for `path`/`uid` attachments. |
+| `attachments.cid` | `String` | Content-ID that makes the attachment an inline part of the `html` body. With `cid: 'logo'`, `<img src="cid:logo">` shows it. Printable ASCII with no whitespace or angle brackets. Inline parts are billed like any other attachment. |
+| `replyTo` | `String` | Where replies go. Defaults to the confirmed account email of the worker's owner when the worker has no app binding, or its owner owns the bound app and that app wasn't created by another app. Otherwise, or while the address is unconfirmed, the message goes out without a Reply-To. |
+| `cc` | `String \| Array` | Carbon-copy recipient(s). |
+| `bcc` | `String \| Array` | Blind-copy recipient(s). |
+
+A message can have at most **10** recipients across `to`, `cc` and `bcc`.
 
 ## Return value
 
@@ -56,7 +62,11 @@ A `Promise` that resolves to an object:
 - `suppressed` (Array) - Recipients (lowercased) dropped because they unsubscribed from your app's mail. The message went to the others.
 - `failed` (Array) - Recipients (lowercased) whose delivery failed. Everyone else got their copy — retry with just these addresses.
 
-Each recipient gets a private copy of the message, so the unsubscribe link in one copy can only act for the mailbox that received it. Per-recipient failures come back in `failed` rather than failing the call; the promise rejects only when no recipient could be delivered, or when every `to` recipient has unsubscribed (`400`).
+Each recipient gets a private copy of the message, so the unsubscribe link in one copy can only act for the mailbox that received it. Per-recipient failures come back in `failed` rather than failing the call.
+
+## Errors
+
+The promise rejects only when no recipient could be delivered, or when every `to` recipient has unsubscribed (`400`).
 
 In case of an error, the `Promise` rejects with `{ message, code }`. Codes you may see:
 
@@ -90,7 +100,7 @@ Sends are rate-limited per calling account; the numbers are on [Rate Limits and 
 
 ## Examples
 
-<strong class="example-title">Send a plain-text notification from a worker</strong>
+### Send a plain-text notification from a worker
 
 ```js
 // The worker is the caller, so its owner is billed and rate-limited.
@@ -104,7 +114,7 @@ router.post('/api/alert', async ({ request }) => {
 });
 ```
 
-<strong class="example-title">Let the user pay for their own sends</strong>
+### Let the user pay for their own sends
 
 ```js
 // The user's session makes the call; the worker's token authorizes it.
@@ -122,7 +132,7 @@ router.post('/api/receipt', async ({ request, user }) => {
 });
 ```
 
-<strong class="example-title">Attach a file and show an inline image</strong>
+### Attach a file and show an inline image
 
 ```js
 // The uid of a file in the worker owner's storage, e.g. from

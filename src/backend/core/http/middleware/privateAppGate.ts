@@ -86,6 +86,10 @@ export interface PrivateIdentity {
     hasValidPrivateCookie?: boolean;
 }
 
+type PublicCookieClaims = Awaited<
+    ReturnType<AuthService['verifyHostedAssetToken']>
+>;
+
 interface SubdomainLike {
     user_id?: number | null;
 }
@@ -396,7 +400,7 @@ export async function resolvePrivateIdentity(opts: {
         return {
             source: 'session-cookie',
             userUid: existingActor.user.uuid,
-            sessionUuid: existingActor.session?.uid,
+            sessionUuid: boundSessionUid(existingActor),
         };
     }
 
@@ -415,7 +419,7 @@ export async function resolvePrivateIdentity(opts: {
                 return {
                     source: 'session-cookie',
                     userUid: actor.user.uuid,
-                    sessionUuid: actor.session?.uid,
+                    sessionUuid: boundSessionUid(actor),
                 };
             }
         } catch {
@@ -437,7 +441,7 @@ export async function resolvePrivateIdentity(opts: {
                 return {
                     source: bootstrap.source,
                     userUid: actor.user.uuid,
-                    sessionUuid: actor.session?.uid,
+                    sessionUuid: boundSessionUid(actor),
                 };
             }
         } catch {
@@ -462,17 +466,28 @@ export async function resolvePrivateIdentity(opts: {
  * as a plain session on any private host.
  *
  * A scoped access token (a read URL, whoever issued it) is never the account
- * here: the hosted cookie minted from it would outlive the token's revocation.
+ * here. A full-access one is, when it names its own session row: the hosted
+ * cookie minted from it is bound to that row, so it ends with the token.
  */
 function actorMatchesExpectedApp(
     actor: Actor,
     expectedAppUid: string | undefined,
 ): boolean {
-    if (isAccessTokenActor(actor) && !isAccountContext(actor)) return false;
+    if (
+        isAccessTokenActor(actor) &&
+        (!isAccountContext(actor) || !actor.accessToken?.sessionUid)
+    ) {
+        return false;
+    }
     if (!expectedAppUid) return true;
     const app = actor.effectiveApp;
     if (!app) return true;
     return app.uid === expectedAppUid;
+}
+
+/** The session row a hosted cookie minted for `actor` is bound to. */
+function boundSessionUid(actor: Actor): string | undefined {
+    return actor.session?.uid ?? actor.accessToken?.sessionUid;
 }
 
 /**
@@ -507,7 +522,7 @@ export async function resolvePublicHostedIdentity(opts: {
         return {
             source: 'session-cookie',
             userUid: existingActor.user.uuid,
-            sessionUuid: existingActor.session?.uid,
+            sessionUuid: boundSessionUid(existingActor),
         };
     }
 
@@ -525,28 +540,7 @@ export async function resolvePublicHostedIdentity(opts: {
                 return {
                     source: 'session-cookie',
                     userUid: actor.user.uuid,
-                    sessionUuid: actor.session?.uid,
-                };
-            }
-        } catch {
-            /* fall through */
-        }
-    }
-
-    const bootstrap = getBootstrapToken(req);
-    if (bootstrap) {
-        try {
-            const actor = await authService.authenticateFromToken(
-                bootstrap.token,
-            );
-            if (
-                actor?.user?.uuid &&
-                actorMatchesExpectedApp(actor, expectedAppUid)
-            ) {
-                return {
-                    source: bootstrap.source,
-                    userUid: actor.user.uuid,
-                    sessionUuid: actor.session?.uid,
+                    sessionUuid: boundSessionUid(actor),
                 };
             }
         } catch {
@@ -563,27 +557,75 @@ export async function resolvePublicHostedIdentity(opts: {
         (typeof cookies?.[publicCookieNameLegacy] === 'string'
             ? cookies[publicCookieNameLegacy]
             : null);
-    if (publicCookieToken) {
+    let publicCookieClaims: Promise<PublicCookieClaims | null> | undefined;
+    const verifyPublicCookie = () =>
+        (publicCookieClaims ??= (async () => {
+            if (!publicCookieToken) return null;
+            try {
+                return await authService.verifyHostedAssetToken(
+                    'public',
+                    publicCookieToken,
+                    {
+                        appUid: expectedAppUid,
+                        subdomain: expectedSubdomain,
+                        host: expectedHost,
+                    },
+                );
+            } catch {
+                // v1-signed cookies land here and get re-minted.
+                return null;
+            }
+        })());
+    const publicCookieIdentity = (claims: PublicCookieClaims) => ({
+        source: 'public-cookie' as const,
+        userUid: claims.userUid,
+        sessionUuid: claims.sessionUuid,
+        hasValidPublicCookie: true,
+    });
+
+    const bootstrap = getBootstrapToken(req);
+    if (bootstrap) {
+        // A launched app's own assets carry its launch token in the Referer.
+        // When that token names the cookie's user and session, the cookie
+        // already stands for it and nothing needs re-authenticating or minting.
+        if (
+            bootstrap.source === 'referrer' &&
+            publicCookieToken &&
+            expectedAppUid
+        ) {
+            const named = authService.signedSessionClaims(bootstrap.token);
+            if (named && (!named.appUid || named.appUid === expectedAppUid)) {
+                const claims = await verifyPublicCookie();
+                if (
+                    claims &&
+                    claims.userUid === named.userUid &&
+                    claims.sessionUuid === named.sessionUuid
+                ) {
+                    return publicCookieIdentity(claims);
+                }
+            }
+        }
         try {
-            const claims = await authService.verifyHostedAssetToken(
-                'public',
-                publicCookieToken,
-                {
-                    appUid: expectedAppUid,
-                    subdomain: expectedSubdomain,
-                    host: expectedHost,
-                },
+            const actor = await authService.authenticateFromToken(
+                bootstrap.token,
             );
-            return {
-                source: 'public-cookie',
-                userUid: claims.userUid,
-                sessionUuid: claims.sessionUuid,
-                hasValidPublicCookie: true,
-            };
+            if (
+                actor?.user?.uuid &&
+                actorMatchesExpectedApp(actor, expectedAppUid)
+            ) {
+                return {
+                    source: bootstrap.source,
+                    userUid: actor.user.uuid,
+                    sessionUuid: boundSessionUid(actor),
+                };
+            }
         } catch {
-            /* fall through — v1-signed cookies land here and get re-minted */
+            /* fall through */
         }
     }
+
+    const claims = await verifyPublicCookie();
+    if (claims) return publicCookieIdentity(claims);
 
     return { source: 'none' };
 }

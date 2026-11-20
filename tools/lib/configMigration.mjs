@@ -320,7 +320,7 @@ export const transformToV2 = (source) => {
     if ( svc['onlyoffice-app'] ) out.onlyoffice = svc['onlyoffice-app'];
 
     // Cloudflare Turnstile: v2 GUI renders the challenge widget when
-    // `gui_params.turnstileSiteKey` is set (see initgui.js / UIWindowSignup).
+    // `gui_params.turnstileSiteKey` is set (see initgui.js / UI/Auth/UIAuthSignup.js).
     // Preserve the full block at `turnstile` for whenever the backend verifier
     // is ported, and surface the site key into gui_params so the widget works.
     if ( svc['cloudflare-turnstile'] ) {
@@ -428,7 +428,7 @@ export const transformToV2 = (source) => {
         // (confirmed via git grep on puter@main), no v2 consumers.
         'ipgeo', 'newsdata', 'weather', 'user-send-mail',
         // `ai-chat.concurrentRequests` — v1 concurrency limiter not ported
-        // yet; see TODO in v2 drivers/ai-chat/ChatCompletionDriver.ts. Config
+        // yet; see TODO in v2 drivers/ai/interfaces/chat/ChatCompletionDriver.ts. Config
         // shape should move under `rate_limit.*` in IConfig when reintroduced,
         // so dropping avoids migrating a soon-to-be-renamed shape.
         'ai-chat',

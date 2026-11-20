@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { get_oidc_return_to, takeOidcLoginChallenge } from './authRedirect.js';
+import { authErrorDisplayMessage, get_oidc_return_to, takeOidcLoginChallenge } from './authRedirect.js';
 
 const at = (pathname, search = '') => {
     globalThis.window = { location: { pathname, search } };
@@ -42,7 +42,6 @@ afterEach(() => {
 
 describe('get_oidc_return_to', () => {
     it('returns the interface pages the backend whitelists', () => {
-        expect(at('/desktop')).toBe('/desktop');
         expect(at('/dashboard')).toBe('/dashboard');
     });
 
@@ -51,17 +50,12 @@ describe('get_oidc_return_to', () => {
         expect(at('/app/editor/')).toBe('/app/editor');
     });
 
-    it('keeps a desktop app landing on the desktop', () => {
-        expect(at('/desktop/app/editor')).toBe('/desktop/app/editor');
-        expect(at('/desktop/app/editor/')).toBe('/desktop/app/editor');
-    });
-
     it('carries a share link so the item survives the round trip', () => {
         expect(at('/', share_search(shared_path('Report.pdf')))).toBe(
             `/${share_search(shared_path('Report.pdf'))}`,
         );
-        expect(at('/desktop', share_search(shared_path('Report.pdf')))).toBe(
-            `/desktop${share_search(shared_path('Report.pdf'))}`,
+        expect(at('/dashboard', share_search(shared_path('Report.pdf')))).toBe(
+            `/dashboard${share_search(shared_path('Report.pdf'))}`,
         );
         expect(
             at('/', share_search(shared_path('a.txt'), shared_path('b.txt'))),
@@ -83,10 +77,10 @@ describe('get_oidc_return_to', () => {
         expect(at('/', share_search('/alice/Documents/Report.pdf'))).toBe(null);
         expect(at('/', '?shared=')).toBe(null);
         // other parameters are not ours to carry
-        expect(at('/desktop', '?app=editor')).toBe('/desktop');
+        expect(at('/dashboard', '?app=editor')).toBe('/dashboard');
         expect(
-            at('/desktop', `${share_search(shared_path('a.txt'))}&app=editor`),
-        ).toBe(`/desktop${share_search(shared_path('a.txt'))}`);
+            at('/dashboard', `${share_search(shared_path('a.txt'))}&app=editor`),
+        ).toBe(`/dashboard${share_search(shared_path('a.txt'))}`);
     });
 
     it('returns null for anything the backend would reject', () => {
@@ -94,6 +88,8 @@ describe('get_oidc_return_to', () => {
         expect(at('/settings')).toBe(null);
         expect(at('/action/login')).toBe(null);
         expect(at('/app/editor/extra')).toBe(null);
+        expect(at('/desktop')).toBe(null);
+        expect(at('/desktop/app/editor')).toBe(null);
         expect(at('/desktop/app/editor/extra')).toBe(null);
         expect(at('/dashboard/app/editor')).toBe(null);
     });
@@ -141,5 +137,31 @@ describe('provider second-factor return context', () => {
     it('returns to ordinary login when a challenge link has no retry context', () => {
         const { result } = bootAt('https://puter.test/action/oidc-2fa#token=challenge');
         expect(result).toEqual({ token: 'challenge', retryUrl: '/action/login' });
+    });
+});
+
+describe('authErrorDisplayMessage', () => {
+    const show = (query) => {
+        globalThis.i18n = (key, args) => (args?.id ? `${key}(${args.id})` : key);
+        try {
+            return authErrorDisplayMessage(new URLSearchParams(query));
+        } finally {
+            delete globalThis.i18n;
+        }
+    };
+
+    it.each(['signup_blocked', 'signin_blocked'])('names the request code of a blocked %s', (code) => {
+        expect(show(`auth_error=1&message=${code}&request_code=rc-1`)).toBe(`${code}_message contact_support_with_code(rc-1)`);
+        expect(show(`auth_error=1&message=${code}`)).toBe(`${code}_message contact_support`);
+    });
+
+    it('maps the other known codes', () => {
+        expect(show('message=account_suspended')).toBe('account_suspended_message');
+        expect(show('message=bonus_code_invalid')).toBe('signup_bonus_code_invalid_retry');
+    });
+
+    it('never shows text written into the URL', () => {
+        expect(show('message=Your+account+was+hacked')).toBe('auth_error_generic');
+        expect(show('message=constructor')).toBe('auth_error_generic');
     });
 });

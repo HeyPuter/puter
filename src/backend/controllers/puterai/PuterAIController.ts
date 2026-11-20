@@ -30,25 +30,28 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import {
     COUNT_TOKENS,
     type ChatCompletionDriver,
-} from '../../drivers/ai-chat/ChatCompletionDriver.js';
+} from '../../drivers/ai/interfaces/chat/ChatCompletionDriver.js';
 import type {
     IChatCompleteResult,
     IChatMessageResult,
     IChatModel,
     ICompleteArguments,
     UsageDetails,
-} from '../../drivers/ai-chat/types.js';
+} from '../../drivers/ai/interfaces/chat/types.js';
 import {
     outputFormatFromResponseFormat,
     rejectStatefulResponsesFields,
     toolChoiceFromWire,
-} from '../../drivers/ai-chat/utils/openaiParams.js';
+} from '../../drivers/ai/protocols/openaiCompatible/openaiParams.js';
 import {
     promoteStopForToolCalls,
     toFinishReason,
-} from '../../drivers/ai-chat/utils/stopReason.js';
+} from '../../drivers/ai/interfaces/chat/utils/stopReason.js';
 import { isDriverStreamResult } from '../../drivers/meta.js';
-import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
+import {
+    AI_CONCURRENT,
+    AI_RATE_LIMIT,
+} from '../../drivers/ai/shared/aiLimits.js';
 import { PuterController } from '../types.js';
 import { parseAnthropicRequest, toAnthropicMessage } from './anthropicWire.js';
 import { pipeNdjsonStream } from './ndjsonStream.js';
@@ -447,6 +450,7 @@ export class PuterAIController extends PuterController {
                           body.reasoning_effort as ICompleteArguments['reasoning_effort'],
                   }
                 : {}),
+            ...promptCacheArgsFromBody(body),
             ...openaiCompatProvider(body),
             ...(body.fallback === false ? { fallback: false } : {}),
         };
@@ -546,7 +550,8 @@ export class PuterAIController extends PuterController {
                         }
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -695,7 +700,8 @@ export class PuterAIController extends PuterController {
                         sendChunk(ev.text);
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -749,7 +755,8 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                Record<string, unknown> | undefined
+                                | Record<string, unknown>
+                                | undefined
                         )?.content,
                     ),
                     index: 0,
@@ -842,15 +849,7 @@ export class PuterAIController extends PuterController {
                           body.compaction as ICompleteArguments['compaction'],
                   }
                 : {}),
-            ...(body.prompt_cache_key
-                ? { prompt_cache_key: String(body.prompt_cache_key) }
-                : {}),
-            ...(body.prompt_cache_retention
-                ? {
-                      prompt_cache_retention:
-                          body.prompt_cache_retention as ICompleteArguments['prompt_cache_retention'],
-                  }
-                : {}),
+            ...promptCacheArgsFromBody(body),
             // forced off regardless of what the caller sent — OpenAI
             // defaults `store` to true, which would persist state server-side
             // on OpenAI's end that this route gives no way to retrieve.
@@ -1308,13 +1307,18 @@ export class PuterAIController extends PuterController {
         return driver;
     }
 
-    /** A completion that stops, and stops billing, when the caller hangs up. */
+    /**
+     * A completion whose caller may hang up. It runs on to its usage report
+     * either way, so it holds the route's concurrency slot until it settles.
+     */
     #complete(
         res: Response,
         args: ICompleteArguments,
     ): Promise<IChatCompleteResult> {
         Context.set('abortSignal', abortOnDisconnect(res));
-        return this.#driver().complete(args);
+        const completion = this.#driver().complete(args);
+        Context.get('keepConcurrencySlot')?.(completion);
+        return completion;
     }
 }
 
@@ -1342,6 +1346,33 @@ const openaiCompatProvider = (
     if (toStringOrEmpty(body.model)) return {};
     return { provider: DEFAULTS.openaiChat };
 };
+
+/**
+ * The prompt-cache fields both OpenAI-shaped routes forward as sent; the
+ * provider checks the values.
+ */
+const promptCacheArgsFromBody = (
+    body: Record<string, unknown>,
+): Pick<
+    ICompleteArguments,
+    'prompt_cache_key' | 'prompt_cache_retention' | 'prompt_cache_options'
+> => ({
+    ...(body.prompt_cache_key
+        ? { prompt_cache_key: String(body.prompt_cache_key) }
+        : {}),
+    ...(body.prompt_cache_retention
+        ? {
+              prompt_cache_retention:
+                  body.prompt_cache_retention as ICompleteArguments['prompt_cache_retention'],
+          }
+        : {}),
+    ...(body.prompt_cache_options
+        ? {
+              prompt_cache_options:
+                  body.prompt_cache_options as ICompleteArguments['prompt_cache_options'],
+          }
+        : {}),
+});
 
 const randomId = (): string => crypto.randomUUID().replace(/-/g, '');
 const generateId = (prefix: string): string => `${prefix}_${randomId()}`;
@@ -1590,12 +1621,24 @@ const parseJsonMaybe = (value: unknown): unknown => {
     }
 };
 
+/** An OpenAI `prompt_cache_breakpoint` marker, kept on the translated part. */
+const cacheBreakpointOf = (
+    p: Record<string, unknown>,
+): { prompt_cache_breakpoint?: unknown } =>
+    p.prompt_cache_breakpoint && typeof p.prompt_cache_breakpoint === 'object'
+        ? { prompt_cache_breakpoint: p.prompt_cache_breakpoint }
+        : {};
+
 const normalizeContentPart = (part: unknown): Record<string, unknown> => {
     if (typeof part === 'string') return { type: 'text', text: part };
     if (!part || typeof part !== 'object') return { type: 'text', text: '' };
     const p = part as Record<string, unknown>;
     if (p.type === 'input_text' || p.type === 'output_text') {
-        return { type: 'text', text: String(p.text ?? '') };
+        return {
+            type: 'text',
+            text: String(p.text ?? ''),
+            ...cacheBreakpointOf(p),
+        };
     }
     if (p.type === 'input_image') {
         return {
@@ -1603,6 +1646,7 @@ const normalizeContentPart = (part: unknown): Record<string, unknown> => {
             ...(p.detail ? { detail: p.detail } : {}),
             ...(p.image_url ? { image_url: { url: p.image_url } } : {}),
             ...(p.file_id ? { file_id: p.file_id } : {}),
+            ...cacheBreakpointOf(p),
         };
     }
     if (p.type === 'input_audio')
@@ -1614,6 +1658,7 @@ const normalizeContentPart = (part: unknown): Record<string, unknown> => {
             ...(p.file_id ? { file_id: p.file_id } : {}),
             ...(p.file_url ? { file_url: p.file_url } : {}),
             ...(p.filename ? { filename: p.filename } : {}),
+            ...cacheBreakpointOf(p),
         };
     }
     return p;

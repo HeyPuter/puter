@@ -185,6 +185,38 @@ describe('SystemKVStore', () => {
             ).rejects.toMatchObject({ statusCode: 400, code: 'value_too_large' });
         });
 
+        it('rejects a value under the size limit that is too large once stored', async () => {
+            // Every element costs more stored than it does as JSON.
+            const grid = new Array(140_000).fill(1);
+            await expect(
+                target.set({ key: 'grid', value: grid }, opts),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_too_large',
+            });
+
+            // The key counts toward the stored size too.
+            const atLimit = 'x'.repeat(399 * 1024 - 2);
+            await expect(
+                target.set({ key: 'k'.repeat(1000), value: atLimit }, opts),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_too_large',
+            });
+            await expect(
+                target.set({ key: 'short', value: atLimit }, opts),
+            ).resolves.toMatchObject({ res: true });
+        });
+
+        it('asks the store for a consistent read of several keys', async () => {
+            const batchGet = vi.spyOn(server.clients.dynamo, 'batchGet');
+            await target.get({ key: ['a', 'b'], consistentRead: true }, opts);
+            await target.get({ key: ['a', 'b'] }, opts);
+            const consistent = batchGet.mock.calls.map((call) => !!call[1]);
+            batchGet.mockRestore();
+            expect(consistent).toEqual([true, false]);
+        });
+
         it('clamps a number too large to store, rather than failing the write', async () => {
             await target.set(
                 { key: 'huge', value: 1.6515584833071455e55 },
@@ -316,6 +348,23 @@ describe('SystemKVStore', () => {
             );
             const result = await target.get({ key: 'dup' }, opts);
             expect(result.res).toBe('last');
+        });
+
+        it('rejects an item under the size limit that is too large once stored', async () => {
+            await expect(
+                target.batchPut(
+                    {
+                        items: [
+                            { key: 'ok', value: 1 },
+                            { key: 'grid', value: new Array(140_000).fill(1) },
+                        ],
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_too_large',
+            });
         });
 
         it('rejects when any item has an oversized key', async () => {
@@ -1458,6 +1507,48 @@ describe('SystemKVStore', () => {
 
             const { res } = await target.get({ key: 'fenced' }, opts);
             expect(res).toEqual({ total: 5 });
+        });
+
+        it('reads back the last token a writer applied', async () => {
+            await fencedIncr(500, 'w1');
+            await fencedIncr(501, 'w1');
+
+            const one = await target.get(
+                { key: 'fenced', fenceWriter: 'w1' },
+                opts,
+            );
+            expect(one.res).toEqual({ total: 10 });
+            expect(one.fences).toBe(501);
+
+            const many = await target.get(
+                { key: ['fenced', 'never-written'], fenceWriter: 'w1' },
+                opts,
+            );
+            expect(many.fences).toEqual([501, 0]);
+
+            const other = await target.get(
+                { key: 'fenced', fenceWriter: 'w2' },
+                opts,
+            );
+            expect(other.fences).toBe(0);
+            expect(
+                (await target.get({ key: 'fenced' }, opts)).fences,
+            ).toBeUndefined();
+        });
+
+        it('reads no token back from an expired row', async () => {
+            await fencedIncr(600);
+            await target.expireAt(
+                { key: 'fenced', timestamp: Date.now() / 1000 - 10 },
+                opts,
+            );
+
+            const { res, fences } = await target.get(
+                { key: 'fenced', fenceWriter: 'w1' },
+                opts,
+            );
+            expect(res).toBeNull();
+            expect(fences).toBe(0);
         });
     });
 
@@ -3881,6 +3972,289 @@ describe('SystemKVStore', () => {
             expect((await target.get({ key: 'private-claim' }, own)).res).toBe(
                 's',
             );
+        });
+
+        // DynamoDB returns the refusing item (undecoded) when asked; the local
+        // emulator ignores the request, so this adds it the way DynamoDB does.
+        describe('when the refusal carries the refusing item', () => {
+            const attributeValue = (value: unknown) =>
+                value === null
+                    ? { NULL: true }
+                    : typeof value === 'number'
+                      ? { N: String(value) }
+                      : typeof value === 'boolean'
+                        ? { BOOL: value }
+                        : { S: String(value) };
+
+            // `onRefusal` runs before the item is added, as time passing
+            // while the refusal travels back.
+            const recordCalls = (onRefusal?: () => void) => {
+                const dynamo = server.clients.dynamo;
+                const realPut = dynamo.put.bind(dynamo);
+                const realDel = dynamo.del.bind(dynamo);
+                const realGet = dynamo.get.bind(dynamo);
+                const calls: string[] = [];
+                const withItem = async (
+                    err: unknown,
+                    table: string,
+                    key: { namespace: unknown; key: unknown },
+                    asked: boolean | undefined,
+                ) => {
+                    if (
+                        !asked ||
+                        (err as { name?: string })?.name !==
+                            'ConditionalCheckFailedException'
+                    )
+                        return err;
+                    onRefusal?.();
+                    const stored = (await realGet(table, key, true)).Item;
+                    if (stored) {
+                        (err as { Item?: unknown }).Item = {
+                            namespace: { S: String(stored.namespace) },
+                            key: { S: String(stored.key) },
+                            ...(stored.ttl === undefined
+                                ? {}
+                                : { ttl: attributeValue(stored.ttl) }),
+                            ...(stored.noShare === undefined
+                                ? {}
+                                : { noShare: attributeValue(stored.noShare) }),
+                        };
+                    }
+                    return err;
+                };
+                const spies = [
+                    vi.spyOn(dynamo, 'put').mockImplementation((async (
+                        table: string,
+                        item: Record<string, unknown>,
+                        o?: { returnOldOnRefusal?: boolean },
+                    ) => {
+                        calls.push('put');
+                        try {
+                            return await realPut(table, item, o as never);
+                        } catch (e) {
+                            throw await withItem(
+                                e,
+                                table,
+                                { namespace: item.namespace, key: item.key },
+                                o?.returnOldOnRefusal,
+                            );
+                        }
+                    }) as never),
+                    vi.spyOn(dynamo, 'del').mockImplementation((async (
+                        table: string,
+                        key: { namespace: unknown; key: unknown },
+                        o?: { returnOldOnRefusal?: boolean },
+                    ) => {
+                        calls.push('del');
+                        try {
+                            return await realDel(table, key, o as never);
+                        } catch (e) {
+                            throw await withItem(
+                                e,
+                                table,
+                                key,
+                                o?.returnOldOnRefusal,
+                            );
+                        }
+                    }) as never),
+                    vi.spyOn(dynamo, 'get').mockImplementation(((
+                        ...args: Parameters<typeof realGet>
+                    ) => {
+                        calls.push('get');
+                        return realGet(...args);
+                    }) as never),
+                ];
+                return {
+                    calls,
+                    restore: () => spies.forEach((spy) => spy.mockRestore()),
+                };
+            };
+
+            it('answers false for a live key with the one refused write', async () => {
+                await target.set({ key: 'held', value: 'a' }, opts);
+                const recorded = recordCalls();
+                try {
+                    const res = await target.set(
+                        { key: 'held', value: 'b', onlyIfAbsent: true },
+                        opts,
+                    );
+                    expect(res.res).toBe(false);
+                    expect(res.usage.write).toBe(1);
+                    expect(recorded.calls).toEqual(['put']);
+                } finally {
+                    recorded.restore();
+                }
+                expect((await target.get({ key: 'held' }, opts)).res).toBe('a');
+            });
+
+            it('answers false for a key with a future expiry the same way', async () => {
+                await target.set(
+                    {
+                        key: 'heldUntil',
+                        value: 'a',
+                        expireAt: Math.floor(Date.now() / 1000) + 3600,
+                    },
+                    opts,
+                );
+                const recorded = recordCalls();
+                try {
+                    const res = await target.set(
+                        { key: 'heldUntil', value: 'b', onlyIfAbsent: true },
+                        opts,
+                    );
+                    expect(res.res).toBe(false);
+                    expect(recorded.calls).toEqual(['put']);
+                } finally {
+                    recorded.restore();
+                }
+            });
+
+            it('claims a key whose expiry passes while the refusal is on its way', async () => {
+                vi.useFakeTimers({ toFake: ['Date'] });
+                try {
+                    const start = Date.now();
+                    await target.set(
+                        {
+                            key: 'lapsing',
+                            value: 'old',
+                            expireAt: Math.floor(start / 1000) + 5,
+                        },
+                        opts,
+                    );
+                    const recorded = recordCalls(() =>
+                        vi.setSystemTime(start + 10_000),
+                    );
+                    try {
+                        const res = await target.set(
+                            {
+                                key: 'lapsing',
+                                value: 'new',
+                                onlyIfAbsent: true,
+                            },
+                            opts,
+                        );
+                        expect(res.res).toBe(true);
+                    } finally {
+                        recorded.restore();
+                    }
+                    expect(
+                        (await target.get({ key: 'lapsing' }, opts)).res,
+                    ).toBe('new');
+                } finally {
+                    vi.useRealTimers();
+                }
+            });
+
+            describe('for a share holder', () => {
+                const ownerAndHolder = () => {
+                    const owner: Actor = {
+                        user: {
+                            id: 7002,
+                            uuid: `owner-${Math.random().toString(36).slice(2)}`,
+                        },
+                        effectiveApp: null,
+                    };
+                    return {
+                        owner,
+                        holder: {
+                            actor,
+                            namespaceUser: {
+                                uuid: owner.user.uuid!,
+                                id: owner.user.id!,
+                            },
+                            namespaceAppUuid: KV_GLOBAL_APP_KEY,
+                        },
+                    };
+                };
+
+                it('refuses a claim on a private entry from the refusal alone', async () => {
+                    const { owner, holder } = ownerAndHolder();
+                    await target.set(
+                        { key: 'mine', value: 's', disableSharing: true },
+                        { actor: owner },
+                    );
+                    const recorded = recordCalls();
+                    try {
+                        await expect(
+                            target.set(
+                                { key: 'mine', value: 'x', onlyIfAbsent: true },
+                                holder,
+                            ),
+                        ).rejects.toMatchObject({ statusCode: 403 });
+                        expect(recorded.calls).toEqual(['put']);
+                    } finally {
+                        recorded.restore();
+                    }
+                });
+
+                it('answers false for a shared entry from the refusal alone', async () => {
+                    const { owner, holder } = ownerAndHolder();
+                    await target.set(
+                        { key: 'ours', value: 's' },
+                        { actor: owner },
+                    );
+                    const recorded = recordCalls();
+                    try {
+                        const res = await target.set(
+                            { key: 'ours', value: 'x', onlyIfAbsent: true },
+                            holder,
+                        );
+                        expect(res.res).toBe(false);
+                        expect(recorded.calls).toEqual(['put']);
+                    } finally {
+                        recorded.restore();
+                    }
+                });
+            });
+
+            it('still settles a legacy text ttl reads treat as expired', async () => {
+                await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                    namespace: namespaceOf(actor),
+                    key: 'legacyLapsed',
+                    value: 'old',
+                    ttl: String(Math.floor(Date.now() / 1000) - 3600),
+                });
+                const recorded = recordCalls();
+                try {
+                    const res = await target.set(
+                        {
+                            key: 'legacyLapsed',
+                            value: 'new',
+                            onlyIfAbsent: true,
+                        },
+                        opts,
+                    );
+                    expect(res.res).toBe(true);
+                } finally {
+                    recorded.restore();
+                }
+                expect(
+                    (await target.get({ key: 'legacyLapsed' }, opts)).res,
+                ).toBe('new');
+            });
+
+            it('refuses a foreign delete of a live private entry with one call', async () => {
+                const own = { actor, appUuid: 'app-other' };
+                await target.set(
+                    { key: 'private-held', value: 's', disableSharing: true },
+                    own,
+                );
+                const recorded = recordCalls();
+                try {
+                    await expect(
+                        target.del(
+                            { key: 'private-held' },
+                            { actor, namespaceAppUuid: 'app-other' },
+                        ),
+                    ).rejects.toMatchObject({ statusCode: 403 });
+                    expect(recorded.calls).toEqual(['del']);
+                } finally {
+                    recorded.restore();
+                }
+                expect(
+                    (await target.get({ key: 'private-held' }, own)).res,
+                ).toBe('s');
+            });
         });
     });
 

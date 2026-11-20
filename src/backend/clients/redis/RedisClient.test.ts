@@ -17,8 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Command } from 'ioredis';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { startSilentRedis } from '../../testFixtures/silentRedis';
 import type { IConfig } from '../../types';
+import { sendAsUndo } from './commandTimeout';
 import { RedisClient } from './RedisClient';
 
 const config = (redis: Record<string, unknown>): IConfig =>
@@ -167,5 +170,198 @@ describe('RedisClient — real cluster wiring', () => {
         expect(log).toHaveBeenCalledWith('[redis] cluster transport connected');
         expect(log).toHaveBeenCalledWith('[redis] cluster ready');
         log.mockRestore();
+    });
+});
+
+describe('RedisClient — command timeout', () => {
+    let client: RedisClient | null = null;
+    let silent: Awaited<ReturnType<typeof startSilentRedis>> | null = null;
+
+    afterEach(async () => {
+        client?.disconnect();
+        client = null;
+        await silent?.close();
+        silent = null;
+        vi.restoreAllMocks();
+    });
+
+    const connect = async (clusterReady: boolean, failFastMs = 0) => {
+        silent = await startSilentRedis(clusterReady);
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        client = new RedisClient(
+            config({
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 200,
+                failFastMs,
+            }),
+        );
+        return client;
+    };
+
+    const ready = async (failFastMs: number) => {
+        const redis = await connect(true, failFastMs);
+        await new Promise<void>((r) => redis.once('ready', () => r()));
+        return redis;
+    };
+
+    it('rejects commands unsent for a while after one times out', async () => {
+        const redis = await ready(60_000);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+
+        const started = Date.now();
+        for (const key of ['b', 'c', 'd']) {
+            await expect(redis.get(key)).rejects.toThrow('Redis unavailable');
+        }
+        expect(Date.now() - started).toBeLessThan(250);
+        const piped = await redis.pipeline().get('e').get('f').exec();
+        expect(piped!.map(([error]) => error?.message)).toEqual([
+            'Redis unavailable',
+            'Redis unavailable',
+        ]);
+        await expect(
+            redis.multi().set('g', '1').get('g').exec(),
+        ).rejects.toThrow();
+        expect(silent!.seen).toEqual(['set']);
+    }, 5000);
+
+    it('leaves an ignored command rejected unsent handled, as a sent one is', async () => {
+        const redis = await ready(60_000);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        try {
+            // Fire-and-forget, as the socket.io adapter publishes.
+            void redis.publish('channel', 'x');
+            await new Promise((r) => setTimeout(r, 50));
+        } finally {
+            process.off('unhandledRejection', unhandled);
+        }
+        expect(unhandled).not.toHaveBeenCalled();
+        expect(silent!.seen).toEqual(['set']);
+    }, 5000);
+
+    it('closes once a probe after the interval gets a reply', async () => {
+        const redis = await ready(300);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+        await expect(redis.get('b')).rejects.toThrow('Redis unavailable');
+
+        silent!.answer();
+        await new Promise((r) => setTimeout(r, 350));
+        await expect(redis.get('c')).resolves.toBeNull();
+        await expect(redis.get('d')).resolves.toBeNull();
+        expect(silent!.seen).toEqual(['set', 'get', 'get']);
+    }, 5000);
+
+    it('sends an undo past the open breaker, behind the original', async () => {
+        const redis = await ready(60_000);
+        await expect(redis.set('lock', 't')).rejects.toThrow(
+            'Command timed out',
+        );
+        await expect(redis.get('lock')).rejects.toThrow('Redis unavailable');
+
+        const undo = sendAsUndo(() => redis.eval('return 1', 1, 'lock', 't'));
+        silent!.answer();
+        await expect(undo).resolves.toBe(1);
+        expect(silent!.seen).toEqual(['set', 'eval']);
+    }, 5000);
+
+    it('times out a pipeline retried after MOVED replies onto a stalled node', async () => {
+        silent = await startSilentRedis(true, { moved: 2 });
+        client = new RedisClient(
+            config({
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 200,
+                failFastMs: 0,
+            }),
+        );
+        const redis = client;
+        await new Promise<void>((r) => redis.once('ready', () => r()));
+
+        const piped = await redis.pipeline().get('a{x}').get('b{x}').exec();
+        expect(piped!.map(([error]) => error?.message)).toEqual([
+            'Command timed out',
+            'Command timed out',
+        ]);
+        expect(silent.seen).toEqual(['get', 'get', 'get', 'get']);
+    }, 5000);
+
+    it('stays open when a probe fails without a reply', async () => {
+        const redis = await ready(300);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+        await new Promise((r) => setTimeout(r, 350));
+
+        const base = Object.getPrototypeOf(Object.getPrototypeOf(redis));
+        const closed = vi
+            .spyOn(base, 'sendCommand')
+            .mockImplementationOnce((command: Command) => {
+                command.reject(new Error('Connection is closed.'));
+                return command.promise;
+            });
+        await expect(redis.get('b')).rejects.toThrow('Connection is closed.');
+        closed.mockRestore();
+
+        await expect(redis.get('c')).rejects.toThrow('Redis unavailable');
+        expect(silent!.seen).toEqual(['set']);
+    }, 5000);
+
+    it('keeps sending every command when failFastMs is 0', async () => {
+        const redis = await ready(0);
+        await expect(redis.set('a', '1')).rejects.toThrow('Command timed out');
+        await expect(redis.get('b')).rejects.toThrow('Command timed out');
+        expect(silent!.seen).toEqual(['set', 'get']);
+    }, 5000);
+
+    it('rejects a command sent to a node that never answers', async () => {
+        const redis = await connect(true);
+        await new Promise<void>((r) => redis.once('ready', () => r()));
+
+        const started = Date.now();
+        await expect(redis.get('k')).rejects.toThrow('Command timed out');
+        expect(Date.now() - started).toBeLessThan(2000);
+    }, 5000);
+
+    it('rejects a command queued while the cluster never becomes ready', async () => {
+        const redis = await connect(false);
+
+        await expect(redis.set('k', 'v')).rejects.toThrow('Command timed out');
+        expect(redis.status).not.toBe('ready');
+    }, 5000);
+
+    it('leaves duplicate() clients without the timeout', async () => {
+        const redis = await connect(false);
+        const sub = redis.duplicate();
+        try {
+            const outcome = await Promise.race([
+                sub.get('k').then(
+                    () => 'settled',
+                    () => 'settled',
+                ),
+                new Promise((r) => setTimeout(r, 600, 'pending')),
+            ]);
+            expect(outcome).toBe('pending');
+        } finally {
+            sub.disconnect();
+        }
+    }, 5000);
+
+    it('defaults to a 2000 ms timeout and 5000 ms of failing fast', () => {
+        client = new RedisClient(
+            config({
+                startupNodes: [{ host: '127.0.0.1', port: 7001 }],
+                tls: false,
+            }),
+        );
+        expect(
+            (client as unknown as { commandTimeoutMs: number })
+                .commandTimeoutMs,
+        ).toBe(2000);
+        expect((client as unknown as { failFastMs: number }).failFastMs).toBe(
+            5000,
+        );
     });
 });

@@ -14,7 +14,7 @@ puter.appID
 
 ## Examples
 
-<strong class="example-title">Get the ID of the current application</strong>
+### Get the ID of the current application
 
 <div style="position: relative;">
 

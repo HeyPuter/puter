@@ -5,7 +5,9 @@ platforms: [websites, apps]
 ---
 
 
-Creates a peer server and returns a [`PuterPeerServer`](/Objects/puterpeerserver/) instance. The server will generate an invite code that other clients can use to connect.
+Creates a peer server and returns a [`PuterPeerServer`](/Objects/puterpeerserver/) instance.
+
+The server will generate an invite code that other clients can use to connect.
 
 <div class="info">
 
@@ -22,22 +24,26 @@ const server = await puter.peer.serve(options);
 
 ## Parameters
 
-#### `options` (optional)
+#### `options` (Object) (optional)
 
-`options` is an object with the following properties:
+An object with the following properties:
 
-- `iceServers` (`RTCIceServer[]`) Custom ICE servers (STUN/TURN) to use instead of the Puter-managed relays.
-- `forceRelay` (`boolean`) Whether to force connections to route through a relay instead of attempting peer-to-peer (default). Metering charges will increase.
-- `anonToken` (`String`) Host without a Puter session. Any uuid; no sign-in prompt is shown. An anonymous host has no account to attribute relay usage to, so it cannot issue guest grants and gets no relays of its own.
-- `recoveryTimeout` (`Number`) How long, in milliseconds, each connection keeps trying to restore a broken link before it closes, counted from when the link first showed trouble. Defaults to `60000`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `forceRelay` | `Boolean` | Whether to route connections through a relay instead of trying a peer-to-peer connection. Defaults to `false`, which tries peer-to-peer. Metering charges will increase. |
+| `iceServers` | `Array<RTCIceServer>` | Custom ICE servers (STUN/TURN) to use instead of the Puter-managed relays. |
+| `anonToken` | `String` | Any uuid, to host without a Puter session. No sign-in prompt is shown. An anonymous host has no account to attribute relay usage to, so it can't issue guest grants and gets no relays of its own. |
+| `recoveryTimeout` | `Number` | How long, in milliseconds, each connection keeps trying to restore a broken link before it closes, counted from when the link first showed trouble. Defaults to `60000`. |
 
-To let people join your session without accounts of their own, keep hosting authenticated and give them a grant — see [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/).
+To let people join your session without accounts of their own, keep hosting authenticated and give them a grant from [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/).
 
 ## Return value
 
 A `Promise` that resolves to a [`PuterPeerServer`](/Objects/puterpeerserver/) instance, which carries the `inviteCode` to share, the `connections` map of connected clients, and a `connection` event fired as each client joins.
 
-## Example
+## Examples
+
+### Start a server and reply to clients
 
 ```html
 <html>

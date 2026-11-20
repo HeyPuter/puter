@@ -19,6 +19,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { metrics } from '@opentelemetry/api';
+import {
+    isCommandTimeout,
+    sendAsUndo,
+} from '../../clients/redis/commandTimeout.js';
 import { PuterStore } from '../types';
 
 // -- Metrics ----------------------------------------------------------
@@ -243,6 +247,8 @@ export class CreditHoldStore extends PuterStore {
             console.warn(
                 `[metering] credit hold not taken for ${userId}: ${(e as Error).message}`,
             );
+            // Same key: runs behind the timed-out take if that ever does.
+            if (isCommandTimeout(e)) void this.release(userId, member);
             return null;
         }
     }
@@ -330,6 +336,8 @@ export class CreditHoldStore extends PuterStore {
             console.warn(
                 `[metering] credit hold not reserved for ${userId}: ${(e as Error).message}`,
             );
+            // Same key: runs behind the timed-out reserve if that ever does.
+            if (isCommandTimeout(e)) void this.release(userId, member);
             return { outcome: 'unavailable' };
         }
     }
@@ -362,15 +370,14 @@ export class CreditHoldStore extends PuterStore {
      */
     async release(userId: string, member: string | null): Promise<void> {
         if (!userId || !member) return;
-        try {
-            await this.#redis.zrem(holdsKey(userId), member);
-        } catch (e) {
-            // The hold expires on its own, so the account gets its budget
-            // back either way — just later than it should have.
-            console.warn(
-                `[metering] credit hold not released for ${userId}: ${(e as Error).message}`,
-            );
-        }
+        sendAsUndo(() => this.#redis.zrem(holdsKey(userId), member)).catch(
+            (e: Error) => {
+                // The hold expires on its own; the budget just returns later.
+                console.warn(
+                    `[metering] credit hold not released for ${userId}: ${e.message}`,
+                );
+            },
+        );
     }
 
     /**

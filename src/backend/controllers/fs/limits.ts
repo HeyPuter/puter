@@ -180,6 +180,13 @@ export const FS_SIGN_LIMIT = userWindow('fs:sign', 300, 150, 60);
 export const FS_HELPER_LIMIT = userWindow('fs:helper', 120, 60, 30);
 
 /**
+ * The GUI fills in missing thumbnails as folders are viewed, so this gets its
+ * own counter: a folder of photos must not use up the helper budget that
+ * opening a file needs.
+ */
+export const FS_THUMBNAIL_LIMIT = userWindow('fs:thumbnail', 120, 60, 30);
+
+/**
  * Puter.js polls this on a timer to decide whether to purge its FS cache. Same
  * ceiling for free and paid — it is a single cache read.
  */

@@ -4,7 +4,7 @@ description: Dynamically sets the title of the window.
 platforms: [apps]
 ---
 
-Allows the user to dynamically set the title of the window.
+Sets the title of the window.
 
 ## Syntax
 ```js
@@ -21,6 +21,8 @@ The new title for this window.
 Targets a specific window other than the app's main window. Accepts either a window id string or a window handle returned by [`puter.ui.createWindow()`](/UI/createWindow/) (an object with an `id` property). The window must be the app's own or one it created; any other id is ignored. When omitted, the app's main window is used.
 
 ## Examples
+
+### Set the window title
 
 ```html
 <html>
