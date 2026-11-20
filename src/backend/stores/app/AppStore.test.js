@@ -342,6 +342,40 @@ describe('AppStore batched lookups', () => {
         expect((await appStore.getByUids(null)).size).toBe(0);
     });
 
+    it('getByUids and getByIds skip values of the wrong type', async () => {
+        const a = await createApp('Typed');
+
+        const byUid = await appStore.getByUids([a.uid, 0, ['x'], { uid: 1 }]);
+        expect([...byUid.keys()]).toEqual([a.uid]);
+
+        const byId = await appStore.getByIds([a.id, true, ['x']]);
+        expect([...byId.keys()].map(Number)).toEqual([Number(a.id)]);
+    });
+
+    it('text lookups match no row for a value that is not a string', async () => {
+        const a = await createApp('Alpha');
+        // MySQL would cast the column for a number, so none may reach it.
+        const db = server.clients.db;
+        const reads = [
+            vi.spyOn(db, 'read'),
+            vi.spyOn(db, 'pread'),
+            vi.spyOn(db, 'tryHardRead'),
+        ];
+        for (const value of [0, 1, true, ['x'], { uid: a.uid }]) {
+            expect(await appStore.getByUid(value)).toBeNull();
+            expect(await appStore.getByName(value)).toBeNull();
+            expect(await appStore.resolveApp(value)).toBeNull();
+            expect(await appStore.existsByName(value)).toBe(false);
+            expect(await appStore.uidExistsOnPrimary(value)).toBe(false);
+        }
+        for (const spy of reads) {
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        }
+        expect((await appStore.getById(a.id))?.uid).toBe(a.uid);
+        expect((await appStore.getByUid(a.uid))?.id).toBe(a.id);
+    });
+
     it('getByIds still resolves id-keyed lookups off the shared engine', async () => {
         const a = await createApp('Alpha');
 
@@ -1646,6 +1680,15 @@ describe('AppStore detailed stats', () => {
             referral_count: null,
         });
     });
+
+    it.each(['constructor', 'toString', '__proto__', 7, { toString: null }])(
+        'refuses %s as a grouping',
+        async (grouping) => {
+            await expect(
+                appStore.getAppStatsDetailed(APP_UID, { grouping }),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
 
     it('resolves an app with no opens to zeroes', async () => {
         expect(await appStore.getAppStatsDetailed('app-never-opened')).toEqual({

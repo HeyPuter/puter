@@ -732,6 +732,151 @@ describe('Upload thumbnails in a real browser', () => {
         }
     });
 
+    it.each([false, true])('draws the start of a source file in color, and a Markdown file as a page (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async () => {
+                const generate = window.createUploadThumbnailGenerator();
+                // The bundled page has no SDK generator to pass, as with an SDK that predates the callback context.
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const [script, comment, sheet, markdown, ...skipped] = await Promise.all([
+                    // Three lines of keywords, then a line far longer than the page is wide.
+                    new File([`${'return return return\n'.repeat(3)}${'W'.repeat(400)}\n`], 'app.js'),
+                    new File(['// nothing here but a comment\n'], 'note.mjs'),
+                    new File(['a { color: red; }\n'], 'site.css', { type: 'text/css' }),
+                    new File([`# Heading\n\n${'W'.repeat(60)}\n`], 'README.md'),
+                    new File(['\n\n'], 'blank.js'),
+                    new File(['![logo](logo.png)\n'], 'pictures.md'),
+                    new File([new Uint8Array(64)], 'binary.css'),
+                ].map(file => generate(file, context)));
+                const decode = async (thumbnail) => {
+                    if ( ! thumbnail ) return null;
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    // How many pixels of a box are not white, and how many of those are red. Text this small is pale.
+                    const inked = (left, top, right, bottom) => {
+                        const { data } = ctx.getImageData(left, top, right - left, bottom - top);
+                        let count = 0;
+                        let red = 0;
+                        for ( let at = 0; at < data.length; at += 4 ) {
+                            if ( data[at] + data[at + 1] + data[at + 2] < 690 ) count++;
+                            if ( data[at] > data[at + 1] + 30 && data[at] > data[at + 2] + 30 ) red++;
+                        }
+                        return { count, red };
+                    };
+                    return {
+                        width: image.width,
+                        height: image.height,
+                        corner: [...ctx.getImageData(2, 2, 1, 1).data],
+                        top: inked(0, 5, image.width, 22),
+                        // The fourth line of the script, and the lines the paragraph wraps onto.
+                        middle: inked(0, 22, image.width, 60),
+                        rightEdge: inked(image.width - 5, 5, image.width, 60),
+                        below: inked(0, 100, image.width, image.height),
+                    };
+                };
+                return {
+                    pages: await Promise.all([script, comment, sheet, markdown].map(decode)),
+                    skipped,
+                };
+            });
+            const [script, comment, sheet, markdown] = result.pages;
+            const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 15);
+            for ( const drawn of result.pages ) {
+                expect(drawn).toMatchObject({ width: 99, height: 128, below: { count: 0 } });
+                expect(drawn.corner).toSatisfy(near([255, 255, 255, 255]));
+                expect(drawn.top.count).toBeGreaterThan(10);
+            }
+            // Keywords are drawn in red and a comment is not.
+            expect(script.top.red).toBeGreaterThan(10);
+            expect(comment.top.red).toBe(0);
+            expect(sheet.top.red).toBe(0);
+            // The script's long line runs off the page, and the page's long word wraps inside its margins.
+            expect(script.rightEdge.count).toBeGreaterThan(0);
+            expect(markdown.rightEdge.count).toBe(0);
+            expect(markdown.middle.count).toBeGreaterThan(script.middle.count);
+            expect(result.skipped).toEqual([undefined, undefined, undefined]);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
+    it.each([false, true])('draws JSON written on one line indented, and a CSV file as a sheet (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async () => {
+                const generate = window.createUploadThumbnailGenerator();
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const rows = Array.from({ length: 40 }, (_, index) => `row${index},${index * 10}`).join('\n');
+                const [minified, csv, ...skipped] = await Promise.all([
+                    // One line far wider than the page, which reads as many short lines once indented.
+                    new File([JSON.stringify({ items: Array.from({ length: 40 }, (_, index) => ({ id: index })) })], 'data.json'),
+                    new File([`name,total\n${rows}\n`], 'table.csv', { type: 'text/csv' }),
+                    new File(['\n\n'], 'blank.json'),
+                    new File([',,,\n,,\n'], 'empty.csv'),
+                    new File([new Uint8Array(64)], 'binary.csv'),
+                ].map(file => generate(file, context)));
+                const decode = async (thumbnail) => {
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    // How many pixels of a box are not white.
+                    const inked = (left, top, right, bottom) => {
+                        const { data } = ctx.getImageData(left, top, right - left, bottom - top);
+                        let count = 0;
+                        for ( let at = 0; at < data.length; at += 4 ) {
+                            if ( data[at] + data[at + 1] + data[at + 2] < 690 ) count++;
+                        }
+                        return count;
+                    };
+                    return {
+                        width: image.width,
+                        height: image.height,
+                        corner: [...ctx.getImageData(2, 2, 1, 1).data],
+                        top: inked(0, 0, image.width, 20),
+                        // Halfway down, where a page of one long line is blank.
+                        middle: inked(0, image.height / 2 - 10, image.width, image.height / 2 + 10),
+                        bottom: inked(0, image.height - 15, image.width, image.height),
+                    };
+                };
+                return { minified: await decode(minified), csv: await decode(csv), skipped };
+            });
+            const { minified, csv } = result;
+            expect(minified).toMatchObject({ width: 99, height: 128 });
+            expect(minified.corner).toEqual([255, 255, 255, 255]);
+            expect(minified.top).toBeGreaterThan(10);
+            expect(minified.middle).toBeGreaterThan(10);
+            // A sheet fills a square to its edges, gridlines and all.
+            expect(csv).toMatchObject({ width: 128, height: 128 });
+            expect(csv.top).toBeGreaterThan(10);
+            expect(csv.bottom).toBeGreaterThan(10);
+            expect(result.skipped).toEqual([undefined, undefined, undefined]);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
     it('skips encrypted, malformed, and oversized-image PDFs without unhandled errors', async () => {
         const page = await browser.newPage();
         const errors = [];

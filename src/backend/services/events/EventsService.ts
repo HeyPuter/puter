@@ -1524,13 +1524,22 @@ const parseAppUid = (value: unknown): string | null => {
 };
 
 /** Unix seconds or an ISO-8601 string, and it has to be in the future. */
+// The end of year 9999, the latest time a Date can format.
+const MAX_EXPIRES_AT_SECONDS = 253402300799;
+
 const parseExpiresAt = (value: unknown): number | null => {
     if (value === undefined || value === null) return null;
     const seconds =
         typeof value === 'number'
             ? Math.floor(value)
-            : Math.floor(Date.parse(String(value)) / 1000);
-    if (!Number.isFinite(seconds) || seconds <= Math.floor(Date.now() / 1000))
+            : typeof value === 'string'
+              ? Math.floor(Date.parse(value) / 1000)
+              : Number.NaN;
+    if (
+        !Number.isFinite(seconds) ||
+        seconds <= Math.floor(Date.now() / 1000) ||
+        seconds > MAX_EXPIRES_AT_SECONDS
+    )
         throw badRequest(
             'expiresAt must be a future time',
             'invalid_expires_at',
@@ -6976,8 +6985,8 @@ export class EventsService extends PuterService {
                 settlesPerWindow: CONSENT_SETTLES_PER_WINDOW,
                 windowMs: CONSENT_SETTLE_WINDOW_MS,
             },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'platform' },
         );
     }
 
@@ -7010,8 +7019,8 @@ export class EventsService extends PuterService {
     }
 
     #eagerDeploy:
-        ((scope: HandlerScope, script: string) => Promise<unknown>) | null =
-        null;
+        | ((scope: HandlerScope, script: string) => Promise<unknown>)
+        | null = null;
 
     /** Fire and forget: the publish has answered, and a miss deploys anyway. */
     #deployEagerly(
@@ -7244,8 +7253,8 @@ export class EventsService extends PuterService {
                 'events_pending_ceiling',
                 'Too many undelivered events are being held here — the oldest were dropped',
                 { subId: dropped.subId, dropped: dropped.dropped },
-                'warning',
-                { dedup: true },
+                'info',
+                { dedup: true, channel: 'platform' },
             );
         }
     }
@@ -7268,8 +7277,8 @@ export class EventsService extends PuterService {
                 holderUserId: row.holderUserId,
                 error: err instanceof Error ? err : new Error(String(err)),
             },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'platform' },
         );
     }
 

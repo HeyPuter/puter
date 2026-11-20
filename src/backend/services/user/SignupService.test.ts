@@ -1087,6 +1087,28 @@ describe('SignupService confirmation email delivery', () => {
         }
     });
 
+    it('names a team seat code in its failure alarm and log line', async () => {
+        const user = await makeUser();
+        await withEmail(
+            async () => null,
+            async (alarms) => {
+                expect(
+                    await server.services.signup.sendConfirmationEmail(
+                        user,
+                        'team',
+                        { code: '123456' },
+                    ),
+                ).toBe(false);
+                expect(alarms[0][0]).toBe(
+                    'auth:confirmation-email-send-failed:team',
+                );
+                expect(console.warn).toHaveBeenCalledWith(
+                    '[team] confirmation email not delivered: no transport configured (message dropped)',
+                );
+            },
+        );
+    });
+
     it('sends no deferred confirmation to an account that is not email-gate-last', async () => {
         const user = await makeUser({ requires_email_confirmation: true });
         const send = vi.fn(async () => true);

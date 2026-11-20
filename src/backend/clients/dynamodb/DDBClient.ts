@@ -262,6 +262,8 @@ export class DDBClient extends PuterClient {
                 names?: Record<string, string>;
                 values?: Record<string, unknown>;
             };
+            /** A refusal carries the refusing item, undecoded, as `Item`. */
+            returnOldOnRefusal?: boolean;
         },
     ) {
         const condition = opts?.condition;
@@ -274,6 +276,12 @@ export class DDBClient extends PuterClient {
                         TableName: table,
                         Item: itemToWrite,
                         ReturnConsumedCapacity: 'TOTAL',
+                        ...(opts?.returnOldOnRefusal
+                            ? {
+                                  ReturnValuesOnConditionCheckFailure:
+                                      'ALL_OLD' as const,
+                              }
+                            : {}),
                         ...(condition
                             ? {
                                   ConditionExpression: condition.expression,
@@ -493,6 +501,8 @@ export class DDBClient extends PuterClient {
                 names?: Record<string, string>;
                 values?: Record<string, unknown>;
             };
+            /** A refusal carries the refusing item, undecoded, as `Item`. */
+            returnOldOnRefusal?: boolean;
         },
     ) {
         const command = new DeleteCommand({
@@ -502,6 +512,9 @@ export class DDBClient extends PuterClient {
             // ALL_OLD makes the delete an atomic claim: exactly one caller
             // gets the attributes back.
             ...(opts?.returnOld ? { ReturnValues: 'ALL_OLD' as const } : {}),
+            ...(opts?.returnOldOnRefusal
+                ? { ReturnValuesOnConditionCheckFailure: 'ALL_OLD' as const }
+                : {}),
             ...(opts?.condition
                 ? {
                       ConditionExpression: opts.condition.expression,

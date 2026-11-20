@@ -976,6 +976,12 @@ const examples = [
                 slug: 'app-get',
                 source: '/playground/examples/app-get.html',
             },
+            {
+                title: 'Get an app by its URL',
+                description: 'Look up the app at a website\'s origin with Puter.js apps API. Run and experiment with this example directly in the playground.',
+                slug: 'app-get-by-url',
+                source: '/playground/examples/app-get-by-url.html',
+            },
         ],
     },
     {

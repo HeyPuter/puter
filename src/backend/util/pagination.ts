@@ -49,7 +49,12 @@ export const decodeCursor = (
     label = 'cursor',
 ): Record<string, unknown> | undefined => {
     if (cursor === undefined || cursor === null) return undefined;
-    if (typeof cursor === 'object') return cursor;
+    if (typeof cursor === 'object' && !Array.isArray(cursor)) return cursor;
+    if (typeof cursor !== 'string') {
+        throw new HttpError(400, `invalid ${label}`, {
+            legacyCode: 'bad_request',
+        });
+    }
     const trimmed = cursor.trim();
     if (trimmed === '') return undefined;
     let parsed: Record<string, unknown> | null;
@@ -221,7 +226,12 @@ export const openIdCursor = (
 ): number | null => {
     const decoded = openCursor(cursor, secret, label);
     if (decoded === undefined) return null;
-    const id = Number(decoded.id);
+    const raw = decoded.id;
+    const id =
+        typeof raw === 'number' ||
+        (typeof raw === 'string' && /^\d+$/.test(raw))
+            ? Number(raw)
+            : Number.NaN;
     if (Number.isSafeInteger(id) && id >= 0) return id;
     if (strict) {
         throw new HttpError(400, `invalid ${label}`, {

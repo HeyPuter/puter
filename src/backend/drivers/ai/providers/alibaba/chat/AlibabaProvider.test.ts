@@ -961,6 +961,50 @@ describe('Alibaba official catalog', () => {
     });
 
     it.each([
+        ['qwen3.6-plus-2026-04-02', 'qwen3.6-plus'],
+        ['qwen-plus-latest', 'qwen-plus-2025-12-01'],
+    ])(
+        'lists %s once, as the priced %s, and keeps its alibaba: name routable',
+        async (alias, curatedId) => {
+            axiosGetMock.mockReset();
+            axiosGetMock.mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    output: {
+                        page_no: 1,
+                        total: 1,
+                        models: [
+                            {
+                                model: alias,
+                                capabilities: ['TG', 'Reasoning'],
+                                inference_metadata: {
+                                    request_modality: ['Text'],
+                                    response_modality: ['Text'],
+                                },
+                            },
+                        ],
+                    },
+                },
+            });
+            const { provider } = makeProvider();
+            const models = await provider.models();
+            expect(models.some((model) => model.id === alias)).toBe(false);
+            const curated = ALIBABA_MODELS.find(
+                (model) => model.id === curatedId,
+            )!;
+            const listed = models.filter(
+                (model) => model.puterId === curated.puterId,
+            );
+            expect(listed).toHaveLength(1);
+            expect(listed[0].costs).toBe(curated.costs);
+            // The chat driver routes by aliases, so the alibaba: spelling must
+            // stay one.
+            expect(listed[0].aliases).toContain(`alibaba:qwen/${alias}`);
+            expect(curated.aliases).not.toContain(`alibaba:qwen/${alias}`);
+        },
+    );
+
+    it.each([
         [
             'ASR',
             {

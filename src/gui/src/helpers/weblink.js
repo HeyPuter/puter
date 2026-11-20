@@ -19,6 +19,7 @@
 
 import UIWindow from '../UI/UIWindow.js';
 import UIAlert from '../UI/UIAlert.js';
+import { readFileAsDataUrl } from './readFileAsDataUrl.js';
 
 // Icons are stored inline in the .weblink JSON as base64 data URLs. Because a
 // .weblink file can be shared or downloaded, its icon field is untrusted input
@@ -117,13 +118,6 @@ export const readWeblinkData = async (path) => {
     const content = await puter.fs.read({ path: path });
     return parseWeblinkData(content);
 };
-
-const readFileAsDataUrl = async (file) => await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-});
 
 // Read the first bytes of a blob as text so we can sniff SVG source. Returns ''
 // if the blob doesn't support slicing (nothing is treated as SVG in that case).

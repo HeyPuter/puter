@@ -400,18 +400,30 @@
         "pagerduty": {
             "enabled": false,
             "routingKey": "",
+            // REST API key (read-only is enough). Lets an alarm that calls
+            // link to the incident it opened.
+            "apiToken": "",
             // Lowest severity that reaches PagerDuty. Default "warning",
             // which keeps `info` out of the paging system entirely.
             "minSeverity": "warning"
         },
 
-        // Slack incoming webhook — the low-noise destination for everything
-        // that shouldn't page.
+        // Slack — the destination for everything that shouldn't page.
         "slack": {
             "enabled": false,
+            // Bot token with chat:write. Routes alarms to `channels` and
+            // lets a call link to its message. Without one, `webhookUrl`
+            // posts everything to the webhook's own channel.
+            "botToken": "",
             "webhookUrl": "",
-            // Optional; defaults to the channel the webhook was created for.
+            // Default channel: alarms with no channel key, or a key not
+            // listed below. Required with `botToken`.
             "channel": "#alerts",
+            // Alarm channel keys mapped to channels (see doc/alarms.md).
+            "channels": {
+                // "billing": "#alerts-billing"
+            },
+            // With botToken, needs the chat:write.customize scope.
             "username": "puter-alarms",
             // Severity window posted to Slack. The ceiling defaults to
             // "info" when PagerDuty is configured — what pages belongs in
@@ -423,6 +435,21 @@
             // occurrence always posts; the next post that gets through
             // reports how many occurrences piled up. 0 disables throttling.
             "repeatThrottleMs": 900000
+        },
+
+        // Alarms that phone someone. An external monitor polls
+        // GET /alarms/calls?group=<group> with `secret` in the
+        // x-puter-internal-auth header; it answers 503 while an alarm in
+        // the group is calling.
+        "calls": {
+            "secret": "",
+            // Alarm ids, or prefixes ending in `*`, mapped to a call group.
+            "rules": {
+                // "metering_usage_dropped:*": "billing"
+            },
+            // A call stays active until its alarm has been quiet this long.
+            // Minimum 5 minutes.
+            "ttlMs": 1800000
         }
     },
 

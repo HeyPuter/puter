@@ -546,6 +546,76 @@ describe('AppDriver.read', () => {
         expect(fetched.name).toBe(name);
     });
 
+    it('reads via id object with `{ url }` by the URL origin', async () => {
+        const owner = await makeUser();
+        const reader = await makeUser();
+        const indexUrl = uniqueIndexUrl();
+        const created = await withActor(owner.actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('by-url'),
+                    title: 't',
+                    index_url: indexUrl,
+                },
+            }),
+        );
+
+        const fetched = await withActor(reader.actor, () =>
+            driver.read({ id: { url: `${indexUrl}some/page?q=1#top` } }),
+        );
+        expect(fetched.uid).toBe(created.uid);
+    });
+
+    it('reads the app created for an unregistered origin by its URL', async () => {
+        const { actor } = await makeUser();
+        const origin = new URL(uniqueIndexUrl()).origin;
+        const uid = await server.services.auth.appUidFromOrigin(origin);
+        await server.stores.app.createFromOrigin(uid, origin, {
+            ownerUserId: null,
+        });
+
+        const fetched = await withActor(actor, () =>
+            driver.read({ id: { url: `${origin}/page` } }),
+        );
+        expect(fetched.uid).toBe(uid);
+        expect(fetched.name).toBe(uid);
+    });
+
+    it('returns 404 for a URL whose origin no app serves', async () => {
+        const { actor } = await makeUser();
+        const indexUrl = `${uniqueIndexUrl()}tools/`;
+        await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('below-root'),
+                    title: 't',
+                    index_url: indexUrl,
+                },
+            }),
+        );
+
+        for (const url of [uniqueIndexUrl(), indexUrl]) {
+            await expect(
+                withActor(actor, () => driver.read({ id: { url } })),
+            ).rejects.toMatchObject({
+                statusCode: 404,
+                legacyCode: 'not_found',
+            });
+        }
+    });
+
+    it('rejects a `{ url }` that is not a web URL with 400', async () => {
+        const { actor } = await makeUser();
+        for (const url of [42, '', 'file:///index.html', 'not a url']) {
+            await expect(
+                withActor(actor, () => driver.read({ id: { url } })),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+        }
+    });
+
     it('returns 404 for a missing app', async () => {
         const { actor } = await makeUser();
         await expect(
@@ -1736,6 +1806,20 @@ describe('AppDriver.select pagination', () => {
                 driver.select({ offset: 1, cursor: first.cursor }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a cursor without a usable id', async () => {
+        const { actor } = await makeApps(1);
+        for (const cursor of [
+            { id: 'x' },
+            { id: 1e999 },
+            {},
+            Buffer.from(JSON.stringify({ id: -1 })).toString('base64'),
+        ]) {
+            await expect(
+                withActor(actor, () => driver.select({ cursor })),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
     });
 
     it('reports an exact total for owner-scoped selects', async () => {

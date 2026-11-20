@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { get_oidc_return_to, takeOidcLoginChallenge } from './authRedirect.js';
+import { authErrorDisplayMessage, get_oidc_return_to, takeOidcLoginChallenge } from './authRedirect.js';
 
 const at = (pathname, search = '') => {
     globalThis.window = { location: { pathname, search } };
@@ -137,5 +137,31 @@ describe('provider second-factor return context', () => {
     it('returns to ordinary login when a challenge link has no retry context', () => {
         const { result } = bootAt('https://puter.test/action/oidc-2fa#token=challenge');
         expect(result).toEqual({ token: 'challenge', retryUrl: '/action/login' });
+    });
+});
+
+describe('authErrorDisplayMessage', () => {
+    const show = (query) => {
+        globalThis.i18n = (key, args) => (args?.id ? `${key}(${args.id})` : key);
+        try {
+            return authErrorDisplayMessage(new URLSearchParams(query));
+        } finally {
+            delete globalThis.i18n;
+        }
+    };
+
+    it.each(['signup_blocked', 'signin_blocked'])('names the request code of a blocked %s', (code) => {
+        expect(show(`auth_error=1&message=${code}&request_code=rc-1`)).toBe(`${code}_message contact_support_with_code(rc-1)`);
+        expect(show(`auth_error=1&message=${code}`)).toBe(`${code}_message contact_support`);
+    });
+
+    it('maps the other known codes', () => {
+        expect(show('message=account_suspended')).toBe('account_suspended_message');
+        expect(show('message=bonus_code_invalid')).toBe('signup_bonus_code_invalid_retry');
+    });
+
+    it('never shows text written into the URL', () => {
+        expect(show('message=Your+account+was+hacked')).toBe('auth_error_generic');
+        expect(show('message=constructor')).toBe('auth_error_generic');
     });
 });

@@ -74,6 +74,8 @@ The app a worker runs as also owns what the worker sends. Notifications and push
 
 Changing a worker's binding does not migrate its data. A worker redeployed with a different `sandbox` setting or `appName` starts against a different namespace, and anything it wrote under the old identity stays where it was.
 
+When a user removes your app from their account, the workers your app deployed there are deleted, including workers bound to apps your app created in that account. A worker bound to an app the user owns is kept.
+
 ## Updating a worker
 
 A worker keeps the same name and URL for its whole lifetime. You create it once with `create()`; after that, you **update it by overwriting its source file**, not by creating a new worker.

@@ -20,12 +20,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reply, resetAuthGlobals, screen, tick } from './authTestSetup.js';
 
-vi.mock('../UIWindowEmailConfirmationRequired.js', () => ({ default: vi.fn() }));
-vi.mock('../UIWindowPhoneVerificationRequired.js', () => ({ default: vi.fn() }));
-vi.mock('../UIWindowCardVerificationRequired.js', () => ({ default: vi.fn() }));
+const gates = vi.hoisted(() => ({ email: vi.fn(), phone: vi.fn(), card: vi.fn() }));
+vi.mock('../UIWindowEmailConfirmationRequired.js', () => ({ default: gates.email }));
+vi.mock('../UIWindowPhoneVerificationRequired.js', () => ({ default: gates.phone }));
+vi.mock('../UIWindowCardVerificationRequired.js', () => ({ default: gates.card }));
 
 const { activeAuthFlow } = await import('./authFlow.js');
-const { default: UIAuthLogin, loginErrorMessage } = await import('./UIAuthLogin.js');
+const { default: UIAuthLogin, loginErrorMessage, loginRequestBody } = await import('./UIAuthLogin.js');
 const { default: UIAuth2FA } = await import('./UIAuth2FA.js');
 
 const completed = { proceed: true, next_step: 'complete', token: 'gui-token', user: { username: 'user' }, redirectUrl: 'https://puter.test/dashboard' };
@@ -45,18 +46,28 @@ const submitLogin = (user = 'user', password = 'correct-password') => {
     $('.login-form').trigger('submit');
 };
 
+/** Waits for the login request, which goes out once the fingerprint settles. */
+const sent = (calls, count = 1) => vi.waitFor(() => expect(calls).toHaveLength(count));
+
 const enterOtp = (code) => {
     const inputs = $('.login-2fa-code-inputs input');
     [...code].forEach((digit, index) => inputs.eq(index).val(digit));
     inputs.last().trigger('input');
 };
 
+/** The test i18n, showing a request code substituted into its message. */
+const plainI18n = globalThis.i18n;
+const i18nWithCode = (key, args) => (args?.id ? `${key}(${args.id})` : plainI18n(key, args));
+
 beforeEach(() => {
     resetAuthGlobals();
+    delete window.getDeviceFingerprint;
+    for ( const gate of Object.values(gates) ) gate.mockReset();
 });
 afterEach(() => {
     activeAuthFlow()?.finish(false);
     vi.restoreAllMocks();
+    globalThis.i18n = plainI18n;
 });
 
 describe('login screen', () => {
@@ -84,6 +95,7 @@ describe('login screen', () => {
         const calls = captureAjax();
         const result = UIAuthLogin({ reload_on_success: false, auth_id: 'aid', reauth_reason: 'rotated' });
         submitLogin(' someone@example.com ');
+        await sent(calls);
         expect(JSON.parse(calls[0].data)).toEqual({ email: 'someone@example.com', password: 'correct-password', auth_id: 'aid', reauth_reason: 'rotated' });
         expect($('.login-btn').hasClass('dashboard-form-busy')).toBe(true);
         calls[0].success({ token: 't', user: { username: 'someone' } });
@@ -96,6 +108,7 @@ describe('login screen', () => {
         const calls = captureAjax();
         void UIAuthLogin({ reload_on_success: false });
         submitLogin('user', 'nope');
+        await sent(calls);
         calls[0].error({ status: 400, responseText: JSON.stringify({ message: '<b>Wrong</b> password' }) });
         await tick();
         // Text, never markup from the server.
@@ -110,6 +123,7 @@ describe('login screen', () => {
         const calls = captureAjax();
         const result = UIAuthLogin();
         submitLogin();
+        await sent(calls);
         $('.dashboard-dialog-close').trigger('click');
         await expect(result).resolves.toBe(false);
         calls[0].success({ token: 't', user: { username: 'other' } });
@@ -126,6 +140,7 @@ describe('login screen', () => {
         const calls = captureAjax();
         void UIAuthLogin();
         submitLogin();
+        await sent(calls);
         $('.dashboard-dialog-close').trigger('click');
         calls[0].success({ proceed: true, next_step: 'otp', otp_jwt_token: 'c' });
         await tick();
@@ -177,6 +192,267 @@ describe('login screen', () => {
         window.app_domain = 'puter.com';
         expect(loginErrorMessage({ status: 0 }).text).toBe('Failed to log in: Error 0');
         expect(loginErrorMessage({ status: 404, responseText: '<html>' }).text).toContain('404');
+    });
+});
+
+describe('login request', () => {
+    it('builds the body by email or username, with a fingerprint and a captcha answer only when given', () => {
+        expect(loginRequestBody({ emailOrUsername: 'a@b.c', password: 'pw' })).toEqual({ email: 'a@b.c', password: 'pw' });
+        expect(loginRequestBody({ emailOrUsername: 'name', password: 'pw', reauth: { auth_id: 'aid' }, fingerprint: 'fp', captchaToken: 'tok' }))
+            .toEqual({ username: 'name', password: 'pw', auth_id: 'aid', fingerprint: 'fp', 'cf-turnstile-response': 'tok' });
+        // A captcha that never loaded still says so, as signup does.
+        expect(loginRequestBody({ emailOrUsername: 'name', password: 'pw', captchaToken: null })).toHaveProperty('cf-turnstile-response', null);
+    });
+
+    it('sends the device fingerprint', async () => {
+        window.getDeviceFingerprint = vi.fn(async () => 'fp-1');
+        const calls = captureAjax();
+        void UIAuthLogin({ reload_on_success: false });
+        submitLogin();
+        await sent(calls);
+        expect(JSON.parse(calls[0].data).fingerprint).toBe('fp-1');
+        // Asked for once, when the screen opened.
+        expect(window.getDeviceFingerprint).toHaveBeenCalledOnce();
+    });
+
+    it('signs in without a fingerprint when the getter fails', async () => {
+        window.getDeviceFingerprint = vi.fn(async () => {
+            throw new Error('blocked');
+        });
+        const calls = captureAjax();
+        void UIAuthLogin({ reload_on_success: false });
+        submitLogin();
+        await sent(calls);
+        expect(JSON.parse(calls[0].data)).toEqual({ username: 'user', password: 'correct-password' });
+    });
+
+    it('sends nothing when dismissed before the fingerprint settles', async () => {
+        let settle;
+        window.getDeviceFingerprint = () => new Promise((resolve) => {
+            settle = resolve;
+        });
+        const calls = captureAjax();
+        const result = UIAuthLogin();
+        submitLogin();
+        $('.dashboard-dialog-close').trigger('click');
+        await expect(result).resolves.toBe(false);
+        settle('fp');
+        await tick();
+        expect(calls).toHaveLength(0);
+    });
+});
+
+describe('login captcha', () => {
+    const turnstileOn = (params) => {
+        window.gui_params = { turnstileSiteKey: 'key', ...params };
+        window.turnstile = { render: vi.fn(() => 'widget'), reset: vi.fn() };
+    };
+
+    it('stays off without the server flag, even with a site key', async () => {
+        turnstileOn({});
+        const calls = captureAjax();
+        void UIAuthLogin({ reload_on_success: false });
+        expect($('.cf-turnstile')).toHaveLength(0);
+        submitLogin();
+        await sent(calls);
+        expect(window.turnstile.render).not.toHaveBeenCalled();
+        expect(JSON.parse(calls[0].data)).not.toHaveProperty('cf-turnstile-response');
+    });
+
+    it('asks for it when the server flag is on, and gets a fresh one after a refusal', async () => {
+        turnstileOn({ turnstileLogin: true });
+        const calls = captureAjax();
+        void UIAuthLogin({ reload_on_success: false });
+        expect(window.turnstile.render).toHaveBeenCalledWith($('.cf-turnstile').get(0), expect.objectContaining({ sitekey: 'key' }));
+        expect($('.cf-turnstile').attr('data-appearance')).toBe('interaction-only');
+        submitLogin();
+        expect(screen().find('.dashboard-form-status').text()).toBe('captcha_required');
+        window.turnstile.render.mock.calls[0][1].callback('tok');
+        submitLogin('user', 'wrong-password');
+        await sent(calls);
+        expect(JSON.parse(calls[0].data)['cf-turnstile-response']).toBe('tok');
+        calls[0].error({ status: 401, responseText: JSON.stringify({ message: 'Incorrect password.' }) });
+        await tick();
+        expect(window.turnstile.reset).toHaveBeenCalledWith('widget');
+        expect($('.cf-turnstile').attr('data-token')).toBeUndefined();
+    });
+
+    it('needs a site key as well as the flag', () => {
+        window.gui_params = { turnstileLogin: true };
+        void UIAuthLogin({ reload_on_success: false });
+        expect($('.cf-turnstile')).toHaveLength(0);
+    });
+});
+
+describe('refused logins', () => {
+    const refuse = async (status, json, user = 'someone') => {
+        const calls = captureAjax();
+        void UIAuthLogin({ reload_on_success: false });
+        submitLogin(user);
+        await sent(calls);
+        calls[0].error({ status, responseText: JSON.stringify(json) });
+        await tick();
+    };
+    const LOCKED = {
+        error: 'Too many incorrect passwords for this account. Reset your password, or try again later.',
+        message: 'Too many incorrect passwords for this account. Reset your password, or try again later.',
+        code: 'too_many_requests',
+        errorCode: 'login_locked',
+        action: 'reset_password',
+    };
+
+    it('offers a password reset for the typed account when its password sign-in is locked', async () => {
+        await refuse(429, LOCKED, 'someone@example.com');
+        expect(screen().find('.dashboard-form-status').text()).toContain('login_locked_message');
+        const $reset = screen().find('.login-reset-password');
+        expect($reset.text()).toBe('login_locked_reset_password');
+        expect(document.activeElement).toBe($reset.get(0));
+        $reset.trigger('click');
+        expect(screen().attr('data-screen')).toBe('recover-password');
+        expect(screen().find('[name="email_or_username"]').val()).toBe('someone@example.com');
+    });
+
+    it('encodes a lockout message it has no wording of its own for', () => {
+        const message = loginErrorMessage({
+            status: 429,
+            responseText: JSON.stringify({ ...LOCKED, errorCode: undefined, message: '<img src=x>' }),
+        });
+        expect(message.text).toBe('<img src=x>');
+        expect(message.html).toContain('&lt;img src=x&gt;');
+        expect(message.html).toContain('login-reset-password');
+    });
+
+    it('shows the per-network limit as before, without a reset offer', async () => {
+        await refuse(429, { error: 'Too many requests.', message: 'Too many requests.', code: 'too_many_requests' });
+        expect(screen().find('.dashboard-form-status').text()).toBe('Too many requests.');
+        expect(screen().find('.login-reset-password')).toHaveLength(0);
+    });
+
+    it('shows a blocked sign-in in its own words, with its request code', async () => {
+        globalThis.i18n = i18nWithCode;
+        const message = 'This sign-in was blocked. Request Code: rc-123';
+        await refuse(403, { error: message, message, code: 'signin_blocked', request_code: 'rc-123' });
+        expect(screen().find('.dashboard-form-status').text())
+            .toBe('signin_blocked_message contact_support_with_code(rc-123)');
+        expect(window.update_auth_data).not.toHaveBeenCalled();
+    });
+
+    it('words captcha refusals itself', () => {
+        const refusal = (code) => loginErrorMessage({
+            status: 403,
+            responseText: JSON.stringify({ message: 'Server wording.', code }),
+        }).text;
+        expect(refusal('captcha_required')).toBe('captcha_required');
+        expect(refusal('captcha_failed')).toBe('captcha_failed');
+    });
+
+    it('shows the server message for a refusal it has no words for', () => {
+        const message = 'Sign-in refused. Request Code: rc-7';
+        expect(loginErrorMessage({
+            status: 403,
+            responseText: JSON.stringify({ message, code: 'signin_suspicious', request_code: 'rc-7' }),
+        }).text).toBe(message);
+    });
+});
+
+describe('account checks set at sign-in', () => {
+    beforeEach(() => {
+        window.update_auth_data = vi.fn(async (token) => {
+            window.auth_token = token;
+        });
+    });
+
+    const signIn = async (user, options = { reload_on_success: false }) => {
+        const calls = captureAjax();
+        const result = UIAuthLogin(options);
+        submitLogin();
+        await sent(calls);
+        calls[0].success({ token: 't', user });
+        return { calls, result };
+    };
+
+    it('keeps the login open, out of sight, so another sign-in prompt waits on it', async () => {
+        let clearPhone;
+        gates.phone.mockImplementation(() => new Promise((resolve) => {
+            clearPhone = resolve;
+        }));
+        const { calls, result } = await signIn({ requires_phone_verification: true });
+        await vi.waitFor(() => expect(gates.phone).toHaveBeenCalled());
+        expect($('.auth-dialog-overlay').is(':visible')).toBe(false);
+
+        const second = UIAuthLogin({ reload_on_success: false });
+        expect($('.auth-dialog')).toHaveLength(1);
+        expect(calls).toHaveLength(1);
+
+        clearPhone(true);
+        await expect(result).resolves.toBe(true);
+        await expect(second).resolves.toBe(true);
+    });
+
+    it('does not finish signing in when the page moved to another account during the checks', async () => {
+        gates.phone.mockImplementation(async () => {
+            window.auth_token = 'another-account';
+            return true;
+        });
+        const { result } = await signIn({ requires_phone_verification: true });
+        await expect(result).resolves.toBe(false);
+    });
+
+    it('opens the emailed-code window without sending another code, then phone, then card', async () => {
+        const order = [];
+        gates.email.mockImplementation(async () => order.push('email') && true);
+        gates.phone.mockImplementation(async () => order.push('phone') && true);
+        gates.card.mockImplementation(async () => order.push('card') && true);
+        const { calls, result } = await signIn({
+            requires_email_confirmation: true,
+            email_confirmed: false,
+            requires_phone_verification: true,
+            requires_card_verification: true,
+            card_fallback_available: true,
+        });
+        await expect(result).resolves.toBe(true);
+        expect(order).toEqual(['email', 'phone', 'card']);
+        expect(calls).toHaveLength(1);
+        expect(fetch.mock.calls.some(([url]) => String(url).includes('send-confirm-email'))).toBe(false);
+        expect(gates.email.mock.calls[0][0].show_close_button).toBe(false);
+        expect(gates.phone.mock.calls[0][0].card_fallback_available).toBe(true);
+        expect($('.auth-dialog-overlay.dashboard-dialog-show')).toHaveLength(0);
+    });
+
+    it('takes the email last for an account that clears it last', async () => {
+        const order = [];
+        gates.email.mockImplementation(async () => order.push('email') && true);
+        gates.card.mockImplementation(async () => order.push('card') && true);
+        const { result } = await signIn({ requires_email_confirmation: true, requires_card_verification: true, email_gate_last: true });
+        await result;
+        expect(order).toEqual(['card', 'email']);
+    });
+
+    it('covers a sign-in page with the checks', async () => {
+        gates.phone.mockResolvedValue(true);
+        const { result } = await signIn({ requires_phone_verification: true }, { reload_on_success: false, page: true });
+        await result;
+        expect(gates.phone.mock.calls[0][0].window_options).toEqual({ cover_page: true, has_head: false });
+    });
+
+    it('skips a confirmed email and finishes as a plain sign-in', async () => {
+        const { result } = await signIn({ requires_email_confirmation: true, email_confirmed: true });
+        await expect(result).resolves.toBe(true);
+        expect(gates.email).not.toHaveBeenCalled();
+    });
+
+    it('leaves the checks to boot when the sign-in reloads the page', async () => {
+        const original = window.location;
+        const replace = vi.fn();
+        delete window.location;
+        window.location = { ...original, href: original.href, origin: original.origin, pathname: '/', replace, reload: vi.fn() };
+        try {
+            await signIn({ requires_phone_verification: true }, { reload_on_success: true, redirect_url: 'https://puter.test/next' });
+            await vi.waitFor(() => expect(replace).toHaveBeenCalledWith('https://puter.test/next'));
+            expect(gates.phone).not.toHaveBeenCalled();
+        } finally {
+            window.location = original;
+        }
     });
 });
 
@@ -315,6 +591,7 @@ describe('password login with a second factor', () => {
         const calls = captureAjax();
         const result = UIAuthLogin({ reload_on_success: false });
         submitLogin();
+        await sent(calls);
         const submitted = calls[0].success({ proceed: true, next_step: 'otp', otp_jwt_token: 'password-challenge' });
         await vi.waitFor(() => expect(screen().attr('data-screen')).toBe('two-factor'));
         expect(window.update_auth_data).not.toHaveBeenCalled();
@@ -333,6 +610,7 @@ describe('password login with a second factor', () => {
         const calls = captureAjax();
         void UIAuthLogin({ reload_on_success: false });
         submitLogin();
+        await sent(calls);
         calls[0].success({ proceed: true, next_step: 'otp', otp_jwt_token: 'c' });
         await vi.waitFor(() => expect(screen().attr('data-screen')).toBe('two-factor'));
         enterOtp('001234');
@@ -355,6 +633,7 @@ describe('password login with a second factor', () => {
         const calls = captureAjax();
         const result = UIAuthLogin({ reload_on_success: false });
         submitLogin();
+        await sent(calls);
         const submitted = calls[0].success({ proceed: true, next_step: 'otp', otp_jwt_token: 'c' });
         await vi.waitFor(() => expect(screen().attr('data-screen')).toBe('two-factor'));
         enterOtp('001234');
@@ -373,6 +652,7 @@ describe('password login with a second factor', () => {
         const calls = captureAjax();
         const result = UIAuthLogin({ reload_on_success: false });
         submitLogin();
+        await sent(calls);
         const submitted = calls[0].success({ proceed: true, next_step: 'otp', otp_jwt_token: 'c' });
         await vi.waitFor(() => expect(screen().attr('data-screen')).toBe('two-factor'));
         $('.auth-dialog-back').trigger('click');
@@ -382,5 +662,42 @@ describe('password login with a second factor', () => {
         expect(window.update_auth_data).not.toHaveBeenCalled();
         $('.dashboard-dialog-close').trigger('click');
         await expect(result).resolves.toBe(false);
+    });
+});
+
+describe('second factor refusals', () => {
+    const blocked = 'This sign-in was blocked. Request Code: rc-9';
+    beforeEach(() => {
+        globalThis.i18n = i18nWithCode;
+    });
+
+    it('sends the device fingerprint with the code', async () => {
+        window.getDeviceFingerprint = vi.fn(async () => 'fp-2');
+        fetch.mockResolvedValue(reply(200, completed));
+        const result = UIAuth2FA('t');
+        enterOtp('001234');
+        await result;
+        expect(JSON.parse(fetch.mock.calls.at(-1)[1].body)).toEqual({ token: 't', code: '001234', fingerprint: 'fp-2' });
+    });
+
+    it('shows a refused sign-in instead of calling the code wrong, and leaves only Back', async () => {
+        fetch.mockResolvedValue(reply(403, { error: blocked, message: blocked, code: 'signin_blocked', request_code: 'rc-9' }));
+        void UIAuth2FA('t');
+        enterOtp('001234');
+        await vi.waitFor(() => expect(screen().find('.dashboard-form-status').text())
+            .toBe('signin_blocked_message contact_support_with_code(rc-9)'));
+        expect($('.login-2fa-code-inputs input').first().prop('disabled')).toBe(true);
+        expect($('.login-2fa-to-recovery').prop('disabled')).toBe(true);
+        expect(activeAuthFlow().isBusy()).toBe(false);
+        expect($('.auth-dialog-back').prop('disabled')).toBe(false);
+    });
+
+    it('shows a refused sign-in on the recovery code screen too', async () => {
+        fetch.mockResolvedValue(reply(403, { error: 'Not allowed here.', message: 'Not allowed here.', code: 'signin_policy' }));
+        void UIAuth2FA('t');
+        $('.login-2fa-to-recovery').trigger('click');
+        $('.login-2fa-recovery-input').val('ABCDEFG2').trigger('input');
+        await vi.waitFor(() => expect(screen().find('.dashboard-form-status').text()).toBe('Not allowed here.'));
+        expect($('.login-2fa-recovery-input').prop('disabled')).toBe(true);
     });
 });

@@ -82,7 +82,7 @@ The standard chat timeout is 10 minutes for a response to start, or to finish if
 
 GPT-6.2 Astra, GPT-6.2 Sol, and GPT-6.1 Terra have a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
 
-Gemini 4 Carbon and Gemini 4 Hydrogen accept text and images within a shared 1,048,576-token window and generate up to 65,536 tokens, including thinking.
+Gemini 4 Carbon, Gemini 4 Hydrogen and Gemini 4 Neon accept text and images within a shared 1,048,576-token window and generate up to 65,536 tokens, including thinking.
 
 A `gemini-4-argon` or `gemini-4-carbon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
@@ -327,6 +327,7 @@ Per minute unless stated:
 | Search                                    | 60    | 30    | 10        |
 | `space()`                                 | 60    | 30    | 15        |
 | Sign a URL                                | 300   | 150   | 60        |
+| Set a file's thumbnail                    | 120   | 60    | 30        |
 
 | Concurrency | Paid | Free | Anonymous |
 | ----------- | ---- | ---- | --------- |
@@ -337,6 +338,7 @@ Per minute unless stated:
 | Limit | Value | Scope |
 | ----- | ----- | ----- |
 | Uploads in progress | 10,000 | Per user, all apps |
+| Path length | 4,096 characters | Per path |
 | Entries in one `readdir` response | 10,000 (1,000 per page by default when paginated or `recursive`) | Per request |
 | Levels a `recursive` `readdir` descends | 10 | Per request |
 | Files and folders in one `startBatchWrite`, `completeBatchWrite` or `batchWrite` | 500 | Per request |
@@ -442,6 +444,27 @@ The Puter desktop makes a video upload thumbnail from one frame of an MP4, MOV, 
 | Frame | One tenth of the way into the video, at most 10 seconds in |
 | Output | At most 128 × 128 pixels, aspect ratio preserved |
 
+The Puter desktop makes a text file upload thumbnail from the start of a JavaScript (`.js`, `.mjs`, `.cjs`), CSS, JSON, CSV, or Markdown (`.md`, `.markdown`) file, within these budgets. For a JavaScript, CSS, or JSON file, the desktop draws the first lines of the file in a fixed-width font, with comments, strings, keywords, and numbers in different colors. A JSON file written on one line is drawn indented, with one value per line. For a CSV file, the desktop draws the first rows and columns as a spreadsheet, with gridlines. For a Markdown file, the desktop draws a page with the file's headings, paragraphs, lists, quotes, code blocks, and tables. A file still queued when the preparation time runs out keeps its file icon. A file with no text to draw keeps its file icon too.
+
+| Text file thumbnail | Limit |
+| --- | --- |
+| Files drawn per upload | 1 at a time |
+| Preparation per upload, including queued files | 2 seconds from the first file |
+| Data read from the file | The first 16 KiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop also makes a thumbnail for a file in the user's own folders that has none, such as a file an app wrote or saved over, when the file comes into view. It downloads the file and reads it the same way as an upload, within the budgets above and these. For a text file that gets a thumbnail, it downloads only the first 16 KiB, and the file size limit doesn't apply. A picture is downloaded only in a format every browser draws, which is PNG, JPEG, GIF, WebP, BMP, AVIF, SVG, or ICO. The downloads count toward the account's egress. A file saved over gets a new thumbnail once it's done changing, and shows its old one until then. A file over the size limit keeps its file icon. A file that gives no thumbnail keeps its file icon and isn't downloaded again until it changes. A file skipped because of another budget is tried again after the page reloads.
+
+| Missing thumbnail | Limit |
+| --- | --- |
+| File size | 20 MiB |
+| Files downloaded at a time | 1 |
+| Files started per minute | 20 |
+| Data downloaded per page load | 100 MiB |
+| Wait after the file was last saved | 3 seconds |
+| Old thumbnail shown while the new one is made | At most 10 seconds |
+| Pause after a `429` response or a failed connection | 60 seconds |
+
 ### Permissions
 
 | Limit | Value |
@@ -469,6 +492,24 @@ Successful sign-ins don't count. Over either sign-in limit, `dav` answers `429` 
 A `LOCK` gets the `Timeout` the client asks for, up to 1 hour, and the response states the timeout granted. Refresh the lock before it runs out to keep it.
 
 For long-lived mounts, sign in with a `-token` username and an API token as the password. That skips the per-account sign-in limit, and the token can be revoked from the dashboard without changing the account password.
+
+### Sign-in
+
+These apply to signing in to Puter itself, through the sign-in screen or [`puter.auth.signIn()`](/Auth/signIn/).
+
+| Limit | Value | Scope |
+| ----- | ----- | ----- |
+| Password sign-in requests | 10 per 15 min | Per network |
+| Password sign-in requests | 50 per 15 min | Per IP address |
+| Wrong passwords | 20/hour, 50/day | Per account being signed into |
+| Wrong two-factor or recovery codes | 10 per 30 min | Per account being signed into |
+| Wrong email confirmation codes | 10/hour, 20/day | Per account |
+| Email confirmation code lifetime | 1 hour from when it was sent | Per code |
+
+Only wrong passwords and wrong codes count toward the per-account limits; a right one costs nothing.
+
+- **Wrong passwords.** Once either window is spent, password sign-in to that account answers `429` with `errorCode: "login_locked"` and `action: "reset_password"`, even for the right password, until the window passes. A browser that has signed in to the account before can still sign in, so the owner isn't locked out by someone else's guesses. Any new password ends the lockout at once, whether the owner changes it, resets it by email, or a team admin sets it. The owner is emailed when a lockout starts. An account with no email address is never locked, since it has no way to reset its password.
+- **Email confirmation codes.** A code older than an hour answers `400` with `code: "confirmation_code_expired"`; send a new one. Over the wrong-code limit, confirming answers `429` until the window passes, even for the right code. Sending a new code doesn't reset the count.
 
 ### Sites and workers
 
@@ -934,7 +975,7 @@ A read that times out is retried once. A write or AI call that times out is neve
 
 | Status | `code`                  | Meaning                               | What to do |
 | ------ | ----------------------- | ------------------------------------- | ---------- |
-| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry. Windows are at most 60 s, or 1 h for sustained filesystem mutations. The uploads-in-progress limit clears only when uploads finish, are cancelled, or expire. |
+| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry. Windows are at most 60 s, or 1 h for sustained filesystem mutations; [sign-in](#sign-in) limits run up to a day. The uploads-in-progress limit clears only when uploads finish, are cancelled, or expire. |
 | `402`  | `insufficient_funds`    | Monthly credit spent                  | The user buys credit or upgrades; the allowance resets next month. |
 | `402`  | `subscription_required` | The endpoint requires a paid plan     | The user upgrades. Retrying or waiting doesn't help. |
 | `413`  | `storage_limit_reached` | Storage quota reached                 | The user deletes files or upgrades. |

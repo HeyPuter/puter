@@ -1628,6 +1628,8 @@ export class ShareService extends PuterService {
         userId: number,
         unwinding: Set<number>,
     ): Promise<Set<number>> {
+        // A file has no nodes under it.
+        if (!entry.isDir) return new Set<number>();
         // Every row, not just the applied ones: a node whose only share is a
         // pending invite or a team grant is exactly what the group and invite
         // sweeps ask about.
@@ -3978,20 +3980,18 @@ export class ShareService extends PuterService {
                   ),
               );
 
-        let revoked = false;
-        for (let i = 0; i < permissions.length; i++) {
-            if (!manageable[i]) continue;
-            const didRevoke =
-                await this.services.permission.revokeUserUserPermission(
-                    actor,
-                    username,
-                    permissions[i],
-                    { reason: 'unshared' },
-                    { issuerUserId },
-                );
-            if (didRevoke) revoked = true;
-        }
-        return { revoked, authorized: manageable.some(Boolean) };
+        const removed =
+            await this.services.permission.revokeUserUserPermissions(
+                actor,
+                username,
+                permissions.filter((_, i) => manageable[i]),
+                { reason: 'unshared' },
+                { issuerUserId },
+            );
+        return {
+            revoked: removed.length > 0,
+            authorized: manageable.some(Boolean),
+        };
     }
 
     async #revokeQuietly(

@@ -122,7 +122,8 @@ describe('klingRequest', () => {
             expect(translateProviderError(err)).toMatchObject({
                 statusCode: 502,
                 legacyCode: 'upstream_failed',
-                alarmSeverity: 'warning',
+                alarmSeverity: 'info',
+                alarmChannel: 'ai_providers',
                 fields: { provider: 'kling', upstreamCode: String(code) },
             });
         },
@@ -134,7 +135,8 @@ describe('klingRequest', () => {
         expect(translateProviderError(err)).toMatchObject({
             statusCode: 502,
             legacyCode: 'upstream_failed',
-            alarmSeverity: 'warning',
+            alarmSeverity: 'info',
+            alarmChannel: 'ai_providers',
         });
     });
 

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createHash } from 'node:crypto';
 import type { OIDCService } from '../services/auth/OIDCService.js';
 import type { SystemKVStore } from '../stores/systemKv/SystemKVStore.js';
 import type { TeamStoreContract } from '../core/teams.js';
@@ -27,7 +28,8 @@ import {
     isCardFallbackEligible,
     type CardFallbackClients,
 } from './cardFallback.js';
-import { isEmailGateLast } from './verificationOrder.js';
+import { phoneLastDigits } from './phone.js';
+import { isEmailGateLast, isPhoneOnFileStep } from './verificationOrder.js';
 
 export interface UserDetailsDeps {
     config: IConfig;
@@ -47,11 +49,8 @@ const CLIENT_VISIBLE_FEATURE_FLAGS: ReadonlySet<string> = new Set([
     'prompt_user_when_navigation_away_from_puter',
 ]);
 
-// Keys that must never leave the server, whoever put them on a payload:
-// credentials and single-use tokens, the payment/phone identifiers used for
-// verification, the network identity recorded at signup, and anti-abuse
-// bookkeeping. The `requires_*_verification` flags stay; the GUI acts on them.
-const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+// Credentials and single-use tokens a user row (or its `metadata`) can hold.
+const SECRET_KEYS = [
     'password',
     'tmp_password',
     'pass_recovery_token',
@@ -60,6 +59,14 @@ const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
     'change_email_confirm_token',
     'otp_secret',
     'otp_recovery_codes',
+] as const;
+
+// Keys that must never leave the server, whoever put them on a payload: the
+// secrets above, the payment/phone identifiers used for verification, the
+// network identity recorded at signup, and anti-abuse bookkeeping. The
+// `requires_*_verification` flags stay; the GUI acts on them.
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
+    ...SECRET_KEYS,
     'card_fingerprint',
     'phone',
     'clean_email',
@@ -104,6 +111,37 @@ export const scrubSensitive = (
     }
 };
 
+/**
+ * A copy of the row without its credentials and single-use tokens (top level
+ * and in `metadata`), for code outside the auth path. `hasPassword` stands in
+ * for the hash, as on an actor's copy.
+ */
+export const withoutSecrets = (
+    user: UserRow,
+): UserRow & { hasPassword: boolean } => {
+    const copy: Record<string, unknown> = {
+        ...user,
+        hasPassword: user.password != null,
+    };
+    for (const key of SECRET_KEYS) delete copy[key];
+    if (user.metadata && typeof user.metadata === 'object') {
+        const metadata: Record<string, unknown> = { ...user.metadata };
+        for (const key of SECRET_KEYS) delete metadata[key];
+        copy.metadata = metadata;
+    }
+    return copy as UserRow & { hasPassword: boolean };
+};
+
+/**
+ * A short tag of the stored password hash. Any password replacement changes it
+ * (a new hash has a new salt), and it reveals nothing usable. Null without
+ * one.
+ */
+export const passwordTag = (user: { password?: unknown }): string | null =>
+    typeof user.password === 'string' && user.password
+        ? createHash('sha256').update(user.password).digest('hex').slice(0, 16)
+        : null;
+
 // SQL datetimes go out as unix seconds; unparseable values are dropped.
 export const toUnixSeconds = (value: unknown): number | undefined => {
     if (!value) return undefined;
@@ -118,13 +156,17 @@ export const toUnixSeconds = (value: unknown): number | undefined => {
  * caller's job. Not scrubbed: run `scrubSensitive` on the final payload.
  */
 export async function buildUserDetails(
-    user: UserRow,
+    user: UserRow & { hasPassword?: boolean },
     deps: UserDetailsDeps,
     opts: { isUser: boolean },
 ): Promise<Record<string, unknown>> {
     const { config, clients, stores, services } = deps;
     const { isUser } = opts;
-    const oidcOnly = user.password === null;
+    // An actor's copy of the row carries `hasPassword` instead of the hash.
+    const oidcOnly =
+        user.hasPassword === undefined
+            ? user.password === null
+            : !user.hasPassword;
 
     // Non-boolean values (e.g. `"true"`) are coerced so the client never has
     // to guess.
@@ -149,6 +191,12 @@ export async function buildUserDetails(
         // The phone number itself is deliberately absent: nothing on the
         // client reads it. Only the verification flag ships.
         requires_phone_verification: user.requires_phone_verification,
+        // The last two digits of a number the owner has to prove again, so the
+        // client can say where the code goes.
+        phone_on_file:
+            isUser && isPhoneOnFileStep(user)
+                ? phoneLastDigits(String(user.phone))
+                : null,
         requires_card_verification: user.requires_card_verification,
         // Card and phone come before email for this account.
         email_gate_last: isEmailGateLast(user),
@@ -166,7 +214,7 @@ export async function buildUserDetails(
                   cardFallbackDepsFrom(clients),
               )
             : false,
-        is_temp: user.password === null && user.email === null,
+        is_temp: oidcOnly && user.email === null,
         is_user_token: true,
         // Null until the account asks for a code; never minted here.
         referral_code: user.referral_code,

@@ -53,7 +53,7 @@ describe('openAppInNewTab', () => {
     it('opens the app in a new tab, kept connected so the app can ask it for its token', async () => {
         await openAppInNewTab('notes');
         expect(window.open).toHaveBeenCalledWith('', '_blank');
-        expect(launch_app).toHaveBeenCalledWith({ name: 'notes', newTab: opened });
+        expect(launch_app).toHaveBeenCalledWith({ name: 'notes', newTab: opened, trigger: 'app_icon' });
     });
 
     it('ignores a second click while the first launch is loading', async () => {
@@ -82,7 +82,7 @@ describe('openAppInNewTab', () => {
     it('opens the app in this page when the browser refuses the tab', async () => {
         window.open.mockReturnValue(null);
         await openAppInNewTab('notes');
-        expect(launch_app).toHaveBeenCalledWith({ name: 'notes', maximized: true });
+        expect(launch_app).toHaveBeenCalledWith({ name: 'notes', maximized: true, trigger: 'app_icon' });
     });
 
     it('tells the user when the launch fails', async () => {

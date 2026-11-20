@@ -35,6 +35,13 @@
  */
 
 /**
+ * A tool the model's provider runs itself, such as web search.
+ *
+ * @typedef {Object} BuiltInTool
+ * @property {'web_search'} type
+ */
+
+/**
  * One message in a chat conversation.
  *
  * @typedef {Object} ChatMessage
@@ -70,7 +77,7 @@
  * @property {number} [temperature] Sampling temperature between 0 and 2. Lower values are more focused
  * and deterministic, higher values more random. Defaults to the model's own default.
  * @property {number} [max_tokens]
- * @property {boolean} [vision]
+ * @property {boolean} [vision] Deprecated and ignored. Passing an image sets it automatically.
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
  * @property {'fast' | 'standard'} [speed] Claude inference speed. Faster service may cost more.
@@ -81,7 +88,8 @@
  * fails, instead of retrying it on another provider that serves the same model.
  * @property {boolean} [refusalFallback] Claude only. Set to `false` to get a declined request's
  * refusal as it is, instead of an answer from another Claude model.
- * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
+ * @property {(Tool | BuiltInTool)[]} [tools] Function definitions the model can call, or a built-in
+ * tool such as `{ type: 'web_search' }`. See Function Calling.
  * @property {boolean} [normalize] Response-format control for non-streaming results. `true` returns the
  * OpenAI-style shape regardless of provider or release date (`message.content` as a string,
  * `message.tool_calls`, a mapped `finish_reason`); `false` forces the provider's native shape. Left

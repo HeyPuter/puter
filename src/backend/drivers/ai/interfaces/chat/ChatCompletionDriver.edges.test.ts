@@ -557,6 +557,7 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
         });
         expect(err.noAlarm).toBeFalsy();
         expect(err.alarmSeverity).toBe('info');
+        expect(err.alarmChannel).toBe('ai_providers');
         expect(err.message).toBe('Model not available: fake');
         expect(JSON.stringify(attemptsFrom(err))).not.toMatch(
             /http|request id/i,

@@ -2010,6 +2010,7 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
     let host: string;
     let appUid: string;
     let token: string;
+    let sessionUuid: string;
     const allow = (
         _key: string,
         data: { appUid: string; result: { allowed: boolean } },
@@ -2040,9 +2041,11 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
             'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
             [appUid, sub, sub, `http://${host}/`, owner.id, 1],
         );
-        ({ token } = await server.services.auth.createSessionToken(
+        const signedIn = await server.services.auth.createSessionToken(
             visitor as never,
-        ));
+        );
+        token = signedIn.token;
+        sessionUuid = (signedIn.session as { uuid: string }).uuid;
         server.clients.event.on('app.privateAccess.check', allow as never);
     });
 
@@ -2106,6 +2109,7 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
             {
                 appUid,
                 userUid: visitor.uuid,
+                sessionUuid,
                 subdomain: sub,
                 host,
             },
@@ -2115,6 +2119,34 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
             cookies: { [cookieName()]: cookie },
         });
         expect(out.redirected).toEqual({ status: 302, url: '/?a=1&b=x%20y' });
+        expect(out.cookies[cookieName()]).toBeUndefined();
+    });
+
+    it('replaces a cookie that names no session with one bound to the sign-in', async () => {
+        const unbound = server.services.token.sign('hosted-asset', {
+            kind: 'private',
+            version: '2',
+            user_uid: visitor.uuid,
+            app_uid: appUid,
+            subdomain: sub,
+            host,
+        });
+        const out = await visit({
+            dest: 'iframe',
+            cookies: { [cookieName()]: unbound },
+        });
+        expect(out.statusCode).toBe(200);
+        const minted = out.cookies[cookieName()];
+        expect(minted).toBeTruthy();
+        const claims = await server.services.auth.verifyHostedAssetToken(
+            'private',
+            String(minted),
+            { appUid },
+        );
+        expect(claims).toMatchObject({
+            userUid: visitor.uuid,
+            sessionUuid: expect.any(String),
+        });
     });
 
     it('serves without redirecting when the cookie could not be minted', async () => {

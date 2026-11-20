@@ -47,7 +47,7 @@ export function openAppInNewTab (appName) {
     if ( !tab && focusExistingAppWindow(appName) ) return;
     launching.add(appName);
     // The launch owns the tab from here, and closes it on failure.
-    return launch_app(tab ? { name: appName, newTab: tab } : { name: appName, maximized: true })
+    return launch_app(tab ? { name: appName, newTab: tab, trigger: 'app_icon' } : { name: appName, maximized: true, trigger: 'app_icon' })
         .catch((err) => {
             console.error(`Failed to launch ${appName}:`, err);
             UIAlert(i18n('something_went_wrong', [], false));

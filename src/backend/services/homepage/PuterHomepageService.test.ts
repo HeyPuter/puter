@@ -63,7 +63,7 @@ describe('app browser embed shell', () => {
         const html = service.renderAppBrowserEmbed();
         const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
         expect(JSON.parse(configJson)).toEqual({
-            apiOrigin: 'https://api.deployment.test', sdkUrl, guestApps: [],
+            apiOrigin: 'https://api.deployment.test', sdkUrl, guestApps: [], hostOrigin: null,
         });
         expect(html).toContain('/dist/apps-embed.min.js');
         expect(html).not.toContain('/dist/bundle.min.js');
@@ -104,6 +104,12 @@ describe('app browser embed shell', () => {
         expect(html).not.toContain('<script>unexpected()');
         const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
         expect(JSON.parse(configJson).guestApps).toEqual(guestApps);
+    });
+
+    it('names the page framing it', () => {
+        const html = makeService({}).renderAppBrowserEmbed({ hostOrigin: 'https://notes.deployment.test' });
+        const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson).hostOrigin).toBe('https://notes.deployment.test');
     });
 });
 
@@ -306,6 +312,18 @@ describe('PuterHomepageService — gui() parameters', () => {
         const service = makeService({ domain: undefined });
         const params = guiParamsOf(await render(service));
         expect(params.app_origin).toBe('http://req-host.test');
+    });
+
+    it('names the configured AuthMe relays', async () => {
+        expect(
+            guiParamsOf(await render(makeService())).authmeRelayOrigins,
+        ).toEqual([]);
+        const service = makeService({
+            authmeRelayOrigins: ['https://relay.puter.test'],
+        });
+        expect(guiParamsOf(await render(service)).authmeRelayOrigins).toEqual([
+            'https://relay.puter.test',
+        ]);
     });
 
     it('reports captcha requirements from config', async () => {

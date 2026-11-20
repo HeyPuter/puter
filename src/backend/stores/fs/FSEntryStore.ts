@@ -19,7 +19,10 @@
 
 import { statfs } from 'node:fs/promises';
 import { posix as pathPosix } from 'node:path';
-import { assertNormalized } from '../../services/fs/resolveNode.js';
+import {
+    assertNormalized,
+    assertPathLength,
+} from '../../services/fs/resolveNode.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { WriteResult } from '../../clients/database/DatabaseClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -152,6 +155,8 @@ const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 const LINEAGE_LOOKUP_CONCURRENCY = 10;
 // Deepest ancestor walk; a chain that doesn't end by then counts as broken.
 const LINEAGE_MAX_DEPTH = 512;
+// One `UNION ALL` arm per segment; SQLite refuses more than 500.
+const LINEAGE_MAX_SEGMENTS = 500;
 // Cache refreshes after a batched update; each is a cache read and write.
 const ENTRY_PATCH_CONCURRENCY = 32;
 // Thumbnail text one batched UPDATE carries; inline data URLs run to
@@ -312,7 +317,7 @@ export class FSEntryStore extends PuterStore {
             normalized = normalized.slice(0, -1);
         }
 
-        return normalized;
+        return assertPathLength(normalized);
     }
 
     #toBoolean(value: number | boolean | null | undefined): boolean {
@@ -1284,7 +1289,8 @@ export class FSEntryStore extends PuterStore {
     ): Promise<FSEntry | null> {
         if (normalizedPath === '/') return null;
         const segments = normalizedPath.split('/').filter(Boolean);
-        if (segments.length === 0) return null;
+        if (segments.length === 0 || segments.length > LINEAGE_MAX_SEGMENTS)
+            return null;
 
         // Build the segments CTE as an UNION ALL chain of literal SELECTs.
         // Both SQLite and MySQL support recursive CTEs of this shape.
@@ -1652,11 +1658,13 @@ export class FSEntryStore extends PuterStore {
     }
 
     async getEntryByUuid(uuid: string): Promise<FSEntry | null> {
+        if (typeof uuid !== 'string') return null;
         return this.#getEntryBy('uuid', uuid);
     }
 
     /** Uncached primary read, for decisions a stale row must not make. */
     async getEntryByUuidFromPrimary(uuid: string): Promise<FSEntry | null> {
+        if (typeof uuid !== 'string') return null;
         const rows = (await this.clients.db.pread(
             `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
             [uuid],
@@ -1759,22 +1767,27 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * Set an entry's thumbnail with no owner check; the caller authorizes. With
-     * `expectedThumbnail`, only a row still holding it changes. Whether a row
-     * changed, whatever the cache refresh after it finds.
+     * Set an entry's thumbnail with no owner check; the caller authorizes. Only
+     * a row that still holds `expected.thumbnail`, or was last modified at
+     * `expected.modified`, changes. Whether a row changed, whatever the cache
+     * refresh after it finds.
      */
     async updateEntryThumbnailByUuid(
         uuid: string,
         thumbnail: string | null,
-        expectedThumbnail?: string,
+        expected: { thumbnail?: string; modified?: number } = {},
     ): Promise<boolean> {
-        const compare = expectedThumbnail !== undefined;
-        const writeResult = await this.clients.db.write(
-            `UPDATE fsentries SET thumbnail = ? WHERE uuid = ?${
-                compare ? ' AND thumbnail = ?' : ''
-            }`,
-            compare ? [thumbnail, uuid, expectedThumbnail] : [thumbnail, uuid],
-        );
+        let sql = 'UPDATE fsentries SET thumbnail = ? WHERE uuid = ?';
+        const params: unknown[] = [thumbnail, uuid];
+        if (expected.thumbnail !== undefined) {
+            sql += ' AND thumbnail = ?';
+            params.push(expected.thumbnail);
+        }
+        if (expected.modified !== undefined) {
+            sql += ' AND COALESCE(modified, 0) = ?';
+            params.push(expected.modified);
+        }
+        const writeResult = await this.clients.db.write(sql, params);
         if (this.#affectedRows(writeResult) === 0) return false;
         await this.#entryAfterPatch(uuid, { thumbnail });
         return true;
@@ -2318,6 +2331,7 @@ export class FSEntryStore extends PuterStore {
                             );
                         }),
                     );
+                    this.#discardReplacedThumbnails(successfulUpdateOperations);
                 }
 
                 const failedUpdate = updateResults.find(
@@ -2611,6 +2625,9 @@ export class FSEntryStore extends PuterStore {
                     );
                     await this.#invalidateEntryCache(existing);
                     await this.#writeEntryToCache(updatedEntry);
+                    this.#discardReplacedThumbnails([
+                        { existingEntry: existing, updatedEntry },
+                    ]);
                     updatedResultsByIndex.set(entry.index, updatedEntry);
                 }
             }
@@ -2656,6 +2673,24 @@ export class FSEntryStore extends PuterStore {
             createdEntries.push(entry);
         }
         return createdEntries;
+    }
+
+    /**
+     * Announce each thumbnail an overwrite dropped, so the thumbnails extension
+     * can delete the object it points at.
+     */
+    #discardReplacedThumbnails(
+        replaced: Array<{ existingEntry: FSEntry; updatedEntry: FSEntry }>,
+    ): void {
+        for (const { existingEntry, updatedEntry } of replaced) {
+            const url = existingEntry.thumbnail;
+            if (!url || url === updatedEntry.thumbnail) continue;
+            this.clients.event.emit(
+                'thumbnail.discarded',
+                { uuid: existingEntry.uuid, url },
+                {},
+            );
+        }
     }
 
     /** The columns a file INSERT sets, exactly as sent. */

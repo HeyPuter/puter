@@ -32,12 +32,17 @@ export class OIDCStore extends PuterStore {
 
     /** Pass `primary` when the row may be newer than the replica. */
     async getByProviderSub(provider, providerSub, { primary = false } = {}) {
+        // Some providers send a numeric `sub`, and links were stored from it.
+        if (typeof providerSub !== 'string' && typeof providerSub !== 'number')
+            return null;
         // Ordered so a sub that predates the UNIQUE index (two callbacks for the
         // same new identity used to be able to both insert) always resolves to
         // the same link, instead of bouncing the user between two accounts.
         const sql =
             'SELECT * FROM `user_oidc_providers` WHERE `provider` = ? AND `provider_sub` = ? ORDER BY `id` ASC LIMIT 1';
-        const params = [provider, providerSub];
+        // As a string: MySQL compares a varchar with a number numerically, so
+        // `123` would also match '0123'.
+        const params = [provider, String(providerSub)];
         const rows = primary
             ? await this.clients.db.pread(sql, params)
             : await this.clients.db.read(sql, params);
@@ -57,7 +62,7 @@ export class OIDCStore extends PuterStore {
         try {
             await this.clients.db.write(
                 'INSERT INTO `user_oidc_providers` (`user_id`, `provider`, `provider_sub`, `refresh_token`) VALUES (?, ?, ?, ?)',
-                [userId, provider, providerSub, refreshToken],
+                [userId, provider, String(providerSub), refreshToken],
             );
             return;
         } catch (e) {

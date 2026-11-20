@@ -28,6 +28,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import {
+    assertVerifiedAccount,
     DEFAULT_ADMIN_USERNAMES,
     hasVerifiedCard,
     hasVerifiedPhone,
@@ -37,8 +38,10 @@ import { isAppActor, isPlainUserActor, makeActor } from '../../core/actor.js';
 import {
     checkRateLimit,
     consumeRouteRateLimit,
+    listConfiguredRateLimitBackends,
     peekRateLimit,
     peekRouteRateLimit,
+    reserveRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import {
     signStepUpToken,
@@ -57,6 +60,8 @@ import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import type { CardFallbackDeps } from '../../util/cardFallback.js';
 import {
     CARD_FALLBACK_OPEN_TTL_SECONDS,
+    PHONE_ON_FILE_SEND_WINDOW_MS,
+    PHONE_ON_FILE_SENDS_PER_DAY,
     SEND_PHONE_RATE_LIMIT,
     SEND_PHONE_RATE_WINDOW_MS,
     cardFallbackAfterAttempts,
@@ -66,11 +71,18 @@ import {
     isCardFallbackEnabled,
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
-import { isEmailGateLast } from '../../util/verificationOrder.js';
+import {
+    hasPhoneFromBeforeDormancy,
+    isEmailGateLast,
+    isEmailPending,
+    isPhoneOnFileStep,
+    PHONE_ON_FILE_PROVEN_TTL_SECONDS,
+    phoneOnFileProvenKey,
+} from '../../util/verificationOrder.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
-import { parsePhone } from '../../util/phone.js';
+import { parsePhone, phoneLastDigits } from '../../util/phone.js';
 import { deleteIfEqual } from '../../util/redisLock.js';
 import {
     bonusCodeInvalidError,
@@ -79,7 +91,11 @@ import {
     normalizeBonusCode,
 } from '../../util/signupBonus.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
-import { buildUserDetails, scrubSensitive } from '../../util/userDetails.js';
+import {
+    buildUserDetails,
+    passwordTag,
+    scrubSensitive,
+} from '../../util/userDetails.js';
 import {
     assertValidUsername,
     generateUsername,
@@ -115,7 +131,10 @@ import type { ReauthReason } from '../../services/auth/AuthService';
 import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
-import { startWebSession } from './webSession.js';
+import type { SignInInput } from '../../services/auth/SignInService.js';
+import { claimOnce } from '../../util/kvClaim.js';
+import { knownDeviceStatus } from './knownDevice.js';
+import { runAfterResponse, startWebSession } from './webSession.js';
 import { completeOidcLoginReturn } from './oidcLoginReturn.js';
 
 const FINGERPRINT_MAX_LENGTH = 128;
@@ -274,6 +293,109 @@ const SECOND_FACTOR_FAILURE_LIMIT = {
     limit: 10,
     window: 30 * 60_000,
 } as const;
+
+interface FailureLimit {
+    scope: string;
+    limit: number;
+    window: number;
+}
+
+/**
+ * Wrong passwords per account on `/login`, from every network together. While a
+ * window is spent, password sign-in is refused whatever the password, except
+ * from a device known to the account. Each attempt reserves a slot in the
+ * region's limiter, kept only when the password is wrong. Keyed by
+ * {@link passwordBudgetSubject}.
+ */
+const PASSWORD_FAILURE_LIMITS: readonly FailureLimit[] = [
+    { scope: 'login-password-failure', limit: 20, window: 60 * 60_000 },
+    {
+        scope: 'login-password-failure-day',
+        limit: 50,
+        window: 24 * 60 * 60_000,
+    },
+];
+
+/**
+ * The same windows in the system KV, which every region reads: charged on a
+ * wrong password, so guesses spread over regions share one budget.
+ */
+const SHARED_PASSWORD_FAILURE_LIMITS: readonly FailureLimit[] = [
+    { scope: 'login-password-failure-global', limit: 20, window: 60 * 60_000 },
+    {
+        scope: 'login-password-failure-global-day',
+        limit: 50,
+        window: 24 * 60 * 60_000,
+    },
+];
+
+/**
+ * Whose wrong-password budget an attempt spends: the account under its current
+ * password, so any password replacement starts a fresh budget everywhere.
+ */
+const passwordBudgetSubject = (user: UserRow): string =>
+    `${user.uuid}:${passwordTag(user) ?? 'none'}`;
+
+// Redis reserves atomically; the KV backend lists, then writes.
+const regionalPasswordBackend = (): 'redis' | undefined =>
+    listConfiguredRateLimitBackends().available.includes('redis')
+        ? 'redis'
+        : undefined;
+
+/**
+ * One lockout alarm and owner email a day per account and password, in every
+ * region.
+ */
+const PASSWORD_LOCK_NOTICE_SECONDS = 24 * 60 * 60;
+const passwordLockNoticeKey = (subject: string): string =>
+    `login-lock-notice:${subject}`;
+
+/** Wrong email confirmation codes per account. Charged only on a wrong code. */
+const CONFIRM_CODE_FAILURE_LIMITS: readonly FailureLimit[] = [
+    { scope: 'confirm-email-failure', limit: 10, window: 60 * 60_000 },
+    {
+        scope: 'confirm-email-failure-day',
+        limit: 20,
+        window: 24 * 60 * 60_000,
+    },
+];
+
+/** Whether every window of a failure budget has room left. Fails open. */
+const failureBudgetOpen = async (
+    limits: readonly FailureLimit[],
+    subject: string,
+    backend?: 'kv' | 'redis',
+): Promise<boolean> =>
+    (
+        await Promise.all(
+            limits.map(({ scope, limit, window }) =>
+                peekRateLimit(`${scope}:${subject}`, limit, window, backend),
+            ),
+        )
+    ).every(Boolean);
+
+const chargeFailure = async (
+    limits: readonly FailureLimit[],
+    subject: string,
+    backend?: 'kv',
+): Promise<void> => {
+    await Promise.all(
+        limits.map(({ scope, limit, window }) =>
+            checkRateLimit(`${scope}:${subject}`, limit, window, backend),
+        ),
+    );
+};
+
+/**
+ * Drop credentials a handler has finished with, parsed and raw, so nothing
+ * after it sees them.
+ */
+const dropUsedCredentials = (req: Request, ...fields: string[]): void => {
+    delete req.rawBody;
+    const body: unknown = req.body;
+    if (!body || typeof body !== 'object') return;
+    for (const field of fields) delete (body as Record<string, unknown>)[field];
+};
 
 /** Recovery mails per account per hour, across every requester. */
 const PASS_RECOVERY_EMAIL_TARGET_LIMIT = {
@@ -532,13 +654,20 @@ export class AuthController extends PuterController {
             });
         }
 
+        if (username && typeof username !== 'string') {
+            throw new HttpError(400, 'username must be a string.', {
+                legacyCode: 'bad_request',
+            });
+        }
+        // From here the password lives in this local only; no listener reads
+        // it off the request.
+        dropUsedCredentials(req, 'password');
+        // Before the lookup, so a refusal reads the same for every account.
+        await this.services.signIn.checkAttempt(req);
+
         // Look up user
         let user;
         if (username) {
-            if (typeof username !== 'string')
-                throw new HttpError(400, 'username must be a string.', {
-                    legacyCode: 'bad_request',
-                });
             user = await this.stores.user.getByUsername(username);
         } else {
             user = await this.stores.user.getByEmail(email);
@@ -573,16 +702,43 @@ export class AuthController extends PuterController {
             });
         }
 
-        // Verify password
-        const passwordMatch = await bcrypt.compare(
-            password,
-            user.password as string,
-        );
+        // The budget is reserved alongside the compare, so a burst can't all
+        // pass on its last slot. A 2FA account's checks run at its code.
+        const budget = passwordBudgetSubject(user);
+        if (!user.otp_enabled) {
+            this.services.signIn.preloadAccountFacts(req, user, 'password');
+        }
+        const [compared, reserved] = await Promise.allSettled([
+            bcrypt.compare(password, user.password as string),
+            this.#reservePasswordAttempt(req, user, budget),
+        ]);
+        if (compared.status === 'rejected') {
+            if (reserved.status === 'fulfilled') await reserved.value.release();
+            throw compared.reason;
+        }
+        if (reserved.status === 'rejected') throw reserved.reason;
+        const passwordMatch = compared.value;
+        const attempt = reserved.value;
+        if (attempt.locked) {
+            void attempt.release();
+            throw new HttpError(
+                429,
+                'Too many incorrect passwords for this account. Reset your password, or try again later.',
+                {
+                    legacyCode: 'too_many_requests',
+                    code: 'login_locked',
+                    fields: { action: 'reset_password' },
+                },
+            );
+        }
         if (!passwordMatch) {
+            await this.#recordPasswordFailure(req, user, budget);
             throw new HttpError(401, 'Incorrect password.', {
                 legacyCode: 'password_mismatch',
             });
         }
+        // A right password spends nothing.
+        void attempt.release();
         // An administrator-issued temporary password that was never used dies
         // rather than becoming a standing credential the team holds.
         if (isTemporaryPasswordExpired(user)) {
@@ -592,6 +748,13 @@ export class AuthController extends PuterController {
                 { legacyCode: 'temporary_password_expired' },
             );
         }
+        // Keeps only what the exposure checks need, not the password.
+        const credentialCheck = this.services.signIn.prepareCredentialCheck(
+            req,
+            user,
+            password,
+        );
+        if (credentialCheck) runAfterResponse(res, credentialCheck);
 
         const reauthAuthId =
             this.#verifySuppliedReauthToken(req.body.reauth_token)?.authId ??
@@ -622,7 +785,7 @@ export class AuthController extends PuterController {
             return;
         }
 
-        await this.#completeLogin(req, res, user);
+        await this.#completeLogin(req, res, user, 'password');
     }
 
     // -- Login: OTP verification -------------------------------------
@@ -689,10 +852,17 @@ export class AuthController extends PuterController {
             return;
         }
         await this.#consumeOtpLoginToken(token);
+        dropUsedCredentials(req, 'token', 'code');
 
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
-        await this.#completeLogin(req, res, user, decoded.oidcContinuation);
+        await this.#completeLogin(
+            req,
+            res,
+            user,
+            'otp',
+            decoded.oidcContinuation,
+        );
     }
 
     // -- Login: recovery code ----------------------------------------
@@ -775,10 +945,17 @@ export class AuthController extends PuterController {
             res.json({ proceed: false });
             return;
         }
+        dropUsedCredentials(req, 'token', 'code');
 
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
-        await this.#completeLogin(req, res, user, decoded.oidcContinuation);
+        await this.#completeLogin(
+            req,
+            res,
+            user,
+            'recovery_code',
+            decoded.oidcContinuation,
+        );
     }
 
     // -- Signup ------------------------------------------------------
@@ -873,7 +1050,7 @@ export class AuthController extends PuterController {
                     legacyCode: 'account_suspended',
                 });
             }
-            await this.#completeLogin(req, res, existing);
+            await this.#completeLogin(req, res, existing, 'signup');
             return;
         }
 
@@ -948,7 +1125,7 @@ export class AuthController extends PuterController {
                 fingerprint,
                 bonusCode,
             });
-        await this.#completeLogin(req, res, user, undefined, {
+        await this.#completeLogin(req, res, user, 'signup', undefined, {
             ...(confirmationEmailSent !== undefined
                 ? { confirmation_email_sent: confirmationEmailSent }
                 : {}),
@@ -1131,6 +1308,23 @@ export class AuthController extends PuterController {
             });
             return;
         }
+        if (
+            !(await failureBudgetOpen(CONFIRM_CODE_FAILURE_LIMITS, user.uuid))
+        ) {
+            throw new HttpError(
+                429,
+                'Too many incorrect codes. Try again later.',
+                { legacyCode: 'too_many_requests' },
+            );
+        }
+        // Checked before the code, so no guess at an expired code counts.
+        if (!(await this.services.signup.isConfirmationCodeCurrent(user.id))) {
+            throw new HttpError(
+                400,
+                'This confirmation code has expired. Request a new code.',
+                { code: 'confirmation_code_expired' },
+            );
+        }
         // Reject before comparing when no code is stored: `String(null)` would
         // otherwise equal a submitted `"null"` and confirm the email without
         // the real code.
@@ -1138,6 +1332,7 @@ export class AuthController extends PuterController {
             !user.email_confirm_code ||
             String(user.email_confirm_code) !== String(code)
         ) {
+            await chargeFailure(CONFIRM_CODE_FAILURE_LIMITS, user.uuid);
             res.json({
                 email_confirmed: false,
                 original_client_socket_id,
@@ -1252,6 +1447,8 @@ export class AuthController extends PuterController {
      */
     private async recordPhoneAttemptForFallback(user: {
         id: number;
+        phone?: string | null;
+        card_fingerprint?: string | null;
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         const attempts = await this.bumpPhoneAttempts(user.id);
@@ -1265,9 +1462,13 @@ export class AuthController extends PuterController {
      */
     private async openCardFallback(user: {
         id: number;
+        phone?: string | null;
+        card_fingerprint?: string | null;
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         if (!user.requires_phone_verification) return false;
+        // A number on file can only be stood in for by the card on file.
+        if (isPhoneOnFileStep(user) && !user.card_fingerprint) return false;
         const deps = this.cardFallbackDeps();
         if (!(await isCardFallbackEnabled(this.config, deps))) return false;
         try {
@@ -1349,6 +1550,21 @@ export class AuthController extends PuterController {
                 'Card verification must be completed first.',
                 { legacyCode: 'conflict' },
             );
+        // An account proving the number it already has gets the code there and
+        // can't name another. Losing that number opens the card fallback.
+        const onFile = isPhoneOnFileStep(user);
+        if (onFile && req.body?.lostNumber === true) {
+            if (await this.openCardFallback(user)) {
+                res.json({ card_fallback_available: true });
+                return;
+            }
+            throw new HttpError(
+                409,
+                'Email support@puter.com to verify your account another way.',
+                { legacyCode: 'conflict', code: 'phone_on_file_unavailable' },
+            );
+        }
+
         if (!this.clients.prelude?.isConfigured())
             throw await this.smsSendError(
                 503,
@@ -1361,7 +1577,7 @@ export class AuthController extends PuterController {
         // Parse to E.164 (Prelude's required form + the stored form) and the
         // country, so we can apply the per-country cost cap.
         const parsed = parsePhone(
-            req.body?.phone,
+            onFile ? user.phone : req.body?.phone,
             this.clients.prelude.defaultCountry,
         );
         if (!parsed)
@@ -1396,6 +1612,28 @@ export class AuthController extends PuterController {
                 },
                 { legacyCode: 'phone_country_not_supported' as never },
             );
+
+        // Codes to a number on file are sent without the owner typing it, so
+        // the account gets few of them.
+        if (
+            onFile &&
+            !(await checkRateLimit(
+                `phone-on-file-send:${user.id}`,
+                PHONE_ON_FILE_SENDS_PER_DAY,
+                PHONE_ON_FILE_SEND_WINDOW_MS,
+            ))
+        ) {
+            const fallback = await this.openCardFallback(user);
+            throw new HttpError(
+                429,
+                'Too many codes were sent to this number today. Try again tomorrow.',
+                {
+                    legacyCode: 'too_many_requests',
+                    code: 'phone_on_file_send_limit',
+                    fields: fallback ? { card_fallback_available: true } : {},
+                },
+            );
+        }
 
         // Counted before the abuse / Prelude checks so a blocked attempt still
         // counts toward the fallback threshold.
@@ -1573,6 +1811,9 @@ export class AuthController extends PuterController {
         res.json({
             ...fallbackFields,
             ...(deliveryChannel ? { channel: deliveryChannel } : {}),
+            // Where the code went, for a client that didn't know the account
+            // had a number to prove.
+            ...(onFile ? { phone_on_file: phoneLastDigits(parsed.e164) } : {}),
         });
     }
 
@@ -1612,17 +1853,20 @@ export class AuthController extends PuterController {
         }
         // The number being verified is the one staged at send time (KV
         // pending), not the user row — we don't persist an unverified number.
-        // Fall back to a row value for accounts that already have one on file
-        // (legacy / a number persisted by a prior verified flow).
+        // An account proving the number on file proves only that one.
         const pendingPhoneKey = `phone-verify-pending:${user.id}`;
-        let pendingPhone: string | null = null;
-        try {
-            const { res: staged } = await this.stores.kv.get({
-                key: pendingPhoneKey,
-            });
-            if (typeof staged === 'string' && staged) pendingPhone = staged;
-        } catch (e) {
-            console.warn('[confirm-phone] pending read failed:', e);
+        let pendingPhone: string | null = isPhoneOnFileStep(user)
+            ? (user.phone as string)
+            : null;
+        if (!pendingPhone) {
+            try {
+                const { res: staged } = await this.stores.kv.get({
+                    key: pendingPhoneKey,
+                });
+                if (typeof staged === 'string' && staged) pendingPhone = staged;
+            } catch (e) {
+                console.warn('[confirm-phone] pending read failed:', e);
+            }
         }
         if (!pendingPhone) pendingPhone = user.phone ?? null;
         if (!pendingPhone)
@@ -1655,6 +1899,7 @@ export class AuthController extends PuterController {
         }
 
         // Verified — persist the number now (and only now) and clear the gate.
+        if (isPhoneOnFileStep(user)) await this.#markPhoneOnFileProven(user);
         await this.stores.user.update(user.id, {
             requires_phone_verification: 0,
             phone: pendingPhone,
@@ -1878,13 +2123,26 @@ export class AuthController extends PuterController {
                 { legacyCode: 'conflict' },
             );
 
+        // While a number on file waits to be proven, the only card that
+        // verifies is the one already on file, entered again.
+        const onFileStep = isPhoneOnFileStep(user);
+        if (onFileStep && !user.card_fingerprint) {
+            res.json({ card_verified: false, reason: 'card_not_on_file' });
+            return;
+        }
+        const requiredFingerprint = onFileStep
+            ? (user.card_fingerprint as string)
+            : null;
+
         const confirmEvent = {
             user_id: user.id,
             user_uid: user.uuid,
             email: user.email!,
             setup_intent_id,
+            required_fingerprint: requiredFingerprint,
             enabled: null as boolean | null,
             verified: false,
+            card_entered: false,
             reason: null as string | null,
             fingerprint: null as string | null,
             funding: null as string | null,
@@ -1926,6 +2184,15 @@ export class AuthController extends PuterController {
             res.json({ card_verified: false, reason: confirmEvent.reason });
             return;
         }
+        // Checked here too, so the rule doesn't rest on the listener alone.
+        if (
+            requiredFingerprint !== null &&
+            (confirmEvent.fingerprint !== requiredFingerprint ||
+                confirmEvent.card_entered !== true)
+        ) {
+            res.json({ card_verified: false, reason: 'card_not_on_file' });
+            return;
+        }
 
         // A fallback card clears the phone gate too — the point of the
         // fallback. `fallbackEligible &&` makes the invariant local instead
@@ -1933,6 +2200,8 @@ export class AuthController extends PuterController {
         // ever clear a phone gate.
         const clearedPhoneGate =
             fallbackEligible && Boolean(user.requires_phone_verification);
+        if (clearedPhoneGate && onFileStep)
+            await this.#markPhoneOnFileProven(user);
         await this.stores.user.update(user.id, {
             requires_card_verification: 0,
             ...(clearedPhoneGate ? { requires_phone_verification: 0 } : {}),
@@ -2017,6 +2286,10 @@ export class AuthController extends PuterController {
 
         let user;
         if (username) {
+            if (typeof username !== 'string')
+                throw new HttpError(400, 'username must be a string.', {
+                    legacyCode: 'bad_request',
+                });
             user = await this.stores.user.getByUsername(username);
         } else {
             if (!isStorableEmail(email))
@@ -2286,6 +2559,7 @@ export class AuthController extends PuterController {
         await this.services.auth.revokeInteractiveSessionsForUserId(
             user.id as number,
         );
+        await this.#sendPasswordChangeNotification(user);
 
         res.send('Password successfully updated.');
     }
@@ -2341,20 +2615,7 @@ export class AuthController extends PuterController {
         // rows); only the session that changed the password survives.
         await this.services.auth.revokeAllSessions(req.actor!);
 
-        if (this.clients.email && user.email) {
-            try {
-                await this.clients.email.send(
-                    user.email,
-                    'password_change_notification',
-                    {
-                        username: user.username,
-                    },
-                    { stream: 'auth' },
-                );
-            } catch (e) {
-                console.warn('[change-password] notification send failed:', e);
-            }
-        }
+        await this.#sendPasswordChangeNotification(user);
 
         res.send('Password successfully updated.');
     }
@@ -2492,6 +2753,9 @@ export class AuthController extends PuterController {
 
     @Post('/user-protected/change-email', {
         userProtected: true,
+        // A pending email step is checked in the handler; every other gate
+        // still applies there.
+        allowUnconfirmed: true,
         rateLimit: {
             scope: 'change-email-start',
             limit: 10,
@@ -2519,6 +2783,7 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found', {
                 legacyCode: 'not_found',
             });
+        await this.#assertEmailChangeAllowed(user);
         this.#requireAccountTwoFactor(user, req.body?.code);
 
         const { new_email } = req.body ?? {};
@@ -2599,6 +2864,62 @@ export class AuthController extends PuterController {
         }
 
         res.json({});
+    }
+
+    /**
+     * A dormant account whose address was never confirmed can replace it while
+     * the code is pending, so a dead or mistyped one isn't a dead end. The
+     * password alone doesn't prove the account is the caller's: it also takes
+     * the number the account had before, proven again within the hour (by its
+     * code, or by the card on file). Without that the code is still required.
+     */
+    async #assertEmailChangeAllowed(user: UserRow): Promise<void> {
+        if (!isEmailPending(user)) {
+            assertVerifiedAccount(user);
+            return;
+        }
+        // A second factor can't be enabled before the address is confirmed,
+        // and a provider-only account would lose its sign-in when the change
+        // unlinks its providers.
+        if (user.password === null || !hasPhoneFromBeforeDormancy(user))
+            assertVerifiedAccount(user);
+        assertVerifiedAccount({ ...user, requires_email_confirmation: false });
+
+        let proven = false;
+        try {
+            const { res } = await this.stores.kv.get({
+                key: phoneOnFileProvenKey(user.id),
+            });
+            proven = res === user.phone;
+        } catch (e) {
+            console.warn('[change-email] phone proof unreadable:', e);
+        }
+        if (proven) return;
+        // Ask for the number again, where a code can be sent at all.
+        if (!this.clients.prelude?.isConfigured()) assertVerifiedAccount(user);
+        await this.stores.user.update(user.id, {
+            requires_phone_verification: 1,
+        });
+        throw new HttpError(
+            403,
+            'Please verify your phone number to continue',
+            { legacyCode: 'phone_verification_required' },
+        );
+    }
+
+    /** Best effort: a failed write only means the number is asked for again. */
+    async #markPhoneOnFileProven(user: UserRow): Promise<void> {
+        try {
+            await this.stores.kv.set({
+                key: phoneOnFileProvenKey(user.id),
+                value: user.phone,
+                expireAt:
+                    Math.floor(Date.now() / 1000) +
+                    PHONE_ON_FILE_PROVEN_TTL_SECONDS,
+            });
+        } catch (e) {
+            console.warn('[verification] phone proof not recorded:', e);
+        }
     }
 
     @Get('/change_email/confirm', {
@@ -2703,6 +3024,22 @@ export class AuthController extends PuterController {
         }
 
         await this.stores.oidc.unlinkAllByUserId(user.id);
+        // Replacing an address that was never confirmed confirms the account,
+        // once however many times the link is followed at once.
+        if (
+            !user.email_confirmed &&
+            (await claimOnce(
+                this.stores.kv,
+                `change-email-confirmed:${decoded.token}`,
+                60 * 60,
+            ))
+        ) {
+            await this.services.signup.announceEmailConfirmed({
+                ...user,
+                email: newEmail,
+                email_confirmed: true,
+            });
+        }
 
         try {
             this.clients.event?.emit(
@@ -3759,6 +4096,12 @@ export class AuthController extends PuterController {
     async handleRevokeDevApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body ?? {};
         const { origin, permission, meta } = req.body ?? {};
+        this.#validateAppPermissionParams({
+            app_uid,
+            origin,
+            permission,
+            meta,
+        });
         if (origin && !app_uid) {
             // Registered apps only — see handleGrantDevApp.
             app_uid = await this.#registeredAppUidFromOrigin(origin);
@@ -4777,6 +5120,134 @@ export class AuthController extends PuterController {
     }
 
     /**
+     * Reserve this attempt in the account's wrong-password budget. Locked when
+     * a regional window refuses the reservation or a shared window is spent,
+     * unless the device signed in to the account before (whose wrong guesses
+     * still count). The device read also serves the sign-in that may follow.
+     * `release` gives the reservation back; it never rejects.
+     */
+    async #reservePasswordAttempt(
+        req: Request,
+        user: UserRow,
+        budget: string,
+    ): Promise<{ locked: boolean; release: () => Promise<void> }> {
+        const regional = regionalPasswordBackend();
+        const [reservations, sharedOpen, device] = await Promise.all([
+            Promise.all(
+                PASSWORD_FAILURE_LIMITS.map(({ scope, limit, window }) =>
+                    reserveRateLimit(
+                        `${scope}:${budget}`,
+                        limit,
+                        window,
+                        regional,
+                    ),
+                ),
+            ),
+            failureBudgetOpen(SHARED_PASSWORD_FAILURE_LIMITS, budget, 'kv'),
+            knownDeviceStatus(req, user.uuid, {
+                token: this.services.token,
+                kv: this.stores.kv,
+            }),
+        ]);
+        const spent = !sharedOpen || reservations.some((r) => !r.ok);
+        return {
+            // An account with no email can't reset its way out, so a lock
+            // would let anyone keep it out of new browsers.
+            locked: spent && !device.known && Boolean(user.email),
+            release: async () => {
+                await Promise.all(reservations.map((r) => r.release()));
+            },
+        };
+    }
+
+    /** The reservation charged this region; the shared windows are charged here. */
+    async #recordPasswordFailure(
+        req: Request,
+        user: UserRow,
+        budget: string,
+    ): Promise<void> {
+        await chargeFailure(SHARED_PASSWORD_FAILURE_LIMITS, budget, 'kv');
+        const open = await Promise.all([
+            failureBudgetOpen(
+                PASSWORD_FAILURE_LIMITS,
+                budget,
+                regionalPasswordBackend(),
+            ),
+            failureBudgetOpen(SHARED_PASSWORD_FAILURE_LIMITS, budget, 'kv'),
+        ]);
+        if (open.every(Boolean)) return;
+        await this.#notifyPasswordLock(req, user, budget);
+    }
+
+    /**
+     * Alarm and email the owner that password sign-in is locked, once a day per
+     * account and password. Best effort: a failed notice never changes the
+     * answer.
+     */
+    async #notifyPasswordLock(
+        req: Request,
+        user: UserRow,
+        budget: string,
+    ): Promise<void> {
+        const claimed = await claimOnce(
+            this.stores.kv,
+            passwordLockNoticeKey(budget),
+            PASSWORD_LOCK_NOTICE_SECONDS,
+        );
+        if (!claimed) return;
+        try {
+            this.clients.alarm?.create(
+                `auth:login-locked:${user.uuid}`,
+                user.email
+                    ? 'Password sign-in locked after repeated wrong passwords'
+                    : 'Repeated wrong passwords on an account with no email (not locked)',
+                {
+                    username: user.username,
+                    user_uuid: user.uuid,
+                    ip: req.ip || req.socket?.remoteAddress || null,
+                },
+                'warning',
+                { dedup: true },
+            );
+        } catch (e) {
+            console.warn('[login] lockout alarm failed:', e);
+        }
+        if (!this.clients.email || !user.email) return;
+        const origin = this.config.origin ?? '';
+        try {
+            await this.clients.email.send(
+                user.email,
+                'login_locked_notification',
+                {
+                    username: user.username,
+                    reset_link: `${origin}/action/password-recovery`,
+                    sessions_link: `${origin}/dashboard#security`,
+                },
+                { stream: 'auth' },
+            );
+        } catch (e) {
+            console.warn('[login] lockout notice send failed:', e);
+        }
+    }
+
+    async #sendPasswordChangeNotification(user: {
+        email?: string | null;
+        username: string;
+    }): Promise<void> {
+        if (!this.clients.email || !user.email) return;
+        try {
+            await this.clients.email.send(
+                user.email,
+                'password_change_notification',
+                { username: user.username },
+                { stream: 'auth' },
+            );
+        } catch (e) {
+            console.warn('[password] change notification send failed:', e);
+        }
+    }
+
+    /**
      * An `otp-login` JWT completes one sign-in; a second redemption is refused.
      * Fails closed: while the store can't say whether the token was used, the
      * sign-in is refused rather than letting a captured token replay.
@@ -4861,21 +5332,33 @@ export class AuthController extends PuterController {
     async #completeLogin(
         req: Request,
         res: Response,
-        user: UserRow,
+        resolvedUser: UserRow,
+        method: SignInInput['method'],
         oidcContinuation?: unknown,
         extra: { confirmation_email_sent?: boolean } = {},
     ): Promise<void> {
         const redirectUrl =
             oidcContinuation === undefined
                 ? undefined
-                : completeOidcLoginReturn(res, user, oidcContinuation, {
+                : completeOidcLoginReturn(res, resolvedUser, oidcContinuation, {
                       config: this.config,
                       oidc: this.services.oidc,
                   });
-        const gui_token = await startWebSession(req, res, user, {
-            config: this.config,
-            auth: this.services.auth,
-        });
+        // The row it hands back carries the gates the sign-in just set, so
+        // the client opens the right verification flow straight away.
+        const { guiToken: gui_token, user } = await startWebSession(
+            req,
+            res,
+            resolvedUser,
+            {
+                config: this.config,
+                auth: this.services.auth,
+                signIn: this.services.signIn,
+                token: this.services.token,
+                kv: this.stores.kv,
+            },
+            method,
+        );
 
         // The whoami payload, so a no-reload login can store it as
         // window.user verbatim and skip a round-trip on first paint.

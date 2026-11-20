@@ -380,6 +380,19 @@ describe('creating a durable subscription over HTTP', () => {
         expect(refused.body.code).toBe('invalid_expires_at');
     });
 
+    it('refuses an expiry past the year 9999', async () => {
+        for (const expiresAt of [
+            1e300,
+            253402300800,
+            [new Date(Date.now() + 3_600_000).toISOString()],
+            { toString: null },
+        ]) {
+            const refused = await subscribe(env.users.user.token, { expiresAt });
+            expect(refused.status).toBe(400);
+            expect(refused.body.code).toBe('invalid_expires_at');
+        }
+    });
+
     it('answers a subject it cannot read as absent', async () => {
         const refused = await call('POST', '/events/subscribe', appOneToken, {
             subject: `fs:/${username}/not-granted`,

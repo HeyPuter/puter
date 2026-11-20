@@ -646,7 +646,9 @@ export class KvShareHandleStore extends PuterStore {
         revokedBy: KvShareRevokedBy,
         scope: { ownerUserId?: number; granteeUserId?: number } = {},
     ): Promise<void> {
-        const unique = [...new Set(handles)];
+        const unique = [
+            ...new Set(handles.filter((h) => typeof h === 'string')),
+        ];
         if (unique.length === 0) return;
         const where = [
             `\`handle\` IN (${unique.map(() => '?').join(', ')})`,
@@ -755,6 +757,7 @@ export class KvShareHandleStore extends PuterStore {
         ownerUserId: number,
         changes: KvShareHandleUpdate,
     ): Promise<KvShareHandle | null> {
+        if (typeof handle !== 'string') return null;
         const sets: string[] = [];
         const params: unknown[] = [];
         if (changes.permission !== undefined) {

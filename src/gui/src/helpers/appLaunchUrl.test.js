@@ -84,5 +84,24 @@ describe('appendLaunchContext', () => {
             'utm_medium': 'referral',
             'utm_campaign': 'dashboard',
         });
+        expect(url.searchParams.has('utm_content')).toBe(false);
+    });
+
+    it('names what the user did and the site that sent them', () => {
+        const url = new URL('https://notes.example.com/');
+        appendLaunchContext(url, {
+            appDomain: 'puter.test',
+            pageUrl: 'https://puter.test/embed/apps',
+            locale: 'en',
+            surface: 'app_browser_embed',
+            trigger: 'open_with',
+            source: 'builder.puter.test',
+        });
+        expect(Object.fromEntries(url.searchParams)).toMatchObject({
+            'utm_source': 'builder.puter.test',
+            'utm_medium': 'referral',
+            'utm_campaign': 'app_browser_embed',
+            'utm_content': 'open_with',
+        });
     });
 });

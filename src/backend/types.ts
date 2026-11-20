@@ -107,15 +107,30 @@ export interface IPagerDutyConfig {
      * `info` alarms out of the paging system entirely.
      */
     minSeverity?: PagerSeverity;
+    /**
+     * REST API token (read-only is enough). Lets an alarm that calls link to
+     * the incident it opened.
+     */
+    apiToken?: string;
 }
 
 export interface ISlackAlertConfig {
     enabled?: boolean;
-    /** Incoming-webhook URL to post alerts to. */
+    /**
+     * Bot token with `chat:write`. Needed to route alarms to `channels` and to
+     * link a call to its message; takes precedence over `webhookUrl`.
+     */
+    botToken?: string;
+    /** Incoming-webhook URL; posts land in the webhook's own channel. */
     webhookUrl?: string;
-    /** Channel override (e.g. `#alerts`). Defaults to the webhook's own. */
+    /**
+     * Channel for alarms with no `channel` key, or one `channels` doesn't list.
+     * Required with `botToken`; optional with a webhook.
+     */
     channel?: string;
-    /** Bot display name on the posted message. */
+    /** Alarm `channel` keys (e.g. `billing`) mapped to a channel name or ID. */
+    channels?: Record<string, string>;
+    /** Display name on the post; a bot token needs `chat:write.customize`. */
     username?: string;
     /** Lowest severity posted to Slack. Default `info`. */
     minSeverity?: PagerSeverity;
@@ -146,6 +161,27 @@ export interface IPagerConfig {
     severityOverrides?: Record<string, SeverityRule>;
     pagerduty?: IPagerDutyConfig;
     slack?: ISlackAlertConfig;
+    calls?: IAlarmCallConfig;
+}
+
+/**
+ * Alarms that should phone someone. While one is active, `GET /alarms/calls`
+ * answers 503 for its group, for an external monitor to turn into a call.
+ */
+export interface IAlarmCallConfig {
+    /**
+     * Alarm ids, or prefixes ending in `*`, mapped to a call group
+     * (`[A-Za-z0-9_-]`, up to 64). Exact ids beat patterns and the longest
+     * prefix wins. A muted alarm never calls.
+     */
+    rules?: Record<string, string>;
+    /** Secret the monitor sends in `x-puter-internal-auth`; unset refuses. */
+    secret?: string;
+    /**
+     * How long a call stays active after its alarm last fired. Default 30
+     * minutes, minimum 5.
+     */
+    ttlMs?: number;
 }
 
 export interface ICfFileCacheConfig {
@@ -822,6 +858,31 @@ interface IConfigOptional {
      * proxy overwrites any value the client sends. Unset disables it.
      */
     tlsFingerprintHeader?: string;
+    /**
+     * Request headers a proxy in front of the server sets to flag a request,
+     * mapped to the signal each one raises (`{ "x-edge-label-bot": "bot" }`).
+     * Signals only ever count against the caller; `credential_exposed` on `POST
+     * /login` reports the password as exposed. Default `{}`.
+     */
+    requestSignalHeaders?: Record<string, string>;
+    /**
+     * A signal header counts only when its value equals this, so a client can't
+     * raise a signal the proxy didn't. Unset, signals are off.
+     */
+    requestSignalValue?: string;
+    /**
+     * Days without account activity after which a sign-in counts as dormant:
+     * listeners may ask for phone or card verification, an unconfirmed email
+     * has to be confirmed, and the owner is emailed. `0` turns it off. Default
+     * 180.
+     */
+    dormantSignInDays?: number;
+    /**
+     * Check passwords at sign-in against the Pwned Passwords range API. Only
+     * the first five hex characters of the password's SHA-1 leave the server.
+     * Off by default; `timeoutMs` defaults to 2000.
+     */
+    pwnedPasswords?: { enabled?: boolean; timeoutMs?: number };
     /** Don't launch browser when starting. */
     no_browser_launch: boolean;
     /** Disable dev-time frontend webpack watchers. */
@@ -866,6 +927,13 @@ interface IConfigOptional {
      * builds and serves itself.
      */
     first_party_session_origins?: string[];
+    /**
+     * Exact origins of relays that receive an AuthMe grant and pass it on to
+     * the host they name in `forwards_to`, refusing a flow whose host differs.
+     * The authorization dialog names that host only for a redirect to one of
+     * these origins.
+     */
+    authmeRelayOrigins?: string[];
     /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
     url_signature_secret: string;
     /**

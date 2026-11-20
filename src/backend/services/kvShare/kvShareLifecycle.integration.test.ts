@@ -405,8 +405,8 @@ describe('a deleted app`s retire', () => {
                 expect.stringContaining(app.uid),
                 expect.any(String),
                 expect.objectContaining({ error: expect.any(Error) }),
-                'warning',
-                { dedup: true },
+                'info',
+                { dedup: true, channel: 'platform' },
             );
         } finally {
             failing.mockRestore();
@@ -442,8 +442,8 @@ describe('a deleted app`s retire', () => {
                 `kv_share_job_record_failed:${appJobKey(app.uid)}`,
                 expect.any(String),
                 expect.objectContaining({ error: expect.any(Error) }),
-                'warning',
-                { dedup: true },
+                'info',
+                { dedup: true, channel: 'platform' },
             );
         } finally {
             unwritable.mockRestore();

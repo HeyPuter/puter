@@ -25,6 +25,7 @@ import {
     mailboxPath,
     puterEmailAddressesOf,
     puterEmailUsername,
+    stampSenderAuth,
     storeInboxMessage,
 } from './mailbox.js';
 
@@ -92,6 +93,96 @@ describe('addresses', () => {
             'dan@puter.email',
             'dan@puterstaging.email',
         ]);
+    });
+});
+
+describe('the sender check header', () => {
+    const stamp = (
+        head: string,
+        outcome: Parameters<typeof stampSenderAuth>[1],
+        source?: Parameters<typeof stampSenderAuth>[2],
+    ) =>
+        stampSenderAuth(Buffer.from(head, 'latin1'), outcome, source).toString(
+            'latin1',
+        );
+
+    test('goes first, recording the result, the claimed domains and the signers', () => {
+        expect(
+            stamp('From: a@example.com\r\n\r\n', {
+                result: 'fail',
+                fromDomains: ['Example.COM'],
+                signingDomains: [],
+            }),
+        ).toBe(
+            'X-Puter-Sender-Auth: fail; from=example.com; signed-by=none\r\nFrom: a@example.com\r\n\r\n',
+        );
+    });
+
+    test('replaces every copy already there, however it is spelled', () => {
+        expect(
+            stamp(
+                [
+                    ' X-Puter-Sender-Auth: pass',
+                    'From: a@example.com',
+                    'x-puter-sender-auth',
+                    ' : pass',
+                    'X-Puter-Sender-Auth',
+                    ': pass',
+                    '',
+                    '',
+                ].join('\n'),
+                {
+                    result: 'temperror',
+                    fromDomains: ['example.com'],
+                    signingDomains: ['example.com'],
+                },
+            ),
+        ).toBe(
+            'X-Puter-Sender-Auth: temperror; from=example.com; signed-by=example.com\nFrom: a@example.com\n\n',
+        );
+    });
+
+    test('with no outcome only removes, and leaves a clean block as it was', () => {
+        expect(stamp('X-Puter-Sender-Auth: pass\r\nA: 1\r\n\r\n', null)).toBe(
+            'A: 1\r\n\r\n',
+        );
+        const clean = Buffer.from('A: 1\r\n\r\n');
+        expect(stampSenderAuth(clean, null)).toBe(clean);
+    });
+
+    test('marks mail the platform filed itself', () => {
+        expect(
+            stamp(
+                'From: a@puter.email\r\n\r\n',
+                {
+                    result: 'pass',
+                    fromDomains: ['puter.email'],
+                    signingDomains: [],
+                },
+                'local',
+            ),
+        ).toBe(
+            'X-Puter-Sender-Auth: pass; from=puter.email; signed-by=none; via=local\r\nFrom: a@puter.email\r\n\r\n',
+        );
+    });
+
+    test('never carries anything but DNS names, so no header can be folded in', () => {
+        expect(
+            stamp('A: 1\n\n', {
+                result: 'pass',
+                fromDomains: ['example.com\r\nX-Puter-Sender-Auth: pass'],
+                signingDomains: ['ok.example', 'bad domain', 'a;b'],
+            }),
+        ).toBe(
+            'X-Puter-Sender-Auth: pass; from=none; signed-by=ok.example\nA: 1\n\n',
+        );
+        expect(
+            stamp('X-Puter-Sender-Auth: pass\nA: 1\n\n', {
+                result: 'maybe' as 'pass',
+                fromDomains: [],
+                signingDomains: [],
+            }),
+        ).toBe('A: 1\n\n');
     });
 });
 

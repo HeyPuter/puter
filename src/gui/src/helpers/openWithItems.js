@@ -49,7 +49,7 @@ export default function build_open_with_items (el_item, suggested_apps, { inNewT
 
     const items = default_first.map(app => ({
         html: html_encode(app.title),
-        icon: `<img src="${html_encode(app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
+        icon: `<img src="${html_encode(app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; vertical-align: middle;">`,
         onClick: function () {
             // Opened while the click still counts as a user gesture, or the
             // popup blocker refuses it; refused, the app opens in-page.
@@ -61,6 +61,7 @@ export default function build_open_with_items (el_item, suggested_apps, { inNewT
                 window_title: $(el_item).attr('data-name'),
                 file_uid: $(el_item).attr('data-uid'),
                 ...(newTab ? { newTab } : {}),
+                trigger: 'open_with',
             });
         },
     }));

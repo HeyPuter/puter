@@ -46,6 +46,10 @@ describe('apps', () => {
         await apps('read', { id: { name: 'bench-app-0' } });
     });
 
+    env.scenario('read an app by its URL', async () => {
+        await apps('read', { id: { url: 'https://bench-app-0.test/page' } });
+    });
+
     env.scenario('look up an app by name on launch', async () => {
         await env.request('/apps/bench-app-0');
     });

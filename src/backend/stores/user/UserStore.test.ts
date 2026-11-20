@@ -512,6 +512,50 @@ describe('UserStore batched and uncached lookups', () => {
         ).toBeNull();
     });
 
+    it('matches no row on a text column for a value that is not a string', async () => {
+        const user = await makeUser();
+        const lookups: unknown[] = [
+            ['a', 'b'],
+            [user.username],
+            { username: 1 },
+            { email: user.email },
+            null,
+            undefined,
+            true,
+            0,
+            1,
+        ];
+        // MySQL would cast the column for a number, so none may reach it.
+        const db = server.clients.db;
+        const reads = [
+            vi.spyOn(db, 'read'),
+            vi.spyOn(db, 'pread'),
+            vi.spyOn(db, 'tryHardRead'),
+        ];
+        for (const value of lookups) {
+            expect(
+                await server.stores.user.getByUsername(value as never),
+            ).toBeNull();
+            expect(
+                await server.stores.user.getByEmail(value as never),
+            ).toBeNull();
+            expect(
+                await server.stores.user.getByProperty('uuid', value),
+            ).toBeNull();
+        }
+        for (const spy of reads) {
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        }
+        // Real lookups still resolve, `id` by number.
+        expect(
+            (await server.stores.user.getByUsername(user.username))?.id,
+        ).toBe(user.id);
+        expect((await server.stores.user.getById(user.id))?.uuid).toBe(
+            user.uuid,
+        );
+    });
+
     it('refuses to write a non-latin1 value into a latin1 column', async () => {
         const user = await makeUser();
         await expect(

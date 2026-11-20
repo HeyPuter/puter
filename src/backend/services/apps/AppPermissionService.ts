@@ -397,7 +397,8 @@ export class AppPermissionService extends PuterService {
                 `app_data_grant_withdrawal_failed:${targetAppUid}`,
                 'Failed to withdraw cross-app data grants',
                 { targetAppUid, reason, error: e as Error },
-                'warning',
+                'info',
+                { channel: 'platform' },
             );
             throw e;
         }

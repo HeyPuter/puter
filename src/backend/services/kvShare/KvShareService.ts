@@ -787,8 +787,8 @@ export class KvShareService extends PuterService {
                 `kv_share_job_record_failed:${key}`,
                 'Failed to record a key-value share cleanup; running it unrecorded',
                 { job, error: err as Error },
-                'warning',
-                { dedup: true },
+                'info',
+                { dedup: true, channel: 'platform' },
             );
             return false;
         }
@@ -812,8 +812,8 @@ export class KvShareService extends PuterService {
                 `kv_share_job_unrecorded_failed:${this.#jobKey(job)}`,
                 'An unrecorded key-value share cleanup failed and will not be retried',
                 { job, retired, error: err as Error },
-                'warning',
-                { dedup: true },
+                'info',
+                { dedup: true, channel: 'platform' },
             );
             throw err;
         }
@@ -990,8 +990,8 @@ export class KvShareService extends PuterService {
                 ? 'A key-value share cleanup kept failing and stopped retrying'
                 : 'A key-value share cleanup failed and will be retried',
             { job: record.job, attempts, error: err as Error },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'platform' },
         );
     }
 

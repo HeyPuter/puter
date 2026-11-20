@@ -1645,3 +1645,25 @@ describe('ShareStore', () => {
         expect(Number(after[0].n)).toBe(Number(before[0].n));
     });
 });
+
+describe('ShareStore lookups by a value that is not a string', () => {
+    let lookupServer;
+
+    beforeAll(async () => {
+        lookupServer = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await lookupServer?.shutdown();
+    });
+
+    it('match no row', async () => {
+        const stores = lookupServer.stores;
+        for (const value of [0, 1, true, ['x'], { uid: 'x' }]) {
+            for (const row of [
+                await stores.share.getByUid(value),
+            ])
+                expect(row).toBeNull();
+        }
+    });
+});

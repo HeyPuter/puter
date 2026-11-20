@@ -20,6 +20,7 @@
 import express from 'express';
 import path from 'node:path';
 import { PuterController } from '../types.js';
+import { rememberDevice } from '../auth/knownDevice.js';
 import { isPlainUserActor } from '../../core/actor.js';
 import { toAppShellView } from '../../util/appShellView.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
@@ -182,6 +183,7 @@ export class HomepageController extends PuterController {
                         actor?: Parameters<typeof homepage.send>[0]['actor'];
                     }
                 ).actor ?? null;
+            this.#seedKnownDevice(req, res, actor);
             await homepage.send(
                 {
                     req,
@@ -229,7 +231,15 @@ export class HomepageController extends PuterController {
             const guestApps = await this.services.recommendedApps
                 .getRecommendedApps()
                 .catch((): Array<Record<string, unknown>> => []);
-            res.send(homepage.renderAppBrowserEmbed({ guestApps }));
+            res.send(
+                homepage.renderAppBrowserEmbed({
+                    guestApps,
+                    hostOrigin: embedHostOrigin(
+                        this.config,
+                        req.get('referer'),
+                    ),
+                }),
+            );
         });
 
         router.get('/embed/feedback', {}, (req, res) => {
@@ -399,6 +409,36 @@ export class HomepageController extends PuterController {
                 express.static(path.join(this.config.gui_assets_root, 'src')),
             );
         }
+    }
+
+    /**
+     * Records the device behind a signed-in GUI page load, so browsers signed
+     * in before devices were recorded count as known. Top-level loads only: a
+     * framed page can't keep the SameSite=Lax cookie. The cookie is set before
+     * the page is sent; the record update runs on without holding the page.
+     */
+    #seedKnownDevice(
+        req: express.Request,
+        res: express.Response,
+        actor: ShellContext['actor'],
+    ): void {
+        if (req.tokenSource !== 'cookie') return;
+        if (req.headers['sec-fetch-dest'] !== 'document') return;
+        if (!actor || !isPlainUserActor(actor)) return;
+        if (actor.session?.kind !== 'web' || actor.session.parentUid) return;
+        const { uuid, hasPassword, email } = actor.user;
+        if (!uuid || (!hasPassword && !email)) return;
+        void (async () => {
+            try {
+                await rememberDevice(req, res, uuid, {
+                    config: this.config,
+                    token: this.services.token,
+                    kv: this.stores.kv,
+                });
+            } catch (e) {
+                console.warn('[known-device] page-load record failed:', e);
+            }
+        })();
     }
 
     /**

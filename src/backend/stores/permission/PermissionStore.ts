@@ -2219,7 +2219,10 @@ export class PermissionStore extends PuterStore {
                         `AND \`permission\` IN (${permChunk.map(() => '?').join(', ')})`,
                     [...holderChunk, ...permChunk],
                 );
+                const wanted = new Set(permChunk);
                 for (const row of found) {
+                    // The column's collation also matches other casings.
+                    if (!wanted.has(row.permission as string)) continue;
                     rows.push(this.#decodeExtra<LinkedUserUserPermRow>(row));
                 }
             }

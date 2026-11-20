@@ -22,7 +22,7 @@
 // (a password, or an identity provider) was answered with.
 
 import { SVG } from '../Dashboard/UIDashboardDialog.js';
-import openAuthFlow, { keepCurrentSession, setAuthStatus } from './authFlow.js';
+import openAuthFlow, { authRefusalText, deviceFingerprint, keepCurrentSession, setAuthStatus } from './authFlow.js';
 
 const CODE_LENGTH = 6;
 const RECOVERY_CODE_LENGTH = 8;
@@ -39,18 +39,24 @@ const SHIELD_ICON = SVG('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
  * @param {'otp'|'recovery-code'} route
  * @param {string} token The first factor's challenge.
  * @param {string} code
- * @returns {Promise<{ ok: true, data: object } | { ok: false, error: string }>}
- *   `error` is an i18n key.
+ * @returns {Promise<{ ok: true, data: object } | { ok: false, error: string } | { ok: false, refused: string }>}
+ *   `error` is an i18n key. `refused` is the text for a sign-in the server
+ *   refused after the code checked out; the challenge is spent.
  */
 export const verifySecondFactor = async (route, token, code) => {
     try {
+        const body = { token, code };
+        const fingerprint = await deviceFingerprint();
+        if ( fingerprint ) body.fingerprint = fingerprint;
         const resp = await fetch(`${window.gui_origin}/login/${route}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token, code }),
+            body: JSON.stringify(body),
         });
         if ( resp.status === 429 ) return { ok: false, error: 'confirm_code_generic_too_many_requests' };
         const data = await resp.json();
+        const refused = resp.status === 403 ? authRefusalText(data) ?? (data?.message ? String(data.message) : '') : '';
+        if ( refused ) return { ok: false, refused };
         if ( ! data?.proceed ) return { ok: false, error: 'confirm_code_generic_incorrect' };
         return { ok: true, data };
     } catch {
@@ -112,6 +118,12 @@ const pushRecoveryScreen = (flow, token, onVerified) => {
             return;
         }
         flow.setBusy(false);
+        if ( result.refused ) {
+            // Only Back is left: a new attempt starts from the login.
+            $input.prop('disabled', true);
+            setAuthStatus($screen, result.refused);
+            return;
+        }
         setAuthStatus($screen, i18n(result.error, [], false), { field: '.login-2fa-recovery-input' });
         $input.get(0)?.select();
     };
@@ -166,6 +178,8 @@ export function pushTwoFactorScreen (flow, token, { onBack } = {}) {
         });
         const $inputs = $screen.find('.login-2fa-code-inputs input');
         let verifying = false;
+        // Computed once per page; started now so the code isn't held up by it.
+        void deviceFingerprint();
 
         const code = () => $inputs.map(function () {
             return $(this).val();
@@ -191,6 +205,12 @@ export function pushTwoFactorScreen (flow, token, { onBack } = {}) {
                 return;
             }
             flow.setBusy(false);
+            if ( result.refused ) {
+                // Only Back is left: a new attempt starts from the login.
+                $screen.find('.login-2fa-to-recovery').prop('disabled', true);
+                setAuthStatus($screen, result.refused);
+                return;
+            }
             $inputs.prop('disabled', false);
             setAuthStatus($screen, i18n(result.error, [], false));
             $inputs.addClass('login-2fa-wrong').attr('aria-invalid', 'true');

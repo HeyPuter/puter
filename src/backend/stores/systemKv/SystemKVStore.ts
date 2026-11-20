@@ -165,6 +165,23 @@ export const KV_MAX_KEY_BYTES = 1024;
  */
 const isConditionRefused = (err: unknown): boolean =>
     (err as { name?: string })?.name === 'ConditionalCheckFailedException';
+/**
+ * The live item that refused a write, from the refusal itself
+ * (`returnOldOnRefusal`): its `ttl` is none, null, or a number still ahead.
+ * Null when the refusal carries no item, or one that may need settling first (a
+ * text or boolean `ttl`, or one that has lapsed since the condition ran).
+ */
+const settledRefusal = (err: unknown): { isPrivate: boolean } | null => {
+    const item = (err as { Item?: Record<string, Record<string, unknown>> })
+        .Item;
+    if (!item) return null;
+    const ttl = item.ttl;
+    const live =
+        ttl === undefined ||
+        'NULL' in ttl ||
+        ('N' in ttl && !isExpiredTtl(Number(ttl.N), Date.now() / 1000));
+    return live ? { isPrivate: item[KV_PRIVATE_ATTR]?.BOOL === true } : null;
+};
 const MAX_VALUE_BYTES = 399 * 1024;
 // A number anywhere inside a value is bounded too, to the IEEE-754 safe
 // integer range — past that it cannot round-trip, so it is clamped to the
@@ -2140,18 +2157,28 @@ export class SystemKVStore extends PuterStore {
      * A write whose condition may refuse it, retried once after settling a row
      * the condition reads as live but reads treat as expired (a legacy text or
      * boolean `ttl`). `response` is `null` when the condition still refuses.
+     * `write` should ask for the refusing item, so a plain refusal ends here;
+     * `refusal` is what that item says, when it came back.
      */
     async #writeUnlessRefused<R>(
         namespace: string,
         key: string,
         write: () => Promise<R>,
-    ): Promise<{ response: R | null; usage: KVUsage }> {
+    ): Promise<{
+        response: R | null;
+        usage: KVUsage;
+        refusal?: { isPrivate: boolean } | null;
+    }> {
         try {
             return { response: await write(), usage: emptyUsage() };
         } catch (e) {
             if (!isConditionRefused(e)) throw e;
+            // A refused conditional write still consumes capacity.
+            const refusal = settledRefusal(e);
+            if (refusal) {
+                return { response: null, usage: writeUsage(1), refusal };
+            }
         }
-        // A refused conditional write still consumes capacity.
         const usage = addUsage(
             writeUsage(1),
             await this.#dropIfExpired(namespace, key),
@@ -2160,7 +2187,11 @@ export class SystemKVStore extends PuterStore {
             return { response: await write(), usage };
         } catch (e) {
             if (!isConditionRefused(e)) throw e;
-            return { response: null, usage: addUsage(usage, writeUsage(1)) };
+            return {
+                response: null,
+                usage: addUsage(usage, writeUsage(1)),
+                refusal: settledRefusal(e),
+            };
         }
     }
 
@@ -2336,10 +2367,11 @@ export class SystemKVStore extends PuterStore {
                     ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
                     ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
                 },
-                condition ? { condition } : undefined,
+                condition ? { condition, returnOldOnRefusal: true } : undefined,
             );
         let response: Awaited<ReturnType<typeof put>> | null;
         let settleUsage = emptyUsage();
+        let refusal: { isPrivate: boolean } | null | undefined;
         try {
             if (condition) {
                 const outcome = await this.#writeUnlessRefused(
@@ -2349,6 +2381,7 @@ export class SystemKVStore extends PuterStore {
                 );
                 response = outcome.response;
                 settleUsage = outcome.usage;
+                refusal = outcome.refusal;
             } else {
                 response = await put();
             }
@@ -2358,10 +2391,15 @@ export class SystemKVStore extends PuterStore {
         if (response === null) {
             if (!onlyIfAbsent) throw new KvPrivateEntryError();
             // A share holder reads a private entry as absent, so `false` would
-            // confirm it; the holder gets the refusal a plain write gets.
-            const probeUsage = opts?.namespaceUser
-                ? await this.#assertNotPrivate(namespace, key, opts)
-                : emptyUsage();
+            // confirm it; the holder gets the refusal a plain write gets. The
+            // refusing item answers that when it came back.
+            if (opts?.namespaceUser && refusal?.isPrivate) {
+                throw new KvPrivateEntryError();
+            }
+            const probeUsage =
+                opts?.namespaceUser && !refusal
+                    ? await this.#assertNotPrivate(namespace, key, opts)
+                    : emptyUsage();
             return { res: false, usage: addUsage(settleUsage, probeUsage) };
         }
         await this.#committed(
@@ -2492,7 +2530,9 @@ export class SystemKVStore extends PuterStore {
                 { namespace, key },
                 {
                     returnOld: !isSystemActor(actor),
-                    ...(condition ? { condition } : {}),
+                    ...(condition
+                        ? { condition, returnOldOnRefusal: true }
+                        : {}),
                 },
             );
         const { response, usage: settleUsage } = condition

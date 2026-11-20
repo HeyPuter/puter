@@ -4,6 +4,7 @@ import {
     buildUserDetails,
     scrubSensitive,
 } from '@heyputer/backend/src/util/userDetails.js';
+import type { UserRow } from '@heyputer/backend/src/stores/user/UserStore.js';
 import type { Request, Response } from 'express';
 import TimeAgo from 'javascript-time-ago';
 import localeEn from 'javascript-time-ago/locale/en';
@@ -47,7 +48,12 @@ export const handleWhoami = async (
     };
     // Started beside the row read: the actor carries the row's uuid.
     const emailCheck = isUser ? null : canReadEmail(actor.user.uuid);
-    const user = await stores.user.getById(actor.user.id);
+    // Token auth loaded this request's row already; `hasPassword` marks an
+    // actor built from it.
+    const user =
+        actor.user.hasPassword === undefined
+            ? await stores.user.getById(actor.user.id)
+            : (actor.user as UserRow & { hasPassword: boolean });
     if (!user) {
         res.status(404).json({ error: 'User not found' });
         return;

@@ -25,9 +25,96 @@ import {
     APP_WINDOW_SECONDS,
     GODMODE_TOKEN_MAX_AGE_SECONDS,
     GODMODE_TOKEN_WINDOW_SECONDS,
+    IDLE_WINDOW_SECONDS,
+    isSessionExpired,
     WEB_WINDOW_SECONDS,
     WORKER_WINDOW_SECONDS,
 } from './SessionStore.js';
+
+const DAY = 24 * 60 * 60;
+
+describe('isSessionExpired', () => {
+    const now = 1_900_000_000;
+    const row = (fields: Record<string, unknown>) => ({
+        kind: 'web',
+        expires_at: null,
+        created_at: now - 1000 * DAY,
+        last_activity: now - 1000 * DAY,
+        ...fields,
+    });
+
+    it('ends a sliding row with no expires_at a window after its last activity', () => {
+        for (const kind of ['web', 'app']) {
+            const at = (days: number) =>
+                isSessionExpired(
+                    row({ kind, last_activity: now - days * DAY }),
+                    now,
+                );
+            expect(at(364)).toBe(false);
+            expect(at(365)).toBe(true);
+        }
+        const asset = (days: number) =>
+            isSessionExpired(
+                row({ kind: 'asset', last_activity: now - days * DAY }),
+                now,
+            );
+        expect(asset(6)).toBe(false);
+        expect(asset(7)).toBe(true);
+    });
+
+    it('falls back to created_at when the row has no activity', () => {
+        expect(
+            isSessionExpired(
+                row({ last_activity: 0, created_at: now - 10 * DAY }),
+                now,
+            ),
+        ).toBe(false);
+        expect(
+            isSessionExpired(row({ last_activity: 0, created_at: 0 }), now),
+        ).toBe(true);
+    });
+
+    it('never ends an access token, worker or debug row for a NULL expires_at', () => {
+        for (const kind of ['access_token', 'worker', 'debug_app']) {
+            expect(
+                isSessionExpired(row({ kind }), now, { idleEnds: true }),
+            ).toBe(false);
+        }
+    });
+
+    it('ends an idle web or app row only when asked, whatever expires_at says', () => {
+        for (const kind of ['web', 'app']) {
+            const idle = row({
+                kind,
+                expires_at: now + 100 * DAY,
+                last_activity: now - IDLE_WINDOW_SECONDS,
+            });
+            expect(isSessionExpired(idle, now)).toBe(false);
+            expect(isSessionExpired(idle, now, { idleEnds: true })).toBe(true);
+            expect(
+                isSessionExpired(
+                    { ...idle, last_activity: now - 179 * DAY },
+                    now,
+                    { idleEnds: true },
+                ),
+            ).toBe(false);
+        }
+        const token = row({
+            kind: 'access_token',
+            expires_at: now + DAY,
+        });
+        expect(isSessionExpired(token, now, { idleEnds: true })).toBe(false);
+    });
+
+    it('still ends any row whose expires_at passed', () => {
+        expect(
+            isSessionExpired(
+                row({ kind: 'access_token', expires_at: now }),
+                now,
+            ),
+        ).toBe(true);
+    });
+});
 
 describe('SessionStore', () => {
     let server: PuterServer;
@@ -1869,6 +1956,251 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('rows that predate expires_at or went idle', () => {
+        const nowS = () => Math.floor(Date.now() / 1000);
+
+        /** Age a row in the database and drop its cached copy. */
+        const age = async (
+            uuid: string,
+            fields: { expires_at: number | null; activeDaysAgo: number },
+        ) => {
+            const at = nowS() - fields.activeDaysAgo * DAY;
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ?, `last_activity` = ?, `created_at` = ? WHERE `uuid` = ?',
+                [fields.expires_at, at, at, uuid],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${uuid}`);
+        };
+
+        it('getByUuid refuses a web row with no expires_at idle past its window, from the database and from cache', async () => {
+            const user = await makeUser();
+            const { uuid } = await target.create(user.id);
+            await age(uuid, { expires_at: null, activeDaysAgo: 400 });
+            expect(await target.getByUuid(uuid)).toBeNull();
+
+            const row = await rawRow(uuid);
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${uuid}`,
+                JSON.stringify(row),
+            );
+            expect(await target.getByUuidAny(uuid)).toBeTruthy();
+            expect(await target.getByUuid(uuid)).toBeNull();
+        });
+
+        it('getByUuid still accepts a recent web row with no expires_at', async () => {
+            const user = await makeUser();
+            const { uuid } = await target.create(user.id);
+            await age(uuid, { expires_at: null, activeDaysAgo: 30 });
+            expect(await target.getByUuid(uuid)).toBeTruthy();
+        });
+
+        it('getByUuid accepts an access token with no expires_at however old', async () => {
+            const user = await makeUser();
+            const { uuid } = await target.create(user.id, {
+                kind: 'access_token',
+            });
+            await age(uuid, { expires_at: null, activeDaysAgo: 2000 });
+            expect(await target.getByUuid(uuid)).toBeTruthy();
+        });
+
+        it('purgeEndedInRange deletes dead sliding rows with no expires_at on their retention, and never an access token for it', async () => {
+            const user = await makeUser();
+            const cutoffs = {
+                cutoff: nowS() - 30 * DAY,
+                webCutoff: nowS() - 365 * DAY,
+            };
+            const make = async (kind: string, activeDaysAgo: number) => {
+                const { uuid } = await target.create(user.id, { kind });
+                await age(uuid, { expires_at: null, activeDaysAgo });
+                return uuid as string;
+            };
+            const purged = [
+                await make('web', 731),
+                await make('app', 396),
+                await make('asset', 38),
+            ];
+            const kept = [
+                await make('web', 729),
+                await make('app', 394),
+                await make('asset', 36),
+                await make('access_token', 5000),
+                await make('worker', 5000),
+            ];
+            const firstId = Number((await rawRow(purged[0])).id);
+            const lastId = Number((await rawRow(kept[kept.length - 1])).id);
+
+            expect(
+                await target.purgeEndedInRange(
+                    firstId - 1,
+                    lastId - firstId + 1,
+                    cutoffs,
+                ),
+            ).toBe(3);
+            for (const uuid of purged) expect(await rawRow(uuid)).toBeNull();
+            for (const uuid of kept) expect(await rawRow(uuid)).not.toBeNull();
+        });
+
+        it('getOrCreateApp replaces a lapsed row that still holds the unique slot', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            await age(first.uuid, {
+                expires_at: nowS() - 60,
+                activeDaysAgo: 366,
+            });
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+            );
+
+            const second = await target.getOrCreateApp(user.id, appUid);
+            expect(second.uuid).not.toBe(first.uuid);
+            expect((await rawRow(first.uuid)).revoked_at).not.toBeNull();
+            expect(await target.getByUuid(second.uuid)).toBeTruthy();
+        });
+
+        it('getOrCreateApp replaces an idle row only when idleEnds is set', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            await age(first.uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 181,
+            });
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+            );
+
+            expect((await target.getOrCreateApp(user.id, appUid)).uuid).toBe(
+                first.uuid,
+            );
+            // The composite cache now holds the idle row; it is skipped too.
+            const second = await target.getOrCreateApp(user.id, appUid, {
+                idleEnds: true,
+            });
+            expect(second.uuid).not.toBe(first.uuid);
+            expect((await rawRow(first.uuid)).revoked_at).not.toBeNull();
+        });
+
+        it('getOrCreateApp keeps a row a lagging replica shows idle but the primary shows active', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            await age(first.uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 181,
+            });
+            const idle = await rawRow(first.uuid);
+            // Resumed on another node: the primary has the touch, this
+            // region's replica and cache do not.
+            await target.updateActivity(first.uuid, nowS());
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+                `sessions:v2:uuid:${first.uuid}`,
+            );
+
+            const restore = lagReplica({ [first.uuid]: idle });
+            let found;
+            try {
+                found = await target.getOrCreateApp(user.id, appUid, {
+                    idleEnds: true,
+                });
+            } finally {
+                restore();
+            }
+            expect(found.uuid).toBe(first.uuid);
+            expect((await rawRow(first.uuid)).revoked_at).toBeNull();
+        });
+
+        it('getOrCreateApp leaves an idle row alone when it is touched before the revoke lands', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const first = await target.getOrCreateApp(user.id, appUid);
+            await age(first.uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 181,
+            });
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+            );
+            // The touch lands between the primary read and the revoke.
+            const db = server.clients.db;
+            const pread = db.pread.bind(db);
+            let touched = false;
+            const spy = vi
+                .spyOn(db, 'pread')
+                .mockImplementation(async (sql: string, params?: unknown[]) => {
+                    const rows = await pread(sql, params);
+                    if (!touched && params?.includes(first.uuid)) {
+                        touched = true;
+                        await target.updateActivity(first.uuid, nowS());
+                    }
+                    return rows;
+                });
+            try {
+                await target.getOrCreateApp(user.id, appUid, {
+                    idleEnds: true,
+                });
+            } finally {
+                spy.mockRestore();
+            }
+            expect(touched).toBe(true);
+            expect((await rawRow(first.uuid)).revoked_at).toBeNull();
+        });
+
+        it('getOrCreateFirstPartySession skips an idle row when idleEnds is set', async () => {
+            const user = await makeUser();
+            const parent = await target.create(user.id, {
+                expires_at: nowS() + 3600,
+            });
+            const opts = {
+                parentSessionUid: parent.uuid,
+                origin: 'https://first-party.example',
+                expiresAt: nowS() + 3600,
+            };
+            const first = await target.getOrCreateFirstPartySession(
+                user.id,
+                opts,
+            );
+            await age(first.uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 181,
+            });
+
+            expect(
+                (await target.getOrCreateFirstPartySession(user.id, opts)).uuid,
+            ).toBe(first.uuid);
+            expect(
+                (
+                    await target.getOrCreateFirstPartySession(user.id, {
+                        ...opts,
+                        idleEnds: true,
+                    })
+                ).uuid,
+            ).not.toBe(first.uuid);
+        });
+
+        it('a touch after a long idle drops the cached copy, so its old activity ends nothing', async () => {
+            const user = await makeUser();
+            const { uuid } = await target.create(user.id);
+            await age(uuid, {
+                expires_at: nowS() + 100 * DAY,
+                activeDaysAgo: 179,
+            });
+            await server.clients.redis.set(
+                `sessions:v2:uuid:${uuid}`,
+                JSON.stringify(await rawRow(uuid)),
+            );
+
+            await target.updateActivity(uuid, nowS(), { ip: '10.0.0.1' });
+
+            expect(
+                await server.clients.redis.get(`sessions:v2:uuid:${uuid}`),
+            ).toBeNull();
+            const fresh = await target.getByUuidAny(uuid);
+            expect(fresh.last_activity).toBeGreaterThan(nowS() - 60);
+        });
+    });
+
     describe('revokeCascade invalidates composite caches', () => {
         it('a revoked app row is not re-served by getOrCreateApp cache hit', async () => {
             // First create primes the app composite cache. Revoke via
@@ -1880,5 +2212,27 @@ describe('SessionStore', () => {
             const second = await target.getOrCreateApp(user.id, appUid);
             expect(second.uuid).not.toBe(first.uuid);
         });
+    });
+});
+
+describe('SessionStore lookups by a value that is not a string', () => {
+    let lookupServer: PuterServer;
+
+    beforeAll(async () => {
+        lookupServer = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await lookupServer?.shutdown();
+    });
+
+    it('match no row', async () => {
+        const stores = lookupServer.stores;
+        for (const value of [0, 1, true, ['x'], { uid: 'x' }]) {
+            for (const row of [
+                await stores.session.getByUuidAny(value as never),
+            ])
+                expect(row).toBeNull();
+        }
     });
 });

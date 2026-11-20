@@ -1211,6 +1211,42 @@ describe('SqliteDatabaseClient — query interface', () => {
         );
     });
 
+    it('refuses an array or object parameter with a 400', async () => {
+        await client.write('INSERT INTO `widget` (`name`) VALUES (?)', ['a']);
+        for (const value of [['a'], { name: 'a' }]) {
+            await expect(
+                client.read('SELECT * FROM `widget` WHERE `name` = ?', [
+                    value,
+                ]),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            await expect(
+                client.write('DELETE FROM `widget` WHERE `name` = ?', [value]),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            await expect(
+                client.batchWrite([
+                    {
+                        statement: 'DELETE FROM `widget` WHERE `name` = ?',
+                        values: [value],
+                    },
+                ]),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+        expect(await client.read('SELECT `name` FROM `widget`')).toEqual([
+            { name: 'a' },
+        ]);
+    });
+
+    it('refuses a non-finite or unsafe number parameter with a 400', async () => {
+        for (const value of [NaN, Infinity, -Infinity, 2 ** 53, 1e21]) {
+            await expect(
+                client.read('SELECT * FROM `widget` WHERE `name` = ?', [value]),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+        await expect(
+            client.read('SELECT ? AS n', [Number.MAX_SAFE_INTEGER]),
+        ).resolves.toEqual([{ n: Number.MAX_SAFE_INTEGER }]);
+    });
+
     it('closes the database on shutdown', async () => {
         const closable = await bootClient();
         closable.onServerShutdown();

@@ -2374,8 +2374,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     inFlight,
                     code,
                 },
-                'warning',
-                { dedup: true },
+                'info',
+                { dedup: true, channel: 'ai_providers' },
             );
             // The holds are released once this charge is recorded.
             meter(

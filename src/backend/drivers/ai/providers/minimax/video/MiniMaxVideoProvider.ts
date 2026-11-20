@@ -139,7 +139,8 @@ const minimaxError = (
             'MiniMax does not support the model Puter requested',
             {
                 legacyCode: 'upstream_failed',
-                alarmSeverity: 'warning',
+                alarmSeverity: 'info',
+                alarmChannel: 'ai_providers',
                 fields: {
                     provider: PROVIDER,
                     upstreamCode: String(code),

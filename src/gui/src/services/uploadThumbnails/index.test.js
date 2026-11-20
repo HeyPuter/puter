@@ -17,6 +17,7 @@ import {
     AUDIO_BATCH_TIMEOUT_MS,
     HEIF_BATCH_TIMEOUT_MS,
     OFFICE_BATCH_TIMEOUT_MS,
+    TEXT_BATCH_TIMEOUT_MS,
     VIDEO_BATCH_TIMEOUT_MS,
     VIDEO_JOB_TIMEOUT_MS,
 } from './config.js';
@@ -916,3 +917,119 @@ describe('HEIC photo thumbnails', () => {
     });
 });
 
+
+describe('source code and Markdown thumbnails', () => {
+    let drawn;
+    beforeEach(() => {
+        const canvas = createRecordingCanvas();
+        drawn = canvas.drawn;
+        vi.stubGlobal('OffscreenCanvas', canvas.Canvas);
+    });
+
+    it.each([
+        ['app.js', '', '10px monospace'],
+        ['module.mjs', '', '10px monospace'],
+        ['CONFIG.CJS', '', '10px monospace'],
+        ['script', 'text/javascript', '10px monospace'],
+        ['script', 'application/javascript', '10px monospace'],
+        ['site.css', '', '10px monospace'],
+        ['sheet', 'text/css', '10px monospace'],
+        ['README.md', '', '11px sans-serif'],
+        ['notes.markdown', '', '11px sans-serif'],
+        ['notes', 'text/markdown', '11px sans-serif'],
+        ['data.json', '', '10px monospace'],
+        ['data', 'application/json', '10px monospace'],
+    ])('hands the image generator a page drawn from %s (%s)', async (name, type, font) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const file = new File(['plain words'], name, { type });
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator.mock.calls[0][0]).toMatchObject({ type: 'image/png' });
+        expect(drawn.text.map(word => word.text)).toEqual(['plain', 'words']);
+        expect(drawn.text.every(word => word.font === font)).toBe(true);
+        expect(workers).toHaveLength(0);
+    });
+
+    it.each([
+        ['table.csv', ''],
+        ['TABLE.CSV', ''],
+        ['table', 'text/csv'],
+    ])('hands the image generator a sheet drawn from %s (%s)', async (name, type) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const file = new File(['plain,words'], name, { type });
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(defaultGenerator.mock.calls[0][0]).toMatchObject({ type: 'image/png' });
+        expect(drawn.text.map(word => [word.text, word.font])).toEqual([['plain', '11px sans-serif'], ['words', '11px sans-serif']]);
+        expect(drawn.lines.length).toBeGreaterThan(0);
+    });
+
+    it('colors a file by the language its name gives it', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        const colorOf = text => drawn.text.find(word => word.text.startsWith(text)).color;
+        // A name before a colon is a property in CSS and nothing in particular in JavaScript.
+        await generate(new File(['color: red;'], 'site.css'), { defaultGenerator });
+        const property = colorOf('color');
+        drawn.text.length = 0;
+        await generate(new File(['color: red;'], 'app.js'), { defaultGenerator });
+        expect(colorOf('color')).not.toBe(property);
+    });
+
+    it.each([
+        ['a blank file', new File(['\n\n'], 'app.js')],
+        ['a file that is not text', new File(['\0\0\0\0'], 'README.md')],
+        ['other text files', new File(['plain words'], 'notes.txt', { type: 'text/plain' })],
+        ['a CSV of empty fields', new File([',,\n,,\n'], 'table.csv')],
+        ['an old Excel workbook, the type Windows gives a CSV', new File(['a,b'], 'book.xls', { type: 'application/vnd.ms-excel' })],
+        ['TypeScript, which browsers call a video', new File(['const a = 1;'], 'app.ts', { type: 'video/mp2t' })],
+    ])('makes nothing of %s', async (_label, file) => {
+        const defaultGenerator = vi.fn(async image => (image.type === 'image/png' ? thumbnail : undefined));
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBeUndefined();
+        expect(drawn.text).toEqual([]);
+    });
+
+    it('draws and scales one file at a time, and skips the files still queued at the deadline', async () => {
+        let scaling = 0;
+        let most = 0;
+        const finish = [];
+        const defaultGenerator = vi.fn(() => new Promise((resolve) => {
+            most = Math.max(most, ++scaling);
+            finish.push(() => {
+                scaling--;
+                resolve(thumbnail);
+            });
+        }));
+        const generate = createUploadThumbnailGenerator();
+        const names = ['a.js', 'b.csv', 'c.md', 'd.json'];
+        const results = Promise.all(names.map(name => generate(new File([name], name), { defaultGenerator })));
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        // The third page is still being scaled when the deadline passes.
+        await vi.advanceTimersByTimeAsync(TEXT_BATCH_TIMEOUT_MS);
+        expect(await results).toEqual([thumbnail, thumbnail, undefined, undefined]);
+        expect(most).toBe(1);
+        expect(defaultGenerator).toHaveBeenCalledTimes(3);
+    });
+
+    it('skips the files still queued when the upload is cancelled', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        const controller = new AbortController();
+        const context = { defaultGenerator, signal: controller.signal };
+        expect(await generate(new File(['a'], 'a.js'), context)).toBe(thumbnail);
+        controller.abort();
+        expect(await generate(new File(['b'], 'b.js'), context)).toBeUndefined();
+        expect(defaultGenerator).toHaveBeenCalledOnce();
+    });
+
+    it('leaves Office documents their own deadline', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const generate = createUploadThumbnailGenerator();
+        expect(await generate(new File(['a'], 'a.js'), { defaultGenerator })).toBe(thumbnail);
+        vi.setSystemTime(Date.now() + TEXT_BATCH_TIMEOUT_MS);
+        expect(await generate(new File(['b'], 'b.js'), { defaultGenerator })).toBeUndefined();
+        expect(await generate(new File([createDocx()], 'report.docx'), { defaultGenerator })).toBe(thumbnail);
+    });
+});

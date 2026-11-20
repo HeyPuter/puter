@@ -213,6 +213,54 @@ describe('share endpoints over HTTP', () => {
         expect(after.items.find((i) => i.uid_entry === file.uid)).toBeUndefined();
     });
 
+    it('withdraws every mode a recipient holds with one delete and one cache bump', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner);
+        for (const mode of ['read', 'write']) {
+            const shared = await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: file.uid }],
+                mode,
+            });
+            expect(shared.status).toBe(200);
+        }
+
+        const writes = vi.spyOn(env.server.clients.db, 'write');
+        const emits = vi.spyOn(env.server.clients.event, 'emit');
+        try {
+            const res = await post('/share/revoke', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: file.uid }],
+            });
+            expect(res.status).toBe(200);
+            expect(await res.json()).toMatchObject({ revoked: 1 });
+
+            const grantDeletes = writes.mock.calls.filter(([sql]) =>
+                /^DELETE FROM `user_to_user_permissions`/.test(String(sql)),
+            );
+            expect(grantDeletes).toHaveLength(1);
+            const bumps = emits.mock.calls.filter(
+                ([key]) => key === 'outer.permission.generationBumped',
+            );
+            expect(bumps).toHaveLength(1);
+        } finally {
+            writes.mockRestore();
+            emits.mockRestore();
+        }
+
+        const read = await fetch(
+            `${env.apiOrigin}/read?${new URLSearchParams({ file: file.path })}`,
+            {
+                headers: {
+                    authorization: `Bearer ${recipient.token}`,
+                    origin: env.apiOrigin,
+                },
+            },
+        );
+        expect(read.status).not.toBe(200);
+    });
+
     describe('GET /share/shared-by-me', () => {
         it('lists what the caller shared out, across unrelated items', async () => {
             const owner = await makeUser();

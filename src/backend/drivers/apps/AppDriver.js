@@ -43,7 +43,7 @@ import {
 import {
     normalizeLimit,
     normalizeOffset,
-    openCursor,
+    openIdCursor,
     sealCursor,
 } from '../../util/pagination.js';
 import {
@@ -304,7 +304,10 @@ export class AppDriver extends PuterDriver {
 
     async read({ uid, id, params = {}, ...rest } = {}) {
         const actor = requireContextActor();
-        const app = await this.#resolve({ uid, id });
+        const app =
+            !uid && id?.url !== undefined
+                ? await this.#getByUrl(id.url)
+                : await this.#resolve({ uid, id });
         if (!app)
             throw new HttpError(404, 'App not found', {
                 legacyCode: 'not_found',
@@ -351,8 +354,10 @@ export class AppDriver extends PuterDriver {
         const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 500;
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = openCursor(args.cursor, this.config.jwt_secret_v2);
-        if (payload && offset !== undefined) {
+        const afterId = openIdCursor(args.cursor, this.config.jwt_secret_v2, {
+            strict: true,
+        });
+        if (afterId !== null && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
                 legacyCode: 'bad_request',
             });
@@ -368,7 +373,7 @@ export class AppDriver extends PuterDriver {
             ownerUserId,
             limit: paginated ? limit + 1 : limit,
             offset,
-            afterId: payload?.id !== undefined ? Number(payload.id) : undefined,
+            afterId: afterId ?? undefined,
         });
 
         let cursor;
@@ -811,6 +816,20 @@ export class AppDriver extends PuterDriver {
         if (typeof id === 'number') return this.appStore.getById(id);
         if (typeof id === 'string') return this.#getByUidWithAlias(id);
         return null;
+    }
+
+    /**
+     * The app a page at `url` acts as: the origin identity app tokens use, so
+     * only the URL's origin counts.
+     */
+    async #getByUrl(url) {
+        if (typeof url !== 'string' || !url) {
+            throw new HttpError(400, '`id.url` must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const uid = await this.services.auth.appUidFromOrigin(url);
+        return this.appStore.getByUid(uid);
     }
 
     /**

@@ -479,6 +479,7 @@ async function UIItem (options) {
                         window_title: item.name,
                         file_uid: item.uid,
                         file_signature: item,
+                        trigger: 'file_drop',
                     });
                 }
 

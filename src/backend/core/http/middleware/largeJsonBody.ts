@@ -147,6 +147,7 @@ export const createLargeJsonBodyParser = ({
                     code: 'large_body_capacity',
                     // Load shedding, not a fault: record it, don't page.
                     alarmSeverity: 'info',
+                    alarmChannel: 'platform',
                 }),
             );
             return;

@@ -266,6 +266,7 @@ describe('UIItem Open With', () => {
             file_path: '/alice/notes.txt',
             window_title: 'notes.txt',
             file_uid: 'f-1',
+            trigger: 'open_with',
         });
     });
 });

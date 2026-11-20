@@ -6196,6 +6196,10 @@ body.myapps-reordering .myapps-tile {
     object-fit: contain;
 }
 
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-icon img.row-thumb {
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18));
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon svg {
     width: 64px;
     height: 64px;
@@ -12051,12 +12055,6 @@ body.dashboard-mode .notifications-close-all {
 
 .auth-turnstile:has(.cf-turnstile:empty) {
     display: none;
-}
-
-.cf-turnstile.captcha-completed {
-    border: 2px solid #4caf50;
-    border-radius: 4px;
-    padding: 2px;
 }
 
 /* Account picker */

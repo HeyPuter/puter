@@ -17,7 +17,8 @@ destination with no opener.
 The embed follows the OS's light or dark setting. A host with a fixed theme adds
 `theme=dark` or `theme=light` to the fragment (`#user=<uuid>&theme=dark`), since
 Chromium doesn't pass an iframe's `color-scheme` on to the page inside it.
-Apps opened from the embed carry `utm_source=puter.com&utm_medium=referral&utm_campaign=app_browser_embed`;
+Apps opened from the embed carry `utm_medium=referral&utm_campaign=app_browser_embed&utm_content=app_icon`,
+with `utm_source` set to the framing page's host (`puter.com` when no allowed page frames it);
 the desktop and dashboard send `utm_campaign=desktop` and `utm_campaign=dashboard`.
 
 ## Session and framing
@@ -225,6 +226,12 @@ pickers) for `puter.ui.requestUpgrade(details)`, and for the Upgrade button of
 the usage limit dialog a refused call shows there. Elsewhere both keep their
 behavior: inside an app `requestUpgrade()` asks the desktop, and on any other
 page the usage limit dialog opens the dashboard's upgrade page in a new tab.
+It frames it too for the Upgrade button `<puter-user-menu>` shows unless
+`hide-upgrade` is set, with only `user` in the fragment. On a page that can't frame
+the GUI, that button opens the dashboard's upgrade page in a new tab. Signed
+out, the button signs in first, and the upgrade then shows for that account,
+through the consent dialog on a page that can't frame it, since the click has
+expired by then.
 
 The frame covers the page with no box or close button, and the GUI page is
 transparent (`html.popup-frame-transparent`) so the dialog's own scrim covers
@@ -257,7 +264,9 @@ it shows still rejects but opens no usage limit dialog over it.
 When the frame can't show the upgrade (refused, never ready, `unavailable`, or
 no user to name), puter.js opens the dashboard's upgrade page in a new tab with
 what was refused, through a consent dialog when the click has expired or the
-tab is blocked, and `requestUpgrade()` resolves `{ upgraded: false }`.
+tab is blocked, and `requestUpgrade()` resolves `{ upgraded: false }`. The
+tab's URL always carries `upgrade`, empty when nothing was refused, which is
+what the dashboard opens its upgrade flow for.
 
 ## Top-up
 
@@ -270,6 +279,11 @@ puter.js frames it for the **Add credits** item of `<puter-user-menu>`, which
 shows only when whoami reports `subscribed: true` and no `team` paying for the
 account. On a page that can't frame the GUI, the item opens the dashboard with
 `?topup=` in a new tab instead.
+
+The Low Balance dialog puter.js shows on a website when a call is refused for
+credit offers the same top-up to the same accounts: **Add Credits** is its main
+button, with **Upgrade Plan** beside it. Everyone else gets **Upgrade Now**
+alone.
 
 The GUI reports `unavailable` unless its session belongs to `user`, the account
 has no verification or password change waiting, and the deployment defines

@@ -204,6 +204,29 @@ describe('EventClient', () => {
             errSpy.mockRestore();
         });
 
+        it('reverts the listed fields a throwing listener set, and keeps the rest', async () => {
+            const errSpy = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            target.on(key, (_k, data) => {
+                (data as { allow: boolean }).allow = false;
+            });
+            target.on(key, (_k, data) => {
+                const event = data as { gate: boolean; note: string };
+                event.gate = true;
+                event.note = 'seen';
+                throw new Error('boom');
+            });
+            const data = { allow: true, gate: false, note: '' };
+            const meta: { listener_failed?: boolean } = {};
+            await target.emitAndWait(key, data, meta, {
+                revertOnFailure: ['allow', 'gate'],
+            });
+            expect(data).toEqual({ allow: false, gate: false, note: 'seen' });
+            expect(meta.listener_failed).toBe(true);
+            errSpy.mockRestore();
+        });
+
         it('awaits wildcard listeners too', async () => {
             let resolved = false;
             target.on(`${key}.*`, async () => {

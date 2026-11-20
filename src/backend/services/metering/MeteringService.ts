@@ -647,6 +647,7 @@ export class MeteringService extends PuterService {
                             costOverrideRaw,
                         },
                         'info',
+                        { channel: 'billing' },
                     );
                 }
 
@@ -808,6 +809,7 @@ export class MeteringService extends PuterService {
                     batchUsages: usages,
                 },
                 'info',
+                { channel: 'billing' },
             );
             return { total: 0 } as UsageByType;
         }
@@ -3060,6 +3062,7 @@ export class MeteringService extends PuterService {
                 error: error ?? undefined,
             },
             'info',
+            { channel: 'billing' },
         );
     }
 

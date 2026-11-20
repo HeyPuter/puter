@@ -1,5 +1,6 @@
 import { defaultThumbnailGenerator } from '../../../../puter-js/src/modules/FileSystem/operations/upload/thumbnails.js';
 import { readAudioCover } from './audio.js';
+import { readCodePreview } from './code.js';
 import {
     AUDIO_BATCH_TIMEOUT_MS,
     HEIF_BATCH_TIMEOUT_MS,
@@ -10,22 +11,40 @@ import {
     PDF_THUMBNAIL_JOB_TIMEOUT_MS,
     PDF_THUMBNAIL_MAX_BYTES,
     OFFICE_BATCH_TIMEOUT_MS,
+    TEXT_BATCH_TIMEOUT_MS,
     VIDEO_BATCH_TIMEOUT_MS,
 } from './config.js';
+import { readCsvPreview } from './csv.js';
 import { readDocPreview } from './doc.js';
 import { readDocxPreview } from './docx.js';
 import { readEmbeddedPreview } from './embedded.js';
 import { readHeifPreview } from './heif.js';
 import {
-    ARTWORK_PACKAGE_NAME,
+    AUDIO_NAME,
+    AUDIO_TYPE,
+    CSV_NAME,
+    CSV_TYPE,
+    HEIF_NAME,
+    HEIF_TYPE,
     ILLUSTRATOR_NAME,
-    IWORK_NAME,
-    OPEN_DOCUMENT_NAME,
+    MARKDOWN_NAME,
+    MARKDOWN_TYPE,
     PDF_NAME,
     PRESENTATION_NAME,
+    PRESENTATION_TYPE,
+    PSD_NAME,
+    PSD_TYPE,
     SPREADSHEET_NAME,
+    SPREADSHEET_TYPE,
+    VIDEO_NAME,
+    VIDEO_TYPE,
     WORD_NAME,
+    WORD_TYPE,
+    codeLanguage,
+    isPreviewPackage,
+    leadingBytesRead,
 } from './kinds.js';
+import { readMarkdownPreview } from './markdown.js';
 import { readPptxPreview } from './pptx.js';
 import { readPsdPreview } from './psd.js';
 import { readVideoFrame } from './video.js';
@@ -37,6 +56,21 @@ const workerUrl = bundleUrl
     ? new URL(`pdf-thumbnails/${PDFJS_VERSION}/worker.js`, bundleUrl).href
     : `${PDF_THUMBNAIL_ASSET_PATH}worker.js`;
 const useWorkerWrapper = bundleUrl && new URL(bundleUrl).origin !== globalThis.location?.origin;
+
+/**
+ * Draw a page or a sheet from the start of a text file.
+ *
+ * @param {File} file
+ * @returns {Promise<File | undefined>}
+ */
+const readTextPreview = (file) => {
+    const name = file.name || '';
+    const language = codeLanguage(name, file.type);
+    if ( language ) return readCodePreview(file, language);
+    if ( CSV_TYPE.test(file.type) || CSV_NAME.test(name) ) return readCsvPreview(file);
+    if ( MARKDOWN_TYPE.test(file.type) || MARKDOWN_NAME.test(name) ) return readMarkdownPreview(file);
+    return Promise.resolve(undefined);
+};
 
 const pendingJobs = new Set();
 let activeJob;
@@ -117,16 +151,6 @@ const generatePdfThumbnail = (file, deadline, signal) => new Promise(resolve => 
     startNextJob();
 });
 
-const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
-const SPREADSHEET_TYPE = /^application\/vnd\.(ms-excel\.(sheet|template)\.|openxmlformats-officedocument\.spreadsheetml\.)/;
-const PRESENTATION_TYPE = /^application\/vnd\.(ms-powerpoint\.|openxmlformats-officedocument\.presentationml\.)/;
-// Pages, Numbers and Keynote under either of the names their types go by, OpenDocument files and EPUBs.
-const PACKAGE_TYPE = /^application\/(vnd\.apple\.(pages|numbers|keynote)|x-iwork-|vnd\.oasis\.opendocument\.(text|spreadsheet|presentation)$|epub\+zip$)/;
-const HEIF_TYPE = /^image\/hei[cf]$/;
-const AUDIO_TYPE = /^audio\/(mpeg|mp3|mp4|m4a|x-m4a|flac|x-flac)$/;
-// The containers browsers play. Other `video/` types are left alone: a `.ts` source file is reported as one.
-const VIDEO_TYPE = /^video\/(mp4|quicktime|webm|x-m4v)$/;
-
 /**
  * Make a queue that runs one task at a time, until `timeoutMs` after the first one started. At that deadline the task
  * under way is given up on and the ones still waiting are skipped, so the upload waits no longer than that.
@@ -171,6 +195,7 @@ export const createUploadThumbnailGenerator = () => {
     const queueVideo = createQueue(VIDEO_BATCH_TIMEOUT_MS);
     const queueAudio = createQueue(AUDIO_BATCH_TIMEOUT_MS);
     const queueHeif = createQueue(HEIF_BATCH_TIMEOUT_MS);
+    const queueText = createQueue(TEXT_BATCH_TIMEOUT_MS);
     // Whether this browser decodes HEIC photos itself, which is known once it has been given one.
     let decodesHeif;
     return async (file, context) => {
@@ -188,7 +213,7 @@ export const createUploadThumbnailGenerator = () => {
                 const name = file.name || '';
                 // Browsers can't decode these, so the image generator gets a small image made from the file instead.
                 let image = file;
-                if ( file.type === 'image/vnd.adobe.photoshop' || /\.ps[db]$/i.test(name) ) {
+                if ( file.type === PSD_TYPE || PSD_NAME.test(name) ) {
                     image = await readPsdPreview(file, context?.signal);
                 } else if ( WORD_TYPE.test(file.type) || WORD_NAME.test(name) ) {
                     // A name doesn't settle which of the two formats a document is in. Each reader checks the signature.
@@ -198,11 +223,10 @@ export const createUploadThumbnailGenerator = () => {
                     image = await queueOffice(signal => readXlsxPreview(file, signal), context?.signal);
                 } else if ( PRESENTATION_TYPE.test(file.type) || PRESENTATION_NAME.test(name) ) {
                     image = await queueOffice(signal => readPptxPreview(file, signal), context?.signal);
-                } else if ( PACKAGE_TYPE.test(file.type) ||
-                    [IWORK_NAME, OPEN_DOCUMENT_NAME, ARTWORK_PACKAGE_NAME].some(pattern => pattern.test(name)) ) {
+                } else if ( isPreviewPackage(name, file.type) ) {
                     // These carry a picture of themselves, made by the editor that saved them.
                     image = await queueOffice(signal => readEmbeddedPreview(file, signal), context?.signal);
-                } else if ( HEIF_TYPE.test(file.type) || /\.(heic|heif|hif)$/i.test(name) ) {
+                } else if ( HEIF_TYPE.test(file.type) || HEIF_NAME.test(name) ) {
                     // Safari decodes these itself. The image generator goes by a file's type, and not every browser
                     // gives these one.
                     if ( decodesHeif !== false ) {
@@ -216,15 +240,22 @@ export const createUploadThumbnailGenerator = () => {
                         const picture = await readHeifPreview(file, signal);
                         return picture ? imageGenerator(picture) : undefined;
                     }, context?.signal);
-                } else if ( AUDIO_TYPE.test(file.type) || /\.(mp3|m4a|m4b|flac)$/i.test(name) ) {
+                } else if ( AUDIO_TYPE.test(file.type) || AUDIO_NAME.test(name) ) {
                     // An album is many files that each hold the same large cover, so one cover is found and scaled
                     // before the next file is opened.
                     return await queueAudio(async (signal) => {
                         const cover = await readAudioCover(file, signal);
                         return cover ? imageGenerator(cover) : undefined;
                     }, context?.signal);
-                } else if ( VIDEO_TYPE.test(file.type) || /\.(mp4|m4v|mov|webm)$/i.test(name) ) {
+                } else if ( VIDEO_TYPE.test(file.type) || VIDEO_NAME.test(name) ) {
                     image = await queueVideo(signal => readVideoFrame(file, signal), context?.signal);
+                } else if ( leadingBytesRead(name, file.type) ) {
+                    // A project folder is thousands of these, so one page is drawn and scaled before the next file
+                    // is opened.
+                    return await queueText(async () => {
+                        const page = await readTextPreview(file);
+                        return page ? imageGenerator(page) : undefined;
+                    }, context?.signal);
                 }
                 return image ? await imageGenerator(image) : undefined;
             }

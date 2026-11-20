@@ -20,6 +20,7 @@
 /* eslint-disable no-invalid-this */
 /* eslint-disable @stylistic/quotes */
 import { createUploadThumbnailGenerator } from '../../services/uploadThumbnails/index.js';
+import { createMissingThumbnailFiller, createRememberedFailures } from '../../services/uploadThumbnails/missing.js';
 import path from '../../lib/path.js';
 import open_item from '../../helpers/openItem.js';
 import UIContextMenu from '../UIContextMenu.js';
@@ -37,6 +38,7 @@ import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
 import { openPublishWebsiteDialog, openPublishWorkerDialog } from './UIPublishDialogs.js';
 import { dedupedName } from '../../helpers/dedupedName.js';
+import { readFileAsDataUrl } from '../../helpers/readFileAsDataUrl.js';
 import { runLimited } from '../../helpers/runLimited.js';
 import { compareEntries, compareNames } from './sortEntries.js';
 import { middleTruncate } from './middleTruncate.js';
@@ -240,6 +242,49 @@ const TabFiles = {
         // the actual trash contents once known.
         window.refresh_trash_state();
 
+        // A file an app wrote or edited has no thumbnail; make one as its row
+        // comes into view. fetch rather than puter.fs.read() so leaving the
+        // folder can cancel the download.
+        this.missingThumbnails?.reset();
+        this.missingThumbnails = createMissingThumbnailFiller({
+            download: (uid, signal, byteCount) => fetch(`${window.api_origin}/read?${new URLSearchParams({
+                file: uid,
+                ...(byteCount ? { byte_count: byteCount } : {}),
+            })}`, {
+                headers: { 'Authorization': `Bearer ${window.auth_token}` },
+                cache: 'no-store',
+                signal,
+            }),
+            store: (body) => fetch(`${window.api_origin}/update-fsentry-thumbnail`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${window.auth_token}`,
+                },
+                body: JSON.stringify(body),
+            }),
+            generate: file => createUploadThumbnailGenerator()(file),
+            failures: createRememberedFailures(() => window.localStorage),
+            onStored: (row, fsentry, thumbnail) => {
+                // The update the server announces can get here first, with
+                // the stored thumbnail's own URL.
+                if ( fsentry.thumbnail ) return;
+                fsentry.thumbnail = thumbnail;
+                if ( ! row.isConnected ) return;
+                _this.rowIcon(fsentry).then(icon => {
+                    _this.showRowIcon($(row).find('.item-icon > img').first(), icon);
+                });
+            },
+            // The row kept its old thumbnail for a new one that isn't
+            // coming. The same item in an open file dialog kept it too.
+            onDropped: (row, fsentry) => {
+                if ( ! row.isConnected ) return;
+                _this.rowIcon(fsentry).then(icon => {
+                    _this.showRowIcon($(`.item[data-uid='${fsentry.uid}']`).find('.item-icon > img'), icon);
+                });
+            },
+        });
+
         // Refresh an existing row in place from an fs entry. Shared with
         // UIDashboard's item.updated socket handler so the two paths can't
         // drift — e.g. trashed items must show metadata.original_name, not
@@ -260,8 +305,9 @@ const TabFiles = {
             // keep it current so a remote rename or move doesn't leave them
             // opening, copying or sharing the old path.
             const fsentry = $row.data('fsentry');
+            const thumbnailBefore = fsentry?.thumbnail ?? null;
             if ( fsentry ) {
-                for ( const key of ['name', 'path', 'type', 'size', 'modified', 'metadata'] ) {
+                for ( const key of ['name', 'path', 'type', 'size', 'modified', 'metadata', 'thumbnail'] ) {
                     if ( file[key] !== undefined ) fsentry[key] = file[key];
                 }
             }
@@ -295,12 +341,21 @@ const TabFiles = {
                 $row.attr('data-modified', file.modified);
                 $row.find('.item-modified').text(formatRelativeTime(file.modified * 1000, Date.now(), window.locale));
             }
-            if (
-                _this.isGridView() &&
-                typeof file.thumbnail === 'string' &&
-                file.thumbnail.length > 0
-            ) {
-                $row.find('.item-icon img').attr('src', file.thumbnail);
+            // An overwrite clears the thumbnail and a new one follows, so the
+            // row keeps showing the old one while that's made. Every update
+            // carries the key, so the icon is only worked out again when the
+            // thumbnail changed. An open file dialog's item matches too.
+            if ( file.thumbnail !== undefined && fsentry ) {
+                const keepsOld = _this.fillMissingThumbnail($row[0], fsentry, { showsOld: !!thumbnailBefore, changed: true });
+                if ( !keepsOld && (file.thumbnail ?? null) !== thumbnailBefore ) {
+                    _this.rowIcon(fsentry).then(icon => {
+                        _this.showRowIcon($row.find('.item-icon > img'), icon);
+                    });
+                }
+            } else if ( !fsentry && typeof file.thumbnail === 'string' && file.thumbnail.length > 0 ) {
+                // Only a file dialog's item matched, with the folder on
+                // screen here being another one. It has no entry of its own.
+                _this.showRowIcon($row.find('.item-icon > img'), { image: file.thumbnail, type: 'thumb' });
             }
             if ( displayName && displayName !== oldName && fsentry ) _this.followRename($row, fsentry, oldPath);
             // The footer's item-count/total-size line is computed from the
@@ -1502,7 +1557,13 @@ const TabFiles = {
             this.closeImagePreview();
             return;
         }
-        const imageUrl = URL.createObjectURL(new Blob([blob], { type: mime.getType(fileName) ?? '' }));
+        const image = new Blob([blob], { type: mime.getType(fileName) ?? '' });
+        // Opened in its own tab, an SVG at a blob: URL renders as a page on
+        // this origin; at a data: URL it gets an opaque one.
+        const imageUrl = image.type === 'image/svg+xml'
+            ? await readFileAsDataUrl(image)
+            : URL.createObjectURL(image);
+        if ( seq !== this.previewSeq ) return;
 
         // Remove any existing preview
         $('.image-preview-popover').remove();
@@ -1952,8 +2013,8 @@ const TabFiles = {
      */
     followRename ($row, fsentry, oldPath) {
         this.insertAtSortedPosition($row, fsentry);
-        this.rowIcon(fsentry).then(({ image }) => {
-            $row.find('.item-icon > img').first().attr('src', image);
+        this.rowIcon(fsentry).then(icon => {
+            this.showRowIcon($row.find('.item-icon > img').first(), icon);
         });
         if ( fsentry.is_dir && oldPath && fsentry.path && fsentry.path !== oldPath ) {
             this.folderMoved(oldPath, fsentry.path);
@@ -3053,6 +3114,7 @@ const TabFiles = {
         const prevScrollTop = isSameDirRefresh ? $files.scrollTop() : 0;
 
         const clearListing = () => {
+            this.missingThumbnails?.reset();
             $files.html('');
             document.querySelectorAll('.files-tab .row.selected').forEach(r => {
                 r.classList.remove('selected');
@@ -3504,7 +3566,7 @@ const TabFiles = {
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
         if ( ! iconResult ) iconResult = await this.rowIcon(file);
-        const icon = `<img alt="" src="${html_encode(iconResult.image)}"/>`;
+        const icon = `<img alt=""${iconResult.type === 'thumb' ? ' class="row-thumb"' : ''} src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
         // A dot-file only reaches this point when the preference reveals it;
         // `item-revealed` dims it the same way the desktop Explorer does.
@@ -3589,6 +3651,25 @@ const TabFiles = {
         if ( this.currentPath === window.shared_path ) paintAvatars(row);
 
         this.createItemListeners(row, file);
+        this.fillMissingThumbnail(row, file);
+    },
+
+    /**
+     * Makes a thumbnail for a row's file if it has none and the row would
+     * show one, once the row is on screen.
+     *
+     * @param {HTMLElement} row
+     * @param {Object} fsentry - The row's entry
+     * @param {{ showsOld?: boolean, changed?: boolean }} [options] - `showsOld` for a row showing the thumbnail of
+     *     the version before, `changed` for an entry an update just arrived for
+     * @returns {boolean} Whether the row should keep showing that thumbnail while the new one is made
+     */
+    fillMissingThumbnail (row, fsentry, options) {
+        return this.missingThumbnails?.observe(row, fsentry, {
+            listRow: !this.isGridView(),
+            homePath: window.home_path,
+            excludedPaths: [window.trash_path, window.appdata_path],
+        }, options) ?? false;
     },
 
     /**
@@ -3939,8 +4020,8 @@ const TabFiles = {
                 if ( ! _this.applyHiddenRule($(el_item), fsentry.name ?? new_name) ) return;
                 $(el_item).attr('data-type', fsentry.type ?? '');
                 _this.insertAtSortedPosition($(el_item), fsentry);
-                _this.rowIcon(fsentry).then(({ image }) => {
-                    $(el_item).find('.item-icon > img').first().attr('src', image);
+                _this.rowIcon(fsentry).then(icon => {
+                    _this.showRowIcon($(el_item).find('.item-icon > img').first(), icon);
                 });
             });
         }
@@ -4765,6 +4846,18 @@ const TabFiles = {
      */
     rowIcon (fsentry) {
         return item_icon(fsentry, { listRow: !this.isGridView() });
+    },
+
+    /**
+     * Shows an icon from rowIcon() in a row's image. A thumbnail gets the
+     * `row-thumb` class, which the grid views draw with a shadow.
+     *
+     * @param {jQuery} $img
+     * @param {{ image: string, type: string }} icon
+     * @returns {void}
+     */
+    showRowIcon ($img, icon) {
+        $img.attr('src', icon.image).toggleClass('row-thumb', icon.type === 'thumb');
     },
 
     /**

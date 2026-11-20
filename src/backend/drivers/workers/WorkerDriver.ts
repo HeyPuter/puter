@@ -48,7 +48,7 @@ import { loadFileInput } from '../util/fileInput.js';
 import {
     normalizeLimit,
     normalizeOffset,
-    openCursor,
+    openIdCursor,
     sealCursor,
 } from '../../util/pagination.js';
 
@@ -858,11 +858,12 @@ export class WorkerDriver extends PuterDriver {
         const limit = normalizeLimit(args.limit, { cap: 5000 });
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = openCursor(
+        const afterId = openIdCursor(
             args.cursor as string | null | undefined,
             this.config.jwt_secret_v2,
-        ) as { id?: number } | undefined;
-        if (payload && offset !== undefined) {
+            { strict: true },
+        );
+        if (afterId !== null && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
                 legacyCode: 'bad_request',
             });
@@ -898,10 +899,7 @@ export class WorkerDriver extends PuterDriver {
                         ? {
                               limit: pageSize + 1,
                               offset,
-                              afterId:
-                                  payload?.id !== undefined
-                                      ? Number(payload.id)
-                                      : undefined,
+                              afterId: afterId ?? undefined,
                           }
                         : {}),
                 },
@@ -1434,6 +1432,19 @@ export class WorkerDriver extends PuterDriver {
                     });
             },
         );
+        // Awaited by the uninstall, so the rows are gone before it answers.
+        this.clients.event.on(
+            'app.uninstalled',
+            async (
+                _key: string,
+                data: { userId?: number; appUid?: string },
+            ) => {
+                await this.#tearDownUninstalledAppWorkers(
+                    Number(data?.userId),
+                    String(data?.appUid ?? ''),
+                );
+            },
+        );
         // A suspended owner's scripts come down and return when the
         // suspension lifts; the rows stay throughout.
         this.clients.event.on(
@@ -1456,6 +1467,65 @@ export class WorkerDriver extends PuterDriver {
                 }
             },
         );
+    }
+
+    /**
+     * Delete the workers an app the user uninstalled (and the apps it made
+     * under their account) runs there, rows included: a redeploy reads the
+     * row's app and would mint that app a token again. Workers bound to an app
+     * the user owns are their own and stay.
+     */
+    async #tearDownUninstalledAppWorkers(
+        userId: number,
+        appUid: string,
+    ): Promise<void> {
+        if (!userId || !appUid) return;
+        const app = await this.stores.app.getByUid(appUid);
+        if (!app || Number(app.owner_user_id) === userId) return;
+        const appUids = await this.stores.app.listOwnedDescendantUids(
+            userId,
+            appUid,
+        );
+        const apps = await this.stores.app.getByUids(appUids);
+        const appIds = [...apps.values()].map((a) => Number(a.id));
+        let afterId: number | undefined;
+        for (;;) {
+            const page = await this.stores.subdomain.listByUserIdAndPrefix(
+                userId,
+                WORKER_SUBDOMAIN_PREFIX,
+                { appIds, limit: SUSPENSION_PAGE, afterId },
+            );
+            await runWithConcurrencyLimit(
+                page,
+                SUSPENSION_CONCURRENCY,
+                async (row) => {
+                    try {
+                        await this.#teardown(row, { userId });
+                    } catch (err) {
+                        // Its token is already revoked; the row is what a
+                        // redeploy reads. The announcement retries the script.
+                        console.warn(
+                            `[workers] uninstall teardown of ${row.subdomain} fell back to removing its row`,
+                            err,
+                        );
+                        await this.stores.subdomain.deleteByUuid(row.uuid, {
+                            userId,
+                        });
+                        this.clients.event.emit(
+                            'subdomain.delete',
+                            {
+                                subdomain: String(row.subdomain),
+                                uid: row.uuid,
+                                userId,
+                            },
+                            {},
+                        );
+                    }
+                },
+            );
+            if (page.length < SUSPENSION_PAGE) return;
+            afterId = Number(page[page.length - 1]!.id);
+        }
     }
 
     /** Every worker row the user owns, a page at a time. */

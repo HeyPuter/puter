@@ -173,6 +173,32 @@ export default suite('apps', {
         );
     },
 
+    'get with a URL returns the app at its origin': async (t) => {
+        const app = await t.puter.apps.create(
+            'apps-suite-by-url',
+            'https://apps-suite-by-url.example.com/',
+        );
+        const fetched = await t.puter.apps.get(
+            'https://apps-suite-by-url.example.com/about?tab=1',
+        );
+        t.assert.equal(fetched.uid, app.uid);
+        t.assert.equal(fetched.name, 'apps-suite-by-url');
+    },
+
+    'get with a URL no app serves rejects with not_found': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            t.puter.apps.get('https://apps-suite-no-app.example.com/'),
+        )) as { code?: string };
+        t.assert.equal(error.code, 'not_found');
+    },
+
+    'get with a URL that is not a web URL rejects with bad_request': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            t.puter.apps.get('file:///index.html'),
+        )) as { code?: string };
+        t.assert.equal(error.code, 'bad_request');
+    },
+
     'delete removes the app': async (t) => {
         await t.puter.apps.create(
             'apps-suite-delete',

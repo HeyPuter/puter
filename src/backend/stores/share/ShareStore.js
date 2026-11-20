@@ -79,6 +79,7 @@ export class ShareStore extends PuterStore {
 
     /** Pass `primary` to read back a row just written; a replica may lag. */
     async getByUid(uid, { primary = false } = {}) {
+        if (typeof uid !== 'string') return null;
         const rows = await this.#select(
             'SELECT * FROM `share` WHERE `uid` = ? LIMIT 1',
             [uid],

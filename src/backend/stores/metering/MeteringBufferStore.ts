@@ -2026,8 +2026,8 @@ export class MeteringBufferStore extends PuterStore {
             'metering_counter_large',
             `Settling ${key} cost ${writeUnits} write unit(s) in one update — the item is getting large`,
             { key, writeUnits },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'billing' },
         );
     }
 
@@ -2050,7 +2050,7 @@ export class MeteringBufferStore extends PuterStore {
                 `Usage could not be persisted for ${key} — the amounts are lost and the account is under-billed`,
                 { key, paths, amounts: dropped, reason },
                 'critical',
-                { dedup: true },
+                { dedup: true, channel: 'billing' },
             );
             return;
         }
@@ -2059,8 +2059,8 @@ export class MeteringBufferStore extends PuterStore {
             'metering_aggregate_usage_dropped',
             `An aggregate usage counter could not be persisted (${key}) — reporting totals will under-count`,
             { key, paths, amounts: dropped, reason },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'billing' },
         );
     }
 
@@ -2102,7 +2102,7 @@ export class MeteringBufferStore extends PuterStore {
                 `A claim on ${key} left the cache before it was persisted — the amounts are lost and the account is under-billed`,
                 { key },
                 'critical',
-                { dedup: true },
+                { dedup: true, channel: 'billing' },
             );
             return;
         }
@@ -2111,8 +2111,8 @@ export class MeteringBufferStore extends PuterStore {
             'metering_aggregate_claim_lost',
             `An aggregate claim (${key}) left the cache before it was persisted — reporting totals will under-count`,
             { key },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'billing' },
         );
     }
 }

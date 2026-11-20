@@ -33,7 +33,7 @@ import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequi
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import UIAuthLogin from './UI/Auth/UIAuthLogin.js';
 import UIAuth2FA from './UI/Auth/UIAuth2FA.js';
-import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
+import { authErrorDisplayMessage, takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
@@ -74,6 +74,7 @@ import {
     forwardedDestination,
     fullTokenAllowed,
     isDeliverableRedirect,
+    isGuiRedirect,
     shouldUseRemoteAuthme,
     urlTokenParam,
     wantsFullToken,
@@ -209,6 +210,10 @@ const postAuthActions = async (action) => {
             await UIAlert({ message: i18n('authme_bad_redirect_url') });
             return;
         }
+        if ( redirectURL && isGuiRedirect(redirectURL, [window.location.origin, window.gui_origin]) ) {
+            await UIAlert({ message: i18n('authme_gui_redirect_url') });
+            return;
+        }
         // A full account session is only ever *offered* when the caller names
         // it. Without `token_type=session` this flow can hand over nothing but
         // the restricted API token, so an ordinary AuthMe link can't be
@@ -228,12 +233,9 @@ const postAuthActions = async (action) => {
             );
         }
         if ( redirectURL ) {
-            // The configured domain, not the host this page was reached on:
-            // an alias of the GUI is still the same deployment.
             const forwards_to = forwardedDestination(
                 redirectURL,
-                window.gui_params?.domain || window.app_domain,
-                window.hosting_domain,
+                window.gui_params?.authmeRelayOrigins,
             );
             const approved = await UIWindowAuthMe({
                 redirect_url: redirectURL,
@@ -1387,31 +1389,6 @@ function parseDashboardRoute() {
 window.parseDashboardRoute = parseDashboardRoute;
 
 /**
- * Display text for an auth error redirect (`?auth_error=1&message=<code>`).
- * The backend sends a fixed set of codes — never free text — plus, for a
- * blocked signup, a `request_code` the user can quote to support. Codes map
- * to translated messages here; anything unrecognized (including text crafted
- * directly into the URL) gets the generic message rather than being shown.
- */
-function authErrorDisplayMessage() {
-    const code = window.url_query_params.get('message');
-    const requestCode = window.url_query_params.get('request_code');
-    if (code === 'signup_blocked') {
-        const contact = requestCode
-            ? i18n('contact_support_with_code', { id: requestCode }, false)
-            : i18n('contact_support', [], false);
-        return `${i18n('signup_blocked_message', [], false)} ${contact}`;
-    }
-    if (code === 'account_suspended') {
-        return i18n('account_suspended_message', [], false);
-    }
-    if (code === 'bonus_code_invalid') {
-        return i18n('signup_bonus_code_invalid_retry', [], false);
-    }
-    return i18n('auth_error_generic', [], false);
-}
-
-/**
  * Settles the shell's server-rendered anonymous markup — the marketing
  * homepage, an `/app/<name>` landing — once the client knows whether it has a
  * session.
@@ -1569,6 +1546,18 @@ window.showTurnstileChallenge = function (options) {
             modal.style.opacity = '1';
         });
     });
+};
+
+// A gate window can clear another (a fallback card clears the phone gate, a
+// replaced email asks for a phone first), so the gate after it reads the
+// account again.
+const refreshWhoami = async (whoami) => {
+    try {
+        const fresh = await puter.os.user();
+        if (fresh) Object.assign(whoami, fresh);
+    } catch (_) {
+        // The next gate works from what it has.
+    }
 };
 
 window.initgui = async function (options) {
@@ -2111,7 +2100,7 @@ window.initgui = async function (options) {
     //--------------------------------------------------------------------------------------
     else if (action === 'login') {
         const opts = window.url_query_params.has('auth_error')
-            ? { authError: authErrorDisplayMessage() }
+            ? { authError: authErrorDisplayMessage(window.url_query_params) }
             : {};
         if (!window.is_auth()) {
             opts.page = true;
@@ -2129,7 +2118,7 @@ window.initgui = async function (options) {
     //--------------------------------------------------------------------------------------
     else if (action === 'signup') {
         const opts = window.url_query_params.has('auth_error')
-            ? { authError: authErrorDisplayMessage() }
+            ? { authError: authErrorDisplayMessage(window.url_query_params) }
             : {};
         if (!window.is_auth()) {
             opts.page = true;
@@ -2256,11 +2245,14 @@ window.initgui = async function (options) {
                             show_close_button: false,
                             stay_on_top: true,
                             has_head: false,
+                            // The URL's account isn't this browser's session yet.
+                            change_address: false,
                             window_options: {
                                 is_draggable: false,
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             const phoneGate = async () => {
@@ -2279,11 +2271,13 @@ window.initgui = async function (options) {
                             // send window, and no send can report it any more).
                             card_fallback_available:
                                 whoami.card_fallback_available,
+                            phone_on_file: whoami.phone_on_file,
                             window_options: {
                                 is_draggable: false,
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                     card_gate_cleared_by_fallback = is_verified === 'card';
                 }
             };
@@ -2303,6 +2297,7 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             if (whoami.email_gate_last) {
@@ -2580,6 +2575,7 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             const phoneGate = async () => {
@@ -2599,12 +2595,14 @@ window.initgui = async function (options) {
                             // send window, and no send can report it any more).
                             card_fallback_available:
                                 whoami.card_fallback_available,
+                            phone_on_file: whoami.phone_on_file,
                             window_options: {
                                 is_draggable: false,
                                 cover_page: window.is_embedded,
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                     card_gate_cleared_by_fallback = is_verified === 'card';
                 }
             };
@@ -2626,6 +2624,7 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             if (whoami.email_gate_last) {

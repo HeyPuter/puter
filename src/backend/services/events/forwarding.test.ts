@@ -1719,8 +1719,8 @@ describe('a forward queue that cannot keep up', () => {
                 'events_forward_overflow',
                 expect.any(String),
                 expect.objectContaining({ peerId: 'east' }),
-                'warning',
-                expect.anything(),
+                'info',
+                { dedup: true, channel: 'platform' },
             );
             // One marker for the one subscription that lost events, with the
             // newest delivery still behind it: a shed never eats the queue.

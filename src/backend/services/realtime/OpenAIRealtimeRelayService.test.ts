@@ -844,8 +844,8 @@ describe('OpenAIRealtimeRelayService relay', () => {
             'realtime_unreported_response',
             expect.any(String),
             expect.objectContaining({ inFlight: 1 }),
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'ai_providers' },
         );
     });
 

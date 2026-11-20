@@ -120,6 +120,7 @@ export class NotificationStore extends PuterStore {
      * @param {{ userId?: number; primary?: boolean }} [opts]
      */
     async getByUid(uid, { userId, primary = false } = {}) {
+        if (typeof uid !== 'string') return null;
         const where =
             userId !== undefined
                 ? 'WHERE `uid` = ? AND `user_id` = ?'
@@ -139,6 +140,7 @@ export class NotificationStore extends PuterStore {
      * @param {string} sendKey
      */
     async getBySendKey(sendKey) {
+        if (typeof sendKey !== 'string') return null;
         const rows = await this.clients.db.pread(
             'SELECT * FROM `notification` WHERE `send_key` = ? LIMIT 1',
             [sendKey],
@@ -158,6 +160,8 @@ export class NotificationStore extends PuterStore {
      * @returns {Promise<NotificationRow | null>}
      */
     async getUnseenByGroup(userId, appUid, group, { primary = false } = {}) {
+        if (typeof appUid !== 'string' || typeof group !== 'string')
+            return null;
         const sql =
             'SELECT * FROM `notification` WHERE `user_id` = ? AND `app_uid` = ? ' +
             'AND `group_key` = ? ORDER BY `id` DESC LIMIT 1';
@@ -568,6 +572,7 @@ export class NotificationStore extends PuterStore {
         value,
         { onlyUnseen = false, replacedAt = undefined } = {},
     ) {
+        if (typeof uid !== 'string') return false;
         const db = this.clients.db;
         const serialized = serialize(value);
         const set = ['`value` = ?', '`shown` = NULL'];
@@ -612,6 +617,7 @@ export class NotificationStore extends PuterStore {
 
     // The event's columns never change: replica first, primary when it lags.
     async markAcknowledged(uid, userId) {
+        if (typeof uid !== 'string') return false;
         const db = this.clients.db;
         const now = Math.floor(Date.now() / 1000);
         const fixed =
@@ -656,6 +662,7 @@ export class NotificationStore extends PuterStore {
     }
 
     async markShown(uid, userId) {
+        if (typeof uid !== 'string') return false;
         const now = Math.floor(Date.now() / 1000);
         const result = await this.clients.db.write(
             'UPDATE `notification` SET `shown` = ? WHERE `uid` = ? AND `user_id` = ? AND `shown` IS NULL',
@@ -685,6 +692,7 @@ export class NotificationStore extends PuterStore {
     }
 
     async deleteByUid(uid, userId) {
+        if (typeof uid !== 'string') return false;
         const result = await this.clients.db.write(
             'DELETE FROM `notification` WHERE `uid` = ? AND `user_id` = ?',
             [uid, userId],
