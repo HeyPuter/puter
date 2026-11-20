@@ -55,6 +55,13 @@ describe('readEmbeddedPreview', () => {
         await expectPreview(createZip({ 'preview.jpg': oversized, 'preview-web.jpg': jpeg }), jpeg, 'image/jpeg');
     });
 
+    it('moves on from an entry whose compressed data is damaged', async () => {
+        const zip = createZip({ 'preview.jpg': jpeg, 'preview-web.jpg': other });
+        // The first entry's data starts after its 30-byte header and name. A block type of 3 is invalid deflate.
+        zip.set([0xff, 0xff], 30 + 'preview.jpg'.length);
+        await expectPreview(zip, other, 'image/jpeg');
+    });
+
     it('moves on from a picture that states more pixels than the limit', async () => {
         // A square one pixel wider than the limit allows, in a few bytes.
         const side = Math.sqrt(EMBEDDED_PREVIEW_MAX_PIXELS);

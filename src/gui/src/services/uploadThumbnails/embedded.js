@@ -81,7 +81,8 @@ export const readEmbeddedPreview = async (file, signal) => {
     const imageOf = async (name) => {
         const entry = entries.get(name);
         if ( !entry || entry.size > EMBEDDED_PREVIEW_MAX_BYTES ) return undefined;
-        const content = await contentOf(entry, EMBEDDED_PREVIEW_MAX_BYTES);
+        // A damaged entry is passed over like a missing one, so the next picture the file holds is still tried.
+        const content = await contentOf(entry, EMBEDDED_PREVIEW_MAX_BYTES).catch(() => undefined);
         if ( ! content ) return undefined;
         // What kind of image it is, and how large, comes from its own bytes.
         const view = new DataView(await content.arrayBuffer());
