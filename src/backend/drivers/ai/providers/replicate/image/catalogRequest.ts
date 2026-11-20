@@ -18,6 +18,7 @@
  */
 
 import { HttpError } from '../../../../../core/http/HttpError.js';
+import { convertsToText } from '../../../shared/scalarOptions.js';
 import {
     closestAspectRatio,
     expandAspectRatio,
@@ -174,6 +175,8 @@ export function buildCatalogInput(
         if (tierKey) input[tierKey] = params.quality;
     }
     if (params.output_megapixels != null) {
+        if (!convertsToText(params.output_megapixels))
+            throw badRequest('`output_megapixels` is not a usable value');
         const key = schema.output_megapixels
             ? 'output_megapixels'
             : schema.megapixels
