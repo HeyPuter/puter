@@ -1494,6 +1494,52 @@ describe('OIDCController sign-in validate', () => {
         }
     });
 
+    it('a sign-in that has to be made again redirects back to its page with no session', async () => {
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
+        );
+        const user = created.user!;
+        await server.stores.user.update(user.id, {
+            phone: '+14155550123',
+            requires_phone_verification: 1,
+        });
+        stubIdp(sub, email);
+        // The proof on file is given while this sign-in opens its session.
+        const create = server.services.auth.createSessionToken.bind(
+            server.services.auth,
+        );
+        vi.spyOn(
+            server.services.auth,
+            'createSessionToken',
+        ).mockImplementationOnce(async (...args) => {
+            await server.stores.user.update(user.id, {
+                requires_phone_verification: 0,
+            });
+            return create(...(args as Parameters<typeof create>));
+        });
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: TEST_ORIGIN + '/',
+        });
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        expect(captured.redirectStatus).toBe(302);
+        expect(captured.redirectUrl).toContain('action=login');
+        expect(captured.redirectUrl).toContain('message=unauthorized');
+        expect(captured.cookies).toHaveLength(0);
+    });
+
     it('never asks puter.signin.attempt listeners', async () => {
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;

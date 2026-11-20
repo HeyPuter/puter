@@ -6563,7 +6563,7 @@ describe('AuthController phone on file', () => {
                     key: `phone-on-file-proven:${user.id}`,
                 })
             ).res,
-        ).toBe(ON_FILE);
+        ).toMatchObject({ phone: ON_FILE });
         expect(
             (await server.stores.user.getById(user.id, { force: true }))!
                 .requires_phone_verification,
@@ -6582,7 +6582,7 @@ describe('AuthController phone on file', () => {
                 makeRes(),
             );
         });
-        expect(await proven(onFile.user.id)).toBe(ON_FILE);
+        expect(await proven(onFile.user.id)).toMatchObject({ phone: ON_FILE });
 
         // A number entered for the first time proves nothing about the past.
         const fresh = await makeUserAndActor({

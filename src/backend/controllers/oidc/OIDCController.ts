@@ -1080,16 +1080,18 @@ if (window.opener) {
                 method,
             );
         } catch (e) {
-            if (!(e instanceof SignInRefusedError)) throw e;
+            // A sign-in that has to be made again lands back on its page.
+            const retry = e instanceof HttpError && e.code === 'signin_retry';
+            if (!(e instanceof SignInRefusedError) && !retry) throw e;
             return res.redirect(
                 302,
                 buildErrorRedirectUrl(
                     origin,
                     sourceFlow,
                     'other',
-                    'signin_blocked',
+                    retry ? 'unauthorized' : 'signin_blocked',
                     stateDecoded,
-                    e.requestCode,
+                    retry ? undefined : (e as SignInRefusedError).requestCode,
                     (p) => this.#mintPopupReturn(res, p),
                 ),
             );

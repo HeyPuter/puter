@@ -101,30 +101,11 @@ export async function startWebSession(
                     origin: req.headers?.origin,
                     host: req.headers?.host,
                 });
-            res.cookie(deps.config.cookie_name ?? 'puter_token', token, {
-                ...sessionCookieFlags(deps.config),
-                httpOnly: true,
-            });
-            // A sign-in that still owes proof of the phone or card on file
-            // hasn't shown it is the owner's, so its device isn't remembered
-            // yet; the id is kept for the request that proves it.
-            if (owesProofOnFile(sessionUser)) {
-                if (recordDevice) {
-                    try {
-                        await deps.kv.set({
-                            key: unprovenDeviceKey(String(session.uuid)),
-                            value: issueDeviceCookie(req, res, deps),
-                            expireAt:
-                                Math.floor(Date.now() / 1000) +
-                                UNPROVEN_DEVICE_TTL_SECONDS,
-                        });
-                    } catch (e) {
-                        console.warn('[known-device] pending id not kept:', e);
-                    }
-                }
-                // The proof signs every other session out. One that lands
-                // while this sign-in runs would miss this session, so a
-                // sign-in that finds the gate gone doesn't keep it.
+            // The proof signs every other session out. One that lands while
+            // this sign-in runs would miss this session, so a sign-in that
+            // finds the gate gone isn't kept, and gets no cookie.
+            const owesProof = owesProofOnFile(sessionUser);
+            if (owesProof) {
                 const fresh = await deps.user.getById(user.id, { force: true });
                 if (!fresh || !owesProofOnFile(fresh)) {
                     await deps.auth.revokeSession(String(session.uuid));
@@ -132,6 +113,26 @@ export async function startWebSession(
                         legacyCode: 'conflict',
                         code: 'signin_retry',
                     });
+                }
+            }
+            res.cookie(deps.config.cookie_name ?? 'puter_token', token, {
+                ...sessionCookieFlags(deps.config),
+                httpOnly: true,
+            });
+            // A sign-in that still owes that proof hasn't shown it is the
+            // owner's, so its device isn't remembered yet; the id is kept for
+            // the request that proves it.
+            if (owesProof && recordDevice) {
+                try {
+                    await deps.kv.set({
+                        key: unprovenDeviceKey(String(session.uuid)),
+                        value: issueDeviceCookie(req, res, deps),
+                        expireAt:
+                            Math.floor(Date.now() / 1000) +
+                            UNPROVEN_DEVICE_TTL_SECONDS,
+                    });
+                } catch (e) {
+                    console.warn('[known-device] pending id not kept:', e);
                 }
             } else if (recordDevice) {
                 await rememberDevice(req, res, user.uuid, deps);
@@ -144,6 +145,13 @@ export async function startWebSession(
 
 const owesProofOnFile = (user: UserRow): boolean =>
     isPhoneOnFileStep(user) || isCardOnFileStep(user);
+
+/**
+ * The sign-in a request belongs to: its web session, or the one its token was
+ * handed out under.
+ */
+export const signInOf = (req: Request): string | null =>
+    req.actor?.session?.parentUid ?? req.actor?.session?.uid ?? null;
 
 /** The device id of a session opened while proof on file was owed. */
 const unprovenDeviceKey = (sessionUuid: string): string =>

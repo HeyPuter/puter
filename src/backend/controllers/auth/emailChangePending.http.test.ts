@@ -180,6 +180,38 @@ describe('changing an email that is still waiting for its code', () => {
         );
     });
 
+    it('does not count a proof another sign-in gave', async () => {
+        const user = await account({
+            phone: PHONE,
+            metadata: BEFORE,
+            requires_phone_verification: 1,
+        });
+        const proof = await fetch(new URL('/confirm-phone', env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({ code: '123456' }),
+        });
+        expect(await proof.json()).toMatchObject({ phone_verified: true });
+
+        // Signed in afterwards with the password alone.
+        const row = (await env.server.stores.user.getById(user.id, {
+            force: true,
+        }))!;
+        const later = await env.server.services.auth.createSessionToken(
+            row,
+            {},
+        );
+        const refused = await change(later.token, `${uuidv4()}@example.com`);
+        expect(refused.status).toBe(403);
+        expect(await refused.json()).toMatchObject({
+            code: 'phone_verification_required',
+        });
+        expect(await staged(user.id)).toBeFalsy();
+    });
+
     it('keeps asking for the code where no phone code can be sent', async () => {
         const user = await account({ phone: PHONE, metadata: BEFORE });
         smsConfigured.mockReturnValue(false);
