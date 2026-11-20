@@ -769,7 +769,7 @@ describe('SpeechToTextDriver metering', () => {
         });
         const result = await withActor(actor, () =>
             driver.transcribe({
-                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                file: dataUrl(Buffer.alloc(8000, 0), 'audio/mp3'),
                 response_format: 'text',
             }),
         );
