@@ -26,6 +26,7 @@ import {
     type VoiceId,
 } from '@aws-sdk/client-polly';
 import { HttpError } from '../../../../../core/http/HttpError.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import { Context } from '../../../../../core/context.js';
 import type { AwsCredentials } from '../../../../../util/awsCredentials.js';
 import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
@@ -310,6 +311,9 @@ export class AWSPollyTTSProvider implements ITTSProvider {
 
                 const command = new SynthesizeSpeechCommand(params);
                 const response = await client.send(command);
+                if (!response?.AudioStream) {
+                    throw malformedUpstreamResponse('aws-polly', 'AWS Polly');
+                }
 
                 return {
                     dataType: 'stream',
