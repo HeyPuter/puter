@@ -56,7 +56,9 @@ starts only when context reaches the model's threshold.
 
 Store active model context in small parts with [`puter.kv.set()`](/KV/set/).
 The worker writes the new parts, publishes their keys in one metadata entry,
-then deletes the old parts. The app lists only the small metadata entries.
+then deletes the old parts. [`puter.kv.del()`](/KV/del/) removes one key per
+call, so the worker deletes the old parts together with `Promise.all`. The app
+lists only the small metadata entries.
 [Split a Large Value Across Keys](/recipes/split-a-large-value/) explains this
 storage pattern and why rewriting one growing value gets expensive.
 
@@ -65,20 +67,23 @@ available after compaction, use the archive in
 [Keep a Long AI Conversation](/recipes/keep-a-long-ai-conversation/). A compacted
 context is a model continuation, not a transcript for the user to read.
 
-Queue requests per chat. The browser example prevents overlapping sends in that
-page. Independent tabs should create separate chats. The metadata update isn't
-a distributed lock, so concurrent writers can replace each other's context.
+Send one request at a time per chat. The browser example prevents overlapping
+sends in that page. Independent tabs should create separate chats. The metadata
+update isn't a distributed lock, so concurrent writers can replace each other's
+context.
 
 ## Full Code
 
-Save this worker as `assistant.js`. The storage cap here is an application
-choice that reports an error when the user needs a new chat:
+Save this worker as `assistant.js`. It stores a chat's context in at most 100
+parts, an application choice. A larger context fails with the `chat_full` code,
+and the app then starts a new chat:
 
 ```js
 const SYSTEM = `You are the help assistant for Acme Notes, a note-taking app.
 Answer questions about Acme Notes. Keep answers under 120 words.`;
 const MODEL = 'claude-sonnet-4-6';
 const MAX_LENGTH = 2000;
+const MAX_PARTS = 100;
 
 function error(status, code, message) {
     return new Response(JSON.stringify({ code, message }), {
@@ -93,7 +98,9 @@ async function saveChat(kv, key, chat, oldKeys) {
     for (let start = 0; start < json.length; start += 8000) {
         parts.push(json.slice(start, start + 8000));
     }
-    if (parts.length > 900) throw new Error('Chat storage is full. Start a new chat.');
+    if (parts.length > MAX_PARTS) {
+        throw Object.assign(new Error('Chat storage is full. Start a new chat.'), { code: 'chat_full' });
+    }
     const items = parts.map((value, index) => ({
         key: `assistant-data:${version}:${index}`, value,
     }));
@@ -101,7 +108,7 @@ async function saveChat(kv, key, chat, oldKeys) {
     await kv.set(key, {
         title: chat.title, updatedAt: Date.now(), partKeys: items.map(item => item.key),
     });
-    if (oldKeys.length) await kv.del(oldKeys);
+    await Promise.all(oldKeys.map(oldKey => kv.del(oldKey)));
 }
 
 router.post('/chat', async ({ request, user }) => {
@@ -153,7 +160,7 @@ router.post('/chat', async ({ request, user }) => {
     } catch (failure) {
         console.error('Assistant request failed', failure.code ?? 'assistant_failed');
         const actionable = ['auth_required', 'auth_canceled', 'auth_failed',
-            'insufficient_funds', 'subscription_required'];
+            'insufficient_funds', 'subscription_required', 'chat_full'];
         if (actionable.includes(failure.code)) {
             return error(400, failure.code, failure.message);
         }
@@ -192,7 +199,9 @@ async function send(message) {
                 auth_failed: 'Sign in to Puter again.',
                 insufficient_funds: 'Add funds to your Puter account.',
                 subscription_required: 'Choose a paid Puter plan.',
+                chat_full: 'This chat is full. Your next message starts a new chat.',
             };
+            if (data.code === 'chat_full') chatId = null;
             throw Object.assign(new Error(actions[data.code] ?? data.message), { code: data.code });
         }
         chatId = data.chatId;
