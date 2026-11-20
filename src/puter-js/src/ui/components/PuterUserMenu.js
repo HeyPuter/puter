@@ -243,7 +243,6 @@ class PuterUserMenu extends PuterWebComponent {
                 font-size: 14px;
                 white-space: nowrap;
             }
-            .upgrade-button:active { background-color: rgba(8, 142, 240, .16); }
             .avatar {
                 position: relative;
                 width: 32px;
@@ -495,7 +494,6 @@ class PuterUserMenu extends PuterWebComponent {
                 border-color: #4aa9f2;
                 color: #6cbcf7;
             }
-            :host(.puter-theme-dark) .upgrade-button:active { background-color: rgba(108, 188, 247, .22); }
             :host(.puter-theme-dark) .apps-button { color: #e6e6e6; }
             :host(.puter-theme-dark) .apps-button[aria-expanded="true"] { background-color: rgba(255, 255, 255, .1); }
             :host(.puter-theme-dark) .panel {
@@ -532,6 +530,9 @@ class PuterUserMenu extends PuterWebComponent {
                 :host(.puter-theme-dark) .menu-item:hover,
                 :host(.puter-theme-dark) .apps-close:hover { background-color: #3a3a3a; color: #fff; }
             }
+            /* After :hover, which would otherwise hide the press. */
+            .upgrade-button:active { background-color: rgba(8, 142, 240, .16); }
+            :host(.puter-theme-dark) .upgrade-button:active { background-color: rgba(108, 188, 247, .22); }
         `;
     }
 
