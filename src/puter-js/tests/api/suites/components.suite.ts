@@ -30,6 +30,7 @@ const COMPONENT_TAGS = [
     'puter-menubar',
     'puter-color-picker',
     'puter-font-picker',
+    'puter-user-menu',
 ];
 
 const raf = (): Promise<void> =>
@@ -617,6 +618,33 @@ export default suite('components', {
             );
         }),
 
+    'the color picker drops the alpha from an 8-digit default':
+        browserOnly(async (t) => {
+            const el = await mount('puter-color-picker', (picker) =>
+                picker.setAttribute('default-color', '#11223380'),
+            );
+            const responses = recordEvents(el, 'response');
+            t.assert.equal(
+                (el.shadowRoot.querySelector('.hex-input') as HTMLInputElement)
+                    .value,
+                '#112233',
+            );
+            clickShadow(el, '.btn-ok');
+            t.assert.deepEqual(responses, ['#112233']);
+        }),
+
+    'the color picker opens on its own color when the default is invalid':
+        browserOnly(async (t) => {
+            const el = await mount('puter-color-picker', (picker) =>
+                picker.setAttribute('default-color', 'not a color'),
+            );
+            t.assert.equal(
+                (el.shadowRoot.querySelector('.hex-input') as HTMLInputElement)
+                    .value,
+                '#3B82F6',
+            );
+        }),
+
     'the color picker resolves the chosen swatch': browserOnly(async (t) => {
         const el = await mount('puter-color-picker');
         const responses = recordEvents(el, 'response');
@@ -676,6 +704,14 @@ export default suite('components', {
         const dismissedResponses = recordEvents(dismissed, 'response');
         clickShadow(dismissed, 'dialog');
         t.assert.deepEqual(dismissedResponses, [null]);
+
+        const escaped = await mount('puter-color-picker');
+        const escapedResponses = recordEvents(escaped, 'response');
+        escaped.shadowRoot
+            .querySelector('dialog')
+            .dispatchEvent(new Event('cancel', { cancelable: true }));
+        t.assert.deepEqual(escapedResponses, [null]);
+        t.assert.ok(!escaped.isConnected, 'Escape should remove the picker');
     }),
 
     // -- puter-font-picker -------------------------------------------

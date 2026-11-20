@@ -18,6 +18,7 @@
  */
 
 import { fsCreateKindFor } from '../helpers/fsCreateKind.js';
+import { forgetPushApps } from '../helpers/notificationApi.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
 import {
     browserPushOptedOut,
@@ -336,6 +337,7 @@ async function show_permission_dialog (options) {
                     refused_outright = res.status >= 400 && res.status < 500;
                     throw new Error(`HTTP error! Status: ${res.status}`);
                 }
+                forgetPushApps();
                 settle(true);
             } catch (err) {
                 // An abort or a dropped response says nothing about whether the

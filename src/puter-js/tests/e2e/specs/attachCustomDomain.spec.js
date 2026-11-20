@@ -68,3 +68,63 @@ test.describe('puter.hosting.attach (env=web popup)', () => {
         expect(authToken).toBeNull();
     });
 });
+
+test.describe('puter.hosting.detach (env=app)', () => {
+    test('the desktop hosts the remove dialog and closing it resolves none', async ({ page }) => {
+        const appName = await registerTestApp(page, { fixtureURL: ATTACH_FIXTURE_URL });
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+
+            await appFrame.locator('#detach').click();
+            const dialog = page.locator('.custom-domain-overlay');
+            await expect(dialog).toBeVisible();
+            await expect(dialog.locator('.app-feedback-title')).toHaveText('Remove a Custom Domain');
+            await expect(dialog.locator('.custom-domain-intro')).toContainText('e2e-attach-site.');
+            await expect(dialog.locator('.custom-domain-requester')).toContainText(appName);
+            await expect(dialog.locator('[data-pane="unavailable"]')).toBeVisible({ timeout: 15_000 });
+
+            await dialog.locator('.app-feedback-x').click();
+            await expect(appFrame.locator('#log [data-entry="detach:none"]')).toBeVisible();
+            await expect(dialog).toBeHidden();
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+});
+
+test.describe('puter.hosting.detach (env=gui)', () => {
+    test('rejects on the Puter desktop itself', async ({ page }) => {
+        await page.goto('/');
+        await waitForPuterReady(page);
+        const code = await page.evaluate(() =>
+            window.puter.hosting.detach('e2e-attach-site').then(() => 'resolved', (e) => e?.code));
+        expect(code).toBe('not_available');
+    });
+});
+
+test.describe('puter.hosting.detach (env=web popup)', () => {
+    test('popup hosts the remove dialog, resolves none on close, and never hands the opener a token', async ({ page }) => {
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+
+        await page.goto(ATTACH_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#detach').click(),
+        ]);
+        expect(new URL(popup.url()).pathname).toBe('/action/detach-custom-domain');
+
+        const dialog = popup.locator('.custom-domain-overlay');
+        await expect(dialog).toBeVisible({ timeout: 60_000 });
+        await expect(dialog.locator('.app-feedback-title')).toHaveText('Remove a Custom Domain');
+
+        await popup.close();
+        await expect(page.locator('#log [data-entry="detach:none"]')).toBeVisible({ timeout: 15_000 });
+
+        // detach-custom-domain is a NON_AUTH popup action.
+        const authToken = await page.evaluate(() => window.puter.authToken ?? null);
+        expect(authToken).toBeNull();
+    });
+});

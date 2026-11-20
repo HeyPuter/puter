@@ -88,8 +88,12 @@ export class WorkersHandler extends PuterModule {
                 } catch ( e ) {
                     sandboxApp = await this.puter.apps.create(`sandbox-${ workerName }`, 'https://worker-sandbox.puter.com/');
                 }
-                if ( sandboxApp.owner.uuid !== user.uuid ) {
-                    throw new Error(`Sandbox context is not owned by you! This worker's sandbox is currently owned by: ${ sandboxApp.owner.username }`);
+                // Another user's app comes back without `owner`.
+                if ( sandboxApp.owner?.uuid !== user.uuid ) {
+                    throw {
+                        message: `The sandbox app 'sandbox-${ workerName }' belongs to another user. Choose another worker name, or pass { sandbox: false }.`,
+                        code: 'sandbox_not_owned',
+                    };
                 }
                 appId = sandboxApp.uid;
             }

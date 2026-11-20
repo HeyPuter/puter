@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { atPath } from './pathElements.js';
+
 /**
  * Whether a `getShares()` list means this item is shared.
  *
@@ -33,10 +35,7 @@ export const has_direct_share = (shares) =>
  * can be on the desktop and in any number of open windows.
  */
 export const mark_item_shared = (path, is_shared) => {
-    if ( ! path ) return;
-    const $items = $('.item').filter(function() {
-        return ($(this).attr('data-path') || '').toLowerCase() === path.toLowerCase();
-    });
+    const $items = atPath('.item', path);
     $items.attr('data-is_shared', is_shared ? 1 : 0);
     $items
         .find('.item-shared-marker')

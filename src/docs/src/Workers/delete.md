@@ -6,6 +6,8 @@ platforms: [websites, apps, nodejs, workers]
 
 Deletes an existing worker and stops its execution.
 
+If the worker runs in its own `sandbox-<workerName>` app, that app is deleted with it, unless another worker still runs as it. A worker you create later under the same name gets a new sandbox app, so it starts with an empty KV namespace and AppData directory.
+
 ## Syntax
 
 ```js
@@ -17,13 +19,17 @@ puter.workers.delete(workerName)
 #### `workerName` (String)(Required)
 The name of the worker to delete.
 
-## Return Value
+## Return value
 
-A `Promise` that resolves to `true` if successful, or throws an `Error` if the operation fails.
+A `Promise` that resolves to `true` if successful.
+
+## Errors
+
+The call throws an `Error` if the operation fails.
 
 ## Examples
 
-<strong class="example-title">Basic Worker Deletion</strong>
+### Basic Worker Deletion
 
 ```html
 <html>

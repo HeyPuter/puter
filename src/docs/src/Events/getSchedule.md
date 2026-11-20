@@ -4,9 +4,11 @@ description: Read one schedule, including one that has ended.
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Reads one schedule created with [`puter.events.onSchedule()`](/Events/onSchedule/), or one notification your app stored to send later with [`puter.notifications.notify()`](/Notifications/notify/#send-it-later).
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Reads one schedule created with [`puter.events.onSchedule()`](/Events/onSchedule/), or one notification your app stored to send later with [`puter.notifications.notify()`](/Notifications/notify/#send-it-later). An ended schedule can be read for 7 days after it ends.
+An ended schedule can be read for 7 days after it ends.
 
 An app can read only the schedules it created. An account session can read any of the user's schedules. An id this caller can't read reads as not existing, so the call doesn't reveal which schedules exist.
 
@@ -26,6 +28,8 @@ The `scheduleId` from [`onSchedule()`](/Events/onSchedule/), [`notify()`](/Notif
 
 A `Promise` that resolves to the schedule, the object [`onSchedule()`](/Events/onSchedule/#return-value) returns, without `off()`. Its `state` says whether it's `active`, `suspended`, `sending` or `ended`, and `nextRunAt` says when it's next due.
 
+## Errors
+
 The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
@@ -38,7 +42,7 @@ The promise rejects with `{ message, code }`:
 
 ## Examples
 
-<strong class="example-title">Check when a stored notification goes out</strong>
+### Check when a stored notification goes out
 
 ```html;events-get-schedule
 <html>

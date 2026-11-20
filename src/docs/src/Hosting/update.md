@@ -24,11 +24,15 @@ A string containing the path to the directory you want to serve.
 
 ## Return value
 
-A `Promise` that will resolve to a [`Subdomain`](/Objects/subdomain/) object when the subdomain has been updated. If a subdomain with the given name does not exist, the promise will be rejected with an error. If the path does not exist, the promise will be rejected with an error.
+A `Promise` that will resolve to a [`Subdomain`](/Objects/subdomain/) object when the subdomain has been updated.
+
+## Errors
+
+If a subdomain with the given name does not exist, the promise will be rejected with an error. If the path does not exist, the promise will be rejected with an error.
 
 ## Examples
 
-<strong class="example-title">Update a subdomain to point to a new directory</strong>
+### Update a subdomain to point to a new directory
 
 ```html;hosting-update
 <html>

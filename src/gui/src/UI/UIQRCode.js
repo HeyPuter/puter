@@ -82,21 +82,6 @@ function UIQRCode (options) {
         }
     }
 
-    // Compatibility shim: Component-based containers (e.g. Flexer) call
-    // `.attach(parent)` on their children. Returning a plain DOM element with
-    // an `attach` method lets this work without making UIQRCode a Component.
-    el.attach = function (destination) {
-        if ( destination instanceof HTMLElement || destination instanceof ShadowRoot ) {
-            destination.appendChild(el);
-            return;
-        }
-        if ( destination && destination.$ === 'placeholder' ) {
-            destination.replaceWith(el);
-            return;
-        }
-        throw new Error(`Unknown destination type: ${destination}`);
-    };
-
     return el;
 }
 

@@ -23,7 +23,7 @@ import jQuery from './lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('./UI/UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('./UI/UIItem.js', () => ({ default: vi.fn() }));
-vi.mock('./UI/UIWindowLogin.js', () => ({ default: vi.fn() }));
+vi.mock('./UI/Auth/UIAuthLogin.js', () => ({ default: vi.fn() }));
 vi.mock('./UI/UIWindowProgress.js', () => ({ default: vi.fn() }));
 vi.mock('./UI/UIWindowSaveAccount.js', () => ({ default: vi.fn() }));
 

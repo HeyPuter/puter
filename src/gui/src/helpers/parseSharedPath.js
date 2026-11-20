@@ -84,8 +84,9 @@ export function shared_link_recipient_uuid (params) {
  * that account's saved session, ask whether to sign in to it, or nothing.
  *
  * Popups, embeds (`embedded`) and `action` flows act for whoever opened them,
- * so a link must not change their account. A temporary session is left to the
- * share link's own sign-in prompt.
+ * so a link must not change their account. The desktop (`desktop`) doesn't
+ * open share links, so it never acts on the hint. A temporary session is left
+ * to the share link's own sign-in prompt.
  *
  * @returns {{ switch_to: object } | { ask: true } | null}
  */
@@ -93,10 +94,11 @@ export function shared_link_account_step ({
     params,
     action,
     embedded,
+    desktop,
     current_user,
     logged_in_users,
 }) {
-    if ( action || embedded ) return null;
+    if ( action || embedded || desktop ) return null;
     const uuid = shared_link_recipient_uuid(params);
     if ( ! uuid || uuid === current_user?.uuid?.toLowerCase() ) return null;
     const saved = (logged_in_users ?? []).find(user =>

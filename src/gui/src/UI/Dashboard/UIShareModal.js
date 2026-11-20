@@ -109,10 +109,9 @@ const count_label = (count) => (count === 1
     : i18n('items_count_other', { count }));
 
 /**
- * A responsive, from-scratch sharing modal for the Dashboard's Files tab.
- * Unlike UIWindowShare (which spawns a desktop UIWindow), this renders a
- * self-contained overlay that behaves as a centered card on desktop and a
- * bottom sheet on mobile, styled with the dashboard's design tokens.
+ * A responsive sharing modal for the Dashboard's Files tab: a self-contained
+ * overlay that behaves as a centered card on desktop and a bottom sheet on
+ * mobile, styled with the dashboard's design tokens.
  *
  * Shares one item or a whole selection. With several items the access list is
  * one row per person folded across them ({@link aggregateShares}), so every
@@ -120,10 +119,9 @@ const count_label = (count) => (count === 1
  * rather than a chore repeated per file. A person who holds only some of the
  * selection says so, and can be extended to the rest in one click.
  *
- * Feature-equivalent to UIWindowShare: grant access by email or username,
- * list who has access (owner, direct grants, grants inherited from an
- * ancestor folder), change a grant's mode, and revoke — with the revoke
- * confirmation inlined into the row instead of a stacked alert window.
+ * Grants access by email or username, lists who has access (owner, direct
+ * grants, grants inherited from an ancestor folder), changes a grant's mode,
+ * and revokes, with the revoke confirmation inlined into the row.
  *
  * @param {Object} opts
  * @param {Array<Object>} [opts.items] - The items to share, each
@@ -651,25 +649,53 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     // One request per run of MAX_ITEMS_PER_REQUEST, in series so a large
     // selection can't burst through the share rate limit. Resolves with every
     // grant that landed, the way a single call would.
+    // A run that fails after others landed rejects with those grants on the
+    // error as `landed`.
     const grant_access = async (recipient, mode, paths) => {
         const created = [];
-        for ( const run of chunk(paths, MAX_ITEMS_PER_REQUEST) ) {
-            created.push(...(await with_verification_gate(
-                () => puter.fs.share({ paths: run, recipient, mode }),
-            ) ?? []));
-        }
-        // A selection too large to list again (see refresh) learns which rows
-        // are now shared from the grants themselves.
-        if ( total > MAX_ITEMS_PER_REQUEST ) {
-            for ( const share of created ) mark_item_shared(share.path, true);
+        try {
+            for ( const run of chunk(paths, MAX_ITEMS_PER_REQUEST) ) {
+                created.push(...(await with_verification_gate(
+                    () => puter.fs.share({ paths: run, recipient, mode }),
+                ) ?? []));
+            }
+        } catch (err) {
+            if ( created.length && err && typeof err === 'object' ) err.landed = created;
+            throw err;
+        } finally {
+            // A selection too large to list again (see refresh) learns which
+            // rows are now shared from the grants themselves.
+            if ( total > MAX_ITEMS_PER_REQUEST ) {
+                for ( const share of created ) mark_item_shared(share.path, true);
+            }
         }
         return created;
     };
 
+    // Same runs as grant_access. Resolves with the refused items, each with
+    // its error, and rejects with the first when every item was refused. A
+    // run that fails otherwise (rate limit, network) ends it there, rejecting
+    // with that error and the count withdrawn before it as `withdrawn`.
     const revoke_access = async (recipient, paths) => {
+        const failed = [];
+        let attempted = 0;
         for ( const run of chunk(paths, MAX_ITEMS_PER_REQUEST) ) {
-            await puter.fs.unshare({ paths: run, recipient });
+            try {
+                const result = await puter.fs.unshare({ paths: run, recipient });
+                failed.push(...(result?.failed ?? []));
+            } catch (err) {
+                // Only a rejection for refused pairs lists them.
+                if ( ! Array.isArray(err?.failed) ) {
+                    const withdrawn = attempted - failed.length;
+                    if ( withdrawn && err && typeof err === 'object' ) err.withdrawn = withdrawn;
+                    throw err;
+                }
+                failed.push(...err.failed);
+            }
+            attempted += run.length;
         }
+        if ( failed.length >= paths.length ) throw failed[0];
+        return failed;
     };
 
     /**
@@ -679,6 +705,8 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const set_link_access = async (mode, el_control) => {
         $link_access.prop('disabled', true);
         $link_mode.prop('disabled', true);
+        // Shown once the refresh settles, so its own notice can't replace it.
+        let outcome_error = null;
         try {
             if ( mode ) {
                 const created = await grant_access({ anyone: true }, mode, target_paths);
@@ -686,26 +714,37 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                 link_state = { access: 'anyone', mode };
                 show_success(i18n(`share_link_on_${mode === 'write' ? 'write' : 'read'}${is_multi ? '_items' : ''}`));
             } else {
-                await revoke_access({ anyone: true }, target_paths);
-                link_state = { access: 'restricted', mode: null };
-                show_success(i18n(is_multi ? 'share_link_off_items' : 'share_link_off'));
+                const failed = await revoke_access({ anyone: true }, target_paths);
+                if ( failed.length ) {
+                    link_state = { access: 'mixed', mode: null };
+                    outcome_error = `${i18n('share_link_off_partial', { count: total - failed.length, total })}. ${error_html(failed[0])}`;
+                } else {
+                    link_state = { access: 'restricted', mode: null };
+                    show_success(i18n(is_multi ? 'share_link_off_items' : 'share_link_off'));
+                }
             }
         } catch (err) {
             // A plan gate gets the flow that clears it, where the deployment
             // has one; a refusal is otherwise reported like any other.
             if ( is_plan_gate_error(err) ) {
-                if ( ! open_upgrade_flow() ) show_error(i18n('share_link_requires_plan'));
+                if ( ! open_upgrade_flow() ) outcome_error = i18n('share_link_requires_plan');
+            } else if ( err?.withdrawn ) {
+                // Runs that landed before the failure closed the link all the same.
+                link_state = { access: 'mixed', mode: null };
+                outcome_error = `${i18n('share_link_off_partial', { count: err.withdrawn, total })}. ${error_html(err)}`;
             } else {
-                show_error(error_html(err));
+                outcome_error = error_html(err);
             }
         } finally {
             $link_access.prop('disabled', false);
             $link_mode.prop('disabled', false);
         }
+        if ( outcome_error ) show_error(outcome_error);
         // The listings are the truth either way, and they put the control
         // back; a selection too large to list keeps what was just applied.
         invalidate_shared_roots();
         await refresh();
+        if ( outcome_error ) show_error(outcome_error);
         render_link_access();
         if ( el_control && $(el_control).is(':visible') ) el_control.focus({ preventScroll: true });
         else focus_dialog();
@@ -848,8 +887,16 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             if ( ! focus_moved_on() ) $recipient.get(0)?.focus({ preventScroll: true });
         } catch (err) {
             sharing = false;
-            show_error(error_html(err));
+            // Runs that landed before the failure are shared all the same.
+            const landed = err?.landed?.length ?? 0;
+            show_error(landed
+                ? `${i18n('share_shared_with_partial', { recipient, count: landed, total })}. ${error_html(err)}`
+                : error_html(err));
             sync_add_actions();
+            if ( landed ) {
+                invalidate_shared_roots();
+                await refresh();
+            }
             // Disabling the clicked button dropped focus to <body>; put it
             // where the correction happens.
             $recipient.get(0)?.focus({ preventScroll: true });
@@ -964,7 +1011,22 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         const revoke_paths = group.pending ? group.pendingPaths : group.directPaths;
         $(this).closest('.share-modal-row-confirm').find('button').prop('disabled', true);
         try {
-            await revoke_access(recipient_of(group), revoke_paths);
+            const failed = await revoke_access(recipient_of(group), revoke_paths);
+            // Some items were refused: say how many went through, and stay
+            // open on what the listing now shows.
+            if ( failed.length ) {
+                invalidate_shared_roots();
+                await refresh();
+                // After the refresh: a refused item may not list any more,
+                // and that notice must not replace this one.
+                show_error(`${i18n('share_access_removed_partial', {
+                    recipient: group.name,
+                    count: revoke_paths.length - failed.length,
+                    total: revoke_paths.length,
+                })}. ${error_html(failed[0])}`);
+                focus_list_control('.share-modal-row-mode', key) || focus_dialog();
+                return;
+            }
             // Leaving takes away the access this list is read with, and the
             // items may leave the listing behind it (the Shared view) too.
             if ( ! group.teamUid && ! group.pending && group.name === window.user.username ) {

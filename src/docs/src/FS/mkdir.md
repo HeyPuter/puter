@@ -25,10 +25,12 @@ If path is not absolute, it will be resolved relative to the app's root director
 
 The options for the `mkdir` operation. The following options are supported:
 
-- `path` (String) The directory path to be created if not specified via function parameter.
-- `overwrite` (Boolean) - Whether to overwrite the directory if it already exists. Defaults to `false`.
-- `dedupeName` (Boolean) - Whether to deduplicate the directory name if it already exists. Defaults to `false`.
-- `createMissingParents` (Boolean) - Whether to create missing parent directories. Defaults to `false`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `path` | `String` | The directory path to be created if not specified via function parameter. |
+| `createMissingParents` | `Boolean` | Whether to create missing parent directories. Defaults to `false`. |
+| `overwrite` | `Boolean` | Whether to overwrite the directory if it already exists. Defaults to `false`. |
+| `dedupeName` | `Boolean` | Whether to deduplicate the directory name if it already exists. Defaults to `false`. |
 
 ## Return value
 
@@ -36,7 +38,7 @@ Returns a `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of t
 
 ## Examples
 
-<strong class="example-title">Create a new directory</strong>
+### Create a new directory
 
 ```html;fs-mkdir
 <html>
@@ -55,7 +57,7 @@ Returns a `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of t
 </html>
 ```
 
-<strong class="example-title">Create a directory with duplicate name handling</strong>
+### Create a directory with duplicate name handling
 
 ```html;fs-mkdir-dedupe
 <html>
@@ -75,7 +77,7 @@ Returns a `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of t
 </html>
 ```
 
-<strong class="example-title">Create a new directory with missing parent directories</strong>
+### Create a new directory with missing parent directories
 
 ```html;fs-mkdir-create-missing-parents
 <html>

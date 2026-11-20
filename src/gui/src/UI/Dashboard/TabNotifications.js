@@ -49,7 +49,9 @@ const ICONS = {
     puter: svg('<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12h8M12 8v8"/>'),
 };
 
-const PLATFORM_KEYS = { web: 'push_platform_web', ios: 'push_platform_ios', android: 'push_platform_android' };
+// `webpush` is Puter's own Web Push (see webPushClient.js); both are browsers.
+const PLATFORM_KEYS = { web: 'push_platform_web', webpush: 'push_platform_web', ios: 'push_platform_ios', android: 'push_platform_android' };
+const BROWSER_PLATFORMS = new Set(['web', 'webpush']);
 
 /** @param {{ pushEnabled?: boolean }|undefined} params - `window.gui_params` */
 export const notificationsTabEnabled = (params) => params?.pushEnabled === true;
@@ -106,7 +108,7 @@ export const deviceCardHtml = (device, now) => {
         ? i18n('push_device_last_seen', { time: formatRelativeTime(seenAt, now, locale) })
         : '';
     return card({
-        icon: device.platform === 'web' ? ICONS.laptop : ICONS.phone,
+        icon: BROWSER_PLATFORMS.has(device.platform) ? ICONS.laptop : ICONS.phone,
         title: html_encode(deviceName(device)),
         badge: device.current ? i18n('push_this_browser') : '',
         detail: [platform, seen].filter(Boolean).join(' · '),
@@ -230,11 +232,18 @@ const TabNotifications = {
                 ? devices.map(device => deviceCardHtml(device, now)).join('')
                 : emptyHtml('push_devices_empty'));
         };
+        // Only the newest listing draws, and a local removal outdates any
+        // listing still in flight: it may predate the removal.
+        let devicesSeq = 0;
         const refreshDevices = async () => {
+            const seq = ++devicesSeq;
             try {
-                devices = await listPushDevices();
+                const listed = await listPushDevices();
+                if ( seq !== devicesSeq ) return;
+                devices = listed;
                 renderDevices();
             } catch ( e ) {
+                if ( seq !== devicesSeq ) return;
                 console.warn('[push] device list failed', e);
                 $section.find('.push-devices-list').html(emptyHtml(loadFailedKey(e)));
             }
@@ -245,11 +254,16 @@ const TabNotifications = {
                 ? apps.map(appCardHtml).join('')
                 : emptyHtml('push_apps_empty'));
         };
+        let appsSeq = 0;
         const refreshApps = async () => {
+            const seq = ++appsSeq;
             try {
-                apps = await listPushApps();
+                const listed = await listPushApps();
+                if ( seq !== appsSeq ) return;
+                apps = listed;
                 renderApps();
             } catch ( e ) {
+                if ( seq !== appsSeq ) return;
                 console.warn('[push] app list failed', e);
                 $section.find('.push-apps-list').html(emptyHtml(loadFailedKey(e)));
             }
@@ -257,12 +271,15 @@ const TabNotifications = {
 
         const refreshPreference = async () => {
             const $toggle = $section.find('.push-puter-toggle');
+            const $hint = $section.find('.push-puter-card .dashboard-settings-card-info > span');
             try {
                 $toggle.prop('checked', await getPuterPushPreference()).prop('disabled', false);
+                // A failed earlier read replaced the hint.
+                $hint.html(i18n('push_puter_notifications_hint'));
             } catch ( e ) {
                 console.warn('[push] preference read failed', e);
                 $toggle.prop('checked', false).prop('disabled', true);
-                $section.find('.push-puter-card .dashboard-settings-card-info > span').html(i18n(loadFailedKey(e)));
+                $hint.html(i18n(loadFailedKey(e)));
             }
         };
 
@@ -362,13 +379,21 @@ const TabNotifications = {
             if ( confirmed !== true ) return;
             // disable() drops the token and record; the DELETE covers a lost record.
             const client = device.current ? getPushClient() : null;
+            let disabled = false;
             try {
-                if ( client ) await client.disable();
+                if ( client ) {
+                    await client.disable();
+                    disabled = true;
+                    // Push is off here even if the DELETE fails; without the
+                    // opt-out the next load would turn it back on.
+                    setBrowserPushOptOut(window.user?.uuid, true);
+                }
                 await removePushDevice(uid);
             } catch ( e ) {
                 if ( e?.status !== 404 || e?.code === PUSH_UNAVAILABLE ) {
                     console.warn('[push] device removal failed', e);
                     showError('push_device_remove_failed', $el_window);
+                    if ( disabled ) refreshBrowser();
                     return;
                 }
             }
@@ -377,6 +402,7 @@ const TabNotifications = {
                 await Promise.all([refreshBrowser(), refreshDevices()]);
                 return;
             }
+            devicesSeq++;
             devices = devices.filter(d => d.uid !== uid);
             renderDevices();
             if ( device.current ) refreshBrowser();
@@ -393,6 +419,7 @@ const TabNotifications = {
                 showError('push_app_turn_off_failed', $el_window);
                 return;
             }
+            appsSeq++;
             apps = apps.filter(app => app.uid !== appUid);
             renderApps();
         });

@@ -23,6 +23,20 @@
 // place in these dialogs; a row already set to one is shown as-is.
 export const MODES = ['read', 'write', 'manage'];
 
+// Every mode the API grants, weakest first. Each one implies those before it.
+const STRENGTH = ['see', 'list', 'read', 'write', 'manage'];
+
+/**
+ * The stronger of two access modes. `held` wins a tie, and a mode outside the
+ * API's five never beats a known one.
+ *
+ * @param {string} held
+ * @param {string} other
+ * @returns {string}
+ */
+export const strongerMode = (held, other) =>
+    STRENGTH.indexOf(other) > STRENGTH.indexOf(held) ? other : held;
+
 /**
  * Human-readable label for an access mode, ready to drop into HTML.
  *

@@ -508,8 +508,8 @@ export class JobScheduler extends PuterService {
                 failures,
                 error: asError(error),
             },
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'platform' },
         );
     }
 }

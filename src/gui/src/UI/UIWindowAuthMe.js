@@ -39,12 +39,15 @@ import { confirmationSatisfied } from '../util/authmeGrant.js';
  * @param {string} options.redirect_url - The URL to redirect to after approval
  * @param {boolean} [options.full_token] - Request a full account session
  *   instead of a restricted API token. Adds the type-to-confirm step.
+ * @param {string | null} [options.forwards_to] - The host a relay passes the
+ *   grant on to; shown as the destination, with the relay named beneath it.
  * @returns {Promise<boolean>} - Resolves to true if approved, false if cancelled
  */
 async function UIWindowAuthMe (options = {}) {
     return new Promise(async (resolve) => {
         const redirectURL = options.redirect_url;
         const fullToken = !!options.full_token;
+        const forwardsTo = options.forwards_to || null;
         // Typing this is what approves a full-session grant. Compared
         // case-insensitively and trimmed — deliberate, not a spelling test.
         const confirmPhrase = i18n('authme_full_token_confirm_phrase');
@@ -117,8 +120,13 @@ async function UIWindowAuthMe (options = {}) {
             word-break: break-all;
             line-height: 1.4;
         ">`;
-        h += `<strong style="color: #1f2937;">${html_encode(urlHostname)}</strong>`;
-        h += `<div style="font-size: 12px; color: #6b7280; margin-top: 4px;">${html_encode(urlDisplay)}</div>`;
+        // The grant ends up wherever a relay passes it, so that host leads.
+        h += `<strong style="color: #1f2937;">${html_encode(forwardsTo ?? urlHostname)}</strong>`;
+        h += `<div style="font-size: 12px; color: #6b7280; margin-top: 4px;">${
+            forwardsTo
+                ? i18n('authme_forwarded_through', { host: urlHostname })
+                : html_encode(urlDisplay)
+        }</div>`;
         h += '</div>';
         h += '</div>';
 
@@ -215,7 +223,6 @@ async function UIWindowAuthMe (options = {}) {
             width: 400,
             height: 'auto',
             dominant: true,
-            show_in_taskbar: false,
             window_class: 'window-authme',
             body_css: {
                 width: 'initial',

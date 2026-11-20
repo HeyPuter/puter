@@ -1850,7 +1850,9 @@ export class FSController extends PuterController {
     }
 
     async #assertCanDedupeCreate(actor: Actor, targetPath: string) {
-        const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
+        const existing = await this.stores.fsEntry.getEntryByPath(targetPath, {
+            foldedNames: true,
+        });
         if (!existing) return;
         const parent = pathPosix.dirname(targetPath);
         await this.#assertAccess(
@@ -1997,7 +1999,7 @@ export class FSController extends PuterController {
             return value;
         }
         if (typeof value === 'number') {
-            if (value === 1) return true;
+            if (value > 0) return true;
             if (value === 0) return false;
             return undefined;
         }
@@ -2034,6 +2036,20 @@ export class FSController extends PuterController {
         const normalizedFileMetadata: Record<string, unknown> = {
             ...metadataRecord,
         };
+        // Flags are set below once read as booleans; a raw value left here
+        // would be stored by its truthiness. An explicit null is kept.
+        for (const flag of [
+            'overwrite',
+            'dedupeName',
+            'dedupe_name',
+            'createMissingParents',
+            'immutable',
+            'isPublic',
+        ]) {
+            if (normalizedFileMetadata[flag] !== null) {
+                delete normalizedFileMetadata[flag];
+            }
+        }
 
         const path = this.#firstDefined(
             metadataRecord.path,

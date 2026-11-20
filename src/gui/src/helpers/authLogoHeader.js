@@ -81,16 +81,18 @@ function openerLogoTile(origin, fallbackSrc) {
  *
  * @param {Object} options
  * @param {string} options.logoSrc - URL of the Puter logo.
- * @param {boolean} [options.logoClickable] - Adds the pointer cursor; the
- *   caller wires the click.
+ * @param {string} [options.logoHref] - Makes the logo a link there, named
+ *   for Puter; without it the logo is decorative.
  * @param {string} [options.openerOrigin] - When set, the opener's favicon is
  *   rendered beside the Puter logo with a dashed connector between them.
  * @param {string} [options.openerFallbackSrc] - Generic website icon shown
  *   when the favicon is missing.
  * @returns {string}
  */
-export function authLogoHeader({ logoSrc, logoClickable = false, openerOrigin = '', openerFallbackSrc = '' }) {
-    const puterLogo = `<img src="${html_encode(logoSrc)}" class="auth-logo"${logoClickable ? ' style="cursor: pointer;"' : ''}>`;
+export function authLogoHeader({ logoSrc, logoHref = '', openerOrigin = '', openerFallbackSrc = '' }) {
+    const puterLogo = logoHref
+        ? `<a class="auth-logo-link" href="${html_encode(logoHref)}"><img src="${html_encode(logoSrc)}" class="auth-logo" alt="Puter"></a>`
+        : `<img src="${html_encode(logoSrc)}" class="auth-logo" alt="">`;
 
     let h = '';
     h += `<div class="auth-logo-header${openerOrigin ? ' auth-logo-header-connected' : ''}">`;

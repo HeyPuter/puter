@@ -4,7 +4,9 @@ description: Request access to a user's data or resources, prompting only when t
 platforms: [websites, apps]
 ---
 
-Request access to something belonging to the user. The first argument names the resource; the second carries the details that resource takes.
+Request access to something belonging to the user.
+
+The first argument names the resource; the second carries the details that resource takes.
 
 <div class="info">
 
@@ -47,14 +49,16 @@ What the request is about. The resource decides which details are accepted and w
 
 The fields the resource takes:
 
-- **`path`** (string): for `'fs'`, the file or folder. Pass an absolute path, or `~` or a path that starts with `~/` for the user's home folder. Access to a folder covers everything inside it.
-- **`uid`** (string): for `'fs'`, the file or folder's uid, in place of `path`. Pass one or the other.
-- **`access`** (string): `'read'` (the default) or `'write'`, also available as `puter.perms.Access.READ` and `puter.perms.Access.WRITE`. Write access includes read access. For `'apps'`, write access lets the app see who uses the user's apps, including email addresses those users shared with them. For `'subdomains'`, read access lets the app list and read all of the user's websites, not only the ones it created, and write access also lets it change and delete them. For `'kvShare'`, `access` is the highest share level the app may create, which is `'watch'`, `'read'` (the default, matching [`puter.kv.share()`](/KV/share/)), or `'write'`. Each level includes the ones below it, so an app allowed `'write'` can also create `'read'` and `'watch'` shares. [`puter.kv.share()`](/KV/share/) describes what each level lets the holder do.
-- **`create`** (boolean | `'dir'` | `'file'`): for `'fs'`, whether to create a missing `path` once the user allows it, and as what. Defaults to `true`. See [Creating a path on request](#creating-a-path-on-request) below.
-- **`name`** (string): for `'folder'`, one of `'Desktop'`, `'Documents'`, `'Pictures'`, or `'Videos'`. These are also constants on `puter.perms.Folder`.
-- **`app`** (string | object): for `'appData'`, the target app, by uid or by registered name. For `'appRootDir'`, the app's uid, or an object with one.
-- **`scopes`** (string | array | object): for `'appData'`, what this app wants to do with that data. See [Using another app's data](/Perms/appData/) for the full scope forms.
-- **`prefix`** (string): for `'kvShare'`, the key prefix the app may share with other users it picks, such as `'workspace:abc:'`. The consent covers that prefix and every key under it, so the app can also share a longer prefix inside it. It has to name part of the app's data, not all of it, and the segments between its `:` separators can use only lowercase letters (`a`-`z`), digits, `_`, `.`, and `-`. The longest prefix depends on the app's uid and the level. For an app uid of the usual form, `app-` and a uuid, the prefix without its trailing `:` can be at most 161 characters for `'watch'`, 156 for `'read'`, and 155 for `'write'`. Withdrawing the consent doesn't stop shares the app already made, but the app can't change or revoke them without it.
+| Option | Type | Description |
+|--------|------|-------------|
+| `access` | `String` | Either `'read'` (the default) or `'write'`, also available as `puter.perms.Access.READ` and `puter.perms.Access.WRITE`. Write access includes read access. For `'apps'`, write access lets the app see who uses the user's apps, including email addresses those users shared with them. For `'subdomains'`, read access lets the app list and read all of the user's websites, not only the ones it created, and write access also lets it change and delete them. For `'kvShare'`, `access` is the highest share level the app may create, which is `'watch'`, `'read'` (the default, matching [`puter.kv.share()`](/KV/share/)), or `'write'`. Each level includes the ones below it, so an app allowed `'write'` can also create `'read'` and `'watch'` shares. [`puter.kv.share()`](/KV/share/) describes what each level lets the holder do. |
+| `path` | `String` | For `'fs'`, the file or folder. Pass an absolute path, or `~` or a path that starts with `~/` for the user's home folder. Access to a folder covers everything inside it. |
+| `prefix` | `String` | For `'kvShare'`, the key prefix the app may share with other users it picks, such as `'workspace:abc:'`. The consent covers that prefix and every key under it, so the app can also share a longer prefix inside it. It has to name part of the app's data, not all of it, and the segments between its `:` separators can use only lowercase letters (`a`-`z`), digits, `_`, `.`, and `-`. The longest prefix depends on the app's uid and the level. For an app uid of the usual form, `app-` and a uuid, the prefix without its trailing `:` can be at most 161 characters for `'watch'`, 156 for `'read'`, and 155 for `'write'`. Withdrawing the consent doesn't stop shares the app already made, but the app can't change or revoke them without it. |
+| `app` | `String \| Object` | For `'appData'`, the target app, by uid or by registered name. For `'appRootDir'`, the app's uid, or an object with one. |
+| `scopes` | `String \| Array \| Object` | For `'appData'`, what this app wants to do with that data. See [Using another app's data](/Perms/appData/) for the full scope forms. |
+| `name` | `String` | For `'folder'`, one of `'Desktop'`, `'Documents'`, `'Pictures'`, or `'Videos'`. These are also constants on `puter.perms.Folder`. |
+| `create` | `Boolean \| String` | For `'fs'`, whether to create a missing `path` once the user allows it, and as what. Pass a boolean, `'dir'`, or `'file'`. Defaults to `true`. See [Creating a path on request](#creating-a-path-on-request) below. |
+| `uid` | `String` | For `'fs'`, the file or folder's uid, in place of `path`. Pass one or the other. |
 
 The `'fs'`, `'backgroundEvents'`, `'pushNotifications'`, and `'kvShare'` resources reject a field they don't take, so a misspelled option fails with `invalid_argument`.
 
@@ -68,9 +72,11 @@ A `Promise` resolving to what the resource names in the table above. Anything de
 
 The array form resolves to an array of those values, in the order asked.
 
-The promise rejects with `{ message, code: 'invalid_argument' }` when the details are invalid, before anything is asked. That covers an unknown resource passed with details, a value the resource doesn't accept, a `path` that isn't `~` and doesn't start with `/` or `~/`, a `uid` that isn't a uid, a `'kvShare'` prefix over its length limit, and a `'kvShare'` request from a page that isn't running as an app.
-
 A string passed on its own that names no resource is read as a [permission string](#permission-strings-deprecated). If it isn't one the user can be asked about, the promise resolves to `false` without a prompt.
+
+## Errors
+
+The promise rejects with `{ message, code: 'invalid_argument' }` when the details are invalid, before anything is asked. That covers an unknown resource passed with details, a value the resource doesn't accept, a `path` that isn't `~` and doesn't start with `/` or `~/`, a `uid` that isn't a uid, a `'kvShare'` prefix over its length limit, and a `'kvShare'` request from a page that isn't running as an app.
 
 ## Creating a path on request
 
@@ -182,7 +188,7 @@ When the user allows a prompt that includes `'pushNotifications'`, Puter also tu
 
 ## Examples
 
-<strong class="example-title">Request write access to the Documents folder</strong>
+### Request write access to the Documents folder
 
 ```html
 <html>
@@ -204,7 +210,7 @@ When the user allows a prompt that includes `'pushNotifications'`, Puter also tu
 </html>
 ```
 
-<strong class="example-title">Request write access to one file</strong>
+### Request write access to one file
 
 ```html;perms-request-fs
 <html>
@@ -230,7 +236,7 @@ When the user allows a prompt that includes `'pushNotifications'`, Puter also tu
 </html>
 ```
 
-<strong class="example-title">Request the user's email address</strong>
+### Request the user's email address
 
 ```html
 <html>
@@ -247,7 +253,7 @@ When the user allows a prompt that includes `'pushNotifications'`, Puter also tu
 </html>
 ```
 
-<strong class="example-title">Ask for everything the app needs, in one prompt</strong>
+### Ask for everything the app needs, in one prompt
 
 ```html
 <html>
@@ -268,7 +274,7 @@ When the user allows a prompt that includes `'pushNotifications'`, Puter also tu
 </html>
 ```
 
-<strong class="example-title">Request access to a folder that doesn't exist yet, creating it on approval</strong>
+### Request access to a folder that doesn't exist yet, creating it on approval
 
 ```html
 <html>

@@ -29,7 +29,9 @@ The id of the application.
 
 A `Promise` that resolves to a [`DetailedAppUsage`](/Objects/detailedappusage) object containing resource usage statistics for the given application.
 
-## Example
+## Examples
+
+### Get an app's usage
 
 ```html
 <html>

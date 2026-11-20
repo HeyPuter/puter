@@ -25,9 +25,11 @@ If a path is not absolute, it will be resolved relative to the app's root direct
 
 The options for the `delete` operation. The following options are supported:
 
-- `paths` (String | String[]) - A single path or array of paths to delete. Required when passing options as the only argument.
-- `recursive` (Boolean) - Whether to delete the directory recursively. Defaults to `true`.
-- `descendantsOnly` (Boolean) - Whether to delete only the descendants of the directory and not the directory itself. Defaults to `false`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `paths` | `String \| String[]` | A single path or array of paths to delete. Required when passing options as the only argument. |
+| `recursive` | `Boolean` | Whether to delete the directory recursively. Defaults to `true`. |
+| `descendantsOnly` | `Boolean` | Whether to delete only the descendants of the directory and not the directory itself. Defaults to `false`. |
 
 ## Return value
 
@@ -39,7 +41,7 @@ as deleting it here, and restoring it does not bring the shares back.
 
 ## Examples
 
-<strong class="example-title">Delete a file</strong>
+### Delete a file
 
 ```html;fs-delete
 <html>
@@ -61,7 +63,7 @@ as deleting it here, and restoring it does not bring the shares back.
 </html>
 ```
 
-<strong class="example-title">Delete a directory</strong>
+### Delete a directory
 
 ```html;fs-delete-directory
 <html>

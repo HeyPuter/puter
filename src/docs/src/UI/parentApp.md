@@ -4,7 +4,7 @@ description: Obtains a connection to the app that launched this app.
 platforms: [apps]
 ---
 
-Obtain a connection to the app that launched this app.
+Returns a connection to the app that launched this app.
 
 ## Syntax
 ```js
@@ -14,10 +14,12 @@ puter.ui.parentApp()
 ## Parameters
 `puter.ui.parentApp()` does not accept any parameters.
 
-## Return value 
+## Return value
 An [`AppConnection`](/Objects/AppConnection) to the parent, or null if there is no parent app.
 
 ## Examples
+
+### Message the parent app
 
 ```html
 <html>

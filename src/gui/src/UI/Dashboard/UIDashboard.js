@@ -23,11 +23,11 @@ import UIWindow from '../UIWindow.js';
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
-import UIWindowLogin from '../UIWindowLogin.js';
-import UIWindowFeedback from '../UIWindowFeedback.js';
+import UIAuthLogin from '../Auth/UIAuthLogin.js';
 import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
 import { clear_shared_param } from '../../helpers/parseSharedPath.js';
 import UIDashboardNotifications from './UIDashboardNotifications.js';
+import UIDashboardContactDialog from './UIDashboardContactDialog.js';
 import {
     answerNotificationReceipts,
     notificationSocketAcks,
@@ -75,8 +75,7 @@ async function UIDashboard (options) {
     // eslint-disable-next-line no-unused-vars
     options = options ?? {};
 
-    // Mark dashboard mode on <body> so window chrome can adapt — e.g. app
-    // windows keep their minimize button even though fullpage-mode hides it.
+    // Mark dashboard mode on <body> so window chrome and notifications can adapt.
     $('body').addClass('dashboard-mode');
 
     // Create mutable tabs array from built-in tabs
@@ -514,9 +513,9 @@ async function UIDashboard (options) {
 
     if ( sharedLinkNeedsLogin ) {
         // Not awaited: the dashboard is already up underneath the cover page.
-        UIWindowLogin({
+        UIAuthLogin({
             reload_on_success: true,
-            window_options: { cover_page: true, has_head: false },
+            page: true,
         }).then(() => {
             // Dismissed without signing in: drop the link rather than loop.
             if ( window.user?.is_temp ) clear_shared_param();
@@ -548,12 +547,13 @@ async function UIDashboard (options) {
         const filePath = route.path;
         notifications.close({ restoreFocus: false });
         // What was open over the tab being left goes with it, as on a
-        // sidebar click: the phone drawer, a menu, and Files' Share and
+        // sidebar click: the phone drawer, a menu, Files' Share and
         // Properties, which act on its rows (their changes are already saved),
-        // and its image preview.
+        // its image preview, and a dialog or the photo crop, each through its
+        // own close button.
         setMobileSidebar(false);
         $('.context-menu').remove();
-        $el_window.find('.share-modal-close, .item-props-close').trigger('click');
+        $el_window.find('.share-modal-close, .item-props-close, .dashboard-dialog-overlay .dashboard-dialog-close, .profile-crop-close').trigger('click');
         if ( tab !== 'files' && TabFiles.previewOpen ) TabFiles.closeImagePreview();
 
         // Switch to correct tab
@@ -875,21 +875,10 @@ async function UIDashboard (options) {
             items.push({
                 html: i18n('add_another_account'),
                 onClick: async function () {
-                    await UIWindowLogin({
+                    await UIAuthLogin({
                         reload_on_success: true,
                         send_confirmation_code: false,
-                        window_options: {
-                            has_head: false,
-                            backdrop: true,
-                            close_on_backdrop_click: true,
-                            parent_center: true,
-                            // Phones/tablets pin every .window to one z-index
-                            // (style.css), which puts the fullpage dashboard
-                            // above this dialog's backdrop wrapper; stay_on_top
-                            // lifts the dialog into the 99999999+ band like
-                            // every other backdropped dashboard dialog.
-                            stay_on_top: true,
-                        },
+                        closeOnBackdrop: true,
                     });
                 },
             });
@@ -911,16 +900,8 @@ async function UIDashboard (options) {
             // Contact Us
             {
                 html: i18n('contact_us'),
-                onClick: async function () {
-                    UIWindowFeedback({
-                        window_options: {
-                            backdrop: true,
-                            close_on_backdrop_click: true,
-                            parent_center: true,
-                            stay_on_top: true,
-                            has_head: false,
-                        },
-                    });
+                onClick: function () {
+                    UIDashboardContactDialog({ $container: $el_window, returnFocusTo: $btn.get(0) });
                 },
             },
             '-',

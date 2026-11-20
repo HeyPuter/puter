@@ -39,23 +39,27 @@ When `true`, the result holds [`KVPair`](/Objects/kvpair) objects with `key` and
 
 The last argument of the positional forms. It takes these properties:
 
-- `handle` (String): Lists data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). Listing keys works at any access level, and listing values needs `read` or `write` access. The `pattern` is relative to the shared prefix and can be at most 768 bytes, and the returned keys are relative to the prefix too. The results and `total` leave out entries the owner's app keeps private. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Lists another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `handle` | `String` | Lists data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). Listing keys works at any access level, and listing values needs `read` or `write` access. The `pattern` is relative to the shared prefix and can be at most 768 bytes, and the returned keys are relative to the prefix too. The results and `total` leave out entries the owner's app keeps private. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Lists another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`. |
 
 #### `options` (Object) (optional)
 
 An object with these optional properties:
 
-- `pattern` (String): Same as the `pattern` parameter.
-- `returnValues` (Boolean): Same as the `returnValues` parameter.
-- `reverse` (Boolean): Lists keys in descending order when `true`. Defaults to `false`. It works with full listings, pages, and streams. On its own, it keeps the plain array return shape.
-- `limit` (Number): The most items to return in one call, at most `1000`. A larger value is lowered to `1000`, and the `cursor` picks up from there.
-- `cursor` (String): The `cursor` from the previous page, to fetch the next one. The cursor keeps the listing's direction, so leave out `reverse` or pass the same value. A different `reverse` is rejected.
-- `offset` (Number): Skips this many items before the page starts, at most `5000`. It can't be combined with `cursor`. Requests get slower and more expensive the larger the offset, so prefer `cursor`.
-- `includeTotal` (Boolean): When `true`, the result includes `total`, the number of items that match across all pages. The count is metered, and its cost grows with the size of your store. Request it once, on the first page, and keep it out of hot paths. To find out whether more pages exist, check for `cursor` instead.
-- `fetchUntilFull` (Boolean): A page can come back with fewer than `limit` items even when more exist, such as when expired keys are left out. When `true`, the page is filled up to `limit` items when possible. Requires `limit`.
-- `optConfig` (Object): Same as the `optConfig` parameter, as in `list({ pattern, optConfig: { handle } })`.
-- `stream` (Boolean): When `true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead of a promise, for use with `for await ... of`. Combine it with `limit` to set the page size, or with `cursor` to resume from a page. It can't be combined with `offset`. With `includeTotal`, only the first page has `total`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `pattern` | `String` | Same as the `pattern` parameter. |
+| `returnValues` | `Boolean` | Same as the `returnValues` parameter. |
+| `limit` | `Number` | The most items to return in one call, at most `1000`. A larger value is lowered to `1000`, and the `cursor` picks up from there. |
+| `cursor` | `String` | The `cursor` from the previous page, to fetch the next one. The cursor keeps the listing's direction, so leave out `reverse` or pass the same value. A different `reverse` is rejected. |
+| `reverse` | `Boolean` | Lists keys in descending order when `true`. Defaults to `false`. It works with full listings, pages, and streams. On its own, it keeps the plain array return shape. |
+| `stream` | `Boolean` | When `true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead of a promise, for use with `for await ... of`. Combine it with `limit` to set the page size, or with `cursor` to resume from a page. It can't be combined with `offset`. With `includeTotal`, only the first page has `total`. |
+| `includeTotal` | `Boolean` | When `true`, the result includes `total`, the number of items that match across all pages. The count is metered, and its cost grows with the size of your store. Request it once, on the first page, and keep it out of hot paths. To find out whether more pages exist, check for `cursor` instead. |
+| `offset` | `Number` | Skips this many items before the page starts, at most `5000`. It can't be combined with `cursor`. Requests get slower and more expensive the larger the offset, so prefer `cursor`. |
+| `fetchUntilFull` | `Boolean` | A page can come back with fewer than `limit` items even when more exist, such as when expired keys are left out. When `true`, the page is filled up to `limit` items when possible. Requires `limit`. |
+| `optConfig` | `Object` | Same as the `optConfig` parameter, as in `list({ pattern, optConfig: { handle } })`. |
 
 ## Return value
 
@@ -94,7 +98,7 @@ The promise rejects with `{ message, code }`. With `stream: true`, the iterator'
 
 ## Examples
 
-<strong class="example-title">List keys in reverse order</strong>
+### List keys in reverse order
 
 ```html
 <html>
@@ -112,7 +116,7 @@ The promise rejects with `{ message, code }`. With `stream: true`, the iterator'
 </html>
 ```
 
-<strong class="example-title">Retrieve all keys in the user's key-value store for the current app</strong>
+### Retrieve all keys in the user's key-value store for the current app
 
 ```html;kv-list
 <html>
@@ -148,7 +152,7 @@ The promise rejects with `{ message, code }`. With `stream: true`, the iterator'
 </html>
 ```
 
-<strong class="example-title">Paginate results with a cursor</strong>
+### Paginate results with a cursor
 
 ```html;kv-list-pagination
 <html>
@@ -195,7 +199,7 @@ The promise rejects with `{ message, code }`. With `stream: true`, the iterator'
 
 ```
 
-<strong class="example-title">Sort keys lexicographically</strong>
+### Sort keys lexicographically
 
 ```html;kv-list-sort
 <html>
@@ -221,7 +225,7 @@ The promise rejects with `{ message, code }`. With `stream: true`, the iterator'
 </html>
 ```
 
-<strong class="example-title">Sort numeric keys with zero-padding</strong>
+### Sort numeric keys with zero-padding
 
 ```html;kv-list-padding
 <html>
@@ -249,7 +253,7 @@ The promise rejects with `{ message, code }`. With `stream: true`, the iterator'
 </html>
 ```
 
-<strong class="example-title">Design keys for query-like filtering with prefix patterns</strong>
+### Design keys for query-like filtering with prefix patterns
 
 ```html;kv-prefix-patterns
 <html>

@@ -1233,6 +1233,14 @@ describe('driverCall', () => {
         });
     });
 
+    it('opens the body with the token, ahead of the arguments', async () => {
+        const xhrs = installFakeXHR(
+            respond({ body: { success: true, result: 'v' } }),
+        );
+        await driverCall({ ...call, args: { key: '"auth_token":"decoy"' } });
+        expect(xhrs[0].reqBody.startsWith('{"auth_token":"tok",')).toBe(true);
+    });
+
     it('sends driver and test_mode only when the caller sets them', async () => {
         const xhrs = installFakeXHR(
             respond({ body: { success: true, result: {} } }),

@@ -336,6 +336,179 @@ describe('PuterServer host header validation', () => {
         expect(api.headers['x-frame-options']).toBeUndefined();
     });
 
+    it('allows deployment subdomains to frame the app browser embed', async () => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
+        for (const path of ['/embed/apps', '/embed/apps/']) {
+            const res = await request(path, {
+                host: `puter.localhost:${port}`,
+                referer: `${parent}/sheet/1`,
+            });
+            expect(res.status).toBe(200);
+            expect(res.headers['x-frame-options']).toBeUndefined();
+            expect(res.headers['content-security-policy']).toBe(
+                `frame-ancestors 'self' ${parent}`,
+            );
+            expect(res.headers['cache-control']).toBe('no-store');
+            expect(res.body).toContain('/dist/apps-embed.min.js');
+            expect(res.body).not.toContain('/dist/bundle.min.js');
+            expect(res.body).toContain(`http://api.puter.localhost:${port}`);
+            const config = JSON.parse(
+                res.body.match(/id="app-browser-config">(.*?)<\/script>/)[1],
+            );
+            expect(Array.isArray(config.guestApps)).toBe(true);
+            expect(config.hostOrigin).toBe(parent);
+        }
+        const gui = await request('/embed/apps', {
+            host: `puter.localhost:${port}`,
+            referer: `http://puter.localhost:${port}/dashboard`,
+        });
+        expect(gui.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        expect(
+            JSON.parse(gui.body.match(/id="app-browser-config">(.*?)<\/script>/)[1]).hostOrigin,
+        ).toBeNull();
+        const dashboard = await request('/dashboard', { host: `puter.localhost:${port}` });
+        expect(dashboard.headers['x-frame-options']).toBe('SAMEORIGIN');
+        const api = await request('/embed/apps', { host: `api.puter.localhost:${port}` });
+        expect(api.status).toBe(404);
+    });
+
+    it('lets a deployment subdomain frame the feedback embed and names it', async () => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
+        const res = await request('/embed/feedback', {
+            host: `puter.localhost:${port}`,
+            referer: `${parent}/sheet/1`,
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBeUndefined();
+        expect(res.headers['content-security-policy']).toBe(
+            `frame-ancestors 'self' ${parent}`,
+        );
+        expect(res.headers['cache-control']).toBe('no-store');
+        expect(res.body).toContain('/dist/feedback-embed.min.js');
+        expect(res.body).not.toContain('/dist/bundle.min.js');
+        const config = JSON.parse(
+            res.body.match(/id="feedback-embed-config">(.*?)<\/script>/)[1],
+        );
+        expect(config).toEqual({
+            apiOrigin: `http://api.puter.localhost:${port}`,
+            hostOrigin: parent,
+        });
+
+        const hosted = await request('/embed/feedback', {
+            host: `puter.localhost:${port}`,
+            referer: `http://someone.site.puter.localhost:${port}/`,
+        });
+        expect(hosted.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        expect(
+            JSON.parse(
+                hosted.body.match(/id="feedback-embed-config">(.*?)<\/script>/)[1],
+            ).hostOrigin,
+        ).toBeNull();
+
+        const redirected = await request('/embed/feedback?puter.api_origin=https://other.test', {
+            host: `puter.localhost:${port}`,
+        });
+        expect(redirected.status).toBe(302);
+        expect(redirected.headers.location).toBe('/embed/feedback');
+    });
+
+    it.each([
+        'sign-in',
+        'show-open-file-picker',
+        'show-save-file-picker',
+        'show-directory-picker',
+        'upgrade',
+        'top-up',
+        'request-email-confirmation',
+        'attach-custom-domain',
+    ])('lets a deployment subdomain frame the %s popup and names it to the GUI', async (action) => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
+        const guiParams = (body: string) =>
+            JSON.parse(body.match(/gui\((\{.*\})\);/)[1]);
+        const res = await request(`/embed/${action}`, {
+            host: `puter.localhost:${port}`,
+            referer: `${parent}/sheet/1`,
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBeUndefined();
+        expect(res.headers['content-security-policy']).toBe(
+            `frame-ancestors 'self' ${parent}`,
+        );
+        expect(res.headers['cache-control']).toBe('no-store');
+        expect(guiParams(res.body).embed_host_origin).toBe(parent);
+
+        const hosted = await request(`/embed/${action}`, {
+            host: `puter.localhost:${port}`,
+            referer: `http://someone.site.puter.localhost:${port}/`,
+        });
+        expect(hosted.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        expect(guiParams(hosted.body).embed_host_origin).toBeNull();
+
+        const redirected = await request(`/embed/${action}?auth_token=x&embedded_in_popup=true`, {
+            host: `puter.localhost:${port}`,
+            referer: `${parent}/sheet/1`,
+        });
+        expect(redirected.status).toBe(302);
+        expect(redirected.headers.location).toBe(`/embed/${action}`);
+        expect(redirected.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
+    it.each(['/embed/SIGN-IN', '/embed/Show-Open-File-Picker', '/embed/sign-in/', '/embed/Upgrade', '/embed/upgrade/', '/embed/Top-Up', '/embed/top-up/', '/embed/Request-Email-Confirmation'])(
+        'lets a first-party page frame only the exact spelling of %s',
+        async (spelling) => {
+            const res = await request(spelling, {
+                host: `puter.localhost:${port}`,
+                referer: `http://spreadsheet.puter.localhost:${port}/`,
+            });
+            expect(res.status).toBe(302);
+            expect(res.headers.location).toBe(spelling.toLowerCase().replace(/\/$/, ''));
+            expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+            expect(res.headers['content-security-policy']).toBeUndefined();
+        },
+    );
+
+    it('names no framing page to the popups it serves in a window', async () => {
+        const res = await request('/action/sign-in?embedded_in_popup=true', {
+            host: `puter.localhost:${port}`,
+            referer: `http://spreadsheet.puter.localhost:${port}/`,
+        });
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+        expect(res.headers['content-security-policy']).toBeUndefined();
+        expect(res.body).not.toContain('embed_host_origin');
+    });
+
+    it.each([
+        ['a user-hosted site', 'http://someone.site.puter.localhost:PORT/'],
+        ['a private app host', 'http://someone.app.puter.localhost:PORT/'],
+        ['the API host', 'http://api.puter.localhost:PORT/'],
+        ['the WebDAV host', 'http://dav.puter.localhost:PORT/'],
+        ['a native app host', 'http://about.puter.localhost:PORT/'],
+        ['a nested subdomain', 'http://a.spreadsheet.puter.localhost:PORT/'],
+        ['another site', 'http://evil.test:PORT/'],
+        ['another port', 'http://spreadsheet.puter.localhost:1/'],
+        ['a suppressed referrer', undefined],
+    ])('keeps the embed same-origin only when framed by %s', async (_label, referer) => {
+        const res = await request('/embed/apps', {
+            host: `puter.localhost:${port}`,
+            ...(referer ? { referer: referer.replace('PORT', String(port)) } : {}),
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+    });
+
+    it.each([
+        ['plain', ''],
+        // Past the parser's 1000-pair limit, so `req.query` comes back empty.
+        ['padded', '&'.repeat(1000)],
+    ])('strips %s SDK bootstrap query parameters from the embed route', async (_label, padding) => {
+        const res = await request(`/embed/apps?${padding}puter.app_instance_id=other&puter.api_origin=https://other.test`, {
+            host: `puter.localhost:${port}`,
+        });
+        expect(res.status).toBe(302);
+        expect(res.headers.location).toBe('/embed/apps');
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
     it('blocks a request the ip.validate listeners veto', async () => {
         const handler = (_key: unknown, data: unknown) => {
             (data as { allow: boolean }).allow = false;
@@ -473,6 +646,59 @@ describe('PuterServer host header validation — permissive modes', () => {
             host: '127-0-0-1.nip.io',
         });
         expect(res.status).toBe(200);
+    });
+});
+
+describe('PuterServer behind a trusted proxy', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                api_base_url: `http://api.puter.localhost:${port}`,
+                allow_all_host_values: false,
+                allow_no_host_header: false,
+                custom_domains_enabled: false,
+                static_hosting_domain: 'site.puter.localhost',
+                trust_proxy: 1,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('serves the main domain whatever X-Forwarded-Host names', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `puter.localhost:${port}`,
+            'x-forwarded-host': 'nosuchsite.site.puter.localhost',
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
+    it('keeps a hosted-site host on site hosting', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `nosuchsite.site.puter.localhost:${port}`,
+            'x-forwarded-host': 'api.puter.localhost',
+        });
+        expect(res.status).toBe(404);
+    });
+
+    it('reads subdomains from Host', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `api.puter.localhost:${port}`,
+            'x-forwarded-host': 'puter.localhost',
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBeUndefined();
     });
 });
 
@@ -623,6 +849,26 @@ describe('PuterServer request parsing', () => {
             expect(res.status, contentType).toBe(404);
             expect(res.body).toContain('no-such-method');
         }
+    });
+
+    it('parses a chat call above 50 MiB whose body opens with its token', async () => {
+        const fields = `"interface":"puter-chat-completion","method":"no-such-method","pad":"${'x'.repeat(51 * MiB)}"`;
+        const asText = { 'content-type': 'text/plain;actually=json' };
+        const first = await postJson(
+            '/drivers/call',
+            `{"auth_token":"${token}",${fields}}`,
+            asText,
+        );
+        expect(first.status).toBe(404);
+        expect(first.body).toContain('no-such-method');
+
+        // A token after other fields can't be read ahead of the body.
+        const last = await postJson(
+            '/drivers/call',
+            `{${fields},"auth_token":"${token}"}`,
+            asText,
+        );
+        expect(last.status).toBe(413);
     });
 
     it('keeps the default JSON limit for other drivers', async () => {
@@ -1298,6 +1544,7 @@ describe('PuterServer HTTP alarm gate', () => {
                     throw new HttpError(400, 'Model not available: m', {
                         legacyCode: 'upstream_bad_request',
                         alarmSeverity: 'info',
+                        alarmChannel: 'ai_providers',
                     });
                 }) as unknown as RequestHandler,
             },
@@ -1346,6 +1593,7 @@ describe('PuterServer HTTP alarm gate', () => {
             id: raised![0] as string,
             fields: raised![2] as Record<string, unknown>,
             severity: raised![3] as string,
+            opts: raised![4] as { dedup?: boolean; channel?: string },
         };
     };
 
@@ -1402,15 +1650,16 @@ describe('PuterServer HTTP alarm gate', () => {
         expect(fields.queryKeys).toEqual(['auth_token']);
     });
 
-    it('raises a warning when an upstream account is out of credits', async () => {
-        const { id, fields, severity } = await raisedFor(
+    it('records an upstream account out of credits in the AI providers channel', async () => {
+        const { id, fields, severity, opts } = await raisedFor(
             '/credits-exhausted',
             503,
         );
         expect(id).toBe(
             'http_503:GET:/credits-exhausted:upstream_credits_exhausted:AI provider out of credits',
         );
-        expect(severity).toBe('warning');
+        expect(severity).toBe('info');
+        expect(opts).toEqual({ dedup: true, channel: 'ai_providers' });
         expect(fields.details).toEqual({
             attempts: [
                 {
@@ -1423,12 +1672,22 @@ describe('PuterServer HTTP alarm gate', () => {
         });
     });
 
-    it("alarms a 4xx at the thrower's alarmSeverity", async () => {
-        const { id, severity } = await raisedFor('/model-unavailable', 400);
+    it("alarms a 4xx at the thrower's alarmSeverity and alarmChannel", async () => {
+        const { id, severity, opts } = await raisedFor(
+            '/model-unavailable',
+            400,
+        );
         expect(id).toBe(
             'http_400:GET:/model-unavailable:upstream_bad_request:Model not available: m',
         );
         expect(severity).toBe('info');
+        expect(opts).toEqual({ dedup: true, channel: 'ai_providers' });
+    });
+
+    it('raises an unhandled error with no channel', async () => {
+        const { severity, opts } = await raisedFor('/plain');
+        expect(severity).toBe('critical');
+        expect(opts).toEqual({ dedup: true });
     });
 
     it('does not alarm an upstream 4xx without one', async () => {

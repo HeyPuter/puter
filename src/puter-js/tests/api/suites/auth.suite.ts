@@ -454,13 +454,42 @@ export default suite('auth', {
     // -- Usage reporting --
 
     'deployment-wide usage is refused for a non-admin': async (t) => {
-        const usage = (await (
-            t.puter.auth as unknown as {
-                getGlobalUsage: () => Promise<Record<string, unknown>>;
+        const error = (await t.assert.rejects(() =>
+            (
+                t.puter.auth as unknown as {
+                    getGlobalUsage: () => Promise<Record<string, unknown>>;
+                }
+            ).getGlobalUsage(),
+        )) as { status?: number; code?: string; message?: string };
+        t.assert.equal(error.status, 403);
+        t.assert.equal(error.code, 'forbidden');
+        t.assert.equal(error.message, 'Only admins may request this resource');
+    },
+
+    'getDetailedAppUsage rejects for an unknown app': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            t.puter.auth.getDetailedAppUsage(`no-such-app-${t.puter.randName()}`),
+        )) as { status?: number; message?: string };
+        t.assert.equal(error.status, 404);
+        t.assert.equal(error.message, 'App not found');
+    },
+
+    // Web handles invalid tokens with a sign-in popup.
+    'getMonthlyUsage rejects with a malformed token': {
+        platforms: ['node', 'workerd'],
+        fn: async (t) => {
+            const p = internals(t);
+            const token = p.authToken;
+            p.authToken = 'auth-suite-not-a-real-token';
+            try {
+                const error = (await t.assert.rejects(() =>
+                    t.puter.auth.getMonthlyUsage(),
+                )) as { status?: number };
+                t.assert.equal(error.status, 401);
+            } finally {
+                p.authToken = token;
             }
-        ).getGlobalUsage()) as { code?: string; message?: string };
-        t.assert.equal(usage.code, 'forbidden');
-        t.assert.equal(usage.message, 'Only admins may request this resource');
+        },
     },
 
     // -- Reauth coordination --

@@ -31,6 +31,8 @@ The key to create or update, at most **1 KB** (1,024 bytes of UTF-8). A longer k
 
 The value to store. Objects and arrays come back the same way they were stored. A value can be at most **399 KB** ([`puter.kv.MAX_VALUE_SIZE`](/KV/MAX_VALUE_SIZE/) bytes), measured as the UTF-8 bytes of its JSON encoding, so a string's quotes and escapes count. A larger value rejects with `value_too_large`.
 
+The stored entry can be at most **400 KB**. That size counts the key, and a value with many small elements, such as a long array of single digits, takes more room stored than it does as JSON. Such a value, or a value near 399 KB under a long key, can reach 400 KB stored and also rejects with `value_too_large`.
+
 Every number in the value, at any depth, must be within **±9,007,199,254,740,991** (`Number.MAX_SAFE_INTEGER`). A number past that is stored clamped to the bound, and `NaN` is stored as `null`. Store an id or a total that has to stay exact past that point as a string.
 
 A value can be at most 32 levels deep. The value itself is the first level, and each object or array inside it adds one, so `{ a: { b: 1 } }` is 3 levels deep. A deeper value rejects with `bad_request`.
@@ -47,10 +49,12 @@ Every `set()` replaces the whole entry, TTL included, so a later `set()` without
 
 The last argument. It takes these properties:
 
-- `disableSharing` (Boolean): Makes the entry private to your app. See [Private entries](#private-entries).
-- `onlyIfAbsent` (Boolean): Writes the key only when it has no live entry. See [Writing only if absent](#writing-only-if-absent). The batch form rejects it with `invalid_request`.
-- `handle` (String): Writes into data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix and can be at most 768 bytes, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Writes to another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/).
+| Option | Type | Description |
+|--------|------|-------------|
+| `onlyIfAbsent` | `Boolean` | Writes the key only when it has no live entry. See [Writing only if absent](#writing-only-if-absent). The batch form rejects it with `invalid_request`. |
+| `disableSharing` | `Boolean` | Makes the entry private to your app. See [Private entries](#private-entries). |
+| `handle` | `String` | Writes into data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix and can be at most 768 bytes, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Writes to another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). |
 
 The `handle` option can't be combined with `appUuid` or `disableSharing`.
 
@@ -61,6 +65,24 @@ An array of `{ key, value, expireAt? }` objects, written in one request. Pass it
 ## Return value
 
 A `Promise` that resolves to `true` when the key was written. With `onlyIfAbsent`, it resolves to `false` when a live entry already held the key and nothing was written.
+
+## Errors
+
+The promise rejects with `{ message, code }`:
+
+| Code | Meaning |
+| -- | -- |
+| `key_too_large` | A key is over 1 KB. |
+| `value_too_large` | A value is over 399 KB, or its stored entry is over 400 KB. |
+| `bad_request` | A value is nested more than 32 levels deep, `expireAt` is text that isn't a number, a batch has more than 1,000 items, `onlyIfAbsent` isn't `true` or `false`, or `disableSharing` was passed with another app's `appUuid`. |
+| `invalid_request` | `onlyIfAbsent` was passed to the batch form. |
+| `forbidden` | `appUuid` names another app's data that your app may not write, or the entry is private to that app. |
+| `subject_does_not_exist` | `appUuid` names an app that doesn't exist. |
+| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, it isn't shared with you, or the call comes from an app other than the one whose data it shares. |
+| `kv_handle_access_denied` | The share's access is below `write`, or a key is private to the owner's app. |
+| `kv_handle_option_invalid` | `handle` was combined with `appUuid` or `disableSharing`. |
+| `kv_handle_key_invalid` | With `handle`, a key is empty or longer than 768 bytes. |
+| `kv_handles_disabled` | Shares can't be used this way on this deployment. |
 
 ## Private entries
 
@@ -76,27 +98,9 @@ With `onlyIfAbsent: true`, `set()` writes the key only when it has no live entry
 
 Two writes at nearly the same time from different places may both succeed and both resolve to `true`, and the later write wins. Use it to create something once where a rare double create is harmless, such as claiming a room id or setting up a new document. It isn't a lock, and it can't hand out unique numbers. For a log of changes, give each change its own key, such as `chg:<timestamp>-<writer>-<random>`, and order the changes by timestamp instead of using a shared counter. A counter kept with [`puter.kv.incr()`](/KV/incr/) has the same limit.
 
-## Errors
-
-The promise rejects with `{ message, code }`:
-
-| Code | Meaning |
-| -- | -- |
-| `key_too_large` | A key is over 1 KB. |
-| `value_too_large` | A value is over 399 KB. |
-| `bad_request` | A value is nested more than 32 levels deep, `expireAt` is text that isn't a number, a batch has more than 1,000 items, `onlyIfAbsent` isn't `true` or `false`, or `disableSharing` was passed with another app's `appUuid`. |
-| `invalid_request` | `onlyIfAbsent` was passed to the batch form. |
-| `forbidden` | `appUuid` names another app's data that your app may not write, or the entry is private to that app. |
-| `subject_does_not_exist` | `appUuid` names an app that doesn't exist. |
-| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, it isn't shared with you, or the call comes from an app other than the one whose data it shares. |
-| `kv_handle_access_denied` | The share's access is below `write`, or a key is private to the owner's app. |
-| `kv_handle_option_invalid` | `handle` was combined with `appUuid` or `disableSharing`. |
-| `kv_handle_key_invalid` | With `handle`, a key is empty or longer than 768 bytes. |
-| `kv_handles_disabled` | Shares can't be used this way on this deployment. |
-
 ## Examples
 
-<strong class="example-title">Create a new key-value pair</strong>
+### Create a new key-value pair
 
 ```html;kv-set
 <html>
@@ -111,7 +115,7 @@ The promise rejects with `{ message, code }`:
 </html>
 ```
 
-<strong class="example-title">Set multiple key-value pairs at once</strong>
+### Set multiple key-value pairs at once
 
 ```html
 <html>
@@ -130,14 +134,14 @@ The promise rejects with `{ message, code }`:
 </html>
 ```
 
-<strong class="example-title">Claim a name only if nobody has it yet</strong>
+### Claim a name only if nobody has it yet
 
 ```js
 const claimed = await puter.kv.set('room:lobby', { createdAt: Date.now() }, { onlyIfAbsent: true });
 puter.print(claimed ? 'Room created' : 'That room already exists');
 ```
 
-<strong class="example-title">Store a value no other app can ever read</strong>
+### Store a value no other app can ever read
 
 ```html
 <html>

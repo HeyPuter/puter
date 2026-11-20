@@ -37,6 +37,9 @@ const repoRoot = path.resolve(backendDir, '../..');
 const isPgmockMode =
     (process.env.PUTER_TEST_DB_ENGINE ?? '').toLowerCase() === 'postgres';
 const pgmockTimeoutMs = 600_000;
+// Loaded CI runners stall timers well past the 5 s / 10 s defaults; a real
+// hang still fails, just later.
+const ciTimeouts = { testTimeout: 20_000, hookTimeout: 60_000 };
 
 // Tests that always boot pgmock regardless of PUTER_TEST_DB_ENGINE. Too slow
 // for CI; run locally or via `npm run test:backend:postgres`.
@@ -103,33 +106,35 @@ export const lowerDecoratorsPlugin = {
             loader: 'ts',
             target: 'es2024',
             sourcefile: id,
-            sourcemap: 'inline',
+            sourcemap: 'external',
         });
-        return { code: result.code, map: null };
+        // Without the map, coverage and stack traces report esbuild's
+        // output lines instead of the source's.
+        return { code: result.code, map: result.map };
     },
 };
 
+// Mirrors the `@heyputer/backend` path aliases declared in tsconfig.json so
+// backend code under test can use the same imports it does in production.
+// Exported for the other vitest configs that boot backend code.
+export const backendAliases = [
+    {
+        find: /^@heyputer\/backend\/src\/(.*)$/,
+        replacement: path.join(backendDir, '$1'),
+    },
+    {
+        find: /^@heyputer\/backend\/(.*)$/,
+        replacement: path.join(backendDir, '$1'),
+    },
+    {
+        find: /^@heyputer\/backend$/,
+        replacement: path.join(backendDir, 'exports.ts'),
+    },
+];
+
 export default defineConfig(({ mode }) => ({
     plugins: [lowerDecoratorsPlugin],
-    resolve: {
-        // Mirror the `@heyputer/backend` path aliases declared in
-        // tsconfig.json so backend code under test can use the same
-        // imports it does in production.
-        alias: [
-            {
-                find: /^@heyputer\/backend\/src\/(.*)$/,
-                replacement: path.join(backendDir, '$1'),
-            },
-            {
-                find: /^@heyputer\/backend\/(.*)$/,
-                replacement: path.join(backendDir, '$1'),
-            },
-            {
-                find: /^@heyputer\/backend$/,
-                replacement: path.join(backendDir, 'exports.ts'),
-            },
-        ],
-    },
+    resolve: { alias: backendAliases },
     test: {
         globals: true,
         // A console call still in flight when a file tears down is dropped
@@ -145,7 +150,9 @@ export default defineConfig(({ mode }) => ({
                   hookTimeout: pgmockTimeoutMs,
                   fileParallelism: false,
               }
-            : {}),
+            : isCi
+              ? ciTimeouts
+              : {}),
         coverage: {
             provider: 'v8',
             reporter: isCi
@@ -157,6 +164,12 @@ export default defineConfig(({ mode }) => ({
             include: [
                 'src/backend/**/*.{js,ts}',
                 'extensions/**/*.{js,ts}',
+            ],
+            exclude: [
+                '**/*.bench.ts',
+                'src/backend/benchUtil.ts',
+                // A previous run's HTML report, which the include matches.
+                'src/backend/coverage/**',
             ],
             reportsDirectory: path.join(backendDir, 'coverage'),
         },

@@ -54,7 +54,6 @@ for (const reporter of reporters) {
     reports.create(reporter).execute(context);
 }
 
-console.log(
-    `\nMerged ${shardFiles.length} shard(s): ${shardFiles.join(', ')}`,
-);
+// One per runner and one per unit test file.
+console.log(`\nMerged ${shardFiles.length} shard(s).`);
 console.log(`Reports written to ${coverageDir}`);

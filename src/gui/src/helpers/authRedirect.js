@@ -55,6 +55,33 @@ export const get_auth_redirect_url = () => {
 };
 
 /**
+ * Display text for an auth error redirect (`?auth_error=1&message=<code>`).
+ * The backend sends a fixed set of codes, never free text, plus for a blocked
+ * signup or sign-in a `request_code` the user can quote to support. Anything
+ * unrecognized (including text crafted into the URL) gets the generic message.
+ *
+ * @param {URLSearchParams} params
+ * @returns {string}
+ */
+export const authErrorDisplayMessage = (params) => {
+    const code = params.get('message');
+    if ( code === 'signup_blocked' || code === 'signin_blocked' ) {
+        const requestCode = params.get('request_code');
+        const contact = requestCode
+            ? i18n('contact_support_with_code', { id: requestCode }, false)
+            : i18n('contact_support', [], false);
+        return `${i18n(`${code}_message`, [], false)} ${contact}`;
+    }
+    if ( code === 'account_suspended' ) {
+        return i18n('account_suspended_message', [], false);
+    }
+    if ( code === 'bonus_code_invalid' ) {
+        return i18n('signup_bonus_code_invalid_retry', [], false);
+    }
+    return i18n('auth_error_generic', [], false);
+};
+
+/**
  * The pathname part of an OIDC `return_to`, or null when the current page isn't
  * one the backend will return to. The root is in here only for the share links
  * below — on its own it is where the flow already lands.
@@ -63,11 +90,11 @@ export const get_auth_redirect_url = () => {
  */
 const oidc_return_path = () => {
     const pathname = window.location.pathname;
-    if ( pathname === '/' || pathname === '/desktop' || pathname === '/dashboard' ) {
+    if ( pathname === '/' || pathname === '/dashboard' ) {
         return pathname;
     }
     // app landing: normalize away a trailing slash to match the backend whitelist
-    if ( /^(\/desktop)?\/app\/[^/]+\/?$/.test(pathname) ) {
+    if ( /^\/app\/[^/]+\/?$/.test(pathname) ) {
         return pathname.replace(/\/$/, '');
     }
     return null;
@@ -76,10 +103,9 @@ const oidc_return_path = () => {
 /**
  * The `return_to` to send along when starting an OIDC flow, or null if the
  * current page isn't one the backend will return to. The backend strictly
- * whitelists these (never a client-supplied URL): `/desktop`, `/dashboard`,
- * and direct app landings (`/app/<name>`, plus the desktop-booted
- * `/desktop/app/<name>`), so OIDC login started from an app landing comes back
- * to the app — and to the same interface it was opened in.
+ * whitelists these (never a client-supplied URL): `/dashboard` and direct app
+ * landings (`/app/<name>`), so OIDC login started from an app landing comes
+ * back to the app.
  *
  * A share link (`?shared=`, from an email) is carried along with the path: the
  * recipient usually has to sign in before they can see what was shared, and an

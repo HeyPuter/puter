@@ -19,6 +19,7 @@
 
 import list_all_shared from './listAllShared.js';
 import { is_owned_by_me } from './pathOwner.js';
+import { strongerMode } from './shareModes.js';
 import { is_share_root } from './sharePaths.js';
 
 // What we hold on each shared root, by path: `{ mode, name }`. A `readdir`
@@ -29,13 +30,16 @@ let inflight = null;
 
 /**
  * Record what a Shared listing reported. Replaces rather than merges, so a
- * share withdrawn elsewhere does not linger.
+ * share withdrawn elsewhere does not linger. Grants add up, so a path listed
+ * more than once keeps its strongest mode.
  */
 export const remember_shared_roots = (shares) => {
     roots.clear();
     for ( const share of shares ) {
         if ( ! share?.path || ! share?.mode ) continue;
-        roots.set(share.path, { mode: share.mode, name: share.name });
+        const held = roots.get(share.path);
+        const mode = held ? strongerMode(held.mode, share.mode) : share.mode;
+        roots.set(share.path, { mode, name: share.name });
     }
     loaded = true;
 };

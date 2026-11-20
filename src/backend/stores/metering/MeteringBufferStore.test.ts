@@ -26,6 +26,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { isSendingUndo } from '../../clients/redis/commandTimeout.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import {
@@ -383,6 +384,127 @@ describe('MeteringBufferStore', () => {
             expect(await storedTotal(key)).toBe(9);
             boom.mockRestore();
         });
+
+        it('counts an increment once when its buffering times out but lands', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const real = redis.meterIncr.bind(redis);
+            const late = vi
+                .spyOn(redis, 'meterIncr')
+                .mockImplementationOnce(async (...args) => {
+                    await real(...args);
+                    throw new Error('Command timed out');
+                });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { res, exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 6 },
+            });
+            late.mockRestore();
+            warn.mockRestore();
+
+            expect(exact).toBe(true);
+            expect((res as { total: number }).total).toBe(6);
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(6);
+        });
+
+        it('drops the cached base past fail-fast, without waiting on it', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+                del: (...keys: string[]) => Promise<number>;
+            };
+            const timedOut = vi
+                .spyOn(redis, 'meterIncr')
+                .mockRejectedValueOnce(new Error('Command timed out'))
+                .mockResolvedValueOnce([[], [], [], '', '']);
+            const undoScoped: boolean[] = [];
+            const del = vi.spyOn(redis, 'del').mockImplementationOnce(() => {
+                undoScoped.push(isSendingUndo());
+                return new Promise(() => {});
+            });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 2 },
+            });
+            timedOut.mockRestore();
+            del.mockRestore();
+            warn.mockRestore();
+
+            expect(exact).toBe(true);
+            expect(undoScoped).toEqual([true]);
+        }, 5000);
+
+        it('answers without waiting on the undo of a timed-out buffering', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const stuck = vi
+                .spyOn(redis, 'meterIncr')
+                .mockRejectedValueOnce(new Error('Command timed out'))
+                .mockReturnValueOnce(new Promise(() => {}));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 2 },
+            });
+            stuck.mockRestore();
+            warn.mockRestore();
+
+            expect(exact).toBe(true);
+        }, 5000);
+
+        it('counts an increment once when the base read fails after buffering', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 80 } });
+            const boom = vi
+                .spyOn(kv, 'get')
+                .mockRejectedValueOnce(new Error('store read failed'));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { res, exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 5 },
+            });
+            boom.mockRestore();
+            warn.mockRestore();
+
+            // Written through for an authoritative total...
+            expect(exact).toBe(true);
+            expect((res as { total: number }).total).toBe(85);
+            expect(await storedTotal(key)).toBe(85);
+
+            // ...and no longer buffered, so the flush adds nothing.
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(85);
+            const read = await target.get({ key });
+            expect((read.res as { total: number }).total).toBe(85);
+        });
+
+        it('keeps the buffered increment when the base read and the write-through both fail', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 80 } });
+            const readBoom = vi
+                .spyOn(kv, 'get')
+                .mockRejectedValueOnce(new Error('store read failed'));
+            const writeBoom = vi
+                .spyOn(kv, 'incr')
+                .mockRejectedValueOnce(new Error('store write failed'));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await expect(
+                target.incr({ key, pathAndAmountMap: { total: 5 } }),
+            ).rejects.toThrow('store write failed');
+            readBoom.mockRestore();
+            writeBoom.mockRestore();
+            warn.mockRestore();
+
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(85);
+        });
     });
 
     describe('incrAux', () => {
@@ -408,6 +530,26 @@ describe('MeteringBufferStore', () => {
 
             expect(await storedTotal(key)).toBe(4);
             boom.mockRestore();
+        });
+        it('counts an aggregate once when its buffering times out but lands', async () => {
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const real = redis.meterIncr.bind(redis);
+            const late = vi
+                .spyOn(redis, 'meterIncr')
+                .mockImplementationOnce(async (...args) => {
+                    await real(...args);
+                    throw new Error('Command timed out');
+                });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await target.incrAux({ key, pathAndAmountMap: { total: 3 } });
+            late.mockRestore();
+            warn.mockRestore();
+
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(3);
         });
     });
 
@@ -665,6 +807,147 @@ describe('MeteringBufferStore', () => {
                 }
             });
         }
+
+        it('counts nothing twice in an increment without a base when a flush lands during it', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+            const get = landDuringStoreRead(write.release, flushing);
+            try {
+                const { res } = await target.incr({
+                    key,
+                    pathAndAmountMap: { total: 5 },
+                });
+                expect((res as { total: number }).total).toBe(15);
+            } finally {
+                get.mockRestore();
+                write.spy.mockRestore();
+                await flushing;
+            }
+            expect(await readTotal()).toBe(15);
+        });
+
+        for (const shape of ['single', 'array', 'exact', 'incr'] as const) {
+            it(`counts a write once in ${shape === 'incr' ? 'an increment' : `a ${shape} read`} while it has landed but is not applied`, async () => {
+                await target.incr({ key, pathAndAmountMap: { total: 10 } });
+                const redis = server.clients.redis as unknown as {
+                    meterApply: (...args: string[]) => Promise<number>;
+                };
+                // The store has the write; the claim still holds its amounts.
+                const apply = holdCalls(redis, 'meterApply');
+                const flushing = target.flushCycle();
+                const own = shape === 'incr' ? 5 : 0;
+                try {
+                    await vi.waitFor(() =>
+                        expect(apply.spy).toHaveBeenCalled(),
+                    );
+                    expect(await storedTotal(key)).toBe(10);
+                    const { res } =
+                        shape === 'incr'
+                            ? await target.incr({
+                                  key,
+                                  pathAndAmountMap: { total: own },
+                              })
+                            : shape === 'exact'
+                              ? await target.readExact({ key })
+                              : await target.get({
+                                    key: shape === 'single' ? key : [key],
+                                });
+                    const value = (
+                        shape === 'array' ? (res as unknown[])[0] : res
+                    ) as { total: number };
+                    expect(value.total).toBe(10 + own);
+                    // Nothing read mid-write is kept as the base.
+                    expect(
+                        await server.clients.redis.exists(
+                            `meter:b:{${bucketTag(key)}}:${key}`,
+                        ),
+                    ).toBe(0);
+                } finally {
+                    apply.release();
+                    await flushing;
+                    apply.spy.mockRestore();
+                }
+                expect(await readTotal()).toBe(10 + own);
+            });
+        }
+
+        it('counts a write once when it is sent and lands between a read’s snapshots', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const redis = server.clients.redis as unknown as {
+                meterIntent: (...args: string[]) => Promise<string | null>;
+                meterApply: (...args: string[]) => Promise<number>;
+            };
+            const intent = holdCalls(redis, 'meterIntent');
+            const apply = holdCalls(redis, 'meterApply');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(intent.spy).toHaveBeenCalled());
+
+            // The claim is read before its write is sent; the store read that
+            // follows sees the write, and the claim still holds its amounts.
+            let reads = 0;
+            const realGet = kv.get.bind(kv);
+            const get = vi.spyOn(kv, 'get').mockImplementation(async (args) => {
+                if (args.consistentRead && args.key === key && ++reads === 1) {
+                    intent.release();
+                    await vi.waitFor(() =>
+                        expect(apply.spy).toHaveBeenCalled(),
+                    );
+                }
+                return realGet(args);
+            });
+            try {
+                expect(await readTotal()).toBe(10);
+                expect(reads).toBe(2);
+            } finally {
+                get.mockRestore();
+                intent.release();
+                apply.release();
+                await flushing;
+                intent.spy.mockRestore();
+                apply.spy.mockRestore();
+            }
+        });
+
+        it('lays no base from a store read a write has since passed', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 10 } });
+            const redis = server.clients.redis as unknown as {
+                meterSeed: (...args: string[]) => Promise<number>;
+                meterSettle: (...args: string[]) => Promise<number>;
+            };
+            const settle = holdCalls(redis, 'meterSettle');
+            const realSeed = redis.meterSeed.bind(redis);
+            let flushing: Promise<number> | undefined;
+            // The increment is written onward and applied after its store
+            // read, before the base from that read is laid.
+            const seed = vi
+                .spyOn(redis, 'meterSeed')
+                .mockImplementation(async (...args: string[]) => {
+                    flushing = target.flushCycle();
+                    await vi.waitFor(() =>
+                        expect(settle.spy).toHaveBeenCalled(),
+                    );
+                    return realSeed(...args);
+                });
+            try {
+                const { res } = await target.incr({
+                    key,
+                    pathAndAmountMap: { total: 5 },
+                });
+                expect((res as { total: number }).total).toBe(15);
+                expect(seed).toHaveBeenCalledTimes(1);
+                expect(await storedTotal(key)).toBe(15);
+                // A base of 10 would hide the 5 until the settle replaced it.
+                expect(await readTotal()).toBe(15);
+            } finally {
+                seed.mockRestore();
+                settle.release();
+                await flushing;
+                settle.spy.mockRestore();
+            }
+            expect(await readTotal()).toBe(15);
+        });
 
         it('reads a written-through increment once the cache is back', async () => {
             await target.incr({ key, pathAndAmountMap: { total: 10 } });
@@ -1972,8 +2255,8 @@ describe('MeteringBufferStore', () => {
                 'metering_aggregate_usage_dropped',
                 expect.stringContaining('under-count'),
                 expect.objectContaining({ key: aggregate }),
-                'warning',
-                expect.objectContaining({ dedup: true }),
+                'info',
+                expect.objectContaining({ dedup: true, channel: 'billing' }),
             );
             alarmSpy.mockRestore();
         });
@@ -2363,8 +2646,8 @@ describe('MeteringBufferStore', () => {
                 'metering_counter_large',
                 expect.stringContaining(key),
                 expect.objectContaining({ key, writeUnits: 150 }),
-                'warning',
-                expect.objectContaining({ dedup: true }),
+                'info',
+                expect.objectContaining({ dedup: true, channel: 'billing' }),
             );
             alarmSpy.mockRestore();
         });

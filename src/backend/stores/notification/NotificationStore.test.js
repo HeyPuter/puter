@@ -112,6 +112,28 @@ describe('NotificationStore', () => {
         );
     });
 
+    it('builds the row a replacement leaves as the table holds it', async () => {
+        const created = await store.create({
+            userId: user.id,
+            value: { title: 'before' },
+            type: 'app.message',
+            audience: 'app-user',
+            appUid: `app-${uuidv4()}`,
+            group: 'g',
+        });
+        const replacedAt = Date.now();
+        await store.updateValue(
+            created.uid,
+            user.id,
+            { title: 'after' },
+            { onlyUnseen: true, replacedAt },
+        );
+
+        expect(
+            store.replacedRow(created, { title: 'after' }, replacedAt),
+        ).toEqual(await store.getByUid(created.uid, { primary: true }));
+    });
+
     it('rejects a create with no user', async () => {
         await expect(store.create({ value: {} })).rejects.toThrow(
             'userId is required',

@@ -83,7 +83,7 @@ export const is_unseen_background_window = (el_window) => {
  * Of the windows an app has open, the ones that are the USER's. An instance
  * another app launched in the background and never showed exists to serve that
  * app alone, so everything the user drives — reopening the app, its running
- * dot, its taskbar item, the dashboard's Back/Forward — has to look straight
+ * dot, the dashboard's Back/Forward — has to look straight
  * past it and act on the user's own instances instead, launching a fresh one
  * when there are none. (Paths that act on the APP rather than on a window it
  * happens to have open — uninstall, and the launcher's close taking its

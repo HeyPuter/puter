@@ -17,6 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import {
+    isCommandTimeout,
+    sendAsUndo,
+} from '../../clients/redis/commandTimeout.js';
 import { PuterStore } from '../types.js';
 
 // -- Constants --------------------------------------------------------
@@ -338,6 +342,8 @@ export class UploadReservationStore extends PuterStore {
             console.warn(
                 `[fs] upload reservation not taken for owner ${ownerId}: ${(e as Error).message}`,
             );
+            // Same keys: runs behind the timed-out take if that ever does.
+            if (isCommandTimeout(e)) void this.release(ownerId, leases);
             return null;
         }
     }
@@ -376,27 +382,27 @@ export class UploadReservationStore extends PuterStore {
         settleMs: number,
     ): Promise<void> {
         if (items.length === 0) return;
-        try {
-            const now = Date.now();
-            const ttlMs = Math.max(
-                0,
-                Math.floor(Number.isFinite(settleMs) ? settleMs : 0),
-            );
-            const members = items.map((item) =>
-                activeMember(item.sessionId, item.bytes),
-            );
-            await this.#redis.uploadReservationSettle(
+        const now = Date.now();
+        const ttlMs = Math.max(
+            0,
+            Math.floor(Number.isFinite(settleMs) ? settleMs : 0),
+        );
+        const members = items.map((item) =>
+            activeMember(item.sessionId, item.bytes),
+        );
+        sendAsUndo(() =>
+            this.#redis.uploadReservationSettle(
                 reservationsKey(ownerId),
                 totalsKey(ownerId),
                 String(now + ttlMs),
                 String(ttlMs + KEY_TTL_SLACK_MS),
                 ...members,
-            );
-        } catch (e) {
+            ),
+        ).catch((e: Error) => {
             console.warn(
-                `[fs] upload reservations not settled for owner ${ownerId}: ${(e as Error).message}`,
+                `[fs] upload reservations not settled for owner ${ownerId}: ${e.message}`,
             );
-        }
+        });
     }
 
     /** Give leases back — abort, failure, or expiry. Bytes were never committed. */
@@ -405,20 +411,20 @@ export class UploadReservationStore extends PuterStore {
         items: { sessionId: string; bytes: number }[],
     ): Promise<void> {
         if (items.length === 0) return;
-        try {
-            const members = items.map((item) =>
-                activeMember(item.sessionId, item.bytes),
-            );
-            await this.#redis.uploadReservationRelease(
+        const members = items.map((item) =>
+            activeMember(item.sessionId, item.bytes),
+        );
+        sendAsUndo(() =>
+            this.#redis.uploadReservationRelease(
                 reservationsKey(ownerId),
                 totalsKey(ownerId),
                 ...members,
-            );
-        } catch (e) {
+            ),
+        ).catch((e: Error) => {
             console.warn(
-                `[fs] upload reservations not released for owner ${ownerId}: ${(e as Error).message}`,
+                `[fs] upload reservations not released for owner ${ownerId}: ${e.message}`,
             );
-        }
+        });
     }
 }
 

@@ -67,7 +67,7 @@ const smtp =
 
 try {
     if ( smtp ) {
-        await run(npm, ['run', 'build:ts']);
+        await run(...npmSpawnArgs(['run', 'build:ts']));
         await run(process.execPath, [
             '--enable-source-maps',
             '-r', './dist/src/backend/telemetry.js',

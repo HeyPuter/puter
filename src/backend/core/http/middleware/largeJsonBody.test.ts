@@ -18,6 +18,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import { isHttpError } from '../HttpError';
@@ -35,7 +36,7 @@ const makeReq = (
     user: string | null = 'u1',
     body?: unknown,
 ) =>
-    ({
+    Object.assign(Readable.from([]), {
         complete: true,
         body,
         headers: {

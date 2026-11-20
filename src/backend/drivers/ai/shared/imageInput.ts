@@ -1,0 +1,172 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * Image inputs as drivers receive them: a public URL, a data-URI, or raw base64
+ * — always a string. Providers whose upstream needs inline bytes normalize URLs
+ * server-side through the SSRF-guarded `secureFetch`; providers that accept
+ * URLs natively pass them through untouched.
+ */
+
+import { HttpError } from '../../../core/http/HttpError.js';
+import { secureFetch } from '../../../util/secureHttp.js';
+import { parseDataUri as parseDataUriParts } from '../../util/dataUri.js';
+import { readBoundedBody } from '../../util/fileInput.js';
+import { isUpstreamTimeoutError } from '../../util/upstreamErrors.js';
+
+const MAX_INPUT_IMAGE_BYTES = 30 * 1024 * 1024;
+const INPUT_IMAGE_TIMEOUT_MS = 30_000;
+
+/** An input image over the byte cap; the caller's to shrink. */
+export const inputImageTooLarge = (maxBytes: number): HttpError =>
+    new HttpError(400, `Input image exceeds ${maxBytes} bytes`, {
+        legacyCode: 'bad_request',
+        code: 'input_too_large',
+    });
+
+export function isHttpUrl(s: unknown): boolean {
+    return (
+        typeof s === 'string' &&
+        (s.startsWith('http://') || s.startsWith('https://'))
+    );
+}
+
+/**
+ * An input image is a URL, a data-URI or raw base64 — always a string. The
+ * field comes straight off the driver call, so the type has to be checked
+ * before anything reaches for `.startsWith`.
+ */
+export function assertInputImageString(img: unknown, label: string): string {
+    if (typeof img !== 'string') {
+        throw new HttpError(
+            400,
+            `${label}: each input image must be a URL, data-URI, or base64 string.`,
+            { legacyCode: 'bad_request' },
+        );
+    }
+    return img;
+}
+
+/**
+ * Normalize an input-image string for providers that accept URLs natively:
+ * http(s) URLs and data-URIs pass through untouched, raw base64 is wrapped with
+ * `mimeHint` (default image/png).
+ */
+export function toUrlOrDataUri(img: string, mimeHint?: string): string {
+    assertInputImageString(img, 'input image');
+    return isHttpUrl(img) || img.startsWith('data:')
+        ? img
+        : `data:${mimeHint ?? 'image/png'};base64,${img}`;
+}
+
+/**
+ * Parse a data-URI input image into its payload + mime (default image/png). The
+ * payload is taken as base64 even without the `;base64` marker, which clients
+ * often leave off.
+ */
+export function parseDataUri(
+    s: string,
+): { base64: string; mime: string } | null {
+    const uri = parseDataUriParts(s, 'image/png');
+    return uri && { base64: uri.data, mime: uri.mimeType };
+}
+
+/**
+ * Fetch image bytes and MIME type with SSRF protection, bounded in size and
+ * time. The MIME type is the declared one, or image/png when none is declared.
+ * With `requireImageMime`, a body not declared as image/* is cancelled unread.
+ */
+export async function fetchImageBytes(
+    url: string,
+    {
+        maxBytes = MAX_INPUT_IMAGE_BYTES,
+        timeoutMs = INPUT_IMAGE_TIMEOUT_MS,
+        signal,
+        requireImageMime = false,
+    }: {
+        maxBytes?: number;
+        timeoutMs?: number;
+        signal?: AbortSignal;
+        requireImageMime?: boolean;
+    } = {},
+): Promise<{ bytes: Buffer; mime: string; declaredMime?: string }> {
+    try {
+        const timeoutSignal = AbortSignal.timeout(timeoutMs);
+        const res = await secureFetch(url, {
+            signal: signal
+                ? AbortSignal.any([signal, timeoutSignal])
+                : timeoutSignal,
+        });
+        if (!res.ok) {
+            await res.body?.cancel();
+            throw new HttpError(
+                400,
+                `Failed to fetch input image (status ${res.status})`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        const declaredMime =
+            res.headers.get('content-type')?.split(';')[0]?.trim() || undefined;
+        if (requireImageMime && !declaredMime?.startsWith('image/')) {
+            await res.body?.cancel();
+            throw new HttpError(
+                400,
+                `expected an image, got ${declaredMime || 'unknown MIME type'}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        const bytes = await readBoundedBody(res, maxBytes, inputImageTooLarge);
+        return { bytes, mime: declaredMime ?? 'image/png', declaredMime };
+    } catch (err) {
+        if (isUpstreamTimeoutError(err)) {
+            throw new HttpError(
+                400,
+                `Timed out fetching input image after ${timeoutMs} ms`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        throw err;
+    }
+}
+
+/** Fetch an http(s) image and return raw base64 + mime (SSRF-guarded). */
+export async function fetchImageAsBase64(
+    url: string,
+): Promise<{ base64: string; mime: string }> {
+    const { bytes, mime } = await fetchImageBytes(url);
+    return { base64: bytes.toString('base64'), mime };
+}
+
+/**
+ * Normalize any input-image string to a base64 data-URI: • http(s) URL →
+ * fetched via secureFetch • data-URI → returned as-is • raw base64 → wrapped
+ * with `mimeHint` (default image/png)
+ */
+export async function toBase64DataUri(
+    img: string,
+    mimeHint?: string,
+): Promise<string> {
+    assertInputImageString(img, 'input image');
+    if (img.startsWith('data:')) return img;
+    if (isHttpUrl(img)) {
+        const { base64, mime } = await fetchImageAsBase64(img);
+        return `data:${mime};base64,${base64}`;
+    }
+    return `data:${mimeHint ?? 'image/png'};base64,${img}`;
+}

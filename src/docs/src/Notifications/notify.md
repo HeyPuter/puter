@@ -4,7 +4,9 @@ description: Send a notification from your app to its user, or to the other side
 platforms: [websites, apps]
 ---
 
-Sends a notification to the user your app runs for, or with `to` to the other side of a [key-value share](/KV/share/). It goes to your app, not the Puter desktop's notifications panel. Every open page of your app gets it live, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). When no open page shows it to the user within 5 seconds, it also goes out as a push to the browsers where the user [turned pushes on](/Notifications/enable/) for your app. [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed) has the exact rule.
+Sends a notification to the user your app runs for, or with `to` to the other side of a [key-value share](/KV/share/).
+
+It goes to your app, not the Puter desktop's notifications panel. Every open page of your app gets it live, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). When no open page is visible and focused as it arrives, it also goes out as a push to the browsers where the user [turned pushes on](/Notifications/enable/) for your app. [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed) has the exact rule.
 
 Only an app can send notifications, meaning an app running on Puter or a website using Puter.js. Every notification carries your app's name. On a website with nobody signed in, the call asks the user to sign in first, as other Puter.js calls do.
 
@@ -19,18 +21,20 @@ puter.notifications.notify(notification)
 
 #### `notification` (Object) (required)
 
-- `title` (String) (required): Up to 120 characters. Line breaks become spaces.
-- `text` (String): Up to 240 characters. Line breaks are kept.
-- `icon` (String): An `https` URL to an image, up to 2,048 characters. Without it, your app's icon is used. A push that Puter shows always uses your app's icon.
-- `target` (String): A path inside your app, starting with `/`, such as `/chats/42`. Up to 512 characters. A click hands it back to your app through [`on('click')`](/Notifications/on/). On a website, a tap on a push opens this path when no page of your site is open.
-- `data` (any): A JSON value of up to 1 KB, handed back on click. Push services can read it, so put ids in it, not personal content.
-- `group` (String): A later notification with the same `group` replaces this one, as [Groups](#groups) describes. Up to 128 letters, digits and `. _ : @ -`.
-- `channel` (String): What kind of notification it is, such as `messages` or `reminders`. The [`onPush()`](/Notifications/onPush/) handler registered with this key decides what its push shows. Up to 32 lowercase letters, digits and `-`.
-- `sensitive` (Boolean): Pushes, and the notification a page of your app shows itself, name only your app, such as "New notification from Chat" for an app named Chat, instead of showing the title and text. On a website, a sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens your site's root, or your service worker's folder when your pages are inside it, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. A listener added with [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
-- `priority` (String): `'normal'` (default) or `'high'`. A high-priority push is delivered right away, even to a phone or computer that's idle, so use it for things like an incoming call. Pair it with a short `ttl` so a missed call doesn't ring late. Each user gets at most 60 high-priority pushes an hour from your app, and pushes past that go out at normal priority. Priority doesn't change how the notification looks. To keep it on screen until the user acts, return `requireInteraction` from your [`onPush()`](/Notifications/onPush/) handler. [Notify Users of Incoming Calls](/recipes/notify-users-of-incoming-calls/) shows the whole setup.
-- `ttl` (Number): How many seconds a push may wait for a device that's offline, from 1 to 86400. Defaults to 3600. It doesn't change how long the notification is kept.
-- `to` (Object): Send it to the other side of a key-value share instead, as `{ handle }` with the share's handle. See [Notify the other side of a share](#notify-the-other-side-of-a-share).
-- `sendAt` (Number | String | Date): Send it at this time instead of now, as a `Date`, an ISO-8601 string with a zone, a date alone (midnight UTC), or whole milliseconds since the epoch. Rounded up to the next whole second, and at most 366 days ahead. A time within 5 seconds, or in the past, sends it now. See [Send it later](#send-it-later).
+| Option | Type | Description |
+|--------|------|-------------|
+| `title` | `String` | Required. The notification's title, up to 120 characters. Line breaks become spaces. |
+| `text` | `String` | The notification's body text, up to 240 characters. Line breaks are kept. |
+| `target` | `String` | A path inside your app, starting with `/`, such as `/chats/42`. Up to 512 characters. A click hands it back to your app through [`on('click')`](/Notifications/on/). On a website, a tap on a push opens this path when no page of your site is open. |
+| `data` | `Any` | A JSON value of up to 1 KB, handed back on click. Push services can read it, so put ids in it, not personal content. |
+| `group` | `String` | A later notification with the same `group` replaces this one, as [Groups](#groups) describes. Up to 128 letters, digits and `. _ : @ -`. |
+| `channel` | `String` | What kind of notification it is, such as `messages` or `reminders`. The [`onPush()`](/Notifications/onPush/) handler registered with this key decides what its push shows. Up to 32 lowercase letters, digits and `-`. |
+| `icon` | `String` | An `https` URL to an image, up to 2,048 characters. Without it, your app's icon is used. A push that Puter shows always uses your app's icon. |
+| `sendAt` | `Number \| String \| Date` | Send it at this time instead of now, as a `Date`, an ISO-8601 string with a zone, a date alone (midnight UTC), or whole milliseconds since the epoch. Rounded up to the next whole second, and at most 366 days ahead. A time within 5 seconds, or in the past, sends it now. See [Send it later](#send-it-later). |
+| `to` | `Object` | Send it to the other side of a key-value share instead, as `{ handle }` with the share's handle. See [Notify the other side of a share](#notify-the-other-side-of-a-share). |
+| `sensitive` | `Boolean` | When `true`, pushes, and the notification a page of your app shows itself, name only your app, such as "New notification from Chat" for an app named Chat, instead of showing the title and text. On a website, a sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens your site's root, or your service worker's folder when your pages are inside it, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. A listener added with [`onNotification()`](/Notifications/onNotification/) still gets the whole notification. |
+| `priority` | `String` | Either `'normal'` (default) or `'high'`. A high-priority push is delivered right away, even to a phone or computer that's idle, so use it for things like an incoming call. Pair it with a short `ttl` so a missed call doesn't ring late. Each user gets at most 60 high-priority pushes an hour from your app, and pushes past that go out at normal priority. Priority doesn't change how the notification looks. To keep it on screen until the user acts, return `requireInteraction` from your [`onPush()`](/Notifications/onPush/) handler. [Notify Users of Incoming Calls](/recipes/notify-users-of-incoming-calls/) shows the whole setup. |
+| `ttl` | `Number` | How many seconds a push may wait for a device that's offline, from 1 to 86400. Defaults to 3600. It doesn't change how long the notification is kept. |
 
 ## Return value
 
@@ -40,7 +44,9 @@ With `to`, the `Promise` resolves with no value, so the call doesn't reveal anyt
 
 With a `sendAt` more than 5 seconds ahead, the `Promise` resolves to `{ scheduleId, sendAt }` instead, with or without `to`. To cancel it before it goes out, pass `scheduleId` to [`cancel()`](/Notifications/cancel/). The `sendAt` it resolves with is when it goes, in milliseconds since the epoch. With a `sendAt` within 5 seconds, it resolves as it would without one.
 
-It rejects with an error carrying `message` and `code`:
+## Errors
+
+The promise rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
@@ -117,7 +123,7 @@ A replacement counts against the 30 notifications a minute but not the 1,000 a d
 
 ## Examples
 
-<strong class="example-title">Notify the user about a new message</strong>
+### Notify the user about a new message
 
 ```html
 <html>
@@ -140,7 +146,7 @@ A replacement counts against the 30 notifications a minute but not the 1,000 a d
 </html>
 ```
 
-<strong class="example-title">Notify the other side of a share</strong>
+### Notify the other side of a share
 
 ```js
 const share = await puter.kv.share({ prefix: 'room:42:', recipient: 'alice', access: 'write', notify: true });
@@ -152,7 +158,7 @@ await puter.notifications.notify({
 });
 ```
 
-<strong class="example-title">Keep the content out of pushes</strong>
+### Keep the content out of pushes
 
 ```js
 await puter.notifications.notify({
@@ -163,7 +169,7 @@ await puter.notifications.notify({
 });
 ```
 
-<strong class="example-title">Ring for an incoming call</strong>
+### Ring for an incoming call
 
 ```js
 await puter.notifications.notify({

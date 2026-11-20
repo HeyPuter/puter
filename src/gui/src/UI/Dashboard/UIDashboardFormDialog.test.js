@@ -64,6 +64,19 @@ describe('UIDashboardFormDialog', () => {
         expect($('.dashboard-form-field[data-field="code"]').prop('hidden')).toBe(true);
     });
 
+    it.each([
+        ['the close button', () => $('.dashboard-dialog-close').trigger('click')],
+        ['Cancel', () => $('.dashboard-form-cancel').trigger('click')],
+        ['Escape', () => $(document).trigger($.Event('keydown', { key: 'Escape' }))],
+        ['close()', (dialog) => dialog.close()],
+    ])('runs onClose once when closed with %s', (_name, closeIt) => {
+        const onClose = vi.fn();
+        const dialog = open({ onClose });
+        closeIt(dialog);
+        dialog.close();
+        expect(onClose).toHaveBeenCalledOnce();
+    });
+
     it('ignores Escape and backdrop clicks while the handler runs, but not the close button', async () => {
         let release;
         const dialog = open({ onSubmit: () => new Promise((resolve) => {

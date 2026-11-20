@@ -133,6 +133,27 @@ describe('list forms', () => {
         expect('uuid' in member).toBe(false);
     });
 
+    it('carries passwordPending when the row has it, true or false', async () => {
+        routes({ 'GET /teams/t-1/members': { items: [
+            { username: 'ann', org_owned: true, created_at: 'x', uuid: 'u-1', password_pending: true },
+            { username: 'bob', org_owned: false, created_at: 'x', uuid: 'u-2', password_pending: false },
+            { username: 'cat', org_owned: true, created_at: 'x' },
+        ] } });
+        const [ann, bob, cat] = await teams.listMembers('t-1');
+        expect(ann.passwordPending).toBe(true);
+        expect(bob.passwordPending).toBe(false);
+        expect('passwordPending' in cat).toBe(false);
+    });
+
+    it('drops a non-boolean password_pending rather than coercing it', async () => {
+        routes({ 'GET /teams/t-1/members': { items: [1, 'true', null].map((value, i) => (
+            { username: `u${i}`, org_owned: true, created_at: 'x', password_pending: value }
+        )) } });
+        const members = await teams.listMembers('t-1');
+        expect(members).toHaveLength(3);
+        for (const m of members) expect('passwordPending' in m).toBe(false);
+    });
+
     it('keeps a false orgOwned for an account caller', async () => {
         routes({ 'GET /teams/t-1/members': { items: [
             { username: 'ann', org_owned: false, created_at: 'x', uuid: 'u-1' },

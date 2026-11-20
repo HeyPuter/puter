@@ -26,13 +26,17 @@ import {
     type Actor,
 } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { normalizeOrigin } from '../../core/http/middleware/originGate.js';
 import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
 import { awaitLater } from '../../util/concurrency.js';
 import { appGenerationStart } from '../../util/appGeneration.js';
 import {
+    ACCESS_TOKEN_ASSET_VIA,
     ASSET_WINDOW_SECONDS,
+    DEBUG_APP_SESSION_KIND,
     GODMODE_TOKEN_MAX_AGE_SECONDS,
     GODMODE_TOKEN_WINDOW_SECONDS,
+    isSessionExpired,
     WEB_WINDOW_SECONDS,
 } from '../../stores/session/SessionStore.js';
 import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
@@ -76,6 +80,15 @@ const SESSION_PURGE_SAVE_EVERY = 10;
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
+/**
+ * Whether an account can sign back in, so its idle sessions end: it has a
+ * password or an email. Temp accounts have neither. Reads an actor's
+ * `hasPassword` as well as a row's `password`.
+ */
+const canSignInAgain = (
+    user: { password?: unknown; hasPassword?: boolean; email?: unknown } | null,
+): boolean => !!user && (!!user.email || (user.hasPassword ?? !!user.password));
+
 const positiveUserId = (value: unknown): number | null => {
     const id = typeof value === 'string' ? Number(value) : value;
     return typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : null;
@@ -105,6 +118,15 @@ const HOSTED_ASSET_LABELS = {
 } as const;
 
 export type ReauthReason = 'session_revoked' | 'session_expired';
+
+/** Worker claims a session/gui token can carry. */
+interface SessionTypeTokenOptions {
+    worker?: boolean;
+    workerName?: string;
+    workerUid?: string;
+    workerSiteUid?: string;
+    workerSite?: string;
+}
 
 /**
  * Request metadata for `authenticate`. `touch: false` checks the token without
@@ -367,6 +389,85 @@ export class AuthService extends PuterService {
         );
     }
 
+    /**
+     * Digest of the claims `createGuiToken` signs for this session, which
+     * differ between two of its tokens only in `iat`.
+     */
+    guiTokenDigest(user: UserRow, sessionUuid: string): string {
+        return this.services.token.claimsDigest(
+            'auth',
+            this.#sessionTypeClaims(
+                'gui',
+                user,
+                sessionUuid,
+                this.#authIdFor(user),
+            ),
+        );
+    }
+
+    /**
+     * Whether `origin` is one of the deployment's own pages that sign in with a
+     * session of their own (`first_party_session_origins`).
+     */
+    isFirstPartySessionOrigin(origin: unknown): boolean {
+        if (typeof origin !== 'string' || !origin) return false;
+        const wanted = normalizeOrigin(origin);
+        return (this.config.first_party_session_origins ?? []).some(
+            (listed) => normalizeOrigin(listed) === wanted,
+        );
+    }
+
+    /**
+     * Mint the GUI token one of the deployment's own pages signs in with: a
+     * `web` session of its own under the caller's sign-in, so it is listed and
+     * revoked apart from that sign-in and ends with it. Only a sign-in itself
+     * may ask, never a session handed out this way. No session cookie is ever
+     * issued for the row.
+     */
+    async createFirstPartySessionToken(
+        actor: Actor,
+        origin: string,
+        meta: Record<string, unknown> = {},
+    ): Promise<string> {
+        if (
+            !isPlainUserActor(actor) ||
+            !actor.user?.id ||
+            !actor.user.uuid ||
+            actor.session?.kind !== 'web' ||
+            actor.session.parentUid
+        ) {
+            throw new HttpError(
+                403,
+                'Only a signed-in browser session can sign this page in',
+                { legacyCode: 'forbidden' },
+            );
+        }
+        if (!this.isFirstPartySessionOrigin(origin)) {
+            throw new HttpError(403, 'This origin cannot be signed in', {
+                legacyCode: 'forbidden',
+            });
+        }
+
+        const auth_id = this.#authIdFor(actor.user as UserRow);
+        const row = await this.stores.session.getOrCreateFirstPartySession(
+            actor.user.id,
+            {
+                parentSessionUid: actor.session.uid,
+                origin: normalizeOrigin(origin),
+                expiresAt: nowSeconds() + WEB_WINDOW_SECONDS,
+                meta,
+                auth_id,
+                idleEnds: canSignInAgain(actor.user),
+            },
+        );
+        if (!row?.uuid) {
+            throw new HttpError(500, 'Could not sign this page in', {
+                legacyCode: 'internal_error',
+            });
+        }
+        return this.createGuiToken(actor.user as UserRow, row.uuid);
+    }
+
     /** Sign a session token for an existing session (upgrade from GUI token). */
     createSessionTokenForSession(user: UserRow, sessionUuid: string): string {
         return this.#signSessionTypeToken(
@@ -386,14 +487,21 @@ export class AuthService extends PuterService {
         user: UserRow,
         sessionUuid: string,
         authId: string,
-        opts: {
-            worker?: boolean;
-            workerName?: string;
-            workerUid?: string;
-            workerSiteUid?: string;
-            workerSite?: string;
-        } = {},
+        opts: SessionTypeTokenOptions = {},
     ): string {
+        return this.services.token.sign(
+            'auth',
+            this.#sessionTypeClaims(type, user, sessionUuid, authId, opts),
+        );
+    }
+
+    #sessionTypeClaims(
+        type: 'session' | 'gui',
+        user: UserRow,
+        sessionUuid: string,
+        authId: string,
+        opts: SessionTypeTokenOptions = {},
+    ): Record<string, unknown> {
         const claims: Record<string, unknown> = {
             type,
             version: '2',
@@ -410,7 +518,7 @@ export class AuthService extends PuterService {
         if (opts.workerUid) claims.worker_uid = opts.workerUid;
         if (opts.workerSiteUid) claims.workerSiteUid = opts.workerSiteUid;
         if (opts.workerSite) claims.workerSite = opts.workerSite;
-        return this.services.token.sign('auth', claims);
+        return claims;
     }
 
     /**
@@ -743,9 +851,25 @@ export class AuthService extends PuterService {
 
         const rows = (await this.stores.session.getByUserId(
             actor.user.id,
-        )) as Array<Record<string, unknown>>;
+        )) as SessionRow[];
 
-        const visible = rows.filter((row) => row.kind !== 'asset');
+        // Listed while authentication still accepts it: not expired, and for
+        // a token minted under another session, that session live as well.
+        const idleEnds = canSignInAgain(actor.user);
+        const live = new Map(
+            rows
+                .filter((row) => !this.#endedSession(row, idleEnds))
+                .map((row) => [row.uuid, row]),
+        );
+        const visible = [...live.values()].filter(
+            (row) =>
+                row.kind !== 'asset' &&
+                // Operator-created debug sessions are never the user's own.
+                row.kind !== DEBUG_APP_SESSION_KIND &&
+                ((row.kind !== 'access_token' && row.kind !== 'web') ||
+                    !row.parent_session_id ||
+                    live.has(row.parent_session_id)),
+        );
 
         const appUids = [
             ...new Set(
@@ -785,7 +909,7 @@ export class AuthService extends PuterService {
         const enriched = visible.map((row) => {
             const meta =
                 (typeof row.meta === 'string'
-                    ? JSON.parse(row.meta as string)
+                    ? JSON.parse(row.meta)
                     : row.meta) ?? {};
             const isCurrent = actor.session?.uid === row.uuid;
             const appUid = typeof row.app_uid === 'string' ? row.app_uid : null;
@@ -913,11 +1037,22 @@ export class AuthService extends PuterService {
      * link.
      */
     async revokeAllSessionsForUserId(userId: number): Promise<void> {
-        if (!userId) return;
-        const rows = await this.stores.session.getByUserId(userId, {
-            primary: true,
-        });
-        await this.#revokeCascades(rows.map((row) => row.uuid as string));
+        await this.revokeAllSessionsForUserIds([userId]);
+    }
+
+    /**
+     * `revokeAllSessionsForUserId` for several users: one read and one cascade
+     * per 200 users, with each user's revocation still announced on its own.
+     */
+    async revokeAllSessionsForUserIds(userIds: number[]): Promise<void> {
+        const ids = [...new Set(userIds.filter(Boolean))];
+        for (let offset = 0; offset < ids.length; offset += 200) {
+            const rows = await this.stores.session.getByUserIds(
+                ids.slice(offset, offset + 200),
+                { primary: true },
+            );
+            await this.#revokeCascades(rows.map((row) => row.uuid as string));
+        }
     }
 
     async #revokeCascades(rootUuids: string[]): Promise<void> {
@@ -945,7 +1080,8 @@ export class AuthService extends PuterService {
     /**
      * A user removing an app: every grant they gave it and the sessions of the
      * workers it deployed for them go, then `app.uninstalled` tells listeners,
-     * which delete the app's data in the account when `deleteData` is set.
+     * which take those workers down and delete the app's data in the account
+     * when `deleteData` is set.
      */
     async uninstallApp(
         actor: Actor,
@@ -1030,7 +1166,12 @@ export class AuthService extends PuterService {
         });
         await this.#revokeCascades(
             rows
-                .filter((row) => row.kind === 'web' || row.kind === 'app')
+                .filter(
+                    (row) =>
+                        row.kind === 'web' ||
+                        row.kind === 'app' ||
+                        row.kind === DEBUG_APP_SESSION_KIND,
+                )
                 .map((row) => row.uuid as string),
         );
     }
@@ -1044,16 +1185,24 @@ export class AuthService extends PuterService {
                 legacyCode: 'forbidden',
             });
         }
-        const currentUuid = actor.session?.uid;
-        const rows = await this.stores.session.getByUserId(
+        // The current sign-in is the session, the sign-in it was handed out
+        // under, and the sessions handed out under either.
+        const current = new Set(
+            [actor.session?.uid, actor.session?.parentUid].filter(Boolean),
+        );
+        const rows = (await this.stores.session.getByUserId(
             actor.user.id as number,
             { primary: true },
-        );
+        )) as SessionRow[];
         await this.#revokeCascades(
             rows
                 .filter((row) =>
                     row.kind === 'web'
-                        ? opts.includeCurrent || row.uuid !== currentUuid
+                        ? opts.includeCurrent ||
+                          !(
+                              current.has(row.uuid) ||
+                              current.has(row.parent_session_id ?? '')
+                          )
                         : row.kind === 'app' && opts.includeApps,
                 )
                 .map((row) => row.uuid as string),
@@ -1790,6 +1939,7 @@ export class AuthService extends PuterService {
             {
                 auth_id: this.#authIdFor(actor.user as UserRow),
                 notBefore: appGenerationStart(app),
+                idleEnds: canSignInAgain(actor.user),
             },
         );
 
@@ -1811,6 +1961,49 @@ export class AuthService extends PuterService {
                   }
                 : {}),
         });
+    }
+
+    /**
+     * An app token acting as `user` in `app` on its own `debug_app` session,
+     * which expires after `ttlSeconds` and never touches the user's real
+     * sessions. The caller authorizes who may ask; `meta` lands on the row.
+     */
+    async createDebugAppToken(
+        user: UserRow,
+        app: { uid: string },
+        opts: {
+            ttlSeconds: number;
+            label?: string | null;
+            meta?: Record<string, unknown>;
+        },
+    ): Promise<{ token: string; sessionUuid: string; expiresAt: number }> {
+        const authId = this.#authIdFor(user);
+        const expiresAtSeconds = nowSeconds() + opts.ttlSeconds;
+        const session = await this.stores.session.create(user.id as number, {
+            kind: DEBUG_APP_SESSION_KIND,
+            app_uid: app.uid,
+            expires_at: expiresAtSeconds,
+            auth_id: authId,
+            label: opts.label ?? null,
+            meta: opts.meta ?? {},
+        });
+        const token = this.services.token.sign(
+            'auth',
+            {
+                type: 'app-under-user',
+                version: '2',
+                user_uid: user.uuid,
+                app_uid: app.uid,
+                session_uid: session.uuid,
+                auth_id: authId,
+            },
+            { expiresIn: opts.ttlSeconds },
+        );
+        return {
+            token,
+            sessionUuid: session.uuid as string,
+            expiresAt: expiresAtSeconds * 1000,
+        };
     }
 
     /**
@@ -1889,7 +2082,7 @@ export class AuthService extends PuterService {
         }
         if (row.access_token_uid) {
             this.clients.event?.emit(
-                'auth.access-token.revoked',
+                'outer.auth.access-token.revoked',
                 { token_uid: row.access_token_uid },
                 {},
             );
@@ -1915,7 +2108,8 @@ export class AuthService extends PuterService {
         const options: Record<string, unknown> = {
             httpOnly: true,
             ...sessionCookieFlags(this.config),
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+            // Matches the signed expiry; a private cookie's row lasts as long.
+            maxAge: ASSET_WINDOW_SECONDS * 1000,
             path: '/',
         };
         if (opts.requestHostname) {
@@ -1935,62 +2129,74 @@ export class AuthService extends PuterService {
             host?: string;
         },
     ): Promise<string> {
+        // A private cookie with no session would outlive every revocation.
+        if (kind === 'private' && !claims.sessionUuid) {
+            throw new HttpError(401, 'session required', {
+                legacyCode: 'session_required',
+            });
+        }
         const { assetSessionUuid, authId } =
             await this.#mintAssetSessionContext(claims.sessionUuid, kind);
-        return this.services.token.sign('hosted-asset', {
-            kind,
-            version: '2',
-            user_uid: claims.userUid,
-            app_uid: claims.appUid,
-            ...(assetSessionUuid
-                ? { session_uuid: assetSessionUuid }
-                : claims.sessionUuid
-                  ? { session_uuid: claims.sessionUuid }
-                  : {}),
-            ...(authId ? { auth_id: authId } : {}),
-            ...(claims.subdomain ? { subdomain: claims.subdomain } : {}),
-            ...(claims.host ? { host: claims.host } : {}),
-        });
+        return this.services.token.sign(
+            'hosted-asset',
+            {
+                kind,
+                version: '2',
+                user_uid: claims.userUid,
+                app_uid: claims.appUid,
+                ...(assetSessionUuid
+                    ? { session_uuid: assetSessionUuid }
+                    : claims.sessionUuid
+                      ? { session_uuid: claims.sessionUuid }
+                      : {}),
+                ...(authId ? { auth_id: authId } : {}),
+                ...(claims.subdomain ? { subdomain: claims.subdomain } : {}),
+                ...(claims.host ? { host: claims.host } : {}),
+            },
+            { expiresIn: ASSET_WINDOW_SECONDS },
+        );
     }
 
     /**
      * Public cookies reuse the parent; private cookies get a child with an
-     * asset expiry.
+     * asset expiry. The parent is the identity's session, or a full-access
+     * token's own row; a child of the latter is marked so each use checks it.
      */
     async #mintAssetSessionContext(
-        webSessionUuid: string | undefined,
+        parentSessionUuid: string | undefined,
         kind: HostedAssetKind,
     ): Promise<{ assetSessionUuid: string | null; authId: string | null }> {
-        if (!webSessionUuid) return { assetSessionUuid: null, authId: null };
-        const webSession = await this.stores.session.getByUuid(webSessionUuid);
-        if (!webSession) {
+        if (!parentSessionUuid) return { assetSessionUuid: null, authId: null };
+        const parent = (await this.stores.session.getByUuid(
+            parentSessionUuid,
+        )) as SessionRow | null;
+        if (!parent) {
             throw new HttpError(401, 'session no longer valid', {
                 legacyCode: 'session_required',
             });
         }
-        const authId =
-            ((webSession as SessionRow).auth_id as string | null) ?? null;
+        const authId = parent.auth_id ?? null;
         if (kind === 'public')
-            return { assetSessionUuid: webSessionUuid, authId };
-        const row = await this.stores.session.create(
-            (webSession as SessionRow).user_id as number,
-            {
-                kind: 'asset',
-                parent_session_id: webSessionUuid,
-                expires_at: nowSeconds() + ASSET_WINDOW_SECONDS,
-                auth_id: authId,
-            },
-        );
+            return { assetSessionUuid: parentSessionUuid, authId };
+        const row = await this.stores.session.create(parent.user_id, {
+            kind: 'asset',
+            parent_session_id: parentSessionUuid,
+            expires_at: nowSeconds() + ASSET_WINDOW_SECONDS,
+            auth_id: authId,
+            ...(parent.kind === 'access_token'
+                ? { created_via: ACCESS_TOKEN_ASSET_VIA }
+                : {}),
+        });
         return { assetSessionUuid: row.uuid, authId };
     }
 
     /**
      * Verify a hosted-asset cookie of `kind` against what the request expects,
-     * and that the session it was minted under still exists and isn't revoked:
-     * `getByUuid` filters on `revoked_at IS NULL`, so revoking the minting
-     * session invalidates the cookie. Only the leaf row is checked; see
-     * `#mintAssetSessionContext` for the godmode case. A cookie minted without
-     * a session (from an access-token actor) has nothing to bind.
+     * and that the session it was minted under is still live (see
+     * `#hostedAssetSessionLive`). Revoking a sign-in cascades to its asset
+     * rows, so for those only the leaf row is read. A private cookie must name
+     * a session (the gate mints a bound one in place of one that doesn't); a
+     * public cookie minted without one has nothing to bind.
      */
     async verifyHostedAssetToken(
         kind: HostedAssetKind,
@@ -2030,15 +2236,19 @@ export class AuthService extends PuterService {
         );
 
         const sessionUuid = decoded.session_uuid as string | undefined;
-        if (sessionUuid) {
-            const session = await this.stores.session.getByUuid(sessionUuid);
-            if (!session) {
-                throw new HttpError(
-                    401,
-                    `${labels.token} token session no longer valid`,
-                    { legacyCode: 'session_required' },
-                );
-            }
+        if (kind === 'private' && !sessionUuid) {
+            throw new HttpError(
+                401,
+                `${labels.token} token session no longer valid`,
+                { legacyCode: 'session_required' },
+            );
+        }
+        if (sessionUuid && !(await this.#hostedAssetSessionLive(sessionUuid))) {
+            throw new HttpError(
+                401,
+                `${labels.token} token session no longer valid`,
+                { legacyCode: 'session_required' },
+            );
         }
 
         return {
@@ -2049,6 +2259,78 @@ export class AuthService extends PuterService {
             host: decoded.host as string | undefined,
             authId: decoded.auth_id as string | undefined,
         };
+    }
+
+    /**
+     * Whether the row a hosted-asset cookie names is live. One minted from an
+     * access token is held to the token's row and the session that row hangs
+     * off, as token auth is; a sign-in it names ends when idle, as in auth.
+     */
+    async #hostedAssetSessionLive(sessionUuid: string): Promise<boolean> {
+        const read = async (uuid: string | null | undefined) =>
+            uuid
+                ? ((await this.stores.session.getByUuid(
+                      uuid,
+                  )) as SessionRow | null)
+                : null;
+        let row = await read(sessionUuid);
+        if (row?.created_via === ACCESS_TOKEN_ASSET_VIA) {
+            row = await read(row.parent_session_id);
+        }
+        if (row?.kind === 'access_token' && row.parent_session_id) {
+            row = await read(row.parent_session_id);
+        }
+        if (!row) return false;
+        return !(await this.#idleEnded(row));
+    }
+
+    /**
+     * Whether a live row is past the idle window for its user, for callers that
+     * don't hold the user row: it is read only when the row is idle.
+     */
+    async #idleEnded(row: SessionRow): Promise<boolean> {
+        if (!isSessionExpired(row, nowSeconds(), { idleEnds: true })) {
+            return false;
+        }
+        const user = await this.stores.user.getById(row.user_id);
+        return !user || canSignInAgain(user);
+    }
+
+    /**
+     * User, session and app a session, GUI or app token names, checked against
+     * its signature and expiry only: nothing is read from the stores, so this
+     * says nothing about whether the session or user is still live. Null for
+     * worker and access tokens, and for anything that doesn't verify.
+     */
+    signedSessionClaims(
+        token: string,
+    ): { userUid: string; sessionUuid: string; appUid?: string } | null {
+        let decoded: AnyTokenPayload;
+        try {
+            decoded = this.services.token.verify<AnyTokenPayload>(
+                'auth',
+                token,
+            );
+        } catch {
+            return null;
+        }
+        if (decoded.type === 'session' || decoded.type === 'gui') {
+            if (decoded.worker) return null;
+            const sessionUuid = decoded.session_uid ?? decoded.uuid;
+            if (!decoded.user_uid || !sessionUuid) return null;
+            return { userUid: decoded.user_uid, sessionUuid };
+        }
+        if (decoded.type === 'app-under-user') {
+            if (decoded.worker) return null;
+            if (!decoded.user_uid || !decoded.session_uid || !decoded.app_uid)
+                return null;
+            return {
+                userUid: decoded.user_uid,
+                sessionUuid: decoded.session_uid,
+                appUid: decoded.app_uid,
+            };
+        }
+        return null;
     }
 
     #verifyHostedAssetToken(
@@ -2218,18 +2500,21 @@ export class AuthService extends PuterService {
         let parent_session_id =
             issuingApp && actor.session ? actor.session.uid : null;
         if (mintingToken) {
-            const mintingRow =
-                await this.stores.session.findActiveByAccessTokenUid(
-                    mintingToken.uid,
-                );
-            if (!mintingRow) {
+            const mintingRowUuid =
+                mintingToken.sessionUid ??
+                (
+                    await this.stores.session.findActiveByAccessTokenUid(
+                        mintingToken.uid,
+                    )
+                )?.uuid;
+            if (!mintingRowUuid) {
                 throw new HttpError(
                     403,
                     'Access tokens may not create access tokens',
                     { legacyCode: 'forbidden' },
                 );
             }
-            parent_session_id = mintingRow.uuid;
+            parent_session_id = mintingRowUuid;
         }
 
         const tokenSession = await this.stores.session.create(
@@ -2511,7 +2796,7 @@ export class AuthService extends PuterService {
         // Only a token the handshake admits has a socket to drop.
         if (mayBeFullAccess) {
             this.clients.event?.emit(
-                'auth.access-token.revoked',
+                'outer.auth.access-token.revoked',
                 { token_uid: tokenUid },
                 {},
             );
@@ -2610,13 +2895,26 @@ export class AuthService extends PuterService {
             decoded.worker || (rawRow?.kind ?? 'web') !== 'web'
                 ? undefined
                 : this.#authIdFor(user as UserRow);
+        const idleEnds = !decoded.worker && canSignInAgain(user);
 
-        const ended = this.#endedSession(rawRow, auth_id);
+        const ended = this.#endedSession(rawRow, idleEnds, auth_id);
         if (ended) return ended;
 
         const session: SessionRow | null = rawRow;
 
         if (!session) return { invalid: true };
+        // A session handed to a first-party page lives no longer than the
+        // sign-in it was handed out under.
+        if (session.kind === 'web' && session.parent_session_id) {
+            const parent = (await this.stores.session.getByUuidAny(
+                session.parent_session_id,
+            )) as SessionRow | null;
+            if (!parent) {
+                return { reauth: { reason: 'session_revoked', auth_id } };
+            }
+            const parentEnded = this.#endedSession(parent, idleEnds, auth_id);
+            if (parentEnded) return parentEnded;
+        }
         if (!(await deployed)) return { invalid: true };
 
         void this.#touchSession(session.uuid, user.id, ctx);
@@ -2655,7 +2953,10 @@ export class AuthService extends PuterService {
 
         // An app token never carries `auth_id` on its reauth result: only a
         // user's own session/GUI token can be reattached via a reauth token.
-        const ended = this.#endedSession(rawRow);
+        const ended = this.#endedSession(
+            rawRow,
+            !decoded.worker && canSignInAgain(user),
+        );
         if (ended) return ended;
 
         const session: SessionRow | null = rawRow;
@@ -2675,7 +2976,11 @@ export class AuthService extends PuterService {
 
         // An events handler's calls are background work, not the user being
         // active, and its session never expires, so they record no activity.
-        if (decoded.worker_name !== EVENTS_WORKER_SESSION_NAME)
+        // Nor do calls on a debug session, which aren't the user's own.
+        if (
+            decoded.worker_name !== EVENTS_WORKER_SESSION_NAME &&
+            session.kind !== DEBUG_APP_SESSION_KIND
+        )
             void this.#touchSession(session.uuid, user.id, ctx);
 
         const actor = this.#buildAppUnderUserActor(user, app, session);
@@ -2748,9 +3053,10 @@ export class AuthService extends PuterService {
         let parentSession: SessionRow | null = null;
         if (sessionLookup && parentLookup) {
             const rawRow = await sessionLookup;
+            const idleEnds = canSignInAgain(user);
             // No `auth_id` on an access token's reauth result: a reauth token
             // is only ever minted for the user's own session/GUI token.
-            const ended = this.#endedSession(rawRow);
+            const ended = this.#endedSession(rawRow, idleEnds);
             if (ended) return ended;
             if (!rawRow) return { invalid: true };
             // A token minted under another session (an app's, a godmode
@@ -2758,7 +3064,7 @@ export class AuthService extends PuterService {
             if (rawRow.parent_session_id) {
                 const parent = await parentLookup;
                 if (!parent) return { reauth: { reason: 'session_revoked' } };
-                const parentEnded = this.#endedSession(parent);
+                const parentEnded = this.#endedSession(parent, idleEnds);
                 if (parentEnded) return parentEnded;
                 parentSession = parent;
             }
@@ -2796,6 +3102,15 @@ export class AuthService extends PuterService {
 
         if (session) void this.#touchSession(session.uuid, user.id, ctx);
 
+        // The row `findActiveByAccessTokenUid` would return, already checked
+        // live above, so tokens this one mints can parent to it without a read.
+        const ownRow =
+            session?.kind === 'access_token' &&
+            (session.access_token_uid === decoded.token_uid ||
+                session.legacy_token_uid === decoded.token_uid)
+                ? session
+                : null;
+
         const actor = makeActor({
             user: this.#actorUserFromRow(user),
             accessToken: {
@@ -2808,6 +3123,7 @@ export class AuthService extends PuterService {
                 // claim on one is ignored here.
                 fullAccess: !decoded.app_uid && decoded.full_access === true,
                 ...(godmodeApp ? { godmodeApp } : {}),
+                ...(ownRow ? { sessionUid: ownRow.uuid } : {}),
             },
         });
         this.#applyHandlerDepth(actor, decoded);
@@ -2816,12 +3132,17 @@ export class AuthService extends PuterService {
 
     /**
      * The reauth a revoked or expired session answers with; null while it is
-     * live, or when there is no row.
+     * live, or when there is no row. `idleEnds` is for an account that can sign
+     * back in: its `web` and `app` sessions also end when idle.
      */
-    #endedSession(row: SessionRow | null, authId?: string): AuthResult | null {
+    #endedSession(
+        row: SessionRow | null,
+        idleEnds: boolean,
+        authId?: string,
+    ): AuthResult | null {
         let reason: ReauthReason;
         if (row?.revoked_at != null) reason = 'session_revoked';
-        else if (row?.expires_at != null && row.expires_at <= nowSeconds())
+        else if (isSessionExpired(row, nowSeconds(), { idleEnds }))
             reason = 'session_expired';
         else return null;
         return {
@@ -2864,11 +3185,12 @@ export class AuthService extends PuterService {
 
     #actorUserFromRow(user: UserRow) {
         // Strip the password hash; pass everything else through so callers
-        // can read metadata, desktop_bg_*, otp_enabled, etc. without
+        // can read metadata, otp_enabled, etc. without
         // re-fetching the user. Mirrors what /whoami exposes off of UserRow.
         const { password: _password, ...rest } = user;
         return {
             ...rest,
+            hasPassword: user.password !== null,
             email: user.email ?? null,
             suspended: user.suspended ?? false,
             email_confirmed: user.email_confirmed ?? false,
@@ -2895,7 +3217,13 @@ export class AuthService extends PuterService {
         return makeActor({
             user: this.#actorUserFromRow(user),
             session: session
-                ? { uid: session.uuid, kind: session.kind ?? null }
+                ? {
+                      uid: session.uuid,
+                      kind: session.kind ?? null,
+                      ...(session.kind === 'web' && session.parent_session_id
+                          ? { parentUid: session.parent_session_id }
+                          : {}),
+                  }
                 : null,
         });
     }

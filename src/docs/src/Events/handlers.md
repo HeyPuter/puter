@@ -4,9 +4,11 @@ description: Publish, list and remove the named handlers that persistent subscri
 platforms: [websites, apps, nodejs, workers]
 ---
 
+A **handler** is a function that [persistent subscriptions](/Events/onPersistent/) and [schedules](/Events/onSchedule/) run in the background.
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-A **handler** is a function that [persistent subscriptions](/Events/onPersistent/) and [schedules](/Events/onSchedule/) run in the background. A handler runs only when a subscription bound to it has a delivery, or a schedule bound to it is due. Nothing else can trigger it.
+A handler runs only when a subscription bound to it has a delivery, or a schedule bound to it is due. Nothing else can trigger it.
 
 A handler lives in one of two scopes:
 
@@ -97,9 +99,14 @@ puter.events.handlers.publish(name, handler, options)
 
 - `name` (String) (required): The name subscriptions bind to. Letters, digits, and `_ . : -`, starting with a letter or digit, up to 128 characters. Unique within the app.
 - `handler` (Function | String | Object) (required): A function (serialized with `toString()`), a source string, or `{ file: '~/AppData/…/handler.js' }`. A file is read at this call, so later edits to it take effect only when you publish again.
-- `options.replace` (Boolean): Overwrite whatever is published under the name.
-- `options.scope` (String): `'app'` or `'user'`. Defaults to `'app'`. `'user'` publishes into the signed-in user's own [user scope](#user-scope) of the app.
-- `options.appUid` (String): The app to publish into. Required outside an app. Inside an app, it can only name that app. With `scope: 'user'` it can only name the app making the call, and needs no value. Only [`workers.destroy()`](/Events/workers/) can name another app for a user scope, from an account session.
+
+The `options` object takes these options:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `appUid` | `String` | Required outside an app. The app to publish into. Inside an app, it can only name that app. With `scope: 'user'` it can only name the app making the call, and needs no value. Only [`workers.destroy()`](/Events/workers/) can name another app for a user scope, from an account session. |
+| `scope` | `String` | Either `'app'` or `'user'`. Defaults to `'app'`. With `'user'`, it publishes into the signed-in user's own [user scope](#user-scope) of the app. |
+| `replace` | `Boolean` | Overwrite whatever is published under the name. |
 
 Resolves to `{ name, hash, updatedAt, outcome, resumed }`. Its `outcome` is `'created'`, `'updated'`, or `'unchanged'` (the same source was already published), and `resumed` counts the suspended subscriptions this publish brought back.
 
@@ -184,7 +191,7 @@ All four methods reject with `{ message, code }`:
 
 The first example publishes into a user scope from inside an app, for the signed-in user. The others run in Node.js signed in with your account token, and `appUid` names an app you own. Inside your own app, leave out `appUid`.
 
-<strong class="example-title">Publish into the user's scope, list it, then remove it</strong>
+### Publish into the user's scope, list it, then remove it
 
 ```js
 const published = await puter.events.handlers.publish(
@@ -203,7 +210,7 @@ for (const handler of await puter.events.handlers.list({ scope: 'user' })) {
 await puter.events.handlers.remove('digest', { scope: 'user' });
 ```
 
-<strong class="example-title">Publish a handler, list it, then remove it</strong>
+### Publish a handler, list it, then remove it
 
 ```js
 const published = await puter.events.handlers.publish(
@@ -224,7 +231,7 @@ const removed = await puter.events.handlers.remove('ingestUpload', { appUid });
 console.log(removed.removed, removed.suspended);
 ```
 
-<strong class="example-title">Deploy a whole set from a build step</strong>
+### Deploy a whole set from a build step
 
 ```js
 const published = await puter.events.handlers.publishAll([

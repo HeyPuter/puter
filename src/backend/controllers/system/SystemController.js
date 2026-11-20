@@ -301,6 +301,7 @@ export class SystemController extends PuterController {
                 if (this.clients.email && req.actor.user?.email) {
                     try {
                         await this.clients.email.sendRaw({
+                            stream: 'notify',
                             to: supportEmail,
                             replyTo: req.actor.user.email,
                             subject: `Contact from ${req.actor.user.username}`,

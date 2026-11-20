@@ -24,14 +24,16 @@ If `path` is not absolute, it will be resolved relative to the app's root direct
 
 An object with the following properties:
 
-- `path` (String) - Path to the file or directory. Required when passing options as the only argument.
-- `uid` (String) - The UID of the file or directory. Can be used instead of `path`.
-- `returnSubdomains` (Boolean) - Whether to return subdomain information. Defaults to `false`.
-- `returnWorkers` (Boolean) - Whether to return the workers attached to the item. Workers are served alongside subdomains, so this is an alias of `returnSubdomains` — setting either one returns both. Defaults to `false`.
-- `returnPermissions` (Boolean) - Whether to return permission information. Defaults to `false`.
-- `returnVersions` (Boolean) - Whether to return version information. Defaults to `false`.
-- `returnSize` (Boolean) - Whether to return size information. Defaults to `false`.
-- `returnShares` (Boolean) - Whether to include who the item is shared with, as a `shares` array on the result. Defaults to `false`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `path` | `String` | Path to the file or directory. Required when passing options as the only argument. |
+| `returnSize` | `Boolean` | Whether to return size information. Defaults to `false`. |
+| `returnShares` | `Boolean` | Whether to include who the item is shared with, as a `shares` array on the result. Defaults to `false`. |
+| `returnSubdomains` | `Boolean` | Whether to return subdomain information. Defaults to `false`. |
+| `returnWorkers` | `Boolean` | Whether to return the workers attached to the item. Workers are served alongside subdomains, so this is an alias of `returnSubdomains`. Setting either one returns both. Defaults to `false`. |
+| `returnPermissions` | `Boolean` | Whether to return permission information. Defaults to `false`. |
+| `returnVersions` | `Boolean` | Whether to return version information. Defaults to `false`. |
+| `uid` | `String` | The UID of the file or directory. Can be used instead of `path`. |
 
 ## Return value
 
@@ -41,9 +43,14 @@ The item carries `is_shared`: `true` when it has been shared with someone, `fals
 
 With `returnShares: true`, the result also carries `shares` — an array of the same share objects [`getShares()`](/FS/getShares/) returns, including access inherited from a parent folder and unclaimed invitations. It is empty unless you own the item or hold `manage` on it, so asking for it never fails a `stat()` you were otherwise allowed to make. An app or API token sees only the shares it issued itself, and an invitation's `recipientEmail` is withheld from everyone but the owner and its sender — see [`getShares()`](/FS/getShares/). Because it does `getShares()`'s work, it also spends from the [share-read limit](/rate-limits-and-quotas/#sharing) on top of `stat()`'s own.
 
+## Related
+
+- [`puter.fs.getShares()`](/FS/getShares/) - List who can reach an item
+- [`puter.fs.share()`](/FS/share/) - Grant access
+
 ## Examples
 
-<strong class="example-title">Get information about a file</strong>
+### Get information about a file
 
 ```html;fs-stat
 <html>
@@ -67,7 +74,7 @@ With `returnShares: true`, the result also carries `shares` — an array of the 
 </html>
 ```
 
-<strong class="example-title">See whether a file is shared, and with whom</strong>
+### See whether a file is shared, and with whom
 
 ```html;fs-stat-shares
 <html>
@@ -88,8 +95,3 @@ With `returnShares: true`, the result also carries `shares` — an array of the 
 </body>
 </html>
 ```
-
-## Related
-
-- [`puter.fs.getShares()`](/FS/getShares/) - List who can reach an item
-- [`puter.fs.share()`](/FS/share/) - Grant access

@@ -68,7 +68,7 @@ async function init_apps () {
                 // show payout method tab if dev has joined incentive program
                 if ( dev_profile.joined_incentive_program ) {
                     $('.tab-btn[data-tab="payout-method"]').show();
-                    $('#payout-method-email').html(dev_profile.paypal);
+                    $('#payout-method-email').text(dev_profile.paypal);
                     $('.tab-btn-separator').show();
                 }
             });
@@ -1339,7 +1339,7 @@ async function saveEditedApp (mode) {
         // Update title
         $(`.app-title[data-uid="${uid}"]`).html(html_encode(app.title));
         // Update app link
-        $(`.app-url[data-uid="${uid}"]`).html(applink(app));
+        $(`.app-url[data-uid="${uid}"]`).html(html_encode(applink(app)));
         $(`.app-url[data-uid="${uid}"]`).attr('href', applink(app));
         // Update icons
         $(`.app-icon[data-uid="${uid}"]`).attr('src', html_encode(app.icon ? app.icon : './img/app.svg'));

@@ -1,20 +1,14 @@
-// IndexedDB shared with `push-sw.js` on the same origin; names must match it.
-export const PUSH_DB_NAME = 'puter-push';
-export const HANDLERS_STORE = 'handlers';
-export const CLICKS_STORE = 'clicks';
+import {
+    CLICKS_STORE,
+    HANDLERS_STORE,
+    OPT_IN_PREFIX,
+    PUSH_DB_NAME,
+    SUBSCRIPTION_CHANGED_PREFIX,
+    SYNCED_PREFIX,
+} from './pushNames.js';
 
-// Kept in the handlers store under keys no channel can take, so the database
-// stays at the version workers already installed open.
-const OPT_IN_PREFIX = 'puter:opt-in:';
-export const SERVER_KEY_ENTRY = 'puter:server-key';
-/** Every key the server named as Puter's, the current one first. */
-export const SERVER_KEYS_ENTRY = 'puter:server-keys';
-/** Per user: `{ endpoint, at }` of the subscription the server last confirmed. */
-export const SYNCED_PREFIX = 'puter:synced:';
-/** Per worker scope: set by `push-sw.js` when a subscription is replaced. */
-export const SUBSCRIPTION_CHANGED_PREFIX = 'puter:subscription-changed:';
-/** Where a tap without a URL goes, per worker scope; read by `push-sw.js`. */
-export const TAP_BASE_PREFIX = 'puter:tap-base:';
+export * from './pushNames.js';
+
 /** How long a kept tap waits for its page, as in `push-sw.js`. */
 export const CLICK_KEEP_MS = 5 * 60 * 1000;
 

@@ -4,7 +4,9 @@ description: Decrement numeric values in the user's own key-value store by a spe
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Decrements the value of a key. A missing or expired key starts from 0 and loses any TTL it had, and a live key keeps its TTL. The call rejects if the target holds anything other than a number, including a numeric string. The target is the whole value, or with a path map, the field at each path.
+Decrements the value of a key.
+
+A missing or expired key starts from 0 and loses any TTL it had, and a live key keeps its TTL. The call rejects if the target holds anything other than a number, including a numeric string. The target is the whole value, or with a path map, the field at each path.
 
 ## Syntax
 
@@ -37,8 +39,10 @@ Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `s
 
 The last argument. It takes these properties:
 
-- `handle` (String): Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `handle` | `String` | Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`. |
 
 Pass `optConfig` after `amount`, as in `puter.kv.decr('stats', 1, { handle })`. An object in the place of `amount` is read as a path map.
 
@@ -72,7 +76,7 @@ A rejection carries an `Error` with a stable `code`:
 
 ## Examples
 
-<strong class="example-title">Decrement the value of a key</strong>
+### Decrement the value of a key
 
 ```html;kv-decr
 <html>
@@ -87,7 +91,7 @@ A rejection carries an `Error` with a stable `code`:
 </html>
 ```
 
-<strong class="example-title">Decrement a property within an object value</strong>
+### Decrement a property within an object value
 
 ```html;kv-decr-nested
 <html>

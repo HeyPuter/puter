@@ -24,7 +24,13 @@ import { configContainer } from '../exports.js';
 import { PuterServer } from '../server.js';
 import { setupTestServer } from '../testUtil.js';
 import type { IConfig } from '../types.js';
-import { buildUserDetails, scrubSensitive } from './userDetails.js';
+import type { UserRow } from '../stores/user/UserStore.js';
+import {
+    buildUserDetails,
+    passwordTag,
+    scrubSensitive,
+    withoutSecrets,
+} from './userDetails.js';
 import { generateDefaultFsentries } from './userProvisioning.js';
 
 let server: PuterServer;
@@ -85,7 +91,17 @@ describe('buildUserDetails', () => {
             [`/${user.username}/Desktop`]: user.desktop_uuid,
             [`/${user.username}/Trash`]: user.trash_uuid,
         });
-        expect(Array.isArray(details.taskbar_items)).toBe(true);
+    });
+
+    it('leaves out taskbar items saved on the account', async () => {
+        const user = {
+            ...(await makeUser()),
+            taskbar_items: JSON.stringify([{ type: 'app', name: 'editor' }]),
+        };
+        const details = await buildUserDetails(user, deps(), {
+            isUser: true,
+        });
+        expect(details).not.toHaveProperty('taskbar_items');
     });
 
     it('leaves the desktop-only parts out for an app actor', async () => {
@@ -93,7 +109,6 @@ describe('buildUserDetails', () => {
         const details = await buildUserDetails(user, deps(), {
             isUser: false,
         });
-        expect(details).not.toHaveProperty('taskbar_items');
         expect(details).not.toHaveProperty('directories');
         expect(details.card_fallback_available).toBe(false);
     });
@@ -124,7 +139,7 @@ describe('buildUserDetails lookups', () => {
         return keys.slice(keys.indexOf('hasDevAccountAccess') + 1);
     };
 
-    it('reads the linked provider, taskbar and seat together, listed in a fixed order', async () => {
+    it('reads the linked provider and seat together, listed in a fixed order', async () => {
         const user = {
             ...(await makeUser()),
             password: null,
@@ -162,7 +177,6 @@ describe('buildUserDetails lookups', () => {
         );
         expect(tailKeys(details)).toEqual([
             'oidc_revalidate_url',
-            'taskbar_items',
             'directories',
             'team',
             'last_activity_ts',
@@ -177,7 +191,6 @@ describe('buildUserDetails lookups', () => {
         const user = {
             ...(await makeUser()),
             password: null,
-            taskbar_items: JSON.stringify([{ type: 'app', name: 'editor' }]),
             last_activity_ts: '2026-01-02 03:04:05',
         };
         const events: string[] = [];
@@ -199,15 +212,6 @@ describe('buildUserDetails lookups', () => {
                         },
                     },
                     stores: Object.assign(Object.create(d.stores), {
-                        app: {
-                            getByNames: () =>
-                                timed(events, 'taskbar', 20, () => {
-                                    throw new Error('taskbar down');
-                                }),
-                            getByUids: async () => new Map(),
-                            getByIds: async () => new Map(),
-                        },
-                        // Fails first, but is reported after the taskbar.
                         team: {
                             getOrgSeat: () =>
                                 timed(events, 'seat', 5, () => {
@@ -219,18 +223,12 @@ describe('buildUserDetails lookups', () => {
                 { isUser: true },
             );
             expect(warn.mock.calls).toEqual([
-                ['[user-details] taskbar_items failed:', expect.any(Error)],
                 ['[user-details] team lookup failed:', expect.any(Error)],
             ]);
         } finally {
             warn.mockRestore();
         }
-        expect(tailKeys(details)).toEqual([
-            'taskbar_items',
-            'directories',
-            'last_activity_ts',
-        ]);
-        expect(details.taskbar_items).toEqual([]);
+        expect(tailKeys(details)).toEqual(['directories', 'last_activity_ts']);
     });
 });
 
@@ -279,5 +277,51 @@ describe('scrubSensitive', () => {
             username: 'u',
             metadata: { nested: [{}] },
         });
+    });
+});
+
+describe('withoutSecrets', () => {
+    it('drops credentials and single-use tokens, and keeps every other column', () => {
+        const row = {
+            id: 7,
+            uuid: 'u-7',
+            username: 'u',
+            phone: '+1',
+            signup_ip: '192.0.2.1',
+            password: '$2b$hash',
+            otp_secret: 's',
+            otp_recovery_codes: 'a,b',
+            pass_recovery_token: 't1',
+            email_confirm_code: '123456',
+            email_confirm_token: 't2',
+            change_email_confirm_token: 't3',
+            metadata: { tmp_password: 'x', theme: 'dark' },
+        } as unknown as UserRow;
+        expect(withoutSecrets(row)).toEqual({
+            id: 7,
+            uuid: 'u-7',
+            username: 'u',
+            phone: '+1',
+            signup_ip: '192.0.2.1',
+            metadata: { theme: 'dark' },
+            hasPassword: true,
+        });
+        expect(row.metadata).toEqual({ tmp_password: 'x', theme: 'dark' });
+        expect(
+            withoutSecrets({ ...row, password: null } as unknown as UserRow)
+                .hasPassword,
+        ).toBe(false);
+    });
+});
+
+describe('passwordTag', () => {
+    it('changes with the stored hash and reveals none of it', () => {
+        const tag = passwordTag({ password: '$2b$08$firsthash' });
+        expect(tag).toMatch(/^[0-9a-f]{16}$/);
+        expect(passwordTag({ password: '$2b$08$firsthash' })).toBe(tag);
+        expect(passwordTag({ password: '$2b$08$otherhash' })).not.toBe(tag);
+        expect(tag).not.toContain('firsthash');
+        expect(passwordTag({ password: null })).toBeNull();
+        expect(passwordTag({})).toBeNull();
     });
 });

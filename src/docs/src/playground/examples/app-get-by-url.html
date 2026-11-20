@@ -1,0 +1,19 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Create an app at the root of a random origin
+            let appName = puter.randName();
+            await puter.apps.create(appName, `https://${appName}.example.com/`);
+
+            // (2) Get it with any URL on that origin
+            let app = await puter.apps.get(`https://${appName}.example.com/about`);
+            puter.print(`Found "${app.name}" by URL: id: ${app.uid}<br>`);
+
+            // (3) Delete the app (cleanup)
+            await puter.apps.delete(appName);
+        })();
+    </script>
+</body>
+</html>

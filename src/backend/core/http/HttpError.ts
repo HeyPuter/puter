@@ -118,6 +118,8 @@ export interface HttpErrorOptions {
      * it. `noAlarm` still wins. Never serialized to the client.
      */
     alarmSeverity?: PagerSeverity;
+    /** Chat channel key for the alarm, as `AlarmOptions.channel`. */
+    alarmChannel?: string;
 }
 
 /**
@@ -148,6 +150,7 @@ export class HttpError extends Error {
     readonly fields?: Record<string, unknown>;
     readonly noAlarm?: boolean;
     readonly alarmSeverity?: PagerSeverity;
+    readonly alarmChannel?: string;
 
     constructor(
         statusCode: number,
@@ -165,6 +168,7 @@ export class HttpError extends Error {
         this.fields = options.fields;
         this.noAlarm = options.noAlarm;
         this.alarmSeverity = options.alarmSeverity;
+        this.alarmChannel = options.alarmChannel;
     }
 }
 

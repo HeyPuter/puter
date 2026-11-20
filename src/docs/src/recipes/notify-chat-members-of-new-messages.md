@@ -104,10 +104,10 @@ puter.notifications.on('click', ({ data }) => {
 
 Here `openRoomById()` is your app's own function that shows a room.
 
-While the chat is open, the notification reaches this handler in the page, and
-the page shows it only when its tab is hidden or its window isn't focused. The
-message itself arrives through the room's `watch()`. While the chat is closed,
-the same handler runs in your service worker to decide what the push shows.
+While the chat is open, the notification reaches this handler in the page. When
+the tab is visible and focused, nothing is pushed. Otherwise the notification
+goes out as a push, and the same handler runs in your service worker to decide
+what it shows. The message itself arrives through the room's `watch()`.
 
 ## Turn Notifications On
 

@@ -57,7 +57,6 @@ async function UIWindowLoginInProgress (options) {
             width: 350,
             height: 'auto',
             dominant: true,
-            show_in_taskbar: false,
             backdrop: true,
             stay_on_top: true,
             window_class: 'window-login-progress',

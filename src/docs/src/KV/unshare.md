@@ -4,9 +4,11 @@ description: Stop sharing key-value data with another user, or remove your own a
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Stops a share made with [`puter.kv.share()`](/KV/share/).
+
 <div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
-Stops a share made with [`puter.kv.share()`](/KV/share/). Either side can call it:
+Either side can call it:
 
 - **The owner** revokes the share. The holder loses access, and any narrower share you made with the same holder inside the same prefix stops too.
 - **The holder** removes their own access. Any narrower share they hold from the same owner inside the same prefix stops too.
@@ -36,13 +38,6 @@ A `Promise` that resolves to:
 
 Stopping a share that already stopped resolves the same way again.
 
-## Who can unshare
-
-- The owner and the holder can unshare in the app whose data it is, or outside any app. A handle that isn't yours, as owner or holder, is rejected with `subject_does_not_exist`, the same as one that doesn't exist.
-- To revoke as the owner, an app also needs the user's consent for the prefix, the same consent [`puter.kv.share()`](/KV/share/) needs. To remove the user's own access as the holder, it needs no consent.
-
-Unsharing works when sharing is turned off on the deployment, so you can always stop a share.
-
 ## Errors
 
 The promise rejects with `{ message, code }`:
@@ -55,9 +50,22 @@ The promise rejects with `{ message, code }`:
 | `events_kv_handle_owner_only` | The owner called from an app other than the one whose data it shares, or from an access token with less access than the account. |
 | `too_many_requests` | Over the rate limit, which sharing and unsharing count toward together. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events). |
 
+## Who can unshare
+
+- The owner and the holder can unshare in the app whose data it is, or outside any app. A handle that isn't yours, as owner or holder, is rejected with `subject_does_not_exist`, the same as one that doesn't exist.
+- To revoke as the owner, an app also needs the user's consent for the prefix, the same consent [`puter.kv.share()`](/KV/share/) needs. To remove the user's own access as the holder, it needs no consent.
+
+Unsharing works when sharing is turned off on the deployment, so you can always stop a share.
+
+## Related
+
+- [`puter.kv.share()`](/KV/share/) - Share keys with another user
+- [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) - List the shares you made
+- [`puter.kv.listShared()`](/KV/listShared/) - List the shares made with you
+
 ## Examples
 
-<strong class="example-title">Revoke a share you made</strong>
+### Revoke a share you made
 
 ```js
 const share = await puter.kv.share('list:42:', 'alice', 'write');
@@ -66,7 +74,7 @@ const { revokedAt } = await puter.kv.unshare(share.handle);
 puter.print(`Stopped at ${new Date(revokedAt * 1000).toISOString()}`);
 ```
 
-<strong class="example-title">Remove your own access to a share</strong>
+### Remove your own access to a share
 
 ```js
 const { items } = await puter.kv.listShared();
@@ -76,9 +84,3 @@ for (const share of items) {
     }
 }
 ```
-
-## Related
-
-- [`puter.kv.share()`](/KV/share/) - Share keys with another user
-- [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) - List the shares you made
-- [`puter.kv.listShared()`](/KV/listShared/) - List the shares made with you

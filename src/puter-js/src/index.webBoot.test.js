@@ -48,6 +48,43 @@ afterEach(() => {
     globalThis.XMLHttpRequest = origXHR;
 });
 
+/** Boots `Puter` as on a top-level page, where `process` is undefined. */
+const constructWeb = (Puter) => {
+    const realProcess = globalThis.process;
+    Object.defineProperty(globalThis, 'process', {
+        configurable: true,
+        get() {
+            const caller = (new Error().stack ?? '').split('\n')[2] ?? '';
+            return /src\/index\.js:\d+/.test(caller) ? undefined : realProcess;
+        },
+    });
+    try {
+        return new Puter();
+    } finally {
+        Object.defineProperty(globalThis, 'process', {
+            value: realProcess,
+            configurable: true,
+            writable: true,
+        });
+    }
+};
+
+describe('web-env boot of a reloaded app tab', () => {
+    // The opener is cut off once the first load is handed its launch, and a
+    // reload keeps the URL that marks the opened item. App code can run in the
+    // same task as the boot, so this is read with no await in between.
+    it('reports no launch item to wait for, from the first synchronous read', async () => {
+        history.replaceState(null, '', '/app/?puter.app_instance_id=i-1&puter.item.uid=f-1');
+        vi.resetModules();
+        const { Puter } = await import('./index.js');
+        const puter = constructWeb(Puter);
+
+        expect(puter.env).toBe('web');
+        expect(puter.openerLaunch_).toBeNull();
+        expect(puter.ui.wasLaunchedWithItems()).toBe(false);
+    });
+});
+
 describe('web-env boot with a stored token', () => {
     it('opens only one authenticated socket', async () => {
         localStorage.setItem(STORAGE_KEY, APP_TOKEN);

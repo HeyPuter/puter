@@ -15,7 +15,6 @@ export interface OidcLoginContinuation {
     embeddedInPopup: boolean;
     openerOrigin: string | null;
     messageId: string | null;
-    switchedToLogin: boolean;
 }
 
 interface OidcReturnDeps {
@@ -56,7 +55,6 @@ export function completeOidcLoginReturn(
         data.userUuid !== user.uuid ||
         typeof data.redirectUri !== 'string' ||
         typeof data.embeddedInPopup !== 'boolean' ||
-        typeof data.switchedToLogin !== 'boolean' ||
         (data.openerOrigin !== null && typeof data.openerOrigin !== 'string') ||
         (data.messageId !== null && typeof data.messageId !== 'string')
     ) {
@@ -91,6 +89,5 @@ export function completeOidcLoginReturn(
             ),
         );
     }
-    if (data.switchedToLogin) append('oidc_switched', 'login');
     return target;
 }

@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { expand_home_path } from './expandHomePath.js';
+import { expand_home_path, resolve_typed_path } from './expandHomePath.js';
 
 describe('expand_home_path', () => {
     it('resolves a tilde path under the home path', () => {
@@ -55,5 +55,30 @@ describe('expand_home_path', () => {
         expect(expand_home_path('', '/alice')).toBe('');
         expect(expand_home_path(undefined, '/alice')).toBe(undefined);
         expect(expand_home_path(null, '/alice')).toBe(null);
+    });
+});
+
+describe('resolve_typed_path', () => {
+    const context = { current_path: '/alice/Videos', home_path: '/alice', shared_path: 'puter://shared' };
+
+    it('canonicalizes trailing, doubled and dot segments', () => {
+        expect(resolve_typed_path('/alice/Documents/', context)).toBe('/alice/Documents');
+        expect(resolve_typed_path('/alice//Documents', context)).toBe('/alice/Documents');
+        expect(resolve_typed_path('/alice/Documents/../Pictures', context)).toBe('/alice/Pictures');
+        expect(resolve_typed_path('/', context)).toBe('/');
+    });
+
+    it('trims whitespace and expands home-relative entries', () => {
+        expect(resolve_typed_path('  ~/Documents ', context)).toBe('/alice/Documents');
+        expect(resolve_typed_path('Documents', context)).toBe('/alice/Documents');
+    });
+
+    it('keeps the current path for an empty entry', () => {
+        expect(resolve_typed_path('', context)).toBe('/alice/Videos');
+        expect(resolve_typed_path('   ', context)).toBe('/alice/Videos');
+    });
+
+    it('passes the Shared view through untouched', () => {
+        expect(resolve_typed_path('puter://shared', context)).toBe('puter://shared');
     });
 });

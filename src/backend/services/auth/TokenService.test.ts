@@ -20,6 +20,8 @@
 import { createHmac } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { describe, expect, it } from 'vitest';
+import { tokenClaimsDigest } from '../../../gui/src/helpers/guiToken.js';
+import { isTokenForAnotherUser } from '../../../gui/src/helpers/tokenUser.js';
 import { TokenService } from './TokenService.js';
 
 const V2_SECRET = 'test-v2-secret';
@@ -383,4 +385,54 @@ describe('TokenService payload key handling', () => {
             expect(Object.getPrototypeOf(verified)).toBe(Object.prototype);
         },
     );
+});
+
+describe('session token read by the desktop', () => {
+    // The desktop reads the user out of a token another tab stored, to tell
+    // an account switch from a renewed token for the same account.
+    it('names its user in the form the desktop decodes', () => {
+        const svc = createTokenService();
+        const userUid = '5d4adce0-a381-4982-9c02-6e2540026238';
+        const otherUid = 'a1b2c3d4-0000-4000-8000-00000000beef';
+        const token = svc.sign('auth', {
+            type: 'gui',
+            version: '2',
+            user_uid: userUid,
+        });
+
+        expect(isTokenForAnotherUser(token, { uuid: userUid })).toBe(false);
+        expect(isTokenForAnotherUser(token, { uuid: otherUid })).toBe(true);
+    });
+});
+
+describe('TokenService.claimsDigest', () => {
+    const claims = {
+        type: 'gui',
+        version: '2',
+        uuid: '6f1e2d3c-0000-4000-8000-000000000001',
+        session_uid: '6f1e2d3c-0000-4000-8000-000000000001',
+        user_uid: '5d4adce0-a381-4982-9c02-6e2540026238',
+        auth_id: '5d4adce0-a381-4982-9c02-6e2540026238',
+    };
+
+    it('is what the desktop computes over a token signed with those claims', async () => {
+        const svc = createTokenService();
+        const digest = svc.claimsDigest('auth', claims);
+        expect(digest).toMatch(/^[0-9a-f]{32}$/);
+        expect(await tokenClaimsDigest(svc.sign('auth', claims))).toBe(digest);
+    });
+
+    it('differs for another session or token type', () => {
+        const svc = createTokenService();
+        const digest = svc.claimsDigest('auth', claims);
+        expect(
+            svc.claimsDigest('auth', {
+                ...claims,
+                session_uid: 'b0b0b0b0-0000-4000-8000-000000000002',
+            }),
+        ).not.toBe(digest);
+        expect(svc.claimsDigest('auth', { ...claims, type: 'session' })).not.toBe(
+            digest,
+        );
+    });
 });

@@ -4,11 +4,13 @@ description: Run your app's handler at an interval, on a cron expression in a ti
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Runs a handler on a timer.
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
 <div class="info">Schedules are available on puter.com. A self-hosted Puter server answers <code>events_disabled</code>.</div>
 
-Runs a handler on a timer. A schedule can run at an interval, on a cron expression in a time zone, or once at a set time. It's stored on the user's account and runs in an [events worker](/Events/workers/), whether or not your app is open. It never runs in the client that created it.
+A schedule can run at an interval, on a cron expression in a time zone, or once at a set time. It's stored on the user's account and runs in an [events worker](/Events/workers/), whether or not your app is open. It never runs in the client that created it.
 
 The handler is either inline code you pass as `handler`, or a handler published under a name with [`puter.events.handlers.publish()`](/Events/handlers/). Inline code is published into the signed-in user's own [user scope](/Events/handlers/#user-scope) of your app and runs for that user only. A named handler published by the app's owner is shared by every user of the app.
 
@@ -29,20 +31,87 @@ puter.events.onSchedule(options)
 
 Give exactly one of `every`, `cron` or `at`.
 
-- `every` (Number | String): Run at this interval, in milliseconds or as a duration such as `'30m'`, `'6h'` or `'1d'`. The units are `s`, `m`, `h`, `d` and `w`. The interval must be a whole number of seconds, at least your plan's [minimum interval](#how-often-a-schedule-can-run), and at most 366 days.
-- `cron` (String): Run on a [cron expression](#cron-expressions), such as `'0 9 * * 1-5'` for 09:00 on weekdays.
-- `tz` (String): The IANA time zone the `cron` expression runs in, such as `'America/New_York'`. Defaults to `'UTC'`. Only allowed with `cron`. See [Time zones and daylight saving time](#time-zones-and-daylight-saving-time).
-- `at` (Number | String | Date): Run once, at this [time](#times). It must be at least 1 second and at most 366 days ahead. A schedule with `at` takes no `startAt`, `expiresAt` or `maxRuns`.
-- `startAt` (Number | String | Date): For `every`, the first run. Without it, the first run is one interval after this call. A `startAt` in the past sets where the intervals line up, and the first run is the next one after this call. For example, `every: '1d'` with `startAt: '2026-01-01'` runs at midnight UTC every day. For `cron`, the earliest time the schedule may run. At most 366 days ahead.
-- `expiresAt` (Number | String | Date): The last time the schedule may run. A run due at exactly this time still runs.
-- `maxRuns` (Number): How many slots the schedule has, from 1 to 100,000. It ends at its `maxRuns`-th slot counted from the first. It counts slots, not runs that happened, so slots skipped while the schedule was behind or suspended (see [When a schedule runs](#when-a-schedule-runs)) still count, and the retries of one slot count once. With `expiresAt` too, the one that comes first ends the schedule.
-- `handler` (Function | String | Object): The handler code, as a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Required unless you pass `handlerName`. Without `handlerName`, the source is sent and published into the signed-in user's own user scope, and every run calls it. With `handlerName`, only its hash is sent, and the schedule is created only if it matches what's published under that name. It never runs in this client.
-- `handlerName` (String): The published handler each run calls. Required unless you pass `handler`.
-- `handlerScope` (String): Where `handlerName` is looked up, `'app'` or `'user'`. Defaults to `'app'`, the handlers the app's owner published. `'user'` binds to a handler the signed-in user's scope holds, published with `handlers.publish(name, handler, { scope: 'user' })`.
-- `handlerHash` (String): The SHA-256 hex digest of the handler source, in place of `handler`, to check it against `handlerName`.
-- `context` (Object): Values the handler needs, passed to every run as a frozen `ctx`. Up to 4 KB serialized. It's read once, at this call. To replace it, use [`updateSchedule()`](/Events/updateSchedule/).
+| Option | Type | Description |
+|--------|------|-------------|
+| `every` | `Number \| String` | Run at this interval, in milliseconds or as a duration such as `'30m'`, `'6h'` or `'1d'`. The units are `s`, `m`, `h`, `d` and `w`. The interval must be a whole number of seconds, at least your plan's [minimum interval](#how-often-a-schedule-can-run), and at most 366 days. |
+| `cron` | `String` | Run on a [cron expression](#cron-expressions), such as `'0 9 * * 1-5'` for 09:00 on weekdays. |
+| `at` | `Number \| String \| Date` | Run once, at this [time](#times). It must be at least 1 second and at most 366 days ahead. A schedule with `at` takes no `startAt`, `expiresAt` or `maxRuns`. |
+| `handler` | `Function \| String \| Object` | Required unless you pass `handlerName`. The handler code, as a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Without `handlerName`, the source is sent and published into the signed-in user's own user scope, and every run calls it. With `handlerName`, only its hash is sent, and the schedule is created only if it matches what's published under that name. It never runs in this client. |
+| `handlerName` | `String` | Required unless you pass `handler`. The published handler each run calls. |
+| `context` | `Object` | Values the handler needs, passed to every run as a frozen `ctx`. Up to 4 KB serialized. It's read once, at this call. To replace it, use [`updateSchedule()`](/Events/updateSchedule/). |
+| `tz` | `String` | The IANA time zone the `cron` expression runs in, such as `'America/New_York'`. Defaults to `'UTC'`. Only allowed with `cron`. See [Time zones and daylight saving time](#time-zones-and-daylight-saving-time). |
+| `startAt` | `Number \| String \| Date` | For `every`, the first run. Without it, the first run is one interval after this call. A `startAt` in the past sets where the intervals line up, and the first run is the next one after this call. For example, `every: '1d'` with `startAt: '2026-01-01'` runs at midnight UTC every day. For `cron`, the earliest time the schedule may run. At most 366 days ahead. |
+| `expiresAt` | `Number \| String \| Date` | The last time the schedule may run. A run due at exactly this time still runs. |
+| `maxRuns` | `Number` | How many slots the schedule has, from 1 to 100,000. It ends at its `maxRuns`-th slot counted from the first. It counts slots, not runs that happened, so slots skipped while the schedule was behind or suspended (see [When a schedule runs](#when-a-schedule-runs)) still count, and the retries of one slot count once. With `expiresAt` too, the one that comes first ends the schedule. |
+| `handlerScope` | `String` | Where `handlerName` is looked up, `'app'` or `'user'`. Defaults to `'app'`, the handlers the app's owner published. With `'user'`, it binds to a handler the signed-in user's scope holds, published with `handlers.publish(name, handler, { scope: 'user' })`. |
+| `handlerHash` | `String` | The SHA-256 hex digest of the handler source, in place of `handler`, to check it against `handlerName`. |
 
-### Times
+## Return value
+
+A `Promise` that resolves to the schedule. All times are in milliseconds since the epoch.
+
+- `scheduleId` (String): Its id, which [`getSchedule()`](/Events/getSchedule/), [`updateSchedule()`](/Events/updateSchedule/) and [`removeSchedule()`](/Events/removeSchedule/) take.
+- `kind` (String): `'recurring'` for `every` and `cron`, `'once'` for `at`, and `'deferred'` for a notification sent later with [`notify()`](/Notifications/notify/#send-it-later).
+- `appUid` (String): The app that created it.
+- `handlerName` (String | null): The handler each run calls, or `null` once the schedule has ended. For a schedule created with an inline `handler`, it's the name Puter gave the handler, which starts with `@`.
+- `handlerScope` (String): `'user'` when the handler is in the user's own [user scope](/Events/handlers/#user-scope). Absent for an app handler.
+- `contextKeys` (Array | null), `contextHash` (String | null): The key names and a hash of the stored context, never its values. The `contextKeys` field is `null` when there's no context, and once the schedule has ended.
+- `every` (Number | null): The interval, in milliseconds, of an `every` schedule.
+- `cron` (String | null): The expression of a `cron` schedule.
+- `tz` (String): The time zone of a `cron` schedule, and `'UTC'` for the others.
+- `startAt` (Number): The first time it may run. For `at`, its only run.
+- `endsAt` (Number | null): The last time it may run, from `expiresAt` or `maxRuns`. For `at`, its only run.
+- `state` (String): `'active'`, `'suspended'`, `'sending'`, or `'ended'`. A delayed notification is `'sending'` during a send attempt. A failed attempt can return it to `'active'` before retrying.
+- `suspendedReason` (String | null): Why it's [suspended](#suspended-and-ended-schedules).
+- `endReason` (String | null), `endedAt` (Number | null): Why and when it [ended](#suspended-and-ended-schedules).
+- `nextRunAt` (Number | null): The next slot of the schedule, worked out from its definition and the clock. A late or retried run for an earlier slot can still happen first. After the last slot is due, it stays at that slot until the run for it is done. It's `null` while the schedule is suspended or sending, and once it has ended.
+- `createdAt` (Number): When it was created.
+- `off()` (Function): Removes the schedule. Same as [`puter.events.removeSchedule(scheduleId)`](/Events/removeSchedule/). Only on the object `onSchedule()` returns.
+
+## Errors
+
+The promise rejects with `{ message, code }`:
+
+| `code` | Meaning |
+| --- | --- |
+| `events_value_too_large` | A field is longer than can be stored. |
+| `events_handler_conflict` | The inline handler couldn't be confirmed after a concurrent publish. Try again. |
+| `invalid_request` | `options` isn't an object. |
+| `events_handler_required` | There's neither a `handler` nor a `handlerName`. |
+| `events_user_handlers_disabled` | Publishing into a user scope isn't turned on for this server. |
+| `events_handler_forbidden` | The call can't publish into a user scope: it came from a scoped access token, a temporary account, or on behalf of a different app. |
+| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. Arrives as HTTP 402. |
+| `forbidden` | The user already holds as many [worker units](/rate-limits-and-quotas/#worker-units) as their plan allows, so a new user scope can't be created. |
+| `events_handler_limit` | The user scope already holds the [maximum number of handlers](/rate-limits-and-quotas/#handlers). |
+| `events_handler_too_large` | The handler is over 64 KB. |
+| `events_worker_too_large` | The user scope's handlers would exceed 1 MB combined. |
+| `events_handler_name_invalid` | `handlerName` is empty, too long, has characters that aren't allowed, or starts with `@`, which is reserved for inline handlers. |
+| `events_handler_free_variable` | The handler uses an outside variable. The message names it. |
+| `events_handler_invalid` | `handler` isn't a function, a source string, or `{ file }`. |
+| `events_handler_hash_unavailable` | This environment has no `crypto.subtle`, so `handler` can't be hashed. Pass `handlerName` alone. |
+| `events_context_invalid` | `context` isn't JSON-serializable. |
+| `events_context_too_large` | The serialized `context` is over 4 KB. |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
+| `events_schedule_app_required` | The call wasn't made by an app, for example from Node.js with an account token. |
+| `events_durable_requires_account` | The call came from a scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, or from a temporary (guest) account. |
+| `too_many_requests` | Over the create rate limit, which is shared with subscribing. |
+| `events_background_consent_required` | The user hasn't granted your app `events:background`. |
+| `events_schedule_invalid` | An option is malformed. For example, more than one of `every`, `cron` and `at`, an `every` that isn't a whole number of seconds, a time with no zone, an `at` less than 1 second or more than 366 days ahead, an unsupported cron expression, an unknown `tz`, or `tz` without `cron`. The message says which. |
+| `events_schedule_never_fires` | The schedule would never run. Its first run or its `startAt` is more than 366 days away, or it ends before its first run. |
+| `events_schedule_too_frequent` | It would run more often than your plan's [minimum interval](#how-often-a-schedule-can-run). |
+| `events_schedule_too_deep` | The call was made from a handler at the end of a [handler chain](/Events/onPersistent/#handlers-that-trigger-handlers), so the schedule could never run. |
+| `bad_request` | `handlerName` is empty or over 128 characters, `handlerHash` isn't a SHA-256 hex digest, or `handlerScope` isn't `'app'` or `'user'`. |
+| `events_handler_not_found` | Nothing is published under `handlerName` in that scope. The schedule isn't created. |
+| `events_handler_hash_mismatch` | The published handler isn't the source you passed as `handler`. |
+| `events_schedule_limit` | The user holds as many schedules as their plan allows, for your app or in total. |
+| `events_schedule_budget` | The schedule would make your app's schedules, or all of the user's schedules, run more times an hour than their plan allows. |
+| `events_schedule_busy` | Puter is checking too many cron expressions at once. Try again in a moment. |
+| `events_disabled` | Schedules aren't available on this server, as on self-hosted servers. |
+| `events_failed` | The server sent a response the SDK couldn't read. |
+
+With a `{ file }` handler, errors from [`puter.fs.read()`](/FS/read/) also pass through.
+
+## Times
 
 The `at`, `startAt` and `expiresAt` options each take one of these:
 
@@ -144,15 +213,15 @@ A run's `event` carries:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `subject` | String | `schedule:<scheduleId>`. |
-| `op` | String | Always `'tick'`. |
-| `id` | String | `<scheduleId>:<scheduledFor>`. The same on every attempt at one run, so use it to skip work you've already done. |
-| `scheduleId` | String | The schedule this run belongs to. |
-| `scheduledFor` | Number | The slot this run is for, in milliseconds since the epoch. |
-| `firedAt` | Number | When this attempt was sent to the handler, in milliseconds since the epoch. |
-| `missed` | Number | Slots skipped since the last run, for example while the schedule was suspended. Only this run happens for them. |
-| `missedCapped` | Boolean | Present, and `true`, when `missed` stopped counting at 1,000. |
-| `attempt` | Number | Attempts at this run, this one included. `1` on the first try. |
+| `subject` | `String` | `schedule:<scheduleId>`. |
+| `op` | `String` | Always `'tick'`. |
+| `id` | `String` | `<scheduleId>:<scheduledFor>`. The same on every attempt at one run, so use it to skip work you've already done. |
+| `scheduleId` | `String` | The schedule this run belongs to. |
+| `scheduledFor` | `Number` | The slot this run is for, in milliseconds since the epoch. |
+| `firedAt` | `Number` | When this attempt was sent to the handler, in milliseconds since the epoch. |
+| `missed` | `Number` | Slots skipped since the last run, for example while the schedule was suspended. Only this run happens for them. |
+| `missedCapped` | `Boolean` | Present, and `true`, when `missed` stopped counting at 1,000. |
+| `attempt` | `Number` | Attempts at this run, this one included. `1` on the first try. |
 
 The `user` binding is valid for 15 minutes, so use it only during the run. Writes made through `user` count toward the same [handler chain](/Events/onPersistent/#handlers-that-trigger-handlers) limit as a subscription's, starting from the depth of the call that created the schedule.
 
@@ -208,74 +277,11 @@ An ended schedule never runs again. It has `state: 'ended'` and an `endReason`, 
 
 When schedules end with `permission_revoked`, the user's app gets an `app.events.ended` notification about them, which you can read with [`puter.events.fetch()`](/Events/fetch/).
 
-## Return value
-
-A `Promise` that resolves to the schedule. All times are in milliseconds since the epoch.
-
-- `scheduleId` (String): Its id, which [`getSchedule()`](/Events/getSchedule/), [`updateSchedule()`](/Events/updateSchedule/) and [`removeSchedule()`](/Events/removeSchedule/) take.
-- `kind` (String): `'recurring'` for `every` and `cron`, `'once'` for `at`, and `'deferred'` for a notification sent later with [`notify()`](/Notifications/notify/#send-it-later).
-- `appUid` (String): The app that created it.
-- `handlerName` (String | null): The handler each run calls, or `null` once the schedule has ended. For a schedule created with an inline `handler`, it's the name Puter gave the handler, which starts with `@`.
-- `handlerScope` (String): `'user'` when the handler is in the user's own [user scope](/Events/handlers/#user-scope). Absent for an app handler.
-- `contextKeys` (Array | null), `contextHash` (String | null): The key names and a hash of the stored context, never its values. The `contextKeys` field is `null` when there's no context, and once the schedule has ended.
-- `every` (Number | null): The interval, in milliseconds, of an `every` schedule.
-- `cron` (String | null): The expression of a `cron` schedule.
-- `tz` (String): The time zone of a `cron` schedule, and `'UTC'` for the others.
-- `startAt` (Number): The first time it may run. For `at`, its only run.
-- `endsAt` (Number | null): The last time it may run, from `expiresAt` or `maxRuns`. For `at`, its only run.
-- `state` (String): `'active'`, `'suspended'`, `'sending'`, or `'ended'`. A delayed notification is `'sending'` during a send attempt. A failed attempt can return it to `'active'` before retrying.
-- `suspendedReason` (String | null): Why it's [suspended](#suspended-and-ended-schedules).
-- `endReason` (String | null), `endedAt` (Number | null): Why and when it [ended](#suspended-and-ended-schedules).
-- `nextRunAt` (Number | null): The next slot of the schedule, worked out from its definition and the clock. A late or retried run for an earlier slot can still happen first. After the last slot is due, it stays at that slot until the run for it is done. It's `null` while the schedule is suspended or sending, and once it has ended.
-- `createdAt` (Number): When it was created.
-- `off()` (Function): Removes the schedule. Same as [`puter.events.removeSchedule(scheduleId)`](/Events/removeSchedule/). Only on the object `onSchedule()` returns.
-
-The promise rejects with `{ message, code }`:
-
-| `code` | Meaning |
-| --- | --- |
-| `events_value_too_large` | A field is longer than can be stored. |
-| `events_handler_conflict` | The inline handler couldn't be confirmed after a concurrent publish. Try again. |
-| `invalid_request` | `options` isn't an object. |
-| `events_handler_required` | There's neither a `handler` nor a `handlerName`. |
-| `events_user_handlers_disabled` | Publishing into a user scope isn't turned on for this server. |
-| `events_handler_forbidden` | The call can't publish into a user scope: it came from a scoped access token, a temporary account, or on behalf of a different app. |
-| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. Arrives as HTTP 402. |
-| `forbidden` | The user already holds as many [worker units](/rate-limits-and-quotas/#worker-units) as their plan allows, so a new user scope can't be created. |
-| `events_handler_limit` | The user scope already holds the [maximum number of handlers](/rate-limits-and-quotas/#handlers). |
-| `events_handler_too_large` | The handler is over 64 KB. |
-| `events_worker_too_large` | The user scope's handlers would exceed 1 MB combined. |
-| `events_handler_name_invalid` | `handlerName` is empty, too long, has characters that aren't allowed, or starts with `@`, which is reserved for inline handlers. |
-| `events_handler_free_variable` | The handler uses an outside variable. The message names it. |
-| `events_handler_invalid` | `handler` isn't a function, a source string, or `{ file }`. |
-| `events_handler_hash_unavailable` | This environment has no `crypto.subtle`, so `handler` can't be hashed. Pass `handlerName` alone. |
-| `events_context_invalid` | `context` isn't JSON-serializable. |
-| `events_context_too_large` | The serialized `context` is over 4 KB. |
-| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
-| `events_schedule_app_required` | The call wasn't made by an app, for example from Node.js with an account token. |
-| `events_durable_requires_account` | The call came from a scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, or from a temporary (guest) account. |
-| `too_many_requests` | Over the create rate limit, which is shared with subscribing. |
-| `events_background_consent_required` | The user hasn't granted your app `events:background`. |
-| `events_schedule_invalid` | An option is malformed. For example, more than one of `every`, `cron` and `at`, an `every` that isn't a whole number of seconds, a time with no zone, an `at` less than 1 second or more than 366 days ahead, an unsupported cron expression, an unknown `tz`, or `tz` without `cron`. The message says which. |
-| `events_schedule_never_fires` | The schedule would never run. Its first run or its `startAt` is more than 366 days away, or it ends before its first run. |
-| `events_schedule_too_frequent` | It would run more often than your plan's [minimum interval](#how-often-a-schedule-can-run). |
-| `events_schedule_too_deep` | The call was made from a handler at the end of a [handler chain](/Events/onPersistent/#handlers-that-trigger-handlers), so the schedule could never run. |
-| `bad_request` | `handlerName` is empty or over 128 characters, `handlerHash` isn't a SHA-256 hex digest, or `handlerScope` isn't `'app'` or `'user'`. |
-| `events_handler_not_found` | Nothing is published under `handlerName` in that scope. The schedule isn't created. |
-| `events_handler_hash_mismatch` | The published handler isn't the source you passed as `handler`. |
-| `events_schedule_limit` | The user holds as many schedules as their plan allows, for your app or in total. |
-| `events_schedule_budget` | The schedule would make your app's schedules, or all of the user's schedules, run more times an hour than their plan allows. |
-| `events_schedule_busy` | Puter is checking too many cron expressions at once. Try again in a moment. |
-| `events_disabled` | Schedules aren't available on this server, as on self-hosted servers. |
-| `events_failed` | The server sent a response the SDK couldn't read. |
-
-With a `{ file }` handler, errors from [`puter.fs.read()`](/FS/read/) also pass through.
-
 ## Examples
 
 The handler is published once, by the app's developer, from a deploy script or the browser console. The schedule is created from the app, for each user.
 
-<strong class="example-title">Run a handler on weekday mornings in the user's time zone</strong>
+### Run a handler on weekday mornings in the user's time zone
 
 ```js
 // Deploy script, run as the app's developer
@@ -308,7 +314,7 @@ const schedule = await puter.events.onSchedule({
 if (schedule.nextRunAt !== null) console.log(`next digest at ${new Date(schedule.nextRunAt).toString()}`);
 ```
 
-<strong class="example-title">Run once, an hour from now</strong>
+### Run once, an hour from now
 
 ```js
 const reminder = await puter.events.onSchedule({
@@ -324,7 +330,7 @@ await puter.events.updateSchedule(reminder.scheduleId, { at: Date.now() + 2 * 60
 await reminder.off();
 ```
 
-<strong class="example-title">Run every 6 hours, on the hour, 28 times</strong>
+### Run every 6 hours, on the hour, 28 times
 
 ```js
 await puter.events.onSchedule({

@@ -49,6 +49,18 @@ export interface UploadPayload {
     uploadedSize: () => number;
     contentHashSha256: string | null;
     finalizeContentHashSha256?: () => string | null;
+    /** Set once a streamed body has outgrown its budget. */
+    overflowError?: () => Error | null;
+}
+
+/**
+ * Bytes a streamed upload may still take before it is refused with
+ * `overflow()`. Items of one batch that draw on the same owner's storage share
+ * one, so together they stay inside it.
+ */
+export interface UploadByteBudget {
+    remaining: number;
+    overflow: () => Error;
 }
 
 export interface UploadProgressTrackerLike {
@@ -80,6 +92,11 @@ export interface PreparedBatchWrite {
     items: PreparedBatchWriteItem[];
     itemsByIndex: Map<number, PreparedBatchWriteItem>;
     storageAllowanceMax?: number;
+    /**
+     * The owner's storage left after the batch's declared sizes, by item index;
+     * set by the allowance check that runs before the uploads.
+     */
+    storageBudgets?: Map<number, UploadByteBudget>;
 }
 
 export interface UploadedBatchWriteItem {

@@ -4,7 +4,9 @@ description: Displays a prompt dialog by Puter.
 platforms: [ websites, apps]
 ---
 
-Displays a prompt dialog by Puter. This will block the parent window until the user responds by pressing a button.
+Displays a Puter prompt dialog.
+
+The dialog blocks the parent window until the user responds by pressing a button.
 
 ## Syntax
 ```js
@@ -22,10 +24,12 @@ A string to be displayed in the prompt dialog. If not set, the dialog will be em
 A string to be displayed as a placeholder in the input field. If not set, the input field will be empty.
 
 
-## Return value 
+## Return value
 A `Promise` that resolves to the value of the input field when the user presses the OK button. If the user presses the Cancel button, the promise will resolve to `false`.
 
 ## Examples
+### Ask the user for their name
+
 ```html;ui-prompt
 <html>
 <body>

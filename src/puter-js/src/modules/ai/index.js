@@ -1,6 +1,7 @@
 import { PuterModule } from '../../lib/PuterModule.js';
-import { convo } from './convo.js';
+import { realtime } from './realtime.js';
 import { chat } from './chat.js';
+import { RefusalPins } from './lib/refusalPins.js';
 import { txt2img } from './image.js';
 import { listModelProviders, listModels } from './models.js';
 import { img2txt } from './ocr.js';
@@ -44,12 +45,15 @@ export class AIModule extends PuterModule {
      */
     normalize = undefined;
 
+    /** @internal */
+    refusalPins = new RefusalPins();
+
     // The fields hold the unbound functions so they keep the full overloaded
     // types (`bind` erases overloads); the constructor rebinds them at
     // runtime so destructured calls (`const { chat } = puter.ai`) keep
     // working like the old arrow fields did.
     chat = chat;
-    convo = convo;
+    realtime = realtime;
     img2txt = img2txt;
     speech2txt = speech2txt;
     speech2speech = speech2speech;
@@ -66,7 +70,7 @@ export class AIModule extends PuterModule {
             /** @type {unknown} */ (this)
         );
         for ( const name of [
-            'chat', 'convo', 'img2txt', 'speech2txt', 'speech2speech',
+            'chat', 'realtime', 'img2txt', 'speech2txt', 'speech2speech',
             'txt2img', 'txt2vid', 'listModels', 'listModelProviders',
         ] ) {
             methods[name] = methods[name].bind(this);

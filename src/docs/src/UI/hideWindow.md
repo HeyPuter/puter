@@ -4,7 +4,7 @@ description: Hides the window of your application.
 platforms: [apps]
 ---
 
-The `hideWindow` method allows you to hide the window of your application.
+Hides the window of your application.
 
 ## Syntax
 
@@ -16,11 +16,13 @@ puter.ui.hideWindow()
 
 None.
 
-## Return Value
+## Return value
 
 None.
 
-## Example
+## Examples
+
+### Hide the app's window
 
 ```html
 <html>

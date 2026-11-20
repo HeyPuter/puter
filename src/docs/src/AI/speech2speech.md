@@ -32,7 +32,7 @@ Fine-tune the conversion:
 | Option | Type | Description |
 |--------|------|-------------|
 | `voice` | `String` | Target ElevenLabs voice ID. Defaults to `21m00Tcm4TlvDq8ikWAM`. |
-| `model` | `String` | Voice-changer model. Defaults to `eleven_multilingual_sts_v2`. You can also use `eleven_english_sts_v2` for English-only inputs. |
+| `model` | `String` | Voice-changer model, either `eleven_multilingual_sts_v2` or `eleven_english_sts_v2` (English-only inputs). Defaults to `eleven_multilingual_sts_v2`. Any other value fails with a `field_invalid` error. |
 | `output_format` | `String` | Desired output codec and bitrate, e.g. `mp3_44100_128`, `opus_48000_64`, or `pcm_48000`. Defaults to `mp3_44100_128`. |
 | `voice_settings` | `Object \| String` | ElevenLabs voice settings payload (e.g. `{"stability":0.5,"similarity_boost":0.75}`). |
 | `remove_background_noise` | `Boolean` | Apply background noise removal. |

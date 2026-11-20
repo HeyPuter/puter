@@ -22,6 +22,11 @@ import { describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('../UIWindowSaveAccount.js', () => ({ default: vi.fn() }));
+vi.mock('../../helpers/dashboardAppLaunch.js', () => ({
+    DESKTOP_URL: 'https://desktop.puter.com/',
+    openAppInNewTab: vi.fn(),
+    openDesktopInNewTab: vi.fn(),
+}));
 
 globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
@@ -30,7 +35,8 @@ globalThis.i18n = key => key;
 window.icons = {};
 window.launch_apps = { recent: [] };
 
-const { default: TabHome } = await import('./TabHome.js');
+const { default: TabHome, formatTrialEnd } = await import('./TabHome.js');
+const { openAppInNewTab, openDesktopInNewTab } = await import('../../helpers/dashboardAppLaunch.js');
 
 describe('TabHome recently used', () => {
     const mount = () => {
@@ -69,5 +75,85 @@ describe('TabHome launch apps request', () => {
         answer({ recommended: [], recent: [] });
         await loading;
         expect(window.launch_apps_request).toBeNull();
+    });
+});
+
+describe('TabHome recent app clicks', () => {
+    it('opens an app in a new tab at its own URL, and a website shortcut at its site', () => {
+        window.launch_apps = { recent: [
+            { name: 'notes', title: 'Notes', target_link: '' },
+            { name: 'site', title: 'Site', target_link: 'https://site.example/' },
+        ] };
+        document.body.innerHTML = `<div class="window">${TabHome.html()}</div>`;
+        const $el_window = $('.window');
+        $.ajax = vi.fn(() => new Promise(() => {}));
+        vi.spyOn(TabHome, 'loadUsageData').mockImplementation(async () => {});
+        vi.spyOn(window, 'open').mockImplementation(() => null);
+        TabHome.init($el_window);
+
+        $el_window.find('.bento-recent-app[data-app-name="notes"]')[0].click();
+        expect(openAppInNewTab).toHaveBeenCalledWith('notes');
+        expect(window.open).not.toHaveBeenCalled();
+
+        $el_window.find('.bento-recent-app[data-app-name="site"]')[0].click();
+        expect(window.open).toHaveBeenCalledWith('https://site.example/', '_blank', 'noopener,noreferrer');
+        expect(openAppInNewTab).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('TabHome Open Desktop card', () => {
+    const mount = () => {
+        document.body.innerHTML = `<div class="window">${TabHome.html()}</div>`;
+        const $el_window = $('.window');
+        $.ajax = vi.fn(() => new Promise(() => {}));
+        vi.spyOn(TabHome, 'loadUsageData').mockImplementation(async () => {});
+        TabHome.init($el_window);
+        return $el_window.find('.bento-desktop')[0];
+    };
+    const click = (card, init) => {
+        const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init });
+        card.dispatchEvent(event);
+        return event;
+    };
+
+    it('links to the desktop and opens it signed in on a plain click', () => {
+        openDesktopInNewTab.mockReturnValue(Promise.resolve());
+        const card = mount();
+        expect(card.getAttribute('href')).toBe('https://desktop.puter.com/');
+
+        expect(click(card).defaultPrevented).toBe(true);
+        expect(openDesktopInNewTab).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays a plain link on a modified click, or when the tab was refused', () => {
+        openDesktopInNewTab.mockReset();
+        const card = mount();
+        expect(click(card, { metaKey: true }).defaultPrevented).toBe(false);
+        expect(openDesktopInNewTab).not.toHaveBeenCalled();
+
+        openDesktopInNewTab.mockReturnValue(null);
+        expect(click(card).defaultPrevented).toBe(false);
+    });
+});
+
+describe('formatTrialEnd', () => {
+    const at = (day, hour) => new Date(2026, 10, day, hour).getTime();
+
+    it('counts calendar days, so the countdown agrees with the date', () => {
+        // Ends at 3pm today: today, not "1 day left".
+        expect(formatTrialEnd(at(8, 15), at(8, 9)).days).toBe(0);
+        // Ends tomorrow at 11am: one day, not two.
+        expect(formatTrialEnd(at(9, 11), at(8, 9)).days).toBe(1);
+        expect(formatTrialEnd(at(9, 11), at(8, 23)).days).toBe(1);
+        expect(formatTrialEnd(at(15, 0), at(8, 23)).days).toBe(7);
+    });
+
+    it('reads an end that has passed as today', () => {
+        expect(formatTrialEnd(at(7, 12), at(8, 9)).days).toBe(0);
+    });
+
+    it('has nothing to say without an end date', () => {
+        expect(formatTrialEnd(undefined)).toBeNull();
+        expect(formatTrialEnd(NaN)).toBeNull();
     });
 });

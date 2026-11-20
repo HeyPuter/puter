@@ -136,7 +136,6 @@ function UIAlert (options) {
             selectable_body: false,
             draggable_body: options.draggable_body ?? true,
             allow_context_menu: false,
-            show_in_taskbar: false,
             window_class: 'window-alert',
             dominant: true,
             body_content: h,

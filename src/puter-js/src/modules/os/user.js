@@ -49,11 +49,12 @@ export function user (...args) {
     // requests in the same moment. Coalesce those onto one request; the key
     // carries origin, token and query so a different user or response shape
     // never shares a result.
-    const key = `os:user:${puter.APIOrigin}:${puter.authToken}:${query}`;
+    const { APIOrigin, authToken } = puter;
+    const key = `os:user:${APIOrigin}:${authToken}:${query}`;
     const request = dedupe(
         key,
         () => new Promise((resolve, reject) => {
-            const xhr = utils.initXhr(`/whoami${query}`, puter.APIOrigin, puter.authToken, 'get');
+            const xhr = utils.initXhr(`/whoami${query}`, APIOrigin, authToken, 'get');
             // Callbacks are deliberately not passed here: this promise is
             // shared, so per-caller callbacks are invoked below instead —
             // otherwise a coalesced caller's `success` would never fire.
@@ -65,6 +66,11 @@ export function user (...args) {
 
     return request.then(
         value => {
+            // The desktop keeps the user it reads as the SDK's own, so the
+            // token it hands back next needn't be read again.
+            if ( puter.env === 'gui' && ! query ) {
+                puter.rememberWhoami_(value, authToken, APIOrigin);
+            }
             options.success?.(value);
             return value;
         },

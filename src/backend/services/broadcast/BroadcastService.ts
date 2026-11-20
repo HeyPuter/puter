@@ -18,6 +18,7 @@
  */
 
 import axios from 'axios';
+import { isRedisUnavailable } from '../../clients/redis/commandTimeout.js';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
 import { IBroadcastPeerConfig } from '../../types.js';
@@ -158,6 +159,7 @@ export class BroadcastService extends PuterService {
         timeout: PEER_SOCKET_IDLE_MS,
     });
     #redisSub: ReturnType<typeof this.clients.redis.duplicate> | null = null;
+    #publishFailingFast = false;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -375,22 +377,52 @@ export class BroadcastService extends PuterService {
     #pubsubFanout(key: string, data: unknown, meta: object): void {
         const safeMeta = this.#normalizeMeta(meta);
         if (safeMeta.from_fanout) return;
-        this.clients.redis.publish(
-            'pubsub',
-            JSON.stringify({
-                key,
-                data,
-                meta: safeMeta,
-                source: this.#redisSourceId,
-            }),
-        );
+        this.clients.redis
+            .publish(
+                'pubsub',
+                JSON.stringify({
+                    key,
+                    data,
+                    meta: safeMeta,
+                    source: this.#redisSourceId,
+                }),
+            )
+            .then(
+                () => {
+                    this.#publishFailingFast = false;
+                },
+                (err: unknown) => {
+                    // One warning per stretch of failing fast.
+                    if (isRedisUnavailable(err)) {
+                        if (this.#publishFailingFast) return;
+                        this.#publishFailingFast = true;
+                    }
+                    console.warn('[broadcast] pubsub publish failed', err);
+                },
+            );
+    }
+
+    #subscribePubsub(attempt: number): void {
+        const sub = this.#redisSub;
+        if (!sub) return;
+        sub.subscribe('pubsub').catch((err: unknown) => {
+            if (this.#redisSub !== sub) return;
+            const delayMs = Math.min(1000 * 2 ** attempt, 30_000);
+            console.warn(
+                `[broadcast] pubsub subscribe failed, retrying in ${delayMs}ms`,
+                err,
+            );
+            setTimeout(() => {
+                if (this.#redisSub === sub) this.#subscribePubsub(attempt + 1);
+            }, delayMs).unref();
+        });
     }
 
     // outer.pubsub.* events will be broadcast to other clusters through webhooks
     // pubsub.* will only fan-out to same-cluster nodes.
     #subscribeRedisOutbound(): void {
         this.#redisSub = this.clients.redis.duplicate();
-        this.#redisSub.subscribe('pubsub');
+        this.#subscribePubsub(0);
         this.#redisSub.on('message', (channel: string, message: string) => {
             if (channel !== 'pubsub') return;
             const parsed = JSON.parse(message);

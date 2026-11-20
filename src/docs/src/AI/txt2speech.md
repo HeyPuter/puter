@@ -4,7 +4,9 @@ description: Convert text to speech with AI using multiple languages, voices, an
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Converts text into speech using AI. Supports multiple languages and voices.
+Converts text into speech using AI.
+
+It supports multiple languages and voices.
 
 ## Syntax
 
@@ -87,6 +89,8 @@ Unknown voices and names matching multiple voices are rejected with HTTP 400 (`f
 For more details about each option, see the [ElevenLabs API reference](https://elevenlabs.io/docs/api-reference/text-to-speech).
 
 ### Gemini models
+
+Gemini models use regular token prices, including during provider launch promotions.
 
 Available when `provider: 'gemini'`:
 

@@ -114,7 +114,6 @@ function UIWindowCopyToken (options = {}) {
             width: 450,
             height: 'auto',
             dominant: true,
-            show_in_taskbar: false,
             window_class: 'window-copy-auth-token',
             body_css: {
                 width: 'initial',

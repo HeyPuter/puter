@@ -190,6 +190,49 @@ describe('auth state', () => {
     });
 });
 
+describe('node runtimes', () => {
+    // Undici's WebSocket is an EventTarget; the `ws` package's is an emitter.
+    class UndiciLikeWebSocket {
+        addEventListener () {}
+        removeEventListener () {}
+    }
+    class WsLikeWebSocket {
+        on () {}
+        removeListener () {}
+    }
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('opens no socket when the WebSocket cannot be unref\'d', () => {
+        vi.stubGlobal('WebSocket', UndiciLikeWebSocket);
+        const opened = sockets.length;
+        const fs = makeModule('nodejs');
+
+        expect(fs.socket).toBeUndefined();
+        fs.onAuthStateChanged();
+        expect(fs.socket).toBeUndefined();
+        expect(sockets).toHaveLength(opened);
+    });
+
+    it('opens an unref\'d socket on a ws-like WebSocket', () => {
+        vi.stubGlobal('WebSocket', WsLikeWebSocket);
+        const fs = makeModule('nodejs');
+
+        expect(fs.socket).toBe(sockets.at(-1));
+        expect(fs.socket.options.autoUnref).toBe(true);
+    });
+
+    it('still opens the socket in the browser', () => {
+        vi.stubGlobal('WebSocket', UndiciLikeWebSocket);
+        const fs = makeModule('web');
+
+        expect(fs.socket).toBe(sockets.at(-1));
+        expect(fs.socket.options.autoUnref).toBe(false);
+    });
+});
+
 describe('notification receipts', () => {
     it('offers to acknowledge receipts and hands each ask to notifications', () => {
         const fs = makeModule('app');

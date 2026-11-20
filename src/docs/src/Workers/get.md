@@ -18,13 +18,13 @@ puter.workers.get(workerName)
 
 The name of the worker to get the information for.
 
-## Return Value
+## Return value
 
 A `Promise` that resolves to a [`WorkerInfo`](/Objects/workerinfo) object if the worker exists, or `undefined` otherwise.
 
 ## Examples
 
-<strong class="example-title">Basic Usage</strong>
+### Basic Usage
 
 ```html;workers-get
 <html>

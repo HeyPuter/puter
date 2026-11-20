@@ -171,37 +171,3 @@ export const verifyGuestGrant = ({
         expiresAt: payload.exp,
     };
 };
-
-/**
- * Read the claimed identifier out of a grant _without_ verifying it, for
- * rate-limit bucketing only.
- *
- * Bucketing has to happen before the handler runs, and a forged grant is
- * rejected there without reaching the upstream API — so an unverified read is
- * enough to put a host's guests in one bucket, and the worst a forger achieves
- * is choosing which bucket their own rejections land in. Never use this to
- * decide attribution.
- *
- * @returns The claimed identifier, or null if the grant doesn't parse.
- */
-export const readClaimedGrantIdentifier = (grant: unknown): string | null => {
-    if (typeof grant !== 'string' || grant.length > MAX_GRANT_LENGTH) {
-        return null;
-    }
-    const parts = grant.split('.');
-    if (parts.length !== 3 || parts[0] !== GRANT_VERSION) return null;
-    try {
-        const payload = JSON.parse(
-            Buffer.from(parts[1]!, 'base64url').toString('utf8'),
-        ) as { id?: unknown };
-        if (
-            typeof payload?.id !== 'string' ||
-            !IDENTIFIER_RE.test(payload.id)
-        ) {
-            return null;
-        }
-        return payload.id;
-    } catch {
-        return null;
-    }
-};

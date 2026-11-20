@@ -243,6 +243,33 @@ describe('WispController', () => {
             expect(await verifyStatus(token)).toBe(403);
         });
 
+        it('binds a token minted by an access token to that token while the replica lags', async () => {
+            const { sessionActor, apiTokenActor, apiToken } = await freshUser();
+            const db = server.clients.db;
+            const original = db.read.bind(db);
+            const spy = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql: string, params?: unknown[]) =>
+                    sql.includes("FROM `sessions` WHERE `kind` = 'access_token'")
+                        ? []
+                        : original(sql, params),
+                );
+            let token: string;
+            try {
+                token = await relayTokenFor(apiTokenActor);
+            } finally {
+                spy.mockRestore();
+            }
+            expect(await verifyStatus(token)).toBe(200);
+
+            await server.services.auth.revokeAccessToken(
+                sessionActor,
+                apiToken,
+            );
+
+            expect(await verifyStatus(token)).toBe(403);
+        });
+
         it('applies the account checks to a token with no session claim', async () => {
             const { row } = await freshUser();
             const token = server.services.token.sign(

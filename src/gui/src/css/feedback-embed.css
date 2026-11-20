@@ -1,0 +1,17 @@
+/* Transparent, so the dialog's own scrim covers the framing page. */
+html,
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+/* A scroll over the scrim must not scroll the framing page behind it. */
+html {
+    overscroll-behavior: none;
+    /* Matches the frame's, so it stays transparent and follows the OS theme. */
+    color-scheme: light dark;
+}

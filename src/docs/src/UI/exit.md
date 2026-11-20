@@ -4,7 +4,7 @@ description: Terminates the running application and closes its window.
 platforms: [apps]
 ---
 
-Will terminate the running application and close its window.
+Terminates the running application and closes its window.
 
 ## Syntax
 ```js
@@ -19,6 +19,8 @@ Reports the reason for exiting, with `0` meaning success and non-zero indicating
 
 This value is reported to other apps as the reason that your app exited.
 ## Examples
+
+### Exit the app from a button
 
 ```html
 <html>

@@ -699,7 +699,8 @@ export class SocketService extends PuterService {
             // `{ auth: { ... } }`, not the query string. puter-js uses
             // `io(url, { auth: { auth_token } })`.
             const handshakeAuth = socket.handshake.auth as
-                Record<string, unknown> | undefined;
+                | Record<string, unknown>
+                | undefined;
             const tokenRaw =
                 typeof handshakeAuth?.auth_token === 'string'
                     ? handshakeAuth.auth_token
@@ -981,15 +982,22 @@ export class SocketService extends PuterService {
             },
         );
         const decisions = new Map<string, SocketAuthDecision>();
+        let unchecked = 0;
         checked.forEach((token, i) => {
             const outcome = outcomes[i];
-            decisions.set(
-                token,
-                outcome?.status === 'fulfilled'
-                    ? outcome.value
-                    : { reject: new Error('socket reauth failed') },
-            );
+            // A lookup that failed says nothing about the credential, so its
+            // sockets stay up until a later sweep gets an answer.
+            if (outcome?.status === 'fulfilled') {
+                decisions.set(token, outcome.value);
+            } else {
+                unchecked++;
+            }
         });
+        if (unchecked > 0) {
+            console.warn(
+                `[socket] reauth sweep could not check ${unchecked} credential(s)`,
+            );
+        }
 
         for (const socket of sockets) {
             const decision = socket.authToken
@@ -1085,6 +1093,7 @@ export class SocketService extends PuterService {
             // them. Off unless events are enabled, in which case the verbs
             // answer with `events_disabled` rather than going unanswered.
             this.services.events.attachSocket(socket, actor);
+            this.services.notification.attachSocket(socket, actor);
 
             // Everything below is the desktop session's own traffic: two verbs
             // that reach the user's other tabs, and a connect announcement
@@ -1173,10 +1182,12 @@ export class SocketService extends PuterService {
         );
 
         this.clients.event.on(
-            'auth.access-token.revoked',
+            'outer.auth.access-token.revoked',
             (_key: string, data: unknown) => {
-                const { token_uid } = data as { token_uid: string };
-                this.#evictAccessTokenSockets(token_uid).catch(
+                const tokenUid = (data as { token_uid?: unknown } | null)
+                    ?.token_uid;
+                if (typeof tokenUid !== 'string') return;
+                this.#evictAccessTokenSockets(tokenUid).catch(
                     (err: unknown) => {
                         console.error('[socket] token eviction failed', err);
                     },
@@ -1221,7 +1232,8 @@ export class SocketService extends PuterService {
                 // their next poll of /cache/last-change-timestamp.
                 const originalSocketId = (
                     data.response as
-                        { original_client_socket_id?: string } | undefined
+                        | { original_client_socket_id?: string }
+                        | undefined
                 )?.original_client_socket_id;
                 await this.send({ room: userId }, 'cache.updated', {
                     timestamp,
@@ -1235,7 +1247,9 @@ export class SocketService extends PuterService {
     #handleUploadProgress(data: UploadProgressPayload): void {
         const meta = data.meta ?? {};
         const userId = (meta.user_id ?? meta.userId) as
-            number | string | undefined;
+            | number
+            | string
+            | undefined;
         if (!userId) {
             console.warn('[socket] upload-progress missing user_id', { meta });
             return;

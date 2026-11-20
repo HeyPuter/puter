@@ -154,6 +154,26 @@ describe('GET /fs/readdir over HTTP', () => {
         ).toEqual(['a', 'a/b']);
     });
 
+    it('answers 404 for a directory whose parent chain is broken', async () => {
+        const { username, token } = env.users.user;
+        const path = `/${username}/Documents/http-orphan-${Date.now()}`;
+        const created = await fetch(new URL('/fs/mkdir', env.apiOrigin), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, auth_token: token }),
+        });
+        expect(created.status).toBe(200);
+        const { uid } = (await created.json()) as { uid: string };
+        await env.server.clients.db.write(
+            'UPDATE fsentries SET path = NULL, parent_uid = ? WHERE uuid = ?',
+            ['does-not-exist', uid],
+        );
+        await env.server.stores.fsEntry.invalidateEntryCacheByUuid(uid);
+
+        const response = await fetch(readdirUrl({ uid, auth_token: token }));
+        expect(response.status).toBe(404);
+    });
+
     it('mkdir does not return internal ids, storage columns or tokens', async () => {
         const { username, token } = env.users.user;
         const response = await fetch(new URL('/fs/mkdir', env.apiOrigin), {

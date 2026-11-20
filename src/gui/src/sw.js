@@ -21,23 +21,33 @@
 // Push payload: JSON whose `puter` (or `data.puter`, an object or JSON string)
 // is { uid, title, body, icon, group, target: { app, path }, data, ts }, plus
 // `app: { uid, name, icon }` when an app sent it.
-// On `pushsubscriptionchange` it posts { type: 'puter-push-subscription-changed' }
-// to this origin's windows, so a signed-in page can register again.
+// On `pushsubscriptionchange` it keeps Puter's subscription, marks it, and tells this origin's windows.
 // A `type: 'challenge'` message is shown, then its `challenge` is posted to
 // this origin's windows as { type: 'puter-push-challenge', challenge } for the
 // page to confirm the subscription with the server.
 
 const DEFAULT_TITLE = 'New notification';
 const DEFAULT_ICON = '/favicons/android-icon-192x192.png';
-const SHOW_MESSAGE = 'puter-show-notification';
 const CLICK_MESSAGE = 'puter-notification-click';
 const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 const CHALLENGE_MESSAGE = 'puter-push-challenge';
 const CLICK_PARAM = 'puter.notification';
 // Browsers allow openWindow only shortly after the click.
 const CLICK_ACK_BUDGET_MS = 600;
 const GUI_PATHS = /^\/(?:$|desktop(?:\/|$)|dashboard(?:\/|$)|app\/|settings(?:\/|$)|@)/;
+// Shared with puter.js: generated from lib/pushNames.js by tools/pushWorkerNames.mjs.
+const CLICKS_STORE = 'clicks';
+const HANDLERS_STORE = 'handlers';
+const OPT_IN_PREFIX = 'puter:opt-in:';
+const PUSH_DB_NAME = 'puter-push';
+const RECEIPT_PREFIX = 'puter:receipt:';
+const SERVER_KEYS_ENTRY = 'puter:server-keys';
+const SERVER_KEY_ENTRY = 'puter:server-key';
+const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
+const SUBSCRIPTION_CHANGED_PREFIX = 'puter:subscription-changed:';
+const SYNCED_PREFIX = 'puter:synced:';
+const TAP_BASE_PREFIX = 'puter:tap-base:';
+// End of generated names.
 
 const nonEmptyString = (value) => (
     typeof value === 'string' && value.trim() !== '' ? value : undefined
@@ -205,19 +215,6 @@ async function routeClick (scope, click, startedAt = Date.now(), budgetMs = CLIC
     await scope.clients.openWindow(clickUrl(click, origin));
 }
 
-async function hasVisibleWindow (scope) {
-    const origin = scope.location.origin;
-    const windowClients = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    return windowClients.some((client) => (
-        sameOriginUrl(client.url, origin) && client.visibilityState === 'visible'
-    ));
-}
-
-async function showPageMessage (scope, message) {
-    if ( await hasVisibleWindow(scope) ) return;
-    await showMessage(scope.registration, message, scope.location.origin);
-}
-
 async function postToWindows (scope, message) {
     const origin = scope.location.origin;
     const windowClients = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -226,8 +223,85 @@ async function postToWindows (scope, message) {
     }
 }
 
-function announceSubscriptionChange (scope) {
-    return postToWindows(scope, { type: SUBSCRIPTION_CHANGED_MESSAGE });
+function openDB () {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(PUSH_DB_NAME, 1);
+        req.onupgradeneeded = () => {
+            req.result.createObjectStore(HANDLERS_STORE);
+            req.result.createObjectStore(CLICKS_STORE);
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function idb (mode, action) {
+    const db = await openDB();
+    try {
+        return await new Promise((resolve, reject) => {
+            const req = action(db.transaction(HANDLERS_STORE, mode).objectStore(HANDLERS_STORE));
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    } finally {
+        db.close();
+    }
+}
+
+function fromBase64Url (value) {
+    const padded = value.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
+    return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+}
+
+function sameKey (buffer, value) {
+    if ( ! buffer ) return false;
+    try {
+        const bytes = new Uint8Array(buffer);
+        const key = fromBase64Url(value);
+        return bytes.length === key.length && bytes.every((b, i) => b === key[i]);
+    } catch ( _e ) {
+        return false;
+    }
+}
+
+async function puterKeys () {
+    const last = await idb('readonly', (s) => s.get(SERVER_KEY_ENTRY));
+    const listed = await idb('readonly', (s) => s.get(SERVER_KEYS_ENTRY));
+    return [last, ...(Array.isArray(listed) ? listed : [])].filter((key) => nonEmptyString(key));
+}
+
+// This worker only ever holds Puter's subscription, so one that went is push the user had on.
+async function keepSubscription (scope, event) {
+    const registration = scope.registration;
+    const keys = await puterKeys();
+    if ( ! keys.length ) return;
+    const old = event.oldSubscription?.options?.applicationServerKey;
+    if ( old && ! keys.some((key) => sameKey(old, key)) ) return;
+    // The page asks the server whether the old endpoint was removed before registering again.
+    const receipt = await idb('readonly', (s) => s.get(RECEIPT_PREFIX + registration.scope));
+    const earlier = await idb('readonly', (s) => s.get(SUBSCRIPTION_CHANGED_PREFIX + registration.scope));
+    // A mark no page handled yet keeps the endpoint the server last knew.
+    const oldEndpoint = nonEmptyString(earlier?.oldEndpoint)
+        ?? nonEmptyString(event.oldSubscription?.endpoint)
+        ?? nonEmptyString(receipt?.endpoint);
+    await idb('readwrite', (s) => s.put({ at: Date.now(), ...(oldEndpoint ? { oldEndpoint } : {}) }, SUBSCRIPTION_CHANGED_PREFIX + registration.scope));
+    // The receipt names the old endpoint and keys.
+    await idb('readwrite', (s) => s.delete(RECEIPT_PREFIX + registration.scope));
+    if ( event.newSubscription ) return;
+    if ( await registration.pushManager.getSubscription() ) return;
+    // Push turned off here leaves no subscription or receipt to go by.
+    if ( ! event.oldSubscription && ! oldEndpoint ) return;
+    await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromBase64Url(keys[0]) });
+}
+
+async function handleSubscriptionChange (scope, event) {
+    try {
+        await keepSubscription(scope, event);
+    } catch ( err ) {
+        console.warn('[puter] could not keep the push subscription', err);
+    }
+    await postToWindows(scope, { type: SUBSCRIPTION_CHANGED_MESSAGE });
 }
 
 async function handlePush (scope, message) {
@@ -254,8 +328,6 @@ self.addEventListener('message', (event) => {
     if ( !message || !event.source || !sameOriginUrl(event.source.url, self.location.origin) ) return;
     if ( message.type === CLICK_ACK_MESSAGE ) {
         pendingClickAcks.get(message.id)?.();
-    } else if ( message.type === SHOW_MESSAGE ) {
-        event.waitUntil(showPageMessage(self, message.puter));
     }
 });
 
@@ -266,5 +338,5 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 self.addEventListener('pushsubscriptionchange', (event) => {
-    event.waitUntil(announceSubscriptionChange(self));
+    event.waitUntil(handleSubscriptionChange(self, event));
 });

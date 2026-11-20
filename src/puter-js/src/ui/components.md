@@ -37,6 +37,7 @@ All components use **Shadow DOM** so their styles won't leak into your page. The
 | [`<puter-spinner>`](#puter-spinner) | Loading overlay | `puter.ui.showSpinner()` / `hideSpinner()` |
 | [`<puter-color-picker>`](#puter-color-picker) | Color picker dialog | `puter.ui.showColorPicker()` |
 | [`<puter-font-picker>`](#puter-font-picker) | Font picker dialog | `puter.ui.showFontPicker()` |
+| [`<puter-user-menu>`](#puter-user-menu) | Account button and Puter's app browser, for first-party apps | none |
 
 ---
 
@@ -334,13 +335,73 @@ el.open();
 
 ---
 
+### `<puter-user-menu>`
+
+The account button and Puter's app browser for a first-party app on a Puter subdomain (`notes.puter.com`). It is internal and left out of the public docs, because the app browser only works one subdomain under the Puter origin. It follows the page's own puter.js sign-in, never the Puter session's.
+
+- Signed out, it shows **Sign in**, which calls `puter.auth.signIn()`. A temporary account counts as signed out.
+- Signed in, it shows the user's profile picture, or the username's initial when there is none. Clicking it opens a menu with:
+  - The user's picture, username and email. The email line is hidden when whoami leaves it out, such as for an app that can't read it.
+  - **Manage account**, **Usage** and **Open Puter**, links that open the GUI origin's `/dashboard/#account`, `/dashboard/#usage` and `/` in a new tab.
+  - **Add credits**, under Usage, only when whoami reports `subscribed: true` and no `team` that pays for the account. It shows the top-up dialog in a frame over the page (`/embed/top-up`) on a page that can frame the GUI, and otherwise opens it on the dashboard in a new tab.
+  - **Send feedback**, which calls `puter.ui.showFeedbackDialog()`.
+  - **Sign out**, which calls `puter.auth.signOut()`.
+- The menu opens with focus on its first item. ArrowUp and ArrowDown move between items and wrap around, and Home and End jump to the first and last.
+- On a page exactly one label under the Puter origin, with the same scheme and port, other than Puter's own subdomains such as `api` and `docs`, an **Apps** button opens the app browser (`/embed/apps`) in a panel under the button. It names the signed-in user as `#user=<uuid>`, so the app browser shows the Puter session's apps only to that user (see `doc/embedding-app-browser.md`), and passes a forced `theme` on as `theme=`. Elsewhere the button is hidden, because the server refuses the framing.
+- The menu and the Apps panel hang under their button with a caret pointing at it, and close on Escape, a press outside them, or their button. They're in the browser's top layer where it has one, so a host's `transform`, `overflow` or `z-index` can't clip or cover them. On screens up to 600px wide, the Apps panel spans the width below the button.
+- Closing the Apps panel keeps the app browser, so reopening it keeps its scroll and search. Any change to the page's sign-in discards it, so it never stays loaded for the previous user.
+- It renders nothing outside a top-level page (`puter.env !== 'web'`), such as inside the Puter desktop.
+
+**Attributes**
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `apps-label` | `Apps` | Apps button label, panel title and iframe title |
+| `sign-in-label` | `Sign in` | Sign-in button text |
+| `sign-out-label` | `Sign out` | Sign-out menu item text |
+| `close-label` | `Close` | The Apps panel's close button label |
+| `account-label` | `Account` | Account button label, read as `Account: <username>` |
+| `manage-account-label` | `Manage account` | Menu link to the account settings |
+| `usage-label` | `Usage` | Menu link to the usage page |
+| `add-credits-label` | `Add credits` | Menu item that opens the top-up dialog |
+| `open-puter-label` | `Open Puter` | Menu link to Puter |
+| `feedback-label` | `Send feedback` | Menu item that opens the feedback dialog |
+| `theme` | follows the OS | `light` or `dark`, for the component and the app browser in it |
+
+Changing an attribute updates the component in place.
+
+**Parts**
+
+`apps-button`, `avatar`, `sign-in`, `menu` and `apps-panel`, for styling from the host page with `puter-user-menu::part(avatar) { ... }`.
+
+**Events**
+
+| Event | Detail | When |
+|-------|--------|------|
+| `signin` | `{ user }`, the signed-in user or `null` | Sign in finished |
+| `signout` | none | The user signed out from the menu |
+
+**Example**
+```html
+<header>
+    <h1>Notes</h1>
+    <puter-user-menu sign-in-label="Se connecter" sign-out-label="Se déconnecter"></puter-user-menu>
+</header>
+<script>
+    document.querySelector('puter-user-menu')
+        .addEventListener('signout', () => clearNotes());
+</script>
+```
+
+---
+
 ## Styling
 
-All components render inside Shadow DOM and match puter.com's native GUI appearance. Styles are encapsulated and cannot be overridden from outside the component.
+All components render inside Shadow DOM and match puter.com's native GUI appearance. Styles are encapsulated and cannot be overridden from outside the component, except through the parts `<puter-user-menu>` exposes.
 
 ## Dark mode
 
-By default, components that ship dark-mode styles auto-adapt to the OS setting (`prefers-color-scheme: dark`): `<puter-notification>`, `<puter-context-menu>`, `<puter-menubar>`, `<puter-color-picker>`, `<puter-font-picker>`.
+By default, components that ship dark-mode styles auto-adapt to the OS setting (`prefers-color-scheme: dark`): `<puter-notification>`, `<puter-context-menu>`, `<puter-menubar>`, `<puter-color-picker>`, `<puter-font-picker>`, `<puter-user-menu>`.
 
 To force a specific theme regardless of the OS preference, set the `theme` attribute on the component:
 

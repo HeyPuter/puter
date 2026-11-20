@@ -60,7 +60,6 @@ describe('formatRelativeTime', () => {
         expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'br')).toBe('há 5 minutos');
         expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'ua')).toBe('5 хвилин тому');
         expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'zhtw')).toBe('5 分鐘前');
-        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'emoji')).toBe('5 minutes ago');
         expect(formatAbsoluteTime(NOW, 'zhtw')).toMatch(/^2026年8月\d+日/);
     });
 

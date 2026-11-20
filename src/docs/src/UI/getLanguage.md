@@ -15,10 +15,12 @@ puter.ui.getLanguage()
 
 This function takes no parameters.
 
-## Return value 
+## Return value
 A `Promise` that resolves to a string containing the current language code (e.g., `en`, `fr`, `es`, `de`).
 
 ## Examples
+### Get the current language
+
 ```html
 <html>
 <body>

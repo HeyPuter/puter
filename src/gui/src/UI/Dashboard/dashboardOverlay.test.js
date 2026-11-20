@@ -150,6 +150,13 @@ describe('mountDashboardOverlay', () => {
         close();
         expect(window.visualViewport.removeEventListener).toHaveBeenCalledWith('resize', listeners.resize);
     });
+
+    it('leaves its size alone under a keyboard when told not to fit it', () => {
+        window.visualViewport = { height: window.innerHeight, offsetTop: 0, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+        const { close } = mountDashboardOverlay({ html: card, fitKeyboard: false });
+        expect(window.visualViewport.addEventListener).not.toHaveBeenCalled();
+        close();
+    });
 });
 
 describe('bindBackdropDismiss', () => {

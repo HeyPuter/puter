@@ -4,68 +4,6 @@ import { webPushSupported, workerFor } from './lib/webPush.js';
 /** Same rule the server applies to a notification's `channel`. */
 const KEY_PATTERN = /^[a-z0-9-]{1,32}$/;
 
-/** Fields a handler's result may set on the shown notification. */
-const SHOWN_FIELDS = ['title', 'body', 'icon', 'badge', 'image', 'tag', 'url'];
-
-const DEFAULT_TITLE = 'New notification';
-
-/** The tag the server gives the same notification's push. */
-export const pushTag = (notification) => {
-    const appUid = notification.app?.uid;
-    return notification.group && appUid && !notification.sensitive
-        ? `${appUid}:${notification.group}`
-        : notification.uid;
-};
-
-/**
- * The handler's result, reduced to what a notification can show. A sensitive
- * notification names only the app, as its push does, whatever the handler
- * returns.
- */
-export const shownFrom = (notification, result) => {
-    const appIcon = notification.app?.icon;
-    if (notification.sensitive) {
-        const name = notification.app?.name;
-        return {
-            title: name || DEFAULT_TITLE,
-            ...(name ? { body: `New notification from ${name}` } : {}),
-            ...(appIcon ? { icon: appIcon } : {}),
-            tag: notification.uid,
-        };
-    }
-    const icon = notification.icon ?? appIcon;
-    const shown = {
-        title: notification.title || DEFAULT_TITLE,
-        ...(notification.text ? { body: notification.text } : {}),
-        ...(icon ? { icon } : {}),
-        tag: pushTag(notification),
-        ...(notification.target ? { url: notification.target } : {}),
-    };
-    if (!result || typeof result !== 'object') return shown;
-    for (const field of SHOWN_FIELDS) {
-        if (typeof result[field] === 'string' && result[field] !== '')
-            shown[field] = result[field];
-    }
-    if (typeof result.requireInteraction === 'boolean')
-        shown.requireInteraction = result.requireInteraction;
-    if (Array.isArray(result.actions)) {
-        shown.actions = [];
-        for (const entry of result.actions) {
-            if (!entry || typeof entry.action !== 'string' ||
-                !entry.action.trim() || entry.action.length > 64 ||
-                typeof entry.title !== 'string' ||
-                !entry.title.trim() || entry.title.length > 64) continue;
-            shown.actions.push({
-                action: entry.action,
-                title: entry.title,
-                ...(typeof entry.icon === 'string' && entry.icon ? { icon: entry.icon } : {}),
-            });
-            if (shown.actions.length === 2) break;
-        }
-    }
-    return shown;
-};
-
 let evalBlockedWarned = false;
 
 /**
@@ -99,12 +37,12 @@ const workerSource = (handler) => {
 
 /**
  * Handles this app's notifications sent with `channel: key`, live while the app
- * is connected and as a browser push while it isn't.
+ * is connected and as a browser push when no page of it is visible and focused.
  *
  * The handler gets the notification and may return `{ title, body, icon, badge,
- * image, tag, url, requireInteraction, actions }` to change what is shown. On a
- * website it is also saved for `push-sw.js`, which runs it when a push arrives
- * with no page open, so it must be self-contained (see the docs for the limits). Once
+ * image, tag, url, requireInteraction, actions }` to change what a push shows.
+ * On a website it is also saved for `push-sw.js`, which runs it when a push
+ * arrives, so it must be self-contained (see the docs for the limits). Once
  * the user turned notifications on here with `enable()`, this keeps the
  * browser's subscription current without asking again.
  *

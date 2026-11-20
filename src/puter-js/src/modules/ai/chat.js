@@ -20,6 +20,9 @@ const PARAMS_TO_PASS = [
     'verbosity',
     'provider',
     'fallback',
+    'refusalFallback',
+    'serviceSpeed',
+    'speed',
     'image_config',
     'compaction',
     'context_management',
@@ -27,6 +30,9 @@ const PARAMS_TO_PASS = [
     'outputFormat',
     'thinking',
     'streamToolInput',
+    'prompt_cache_key',
+    'prompt_cache_retention',
+    'prompt_cache_options',
 ];
 
 // Parameters renamed between the SDK's camelCase option and the driver's
@@ -232,6 +238,10 @@ export async function chat (
     /** @type {ChatOptions & { stream?: boolean }} */
     const userParams = extras.find(isPlainObject) ?? {};
 
+    if (userParams.serviceSpeed !== undefined && !['standard', 'fast', 'ultrafast'].includes(userParams.serviceSpeed)) {
+        throw { code: 'invalid_service_speed', message: 'serviceSpeed must be standard, fast, or ultrafast' };
+    }
+
     // Copy relevant parameters from userParams to requestParams.
     // Use `!== undefined` so legitimate zeros (temperature: 0, max_tokens: 0)
     // are forwarded — truthy checks silently drop them.
@@ -284,6 +294,22 @@ export async function chat (
         requestParams.provider = requestParams.provider || userParams.driver;
     }
 
+    // A conversation whose model declined an earlier turn keeps running on
+    // the model that answered, so later turns skip the declined attempt.
+    const { refusalPins } = this;
+    const { model: requestedModel, messages } = requestParams;
+    const pinsFallback =
+        userParams.refusalFallback !== false && Array.isArray(messages);
+    if (pinsFallback) {
+        const pinned = refusalPins.lookup(requestedModel, messages);
+        if (pinned) requestParams.refusalFallbackModel = pinned;
+    }
+    const pinFallback = (model) => {
+        if (pinsFallback && typeof model === 'string') {
+            refusalPins.record(requestedModel, messages, model);
+        }
+    };
+
     return await utils.makeDriverMethod({
         iface: 'puter-chat-completion',
         driver: 'ai-chat',
@@ -292,7 +318,11 @@ export async function chat (
         signal: userParams.signal,
         puter,
         testMode: testMode ?? false,
+        onLine: (line) => {
+            if (line?.type === 'refusal_fallback') pinFallback(line.to?.model);
+        },
         transform: async (result) => {
+            pinFallback(result.usageDetails?.fallbackModel);
             // Both deliberately return the message content as-is, which may
             // be a content-part array rather than a string.
             result.toString = () => result.message?.content;

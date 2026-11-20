@@ -129,10 +129,10 @@ In addition, the Puter.js Workers API lets you create, manage, and execute these
 These workers management features are supported out of the box when using Puter.js:
 
 - **[`puter.workers.create()`](/Workers/create/)** - Create a new worker
-- **[`puter.workers.delete()`](/Workers/delete/)** - Delete a worker
+- **[`puter.workers.exec()`](/Workers/exec/)** - Execute a worker
 - **[`puter.workers.list()`](/Workers/list/)** - List all workers
 - **[`puter.workers.get()`](/Workers/get/)** - Get information about a specific worker
-- **[`puter.workers.exec()`](/Workers/exec/)** - Execute a worker
+- **[`puter.workers.delete()`](/Workers/delete/)** - Delete a worker
 
 ### Examples
 

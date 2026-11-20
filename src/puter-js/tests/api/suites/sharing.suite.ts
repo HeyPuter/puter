@@ -352,6 +352,73 @@ export default suite('sharing', {
         t.assert.equal(result.revoked, 0);
     },
 
+    'unshare lists a refused pair and still withdraws the others': async (t) => {
+        const path = scratch(t, 'partial');
+        await t.puter.fs.write(path, 'x');
+        await t.puter.fs.share(path, t.env.users.other.username, 'read');
+
+        // The owner can't be removed from their own item. The item is named
+        // from the home directory, and comes back as its absolute path.
+        const result = await t.puter.fs.unshare({
+            path: path.replace(home(t), '~'),
+            recipients: [t.env.users.other.username, t.env.users.user.username],
+        });
+        t.assert.equal(result.revoked, 1);
+        t.assert.equal(result.failed.length, 1);
+        t.assert.equal(result.failed[0].recipient, t.env.users.user.username);
+        t.assert.equal(result.failed[0].path, path);
+        t.assert.equal(result.failed[0].code, 'cannot_revoke_owner');
+        t.assert.equal(typeof result.failed[0].message, 'string');
+
+        const after = await readAsOther(t, path);
+        t.assert.ok(after.status !== 200, `read should fail after unshare (got ${after.status})`);
+    },
+
+    'unshare rejects when every pair was refused': async (t) => {
+        const path = scratch(t, 'refused');
+        const written = await t.puter.fs.write(path, 'x');
+
+        const error = (await t.assert.rejects(() =>
+            t.puter.fs.unshare(path, t.env.users.user.username),
+        )) as { message?: string; code?: string; failed?: Record<string, string>[] };
+        t.assert.equal(error.code, 'cannot_revoke_owner');
+        t.assert.equal(typeof error.message, 'string');
+        t.assert.equal(error.failed?.length, 1);
+        t.assert.equal(error.failed?.[0].path, path);
+        t.assert.equal(error.failed?.[0].code, 'cannot_revoke_owner');
+
+        // Named by UID, the pair carries the UID and no path.
+        const byUid = (await t.assert.rejects(() =>
+            t.puter.fs.unshare({ uid: written.uid, recipient: t.env.users.user.username }),
+        )) as { code?: string; failed?: Record<string, string>[] };
+        t.assert.equal(byUid.code, 'cannot_revoke_owner');
+        t.assert.equal(byUid.failed?.[0].uid, written.uid);
+        t.assert.equal(byUid.failed?.[0].path, undefined);
+    },
+
+    'unshare resolves when the recipient or the item is gone': async (t) => {
+        const path = scratch(t, 'gone');
+        await t.puter.fs.write(path, 'x');
+
+        const noUser = await t.puter.fs.unshare(path, 'no-such-user-zzz');
+        t.assert.equal(noUser.revoked, 0);
+        t.assert.equal(noUser.failed.length, 1);
+        t.assert.equal(noUser.failed[0].recipient, 'no-such-user-zzz');
+        t.assert.equal(noUser.failed[0].code, 'user_does_not_exist');
+
+        // A relative name comes back as the absolute path it resolved to.
+        const name = scratch(t, 'missing').split('/').pop()!;
+        const noItem = await t.puter.fs.unshare(name, t.env.users.other.username);
+        t.assert.equal(noItem.revoked, 0);
+        t.assert.equal(noItem.failed.length, 1);
+        t.assert.equal(noItem.failed[0].code, 'subject_does_not_exist');
+        t.assert.ok(
+            noItem.failed[0].path?.startsWith(`${home(t)}/`) &&
+                noItem.failed[0].path.endsWith(`/${name}`),
+            `path should be absolute (got ${noItem.failed[0].path})`,
+        );
+    },
+
     'sharing with an unregistered address records an invite': async (t) => {
         const path = scratch(t, 'invite');
         await t.puter.fs.write(path, 'x');

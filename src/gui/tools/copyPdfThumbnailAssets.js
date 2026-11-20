@@ -1,7 +1,7 @@
 import { cp, mkdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { PDFJS_VERSION } from '../src/services/pdfThumbnails/config.js';
+import { PDFJS_VERSION } from '../src/services/uploadThumbnails/config.js';
 
 export const copyPdfThumbnailAssets = async (distPath) => {
     const require = createRequire(import.meta.url);
@@ -18,6 +18,6 @@ export const copyPdfThumbnailAssets = async (distPath) => {
         await cp(path.join(source, 'build', `${name}.min.mjs`), path.join(destination, `${name}.mjs`));
     }
     for ( const name of ['worker.js', 'config.js'] ) {
-        await cp(new URL(`../src/services/pdfThumbnails/${name}`, import.meta.url), path.join(destination, name));
+        await cp(new URL(`../src/services/uploadThumbnails/${name}`, import.meta.url), path.join(destination, name));
     }
 };

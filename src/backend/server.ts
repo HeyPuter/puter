@@ -36,6 +36,7 @@ import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
+import { createJsonBodyParser } from './core/http/middleware/jsonBody';
 import {
     createLargeJsonBodyParser,
     DEFAULT_JSON_LIMIT_BYTES,
@@ -144,6 +145,8 @@ const LARGE_JSON_ROUTES = [
 const LARGE_JSON_LIMIT_BYTES = 128 * 1024 * 1024;
 /** Two max-size bodies per process. */
 const LARGE_JSON_BUDGET_BYTES = 2 * LARGE_JSON_LIMIT_BYTES;
+/** These parse in one go, so they stay small enough for that to be quick. */
+const NON_UTF8_JSON_LIMIT_BYTES = 1024 * 1024;
 
 /**
  * Through `/drivers/call`, only chat takes a large body; other drivers keep the
@@ -413,6 +416,17 @@ export class PuterServer {
      *   `#materializeRoute` as those options ship.
      */
     #installGlobalMiddleware() {
+        // -- Forwarded host ------------------------------------------
+        // With `trust proxy` set, express derives `req.hostname` and
+        // `req.subdomains` from X-Forwarded-Host, which any client can send.
+        // Dropping it keeps them on Host, the header host validation checks,
+        // so a request can't pick a different site or subdomain router than
+        // the host it was sent to.
+        this.#app.use((req, _res, next) => {
+            delete req.headers['x-forwarded-host'];
+            next();
+        });
+
         // -- Egress metering -----------------------------------------
         // First, so the byte counter wraps `res.write` before compression
         // does and therefore counts what actually goes out rather than what
@@ -575,26 +589,42 @@ export class PuterServer {
                 }),
             );
         }
+        // A WebDAV body is the file being stored, whatever content type the
+        // client labels it with, so the controller reads it off the stream.
+        const exceptDav =
+            (parser: RequestHandler): RequestHandler =>
+            (req, res, next) => {
+                if (activeSubdomain(req) === 'dav') {
+                    next();
+                    return;
+                }
+                return parser(req, res, next);
+            };
         this.#app.use(
-            express.json({
-                limit: DEFAULT_JSON_LIMIT_BYTES,
-                verify: captureRawBody,
-            }),
+            exceptDav(
+                createJsonBodyParser({
+                    limit: DEFAULT_JSON_LIMIT_BYTES,
+                    verify: captureRawBody,
+                }),
+            ),
         );
+        // JSON in another charset, which the parser above leaves alone.
         this.#app.use(
-            express.json({
-                limit: DEFAULT_JSON_LIMIT_BYTES,
-                type: (req) =>
-                    req.headers['content-type'] === 'text/plain;actually=json',
-                verify: captureRawBody,
-            }),
+            exceptDav(
+                express.json({
+                    limit: NON_UTF8_JSON_LIMIT_BYTES,
+                    verify: captureRawBody,
+                }),
+            ),
         );
         // Form-encoded bodies (e.g. `/down` from the GUI's iframe-triggered
         // download form). Needs to run before the auth probe so
         // `req.body.auth_token` is populated for urlencoded POSTs the same
         // way it is for JSON POSTs. Small cap — this parser is only here to
         // cover the auth_token / anti_csrf field shape, not file uploads.
-        this.#app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+        this.#app.use(
+            exceptDav(express.urlencoded({ extended: true, limit: '100kb' })),
+        );
 
         // -- Auth probe ----------------------------------------------
         if (authProbe) {
@@ -602,11 +632,19 @@ export class PuterServer {
         }
 
         // -- Request fingerprints ------------------------------------
-        // Stamp `req.networkFingerprint` (server-derived) and
-        // `req.deviceFingerprint` (client-supplied, from body/header). Runs
-        // AFTER body parsing so the body fingerprint is readable, and before
-        // the ALS context so the snapshot carries them.
-        this.#app.use(createFingerprintMiddleware());
+        // Stamp `req.networkFingerprint` (server-derived),
+        // `req.deviceFingerprint` (client-supplied, from body/header) and the
+        // proxy's `req.requestSignals`. Runs AFTER body parsing so the body
+        // fingerprint is readable, and before the ALS context so the snapshot
+        // carries them.
+        this.#app.use(
+            createFingerprintMiddleware({
+                tlsFingerprintHeader: this.#config.tlsFingerprintHeader,
+                requestSignalHeaders: this.#config.requestSignalHeaders,
+                requestSignalValue: this.#config.requestSignalValue,
+                events: this.clients.event,
+            }),
+        );
 
         // -- Per-request ALS context ---------------------------------
         // Runs AFTER auth probe so `req.actor` is already populated when
@@ -871,8 +909,8 @@ export class PuterServer {
                     // the map. Use this for things we want to know about
                     // even though we expose them as 4xx to users (e.g.
                     // sustained upstream provider rate limits). They are
-                    // not our own crashes, so each maps to the severity it
-                    // deserves rather than paging.
+                    // not our own crashes, so each maps to the severity and
+                    // chat channel it deserves rather than paging.
                     //
                     // SKIP_ALERT_PREFIXES override the 5xx rule the other
                     // direction: an error tagged as caused by an upstream
@@ -883,22 +921,38 @@ export class PuterServer {
                     // this failure isn't worth recording (e.g. an upstream
                     // rate limit on a free model, where the volume tracks
                     // traffic and there's nothing to act on).
-                    const FORCED_ALERT_CODES = new Map<string, PagerSeverity>([
-                        ['upstream_rate_limited', 'info'],
-                        // Our credentials for a provider stopped working —
-                        // everything through it fails until someone looks.
-                        ['upstream_auth_failed', 'warning'],
-                        // A vendor account is dry — everything through it fails until someone tops up.
-                        ['upstream_credits_exhausted', 'warning'],
+                    const FORCED_ALERT_CODES = new Map<
+                        string,
+                        { severity: PagerSeverity; channel: string }
+                    >([
+                        [
+                            'upstream_rate_limited',
+                            { severity: 'info', channel: 'ai_providers' },
+                        ],
+                        // Our credentials for a provider stopped working, or
+                        // its account is dry: everything through it fails
+                        // until someone looks.
+                        [
+                            'upstream_auth_failed',
+                            { severity: 'info', channel: 'ai_providers' },
+                        ],
+                        [
+                            'upstream_credits_exhausted',
+                            { severity: 'info', channel: 'ai_providers' },
+                        ],
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
                     if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
+                    const forced = FORCED_ALERT_CODES.get(legacyCode);
                     const forcedSeverity =
                         (isHttp ? err.alarmSeverity : undefined) ??
-                        FORCED_ALERT_CODES.get(legacyCode);
+                        forced?.severity;
+                    const channel =
+                        (isHttp ? err.alarmChannel : undefined) ??
+                        forced?.channel;
                     if (!forcedSeverity) {
                         if (status < 500) return;
                         if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
@@ -948,7 +1002,7 @@ export class PuterServer {
                         forcedSeverity ?? 'critical',
                         // The id pins route + error signature, so repeats are
                         // the same fault and belong on one incident.
-                        { dedup: true },
+                        { dedup: true, ...(channel ? { channel } : {}) },
                     );
                 },
             }),
@@ -1286,14 +1340,19 @@ export class PuterServer {
         // costs a map lookup rather than a store read.
         if (opts.requireCredits) {
             mwChain.push(
-                requireCreditsGate(this.services.metering, this.#config),
+                requireCreditsGate(
+                    this.services.metering,
+                    this.#config,
+                    this.clients.event,
+                ),
             );
         }
 
         // 2b'. Concurrent in-flight limiting. Same auth-ordering reason
         // (user key + bySubscription resolution needs req.actor); installed
         // after rateLimitGate so a rate-rejection short-circuits before
-        // we acquire a concurrency slot. Slot is released on res finish/close.
+        // we acquire a concurrency slot. The slot is released once the response
+        // is done and any work the handler kept it for has settled.
         if (opts.concurrent) {
             mwChain.push(
                 concurrencyGate(opts.concurrent) as unknown as RequestHandler,

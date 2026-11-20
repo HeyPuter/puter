@@ -18,8 +18,8 @@
  */
 
 // Puter's language codes that aren't the BCP 47 tag for that language: Intl
-// reads `br` as Breton, and `ua` and `emoji` as nothing at all.
-const INTL_LOCALES = { br: 'pt-BR', ua: 'uk', zh: 'zh-CN', zhtw: 'zh-TW', emoji: 'en' };
+// reads `br` as Breton, and `ua` as nothing at all.
+const INTL_LOCALES = { br: 'pt-BR', ua: 'uk', zh: 'zh-CN', zhtw: 'zh-TW' };
 
 /**
  * The tag to hand Intl (dates, numbers) for one of Puter's language codes.

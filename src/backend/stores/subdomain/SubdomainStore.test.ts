@@ -166,6 +166,57 @@ describe('SubdomainStore cache coherency', () => {
 
         expect(await store.getBySubdomain(subdomain)).toBeNull();
     });
+
+    it('a delete clears the row for every spelling of the name', async () => {
+        const userId = await makeUser();
+        const subdomain = `sds-case-${Math.random().toString(36).slice(2, 8)}`;
+        const spelled = ` ${subdomain.toUpperCase()} `;
+        const row = await store.create({ userId, subdomain, rootDirId: 4 });
+
+        expect((await store.getBySubdomain(spelled))?.uuid).toBe(row.uuid);
+        expect(
+            (await store.getBySubdomains([spelled, subdomain])).get(spelled)
+                ?.uuid,
+        ).toBe(row.uuid);
+        await store.deleteByUuid(row.uuid, { userId });
+
+        expect(await store.getBySubdomain(spelled)).toBeNull();
+        expect((await store.getBySubdomains([spelled])).size).toBe(0);
+    });
+
+    it('stores a name the way lookups ask for it', async () => {
+        const userId = await makeUser();
+        const subdomain = `sds-stored-${Math.random().toString(36).slice(2, 8)}`;
+        const row = await store.create({
+            userId,
+            subdomain: ` ${subdomain.toUpperCase()} `,
+            rootDirId: 6,
+        });
+        expect(row.subdomain).toBe(subdomain);
+
+        // From the database, not the row `create` cached.
+        const read = await store.getBySubdomain(subdomain, { primary: true });
+        expect(read?.uuid).toBe(row.uuid);
+        expect(read?.subdomain).toBe(subdomain);
+    });
+
+    it('a create clears a miss cached under another spelling', async () => {
+        const userId = await makeUser();
+        const subdomain = `sds-miss-${Math.random().toString(36).slice(2, 8)}`;
+        const spelled = subdomain.toUpperCase();
+
+        expect(await store.getBySubdomain(spelled)).toBeNull();
+        // The miss is cached in the background; it comes back under the
+        // caller's spelling.
+        await vi.waitFor(async () => {
+            const cachedMisses = new Set<string>();
+            await store.getBySubdomains([spelled], { cachedMisses });
+            expect([...cachedMisses]).toEqual([spelled]);
+        });
+
+        const row = await store.create({ userId, subdomain, rootDirId: 5 });
+        expect((await store.getBySubdomain(spelled))?.uuid).toBe(row.uuid);
+    });
 });
 
 describe('SubdomainStore in a peer region behind a lagging replica', () => {

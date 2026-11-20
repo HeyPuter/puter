@@ -1,7 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
-    readClaimedGrantIdentifier,
     signGuestGrant,
     verifyGuestGrant,
 } from './guestGrant.js';
@@ -241,61 +240,5 @@ describe('signGuestGrant / verifyGuestGrant', () => {
         expect(verifyGuestGrant({ grant, secret: SECRET })).toEqual({
             status: 'malformed',
         });
-    });
-});
-
-describe('readClaimedGrantIdentifier', () => {
-    it('reads the identifier from a valid grant', () => {
-        const { grant } = signGuestGrant({
-            customIdentifier: USER_ID,
-            ttlSeconds: 60,
-            secret: SECRET,
-        });
-
-        expect(readClaimedGrantIdentifier(grant)).toBe(USER_ID);
-    });
-
-    it('reads the claimed identifier without checking the signature', () => {
-        // Bucketing runs before verification, so this is expected: a forged
-        // grant still names a bucket, and the handler still rejects it.
-        const grant = forgeGrant(
-            { id: USER_ID, exp: 9_999_999_999, n: 'x' },
-            { secret: 'wrong-secret' },
-        );
-
-        expect(readClaimedGrantIdentifier(grant)).toBe(USER_ID);
-    });
-
-    it('reads an expired grant, which the handler then rejects', () => {
-        const { grant } = signGuestGrant({
-            customIdentifier: USER_ID,
-            ttlSeconds: 60,
-            secret: SECRET,
-            now: 1_000_000_000_000,
-        });
-
-        expect(readClaimedGrantIdentifier(grant)).toBe(USER_ID);
-        expect(verifyGuestGrant({ grant, secret: SECRET })).toEqual({
-            status: 'expired',
-        });
-    });
-
-    it.each([
-        ['a non-string', 42],
-        ['undefined', undefined],
-        ['a wrong-shaped string', 'not-a-grant'],
-        ['an unknown version', 'pg2.abc.def'],
-        ['an over-long string', `pg1.${'a'.repeat(600)}.sig`],
-        [
-            'a non-JSON payload',
-            `pg1.${Buffer.from('x').toString('base64url')}.sig`,
-        ],
-    ])('returns null for %s', (_label, grant) => {
-        expect(readClaimedGrantIdentifier(grant)).toBeNull();
-    });
-
-    it('returns null for an identifier of the wrong shape', () => {
-        const grant = forgeGrant({ id: 'nope', exp: 9_999_999_999 });
-        expect(readClaimedGrantIdentifier(grant)).toBeNull();
     });
 });

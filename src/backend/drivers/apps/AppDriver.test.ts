@@ -19,7 +19,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../core/actor.js';
+import { SYSTEM_ACTOR, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { extensionStore } from '../../extensions.js';
 import { PuterServer } from '../../server.js';
@@ -193,6 +193,87 @@ describe('AppDriver.create', () => {
         ).rejects.toMatchObject({
             statusCode: 400,
             message: /system host/,
+        });
+    });
+
+    describe('with a godmode app on its own host', () => {
+        const host = 'console.godmode-host.test';
+        let godmodeActor: Actor;
+        let godmodeUid: string;
+
+        beforeAll(async () => {
+            ({ actor: godmodeActor } = await makeUser());
+            const app = await withActor(godmodeActor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('godmode-host'),
+                        title: 't',
+                        index_url: `https://${host}/`,
+                    },
+                }),
+            );
+            godmodeUid = app.uid as string;
+            await server.clients.db.write(
+                'UPDATE `apps` SET `godmode` = 1 WHERE `uid` = ?',
+                [godmodeUid],
+            );
+        });
+
+        it.each([
+            ['at its root', `https://${host}/`],
+            ['on another path', `https://${host}/other.html?puter.api_origin=x`],
+            ['over http', `http://${host}/`],
+        ])('rejects an index_url on it %s with 400', async (_label, index_url) => {
+            const { actor } = await makeUser();
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName('godmode-squat'),
+                            title: 't',
+                            index_url,
+                        },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: /system host/,
+            });
+        });
+
+        it('rejects updating an index_url onto it with 400', async () => {
+            const { actor } = await makeUser();
+            const created = await withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('godmode-squat-upd'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            );
+            await expect(
+                withActor(actor, () =>
+                    driver.update({
+                        uid: created.uid,
+                        object: { index_url: `https://${host}/app.html` },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: /system host/,
+            });
+        });
+
+        it('lets the godmode app itself move to another path on its host', async () => {
+            await expect(
+                withActor(godmodeActor, () =>
+                    driver.update({
+                        uid: godmodeUid,
+                        object: { index_url: `https://${host}/v2/` },
+                    }),
+                ),
+            ).resolves.toMatchObject({ uid: godmodeUid });
         });
     });
 
@@ -465,6 +546,76 @@ describe('AppDriver.read', () => {
         expect(fetched.name).toBe(name);
     });
 
+    it('reads via id object with `{ url }` by the URL origin', async () => {
+        const owner = await makeUser();
+        const reader = await makeUser();
+        const indexUrl = uniqueIndexUrl();
+        const created = await withActor(owner.actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('by-url'),
+                    title: 't',
+                    index_url: indexUrl,
+                },
+            }),
+        );
+
+        const fetched = await withActor(reader.actor, () =>
+            driver.read({ id: { url: `${indexUrl}some/page?q=1#top` } }),
+        );
+        expect(fetched.uid).toBe(created.uid);
+    });
+
+    it('reads the app created for an unregistered origin by its URL', async () => {
+        const { actor } = await makeUser();
+        const origin = new URL(uniqueIndexUrl()).origin;
+        const uid = await server.services.auth.appUidFromOrigin(origin);
+        await server.stores.app.createFromOrigin(uid, origin, {
+            ownerUserId: null,
+        });
+
+        const fetched = await withActor(actor, () =>
+            driver.read({ id: { url: `${origin}/page` } }),
+        );
+        expect(fetched.uid).toBe(uid);
+        expect(fetched.name).toBe(uid);
+    });
+
+    it('returns 404 for a URL whose origin no app serves', async () => {
+        const { actor } = await makeUser();
+        const indexUrl = `${uniqueIndexUrl()}tools/`;
+        await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('below-root'),
+                    title: 't',
+                    index_url: indexUrl,
+                },
+            }),
+        );
+
+        for (const url of [uniqueIndexUrl(), indexUrl]) {
+            await expect(
+                withActor(actor, () => driver.read({ id: { url } })),
+            ).rejects.toMatchObject({
+                statusCode: 404,
+                legacyCode: 'not_found',
+            });
+        }
+    });
+
+    it('rejects a `{ url }` that is not a web URL with 400', async () => {
+        const { actor } = await makeUser();
+        for (const url of [42, '', 'file:///index.html', 'not a url']) {
+            await expect(
+                withActor(actor, () => driver.read({ id: { url } })),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+        }
+    });
+
     it('returns 404 for a missing app', async () => {
         const { actor } = await makeUser();
         await expect(
@@ -509,7 +660,7 @@ describe('AppDriver.read', () => {
 // ── select ──────────────────────────────────────────────────────────
 
 describe('AppDriver.select', () => {
-    it('returns visible apps including those owned by other users', async () => {
+    it("returns only the caller's apps when no predicate is sent", async () => {
         const a = await makeUser();
         const b = await makeUser();
         const aName = uniqueName('a');
@@ -538,7 +689,7 @@ describe('AppDriver.select', () => {
         )) as Array<Record<string, unknown>>;
         const names = result.map((r) => r.name);
         expect(names).toContain(aName);
-        expect(names).toContain(bName);
+        expect(names).not.toContain(bName);
     });
 
     it('predicate `user-can-edit` filters to actor-owned apps only', async () => {
@@ -1670,11 +1821,10 @@ describe('AppDriver.select pagination', () => {
         expect(page.total).toBe(names.length);
     });
 
-    it("hides other users' protected apps from paginated catalog listings", async () => {
+    it("pages through only the caller's apps, protected ones included", async () => {
         const a = await makeApps(3);
-        const [visible1, hidden, visible2] = a.names;
         const created = await withActor(a.actor, () =>
-            driver.read({ id: { name: hidden } }),
+            driver.read({ id: { name: a.names[1] } }),
         );
         const row = await server.stores.app.getByUid(
             (created as Record<string, unknown>).uid as string,
@@ -1685,20 +1835,29 @@ describe('AppDriver.select pagination', () => {
         );
         await server.stores.app.invalidateByUid(row!.uid as string);
 
-        const b = await makeUser();
-        const seen: string[] = [];
-        let cursor: string | null | undefined = null;
-        do {
-            const page = (await withActor(b.actor, () =>
-                driver.select({ limit: 50, cursor }),
-            )) as { items: Array<{ name: string }>; cursor?: string };
-            seen.push(...page.items.map((r) => r.name));
-            cursor = page.cursor;
-        } while (cursor);
+        const listAll = async (actor: Actor) => {
+            const seen: string[] = [];
+            let total: number | undefined;
+            let cursor: string | null | undefined = null;
+            do {
+                const page = (await withActor(actor, () =>
+                    driver.select({ limit: 2, cursor, includeTotal: true }),
+                )) as {
+                    items: Array<{ name: string }>;
+                    cursor?: string;
+                    total?: number;
+                };
+                seen.push(...page.items.map((r) => r.name));
+                total ??= page.total;
+                cursor = page.cursor;
+            } while (cursor);
+            return { seen, total };
+        };
 
-        expect(seen).toContain(visible1);
-        expect(seen).toContain(visible2);
-        expect(seen).not.toContain(hidden);
+        expect(await listAll(a.actor)).toEqual({ seen: a.names, total: 3 });
+
+        const b = await makeUser();
+        expect(await listAll(b.actor)).toEqual({ seen: [], total: 0 });
     });
 });
 
@@ -2517,22 +2676,6 @@ describe('AppDriver.select query-count regression', () => {
 // -- select / read parity --
 
 describe('AppDriver.select / read parity', () => {
-    const findViaBroadSelect = async (
-        actor: Actor,
-        uid: string,
-    ): Promise<Record<string, unknown> | undefined> => {
-        let cursor: string | null | undefined = null;
-        do {
-            const page = (await withActor(actor, () =>
-                driver.select({ limit: 50, cursor }),
-            )) as { items: Array<Record<string, unknown>>; cursor?: string };
-            const found = page.items.find((r) => r.uid === uid);
-            if (found) return found;
-            cursor = page.cursor;
-        } while (cursor);
-        return undefined;
-    };
-
     it('every select item (minus stats) deep-equals the corresponding read', async () => {
         const { actor } = await makeUser();
         const names: string[] = [];
@@ -2640,7 +2783,7 @@ describe('AppDriver.select / read parity', () => {
         ).toBe(false);
     });
 
-    it('dangling hosted app via select: owner keeps index_url, others do not', async () => {
+    it('dangling hosted app: owner keeps index_url in select, others do not in read', async () => {
         const owner = await makeUser();
         const other = await makeUser();
         const sub = uniqueName('qcdangsel');
@@ -2672,13 +2815,12 @@ describe('AppDriver.select / read parity', () => {
                 ?.reason,
         ).toBe('hosted_backing_unavailable');
 
-        const otherItem = await findViaBroadSelect(
-            other.actor,
-            created.uid as string,
-        );
-        expect(otherItem?.index_url).toBeUndefined();
+        const otherItem = (await withActor(other.actor, () =>
+            driver.read({ uid: created.uid }),
+        )) as Record<string, unknown>;
+        expect(otherItem.index_url).toBeUndefined();
         expect(
-            (otherItem?.privateAccess as { hasAccess?: boolean } | undefined)
+            (otherItem.privateAccess as { hasAccess?: boolean } | undefined)
                 ?.hasAccess,
         ).toBe(false);
     });
@@ -2757,5 +2899,281 @@ describe('AppDriver.read prefetched-param isolation', () => {
             expect.arrayContaining(['puter']),
         );
         expect(result.filetype_associations).not.toContain('x');
+    });
+});
+
+// -- Actor and lookup edge cases --------------------------------------
+
+describe('AppDriver actor and lookup edge cases', () => {
+    const createApp = (actor: Actor, object: Record<string, unknown> = {}) =>
+        withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('edge'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    ...object,
+                },
+            }),
+        );
+
+    it('refuses writes from an actor that acts for no user with 403', async () => {
+        const appOnly = { app: { uid: `app-${uuidv4()}` } } as unknown as Actor;
+        await expect(createApp(appOnly)).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'forbidden',
+        });
+    });
+
+    it('reads by a bare uid string passed as `id`', async () => {
+        const { actor } = await makeUser();
+        const created = await createApp(actor);
+
+        const read = await withActor(actor, () =>
+            driver.read({ id: created.uid }),
+        );
+
+        expect(read.uid).toBe(created.uid);
+    });
+
+    it('returns 404 when `id` carries nothing to look up', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () => driver.read({ id: {} })),
+        ).rejects.toMatchObject({ statusCode: 404, legacyCode: 'not_found' });
+    });
+
+    it('hides a protected app from a user with no access grant', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const created = await createApp(owner.actor);
+        const row = await server.stores.app.getByUid(created.uid as string);
+        // `protected` is read-only through the store, so set it directly.
+        await server.clients.db.write(
+            'UPDATE `apps` SET `protected` = 1 WHERE `id` = ?',
+            [row!.id],
+        );
+        await server.stores.app.invalidateByUid(created.uid as string);
+
+        await expect(
+            withActor(stranger.actor, () => driver.read({ uid: created.uid })),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+        const ownRead = await withActor(owner.actor, () =>
+            driver.read({ uid: created.uid }),
+        );
+        expect(ownRead.uid).toBe(created.uid);
+    });
+
+    it('lets the system actor update an app it does not own', async () => {
+        const owner = await makeUser();
+        const created = await createApp(owner.actor);
+
+        const updated = await withActor(SYSTEM_ACTOR, () =>
+            driver.update({
+                uid: created.uid,
+                object: { title: 'Retitled by system' },
+            }),
+        );
+
+        expect(updated.title).toBe('Retitled by system');
+        const stored = await server.stores.app.getByUid(created.uid as string);
+        expect(stored?.title).toBe('Retitled by system');
+        expect(stored?.owner_user_id).toBe(owner.userId);
+    });
+
+    it('stores `feedback_enabled` as a flag on create and update', async () => {
+        const { actor } = await makeUser();
+        const created = await createApp(actor, { feedback_enabled: true });
+        const uid = created.uid as string;
+        expect(
+            Number((await server.stores.app.getByUid(uid))?.feedback_enabled),
+        ).toBe(1);
+
+        await withActor(actor, () =>
+            driver.update({ uid, object: { feedback_enabled: false } }),
+        );
+
+        expect(
+            Number((await server.stores.app.getByUid(uid))?.feedback_enabled),
+        ).toBe(0);
+    });
+
+    it('gives up deduping a name when every candidate is taken', async () => {
+        const { actor } = await makeUser();
+        const name = uniqueName('dd');
+        await createApp(actor, { name });
+        // Every candidate suffix comes out the same, so the first taken one
+        // is taken on each retry.
+        const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        const suffix = (0.5).toString(36).slice(2, 6);
+        try {
+            await server.stores.app.create(
+                {
+                    name: `${name}-${suffix}`,
+                    title: 't',
+                    index_url: 'https://dedupe-taken.test/',
+                },
+                { ownerUserId: actor.user!.id },
+            );
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name,
+                            title: 't',
+                            index_url: uniqueIndexUrl(),
+                        },
+                        options: { dedupe_name: true },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'app_name_already_in_use',
+            });
+        } finally {
+            randomSpy.mockRestore();
+        }
+    });
+});
+
+// -- index_url equivalence ----------------------------------------------
+
+describe('AppDriver index_url equivalence', () => {
+    const driverConfig = () =>
+        (driver as unknown as { config: Record<string, unknown> }).config;
+    const hostedUrl = (sub: string, path = '/') =>
+        `https://${sub}.site.puter.localhost${path}`;
+    const createAt = (actor: Actor, indexUrl: string) =>
+        withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('eq'),
+                    title: 't',
+                    index_url: indexUrl,
+                },
+            }),
+        );
+
+    it('treats a hosted path with and without a trailing slash as one URL', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = uniqueName('pathsite');
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const first = await createAt(actor, hostedUrl(sub, '/app'));
+
+        await expect(
+            createAt(actor, hostedUrl(sub, '/app/')),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'app_index_url_already_in_use',
+            fields: { app_uid: first.uid },
+        });
+        const other = await createAt(actor, hostedUrl(sub, '/other'));
+        expect(other.uid).not.toBe(first.uid);
+    });
+
+    it('lets several apps share the coming-soon placeholder URL', async () => {
+        driverConfig().app_origin_aliases = [['dev-center.puter.com']];
+        try {
+            const a = await makeUser();
+            const b = await makeUser();
+            const placeholder = 'https://dev-center.puter.com/coming-soon';
+
+            const first = await createAt(a.actor, placeholder);
+            const second = await createAt(b.actor, placeholder);
+
+            expect(second.uid).not.toBe(first.uid);
+            expect(first.index_url).toBe(placeholder);
+            expect(second.index_url).toBe(placeholder);
+        } finally {
+            delete driverConfig().app_origin_aliases;
+        }
+    });
+
+    it('accepts a browser-extension index_url without resolving it as a custom domain', async () => {
+        const resolved: string[] = [];
+        const resolveHost = (_key: unknown, data: { host: string }) => {
+            resolved.push(data.host);
+        };
+        driverConfig().custom_domains_enabled = true;
+        server.clients.event.on('site.resolveHost', resolveHost);
+        try {
+            const { actor } = await makeUser();
+            const created = await createAt(
+                actor,
+                'chrome-extension://abcdefghijklmnop/index.html',
+            );
+            expect(created.index_url).toBe(
+                'chrome-extension://abcdefghijklmnop/index.html',
+            );
+            expect(resolved).toEqual([]);
+        } finally {
+            delete driverConfig().custom_domains_enabled;
+            server.clients.event.off('site.resolveHost', resolveHost);
+        }
+    });
+});
+
+// -- Update merges ----------------------------------------------------
+
+describe('AppDriver update merging into a bootstrap row', () => {
+    const aliasHost = `alias-m-${Math.random().toString(36).slice(2, 10)}.test`;
+    const driverConfig = () =>
+        (driver as unknown as { config: Record<string, unknown> }).config;
+
+    beforeAll(() => {
+        driverConfig().app_origin_aliases = [[aliasHost]];
+    });
+
+    afterAll(() => {
+        delete driverConfig().app_origin_aliases;
+    });
+
+    it('keeps every merged uid resolving to the joined row, and applies a requested rename last', async () => {
+        const { actor } = await makeUser();
+        const stubUid = `app-${uuidv4()}`;
+        await server.stores.app.createFromOrigin(
+            stubUid,
+            `https://${aliasHost}`,
+        );
+        const makeSource = () =>
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('src'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            );
+        const first = await makeSource();
+        const second = await makeSource();
+        const finalName = uniqueName('joined');
+
+        await withActor(actor, () =>
+            driver.update({
+                uid: first.uid,
+                object: { index_url: `https://${aliasHost}/` },
+            }),
+        );
+        const merged = await withActor(actor, () =>
+            driver.update({
+                uid: second.uid,
+                object: { index_url: `https://${aliasHost}/`, name: finalName },
+            }),
+        );
+
+        expect(merged.uid).toBe(stubUid);
+        expect(merged.name).toBe(finalName);
+        for (const oldUid of [first.uid, second.uid]) {
+            expect(await server.stores.app.getByUid(oldUid as string)).toBeNull();
+            const viaOld = await withActor(actor, () =>
+                driver.read({ uid: oldUid }),
+            );
+            expect(viaOld.uid).toBe(stubUid);
+        }
+        const { res: aliases } = await server.stores.kv.get({
+            key: `app:canonicalUidAliasReverse:${stubUid}`,
+        });
+        expect(aliases).toEqual([first.uid, second.uid]);
     });
 });

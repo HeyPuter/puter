@@ -29,5 +29,7 @@ The message to prefill in the social media post. This parameter is only supporte
 
 A set of key/value pairs that configure the social share dialog. The following options are supported:
 
-* `left` (Number): The distance from the left edge of the window to the dialog. Default is `0`.
-* `top` (Number): The distance from the top edge of the window to the dialog. Default is `0`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `left` | `Number` | The distance from the left edge of the window to the dialog. Defaults to `0`. |
+| `top` | `Number` | The distance from the top edge of the window to the dialog. Defaults to `0`. |
