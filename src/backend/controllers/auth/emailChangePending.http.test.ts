@@ -10,7 +10,6 @@ describe('changing an email that is still waiting for its code', () => {
     let env: PuterTestEnv;
     const password = 'pending-email-password';
     const links = new Map<string, string>();
-    let smsConfigured: ReturnType<typeof vi.spyOn>;
 
     beforeAll(async () => {
         env = await setupPuterTestEnv();
@@ -21,10 +20,6 @@ describe('changing an email that is still waiting for its code', () => {
                 return null;
             },
         );
-        // Phone verification can run, so the change asks for it.
-        smsConfigured = vi
-            .spyOn(env.server.clients.prelude, 'isConfigured')
-            .mockReturnValue(true);
     }, 120_000);
     afterAll(async () => {
         await env?.shutdown();
@@ -60,21 +55,30 @@ describe('changing an email that is still waiting for its code', () => {
         (await env.server.stores.user.getById(id, { force: true }))!
             .unconfirmed_change_email;
 
-    it('asks for a verified phone first when the account has nothing verified', async () => {
+    it('keeps asking for the code when the account has nothing verified', async () => {
         const user = await account({});
         const response = await change(user.token, `${uuidv4()}@example.com`);
         expect(response.status).toBe(403);
         expect(await response.json()).toMatchObject({
-            code: 'phone_verification_required',
-            factors: ['phone'],
+            code: 'email_confirmation_required',
         });
         expect(await staged(user.id)).toBeFalsy();
     });
 
-    it('keeps asking for the code when no phone or card can be verified', async () => {
-        const user = await account({});
-        smsConfigured.mockReturnValue(false);
-        try {
+    it.each(['phone', 'card'] as const)(
+        'keeps asking for the code when the %s was verified while the address was unconfirmed',
+        async (factor) => {
+            const user = await account({
+                phone: '+14155550123',
+                card_fingerprint: 'fp_1',
+            });
+            // Each factor alone, so the other can't vouch.
+            await env.server.stores.user.update(user.id, {
+                [factor === 'phone' ? 'card_fingerprint' : 'phone']: null,
+            });
+            await env.server.stores.user.updateMetadata(user.id, {
+                factorsAddedWhileEmailPending: [factor],
+            });
             const response = await change(
                 user.token,
                 `${uuidv4()}@example.com`,
@@ -83,11 +87,9 @@ describe('changing an email that is still waiting for its code', () => {
             expect(await response.json()).toMatchObject({
                 code: 'email_confirmation_required',
             });
-        } finally {
-            smsConfigured.mockReturnValue(true);
-        }
-        expect(await staged(user.id)).toBeFalsy();
-    });
+            expect(await staged(user.id)).toBeFalsy();
+        },
+    );
 
     it('keeps asking a provider-only account for the code', async () => {
         const user = await account({ phone: '+14155550123', password: null });

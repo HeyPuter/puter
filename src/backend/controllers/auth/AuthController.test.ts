@@ -6552,6 +6552,66 @@ describe('AuthController phone on file', () => {
         ).toBe(false);
     });
 
+    it('records a phone or card first verified while the address is unconfirmed', async () => {
+        const added = async (id: number) =>
+            (await server.stores.user.getById(id, { force: true }))!.metadata
+                ?.factorsAddedWhileEmailPending;
+        const unconfirmed = { email_confirmed: 0, requires_email_confirmation: 1 };
+
+        // A new number: recorded.
+        const fresh = await makeUserAndActor({
+            ...unconfirmed,
+            requires_phone_verification: 1,
+        });
+        await server.stores.kv.set({
+            key: `phone-verify-pending:${fresh.user.id}`,
+            value: ON_FILE,
+        });
+        await withPrelude(stubPrelude(), async () => {
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor: fresh.actor }),
+                makeRes(),
+            );
+        });
+        expect(await added(fresh.user.id)).toEqual(['phone']);
+
+        // The number already on file, proven again: not recorded.
+        const onFile = await onFileAccount(unconfirmed);
+        await withPrelude(stubPrelude(), async () => {
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor: onFile.actor }),
+                makeRes(),
+            );
+        });
+        expect(await added(onFile.user.id)).toBeUndefined();
+
+        // A card other than the one on file: recorded. The same card: not.
+        const carded = await makeUserAndActor({
+            ...unconfirmed,
+            requires_card_verification: 1,
+            card_fingerprint: 'fp_on_file',
+        });
+        expect((await confirmCard(carded.actor, 'fp_on_file')).body).toMatchObject(
+            { card_verified: true },
+        );
+        expect(await added(carded.user.id)).toBeUndefined();
+        const newCard = await makeUserAndActor({
+            ...unconfirmed,
+            requires_card_verification: 1,
+        });
+        await confirmCard(newCard.actor, 'fp_new');
+        expect(await added(newCard.user.id)).toEqual(['card']);
+
+        // A confirmed account records nothing.
+        const confirmed = await makeUserAndActor({
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+            requires_card_verification: 1,
+        });
+        await confirmCard(confirmed.actor, 'fp_new_2');
+        expect(await added(confirmed.user.id)).toBeUndefined();
+    });
+
     it('sends at most two codes a day to a number on file', async () => {
         const { actor } = await onFileAccount();
         const prelude = stubPrelude();

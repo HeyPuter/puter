@@ -368,6 +368,7 @@ const en = {
         username_unchanged: 'That is already your username.',
         email_unchanged: 'That is already your email address.',
         email_confirm_change_address: 'Change email address',
+        email_change_needs_code: "This account's email address can only be changed after it is confirmed. If you can't receive the code, email support@puter.com.",
         email_change_not_confirmed: "Your new address isn't confirmed yet. Open the link we sent to it, then select Continue.",
         password_strength_error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character.',
         passwords_do_not_match: '`New Password` and `Confirm New Password` do not match.',

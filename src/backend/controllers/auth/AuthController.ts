@@ -28,7 +28,6 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import {
-    assertAnyVerified,
     assertVerifiedAccount,
     DEFAULT_ADMIN_USERNAMES,
     hasVerifiedCard,
@@ -74,8 +73,11 @@ import {
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
 import {
+    factorsAddedWhileEmailPending,
     isEmailGateLast,
+    isEmailPending,
     isPhoneOnFileStep,
+    type AddedFactor,
 } from '../../util/verificationOrder.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
@@ -1897,6 +1899,8 @@ export class AuthController extends PuterController {
         }
 
         // Verified — persist the number now (and only now) and clear the gate.
+        if (pendingPhone !== user.phone)
+            await this.#noteFactorAddedWhileEmailPending(user, 'phone');
         await this.stores.user.update(user.id, {
             requires_phone_verification: 0,
             phone: pendingPhone,
@@ -2178,6 +2182,12 @@ export class AuthController extends PuterController {
             res.json({ card_verified: false, reason: 'card_not_on_file' });
             return;
         }
+
+        if (
+            !user.card_fingerprint ||
+            confirmEvent.fingerprint !== user.card_fingerprint
+        )
+            await this.#noteFactorAddedWhileEmailPending(user, 'card');
 
         // A fallback card clears the phone gate too — the point of the
         // fallback. `fallbackEligible &&` makes the invariant local instead
@@ -2852,16 +2862,15 @@ export class AuthController extends PuterController {
     /**
      * An address that was never confirmed can be replaced while its code is
      * pending, so a dead or mistyped one isn't a dead end. The password alone
-     * doesn't prove the account is the caller's, so it also takes a verified
-     * phone, card or second factor. Without one the code is still required.
+     * doesn't prove the account is the caller's, so it also takes a second
+     * factor, a verified phone or card, or a paid plan that the account had
+     * before this. Without one the code is still required.
      */
     async #assertEmailChangeAllowed(
         req: Request,
         user: UserRow,
     ): Promise<void> {
-        const emailPending = Boolean(
-            user.requires_email_confirmation && !user.email_confirmed,
-        );
+        const emailPending = isEmailPending(user);
         // A provider-only account would lose its sign-in when the change
         // unlinks its providers.
         if (emailPending && user.password === null) assertVerifiedAccount(user);
@@ -2870,18 +2879,29 @@ export class AuthController extends PuterController {
                 ? { ...user, requires_email_confirmation: false }
                 : user,
         );
+        // A second factor can't be enabled before the address is confirmed.
         if (!emailPending || user.otp_enabled) return;
-        if (hasVerifiedPhone(user) || hasVerifiedCard(user)) return;
-        const hasPaidPlan = (actor: Actor) =>
-            actorOnPaidPlan(this.services.metering, actor);
-        if (await hasPaidPlan(req.actor!)) return;
-        // Asks for a factor the deployment can verify; with none, only the
-        // emailed code is left.
-        await assertAnyVerified(req.actor, ['phone', 'card'], {
-            ...cardFallbackDepsFrom(this.clients),
-            hasPaidPlan,
-        });
+        const added = factorsAddedWhileEmailPending(user);
+        if (hasVerifiedPhone(user) && !added.includes('phone')) return;
+        if (hasVerifiedCard(user) && !added.includes('card')) return;
+        if (await actorOnPaidPlan(this.services.metering, req.actor)) return;
         assertVerifiedAccount(user);
+    }
+
+    /**
+     * Record a phone or card verified while the address is unconfirmed, before
+     * it is stored, so a failed write can't leave it unrecorded.
+     */
+    async #noteFactorAddedWhileEmailPending(
+        user: UserRow,
+        factor: AddedFactor,
+    ): Promise<void> {
+        if (!isEmailPending(user)) return;
+        const added = factorsAddedWhileEmailPending(user);
+        if (added.includes(factor)) return;
+        await this.stores.user.updateMetadata(user.id, {
+            factorsAddedWhileEmailPending: [...added, factor],
+        });
     }
 
     @Get('/change_email/confirm', {

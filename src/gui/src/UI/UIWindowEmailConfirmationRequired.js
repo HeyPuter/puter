@@ -70,8 +70,8 @@ function UIWindowEmailConfirmationRequired (options) {
               </fieldset>`;
         h += `<button type="submit" class="button button-block button-primary email-confirm-btn" style="margin-top:10px;" disabled>${submit_btn_txt}</button>`;
         h += '</form>';
-        // A dead or mistyped address can be replaced; the server asks for a
-        // verified phone or card first.
+        // A dead or mistyped address can be replaced by an account that had a
+        // phone, card or second factor before; the server decides.
         h += '<form class="email-change-form" style="display:none;" novalidate>';
         h += '<div class="error email-change-error"></div>';
         h += `<label for="email-change-new">${i18n('new_email')}</label>`;
@@ -294,16 +294,16 @@ function UIWindowEmailConfirmationRequired (options) {
             $changeForm.find('.email-change-new').focus();
         });
 
-        // The verification the server asked for; resolves whether it cleared.
-        const clearFactorGate = async (data) => {
-            const card_only = data.code === 'card_verification_required';
+        // A phone or card step the account still owes; resolves whether it cleared.
+        const clearPendingGate = async (data) => {
             const gate_options = {
                 stay_on_top: true,
                 has_head: false,
-                card_alternative: Array.isArray(data.factors) && data.factors.includes('card'),
                 window_options: { is_draggable: true },
             };
-            return Boolean(card_only
+            // The phone window reads which number the code goes to.
+            await window.refresh_user_data(window.auth_token);
+            return Boolean(data.code === 'card_verification_required'
                 ? await UIWindowCardVerificationRequired(gate_options)
                 : await UIWindowPhoneVerificationRequired(gate_options));
         };
@@ -330,11 +330,14 @@ function UIWindowEmailConfirmationRequired (options) {
                 const submit = () => postUserProtected('change-email', { new_email, code }, { password });
                 let result = await submit();
                 if ( ! result.ok && ['phone_verification_required', 'card_verification_required'].includes(result.data.code) ) {
-                    if ( ! await clearFactorGate(result.data) ) return;
+                    if ( ! await clearPendingGate(result.data) ) return;
                     result = await submit();
                 }
                 if ( ! result.ok ) {
-                    showChangeError($changeForm, result.message);
+                    // Nothing on the account from before vouches for the change.
+                    showChangeError($changeForm, result.data.code === 'email_confirmation_required'
+                        ? i18n('email_change_needs_code', [], false)
+                        : result.message);
                     return;
                 }
                 $changeForm.hide();

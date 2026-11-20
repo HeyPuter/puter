@@ -40,3 +40,35 @@ export const isPhoneOnFileStep = (
         | undefined,
 ): boolean =>
     Boolean(user?.phone) && Boolean(user?.requires_phone_verification);
+
+export type AddedFactor = 'phone' | 'card';
+
+type EmailPendingUser =
+    | {
+          requires_email_confirmation?: boolean | number | null;
+          email_confirmed?: boolean | number | null;
+          metadata?: Record<string, unknown> | null;
+      }
+    | null
+    | undefined;
+
+/** The account is still waiting on the code for its address. */
+export const isEmailPending = (user: EmailPendingUser): boolean =>
+    Boolean(user?.requires_email_confirmation && !user?.email_confirmed);
+
+/**
+ * Factors the account verified while its address was unconfirmed. They show who
+ * holds the account now, not who created it, so they can't vouch for replacing
+ * the address.
+ */
+export const factorsAddedWhileEmailPending = (
+    user: EmailPendingUser,
+): AddedFactor[] => {
+    const added = user?.metadata?.factorsAddedWhileEmailPending;
+    return Array.isArray(added)
+        ? added.filter(
+              (factor): factor is AddedFactor =>
+                  factor === 'phone' || factor === 'card',
+          )
+        : [];
+};

@@ -293,21 +293,33 @@ describe('UIWindowEmailConfirmationRequired replacing the address', () => {
         win().find('.email-change-form').trigger('submit');
     };
 
-    it('asks for the verification the server names, then retries the change', async () => {
+    it('opens the phone step the account still owes, then retries the change', async () => {
         postUserProtected
-            .mockResolvedValueOnce({ ok: false, data: { code: 'phone_verification_required', factors: ['phone', 'card'] }, message: 'verify' })
+            .mockResolvedValueOnce({ ok: false, data: { code: 'phone_verification_required' }, message: 'verify' })
             .mockResolvedValueOnce({ ok: true, data: {} });
         await open();
         await submitChange();
 
         await vi.waitFor(() => expect(win().find('.email-change-sent').css('display')).not.toBe('none'));
-        expect(UIWindowPhoneVerificationRequired).toHaveBeenCalledWith(expect.objectContaining({ card_alternative: true }));
+        // Read first, so the phone window knows which number the code goes to.
+        expect(window.refresh_user_data).toHaveBeenCalled();
+        expect(UIWindowPhoneVerificationRequired).toHaveBeenCalledWith(expect.not.objectContaining({ card_alternative: true }));
         expect(postUserProtected).toHaveBeenCalledTimes(2);
         expect(postUserProtected).toHaveBeenLastCalledWith('change-email', { new_email: 'new@b.test', code: undefined }, { password: 'pw' });
     });
 
+    it('says the code is needed when nothing on the account vouches for the change', async () => {
+        postUserProtected.mockResolvedValueOnce({ ok: false, data: { code: 'email_confirmation_required' }, message: 'Please confirm your email to continue' });
+        await open();
+        await submitChange();
+
+        await vi.waitFor(() => expect(win().find('.email-change-form .email-change-error').text()).toBe('email_change_needs_code'));
+        expect(UIWindowPhoneVerificationRequired).not.toHaveBeenCalled();
+        expect(postUserProtected).toHaveBeenCalledTimes(1);
+    });
+
     it('stops when the verification is not completed', async () => {
-        postUserProtected.mockResolvedValueOnce({ ok: false, data: { code: 'phone_verification_required', factors: ['phone'] }, message: 'verify' });
+        postUserProtected.mockResolvedValueOnce({ ok: false, data: { code: 'phone_verification_required' }, message: 'verify' });
         UIWindowPhoneVerificationRequired.mockResolvedValueOnce(false);
         await open();
         await submitChange();
