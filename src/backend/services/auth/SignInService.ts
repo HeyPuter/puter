@@ -29,6 +29,7 @@ import {
     hasVerifiedCard,
     hasVerifiedPhone,
 } from '../../core/http/middleware/gates.js';
+import type { OrgSeatRow } from '../../core/teams.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { claimOnce } from '../../util/kvClaim.js';
 import {
@@ -101,6 +102,8 @@ export interface SignInResult {
     guiToken: string;
     /** The row with any verification gate this sign-in set. */
     user: UserRow;
+    /** The account's team seat, when this sign-in read it; saves a second read. */
+    orgSeat?: OrgSeatRow | null;
 }
 
 interface ExposureRecord {
@@ -191,6 +194,8 @@ const requestFacts = (req: Request) => ({
 
 interface AccountFacts {
     isOrgSeat: boolean;
+    /** Absent when the seat wasn't read, or couldn't be. */
+    seat?: OrgSeatRow | null;
     oidcLinked: boolean;
 }
 
@@ -290,6 +295,7 @@ export class SignInService extends PuterService {
                 credential_exposed:
                     req.requestSignals?.includes(CREDENTIAL_EXPOSED_SIGNAL) ??
                     false,
+                request_signals: req.requestSignals ?? [],
                 account: {
                     has_verified_phone: hasVerifiedPhone(user),
                     has_verified_card: hasVerifiedCard(user),
@@ -378,7 +384,7 @@ export class SignInService extends PuterService {
                 this.#sendNewSignInNotice(req, signedIn, { ip, userAgent }),
             );
         }
-        return { guiToken, user };
+        return { guiToken, user, orgSeat: facts.seat };
     }
 
     /**
@@ -636,11 +642,13 @@ export class SignInService extends PuterService {
             const validating = this.#validating();
             const { inactive } = this.#inactivity(user);
             read = (async () => {
-                const [isOrgSeat, oidcLinked] = await Promise.all([
-                    validating || inactive ? this.#isOrgSeat(user) : false,
+                const [seat, oidcLinked] = await Promise.all([
+                    validating || inactive
+                        ? this.#orgSeat(user)
+                        : { isOrgSeat: false },
                     validating ? this.#hasOidcLink(user, method) : false,
                 ]);
-                return { isOrgSeat, oidcLinked };
+                return { ...seat, oidcLinked };
             })();
             reads.set(user.uuid, read);
         }
@@ -672,12 +680,16 @@ export class SignInService extends PuterService {
 
     // Seats are provisioned by a team, which answers for them. An unreadable
     // seat counts as one, so a failing store never gates an account.
-    async #isOrgSeat(user: UserRow): Promise<boolean> {
+    async #orgSeat(
+        user: UserRow,
+    ): Promise<{ isOrgSeat: boolean; seat?: OrgSeatRow | null }> {
+        if (!this.stores.team) return { isOrgSeat: false };
         try {
-            return Boolean(await this.stores.team?.getOrgSeat(user.id));
+            const seat = await this.stores.team.getOrgSeat(user.id);
+            return { isOrgSeat: Boolean(seat), seat };
         } catch (e) {
             console.warn('[auth] seat lookup failed at sign-in:', e);
-            return true;
+            return { isOrgSeat: true };
         }
     }
 

@@ -362,6 +362,8 @@ export type EventMap = {
         known_device: boolean;
         /** The request carries the signal for a credential known to have leaked. */
         credential_exposed: boolean;
+        /** Every signal the edge proxy raised on the request. */
+        request_signals: readonly string[];
         account: {
             has_verified_phone: boolean;
             has_verified_card: boolean;

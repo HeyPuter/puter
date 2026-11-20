@@ -23,6 +23,7 @@ import type { AuthService } from '../../services/auth/AuthService.js';
 import type {
     SignInDevice,
     SignInInput,
+    SignInResult,
     SignInService,
 } from '../../services/auth/SignInService.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
@@ -66,7 +67,7 @@ export async function startWebSession(
         signIn: SignInService;
     } & KnownDeviceDeps,
     method: SignInInput['method'],
-): Promise<{ guiToken: string; user: UserRow }> {
+): Promise<SignInResult> {
     // A temporary account has no credential to guard or address to notify.
     // A cross-site POST (a provider's form_post callback) can't carry the
     // Lax device cookie, so the device is unknowable there.
@@ -79,7 +80,7 @@ export async function startWebSession(
     const device: Promise<SignInDevice | null> = recordDevice
         ? knownDeviceStatus(req, user.uuid, deps)
         : Promise.resolve(null);
-    const { guiToken, user: signedIn } = await deps.signIn.signIn({
+    return deps.signIn.signIn({
         req,
         user,
         method,
@@ -101,5 +102,4 @@ export async function startWebSession(
         },
         afterResponse: (task) => runAfterResponse(res, task),
     });
-    return { guiToken, user: signedIn };
 }

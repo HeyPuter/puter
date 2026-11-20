@@ -234,6 +234,7 @@ describe('sign-in pipeline', () => {
                 is_dormant: false,
                 known_device: false,
                 credential_exposed: false,
+                request_signals: [],
                 account: {
                     has_verified_phone: false,
                     has_verified_card: false,
@@ -919,6 +920,32 @@ describe('sign-in pipeline', () => {
             expect(mailTo(username)).toHaveLength(0);
         });
 
+        it('read the team seat once and hand it to the account payload', async () => {
+            const { username, user } = await account();
+            cleanups.push(installSeatStub(env.server, [user.id]));
+            const config = signInConfig() as { teams_enabled?: boolean };
+            const before = config.teams_enabled;
+            config.teams_enabled = true;
+            cleanups.push(() => {
+                config.teams_enabled = before;
+            });
+            const team = (
+                env.server.stores as unknown as {
+                    team: { getOrgSeat: (id: number) => Promise<unknown> };
+                }
+            ).team;
+            const getOrgSeat = vi.spyOn(team, 'getOrgSeat');
+            // A listener makes the sign-in read the seat.
+            listen('puter.signin.validate', () => {});
+
+            const { status, body } = await login(username);
+            expect(status).toBe(200);
+            expect(body.user?.team).toBeTruthy();
+            expect(
+                getOrgSeat.mock.calls.filter(([id]) => id === user.id),
+            ).toHaveLength(1);
+        });
+
         it('are off with dormantSignInDays: 0', async () => {
             const config = env.server.services.signIn as unknown as {
                 config: IConfig;
@@ -1169,15 +1196,25 @@ describe('sign-in pipeline', () => {
         it('tells validate listeners before the session is minted', async () => {
             const { username, user } = await account();
             const seen: boolean[] = [];
+            const signals: (readonly string[])[] = [];
             listen('puter.signin.validate', (event) => {
-                if (event.user.uuid === user.uuid)
-                    seen.push(event.credential_exposed);
+                if (event.user.uuid !== user.uuid) return;
+                seen.push(event.credential_exposed);
+                signals.push(event.request_signals);
             });
             await login(username, {
-                headers: { [EXPOSED_HEADER]: SIGNAL_SECRET },
+                headers: {
+                    [EXPOSED_HEADER]: SIGNAL_SECRET,
+                    [BOT_HEADER]: SIGNAL_SECRET,
+                },
             });
             await login(username);
             expect(seen).toEqual([true, false]);
+            expect([...signals[0]!].sort()).toEqual([
+                'bot',
+                'credential_exposed',
+            ]);
+            expect(signals[1]).toEqual([]);
         });
 
         it('records, alarms and emails once per password after the password verifies', async () => {

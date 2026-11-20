@@ -2124,15 +2124,18 @@ export class AuthController extends PuterController {
             );
 
         // While a number on file waits to be proven, the only card that
-        // verifies is the one already on file, entered again.
+        // verifies is the one already on file, entered again. A card step on
+        // an account that has a card asks for that card too.
         const onFileStep = isPhoneOnFileStep(user);
         if (onFileStep && !user.card_fingerprint) {
             res.json({ card_verified: false, reason: 'card_not_on_file' });
             return;
         }
-        const requiredFingerprint = onFileStep
-            ? (user.card_fingerprint as string)
-            : null;
+        const requiredFingerprint =
+            (onFileStep || user.requires_card_verification) &&
+            user.card_fingerprint
+                ? (user.card_fingerprint as string)
+                : null;
 
         const confirmEvent = {
             user_id: user.id,
@@ -5346,7 +5349,11 @@ export class AuthController extends PuterController {
                   });
         // The row it hands back carries the gates the sign-in just set, so
         // the client opens the right verification flow straight away.
-        const { guiToken: gui_token, user } = await startWebSession(
+        const {
+            guiToken: gui_token,
+            user,
+            orgSeat,
+        } = await startWebSession(
             req,
             res,
             resolvedUser,
@@ -5370,7 +5377,7 @@ export class AuthController extends PuterController {
                 stores: this.stores,
                 services: this.services,
             },
-            { isUser: true },
+            { isUser: true, orgSeat },
         );
         scrubSensitive(details);
 
