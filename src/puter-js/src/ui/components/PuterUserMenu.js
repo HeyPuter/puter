@@ -11,12 +11,14 @@
  * it, for the same user: signed out, or signed in as an account other than
  * the Puter session's, the browser shows only recommended apps. The browser
  * is kept between opens and dropped whenever the page's sign-in changes.
+ * With `show-upgrade`, an Upgrade button beside the Apps button opens the
+ * upgrade flow for the signed-in user.
  * Renders nothing inside the Puter desktop.
  *
- * Attributes: theme, apps-label, sign-in-label, sign-out-label, close-label,
- *   account-label, manage-account-label, usage-label, add-credits-label,
- *   open-puter-label, feedback-label
- * Parts: apps-button, avatar, sign-in, menu, apps-panel
+ * Attributes: theme, show-upgrade, upgrade-label, apps-label, sign-in-label,
+ *   sign-out-label, close-label, account-label, manage-account-label,
+ *   usage-label, add-credits-label, open-puter-label, feedback-label
+ * Parts: upgrade-button, apps-button, avatar, sign-in, menu, apps-panel
  * Events: signin (detail.user), signout
  */
 
@@ -31,6 +33,7 @@ const EXTERNAL_ICON = '<svg class="menu-external" viewBox="0 0 32 32" width="11"
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 const LABELS = {
+    'upgrade-label': 'Upgrade',
     'apps-label': 'Apps',
     'sign-in-label': 'Sign in',
     'sign-out-label': 'Sign out',
@@ -59,7 +62,7 @@ const CARET_INSET = 20;
 
 class PuterUserMenu extends PuterWebComponent {
     static get observedAttributes () {
-        return Object.keys(LABELS);
+        return [...Object.keys(LABELS), 'show-upgrade'];
     }
 
     #unsubscribe = null;
@@ -94,8 +97,10 @@ class PuterUserMenu extends PuterWebComponent {
         this._dropApps();
     }
 
-    attributeChangedCallback () {
-        if ( this.$('.bar') ) this._applyLabels();
+    attributeChangedCallback (name) {
+        if ( ! this.$('.bar') ) return;
+        if ( name === 'show-upgrade' ) this._renderUpgrade();
+        else this._applyLabels();
     }
 
     _applyTheme () {
@@ -219,6 +224,17 @@ class PuterUserMenu extends PuterWebComponent {
                 fill: currentColor;
             }
             .apps-button[aria-expanded="true"] { background-color: rgba(0, 0, 0, .06); }
+            .upgrade-button {
+                height: 32px;
+                padding: 0 14px;
+                border: 1px solid #088ef0;
+                border-radius: 4px;
+                background: transparent;
+                color: #0774c4;
+                font-size: 14px;
+                white-space: nowrap;
+            }
+            .upgrade-button:active { background-color: rgba(8, 142, 240, .16); }
             .avatar {
                 position: relative;
                 width: 32px;
@@ -466,6 +482,11 @@ class PuterUserMenu extends PuterWebComponent {
                 .apps-close { width: 40px; height: 40px; border-radius: 10px; }
             }
 
+            :host(.puter-theme-dark) .upgrade-button {
+                border-color: #4aa9f2;
+                color: #6cbcf7;
+            }
+            :host(.puter-theme-dark) .upgrade-button:active { background-color: rgba(108, 188, 247, .22); }
             :host(.puter-theme-dark) .apps-button { color: #e6e6e6; }
             :host(.puter-theme-dark) .apps-button[aria-expanded="true"] { background-color: rgba(255, 255, 255, .1); }
             :host(.puter-theme-dark) .panel {
@@ -492,10 +513,12 @@ class PuterUserMenu extends PuterWebComponent {
 
             /* A tap leaves :hover on touch screens, which would shade a closed button. */
             @media (hover: hover) {
+                .upgrade-button:hover { background-color: rgba(8, 142, 240, .1); }
                 .apps-button:hover { background-color: rgba(0, 0, 0, .06); }
                 .avatar:hover { box-shadow: 0 0 0 3px rgba(8, 142, 240, .25); }
                 .menu-item:hover { background-color: #f0f0f0; }
                 .apps-close:hover { background-color: #f0f0f0; color: #222; }
+                :host(.puter-theme-dark) .upgrade-button:hover { background-color: rgba(108, 188, 247, .15); }
                 :host(.puter-theme-dark) .apps-button:hover { background-color: rgba(255, 255, 255, .1); }
                 :host(.puter-theme-dark) .menu-item:hover,
                 :host(.puter-theme-dark) .apps-close:hover { background-color: #3a3a3a; color: #fff; }
@@ -506,6 +529,7 @@ class PuterUserMenu extends PuterWebComponent {
     render () {
         return `
             <div class="bar" hidden>
+                <button type="button" class="upgrade-button" part="upgrade-button" hidden></button>
                 <button type="button" class="apps-button" part="apps-button" aria-haspopup="dialog" aria-expanded="false" hidden>${APPS_ICON}</button>
                 <button type="button" class="sign-in" part="sign-in" hidden></button>
                 <button type="button" class="avatar" part="avatar" aria-haspopup="menu" aria-expanded="false" hidden></button>
@@ -540,6 +564,7 @@ class PuterUserMenu extends PuterWebComponent {
             for ( const panel of this.$$('.panel') ) panel.setAttribute('popover', 'manual');
         }
         this._applyLabels();
+        this.$('.upgrade-button').addEventListener('click', () => this._upgrade());
         this.$('.apps-button').addEventListener('click', () => {
             if ( this.$('.apps-panel').hidden ) this._openApps();
             else this._closePanels();
@@ -573,6 +598,7 @@ class PuterUserMenu extends PuterWebComponent {
     }
 
     _applyLabels () {
+        this.$('.upgrade-button').textContent = this._label('upgrade-label');
         const apps = this._label('apps-label');
         const appsButton = this.$('.apps-button');
         appsButton.setAttribute('aria-label', apps);
@@ -618,9 +644,15 @@ class PuterUserMenu extends PuterWebComponent {
         this.$('.add-credits').hidden = user?.subscribed !== true || isSeat;
     }
 
+    /** Opt-in, and only for a signed-in account, since the upgrade is the account's. */
+    _renderUpgrade () {
+        this.$('.upgrade-button').hidden = !this.#ready || !this._signedIn() || !this.hasAttribute('show-upgrade');
+    }
+
     _renderState () {
         const signedIn = this._signedIn();
         const username = this._username();
+        this._renderUpgrade();
         this.$('.apps-button').hidden = !this.#ready || !this._appsAllowed();
         this.$('.sign-in').hidden = !this.#ready || signedIn;
 
@@ -807,6 +839,12 @@ class PuterUserMenu extends PuterWebComponent {
                 this.#signingIn = false;
             },
         );
+    }
+
+    _upgrade () {
+        this._closePanels();
+        // Called inside the click, so a tab it falls back to isn't blocked.
+        void globalThis.puter.ui.showUpgrade_();
     }
 
     _addCredits () {

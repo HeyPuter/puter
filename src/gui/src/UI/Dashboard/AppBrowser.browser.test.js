@@ -546,6 +546,35 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('shows Upgrade beside the Apps button once the page asks for it, and frames the upgrade over the page', async () => {
+            const context = await menuContext('app-token-session-user');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .avatar').waitFor();
+                const button = page.locator('puter-user-menu .upgrade-button');
+                expect(await button.isHidden()).toBe(true);
+
+                await page.locator('puter-user-menu').evaluate(el => el.setAttribute('show-upgrade', ''));
+                await button.waitFor();
+                expect(await button.textContent()).toBe('Upgrade');
+                const upgrade = await button.boundingBox();
+                const apps = await page.locator('puter-user-menu .apps-button').boundingBox();
+                expect(upgrade.x + upgrade.width).toBeLessThanOrEqual(apps.x);
+                expect(Math.abs((upgrade.y + upgrade.height / 2) - (apps.y + apps.height / 2))).toBeLessThanOrEqual(1);
+
+                await button.click();
+                const frame = page.locator('dialog.puter-popup-frame iframe');
+                await frame.waitFor({ state: 'attached' });
+                expect(await frame.getAttribute('src')).toBe(`${origin}/embed/upgrade#user=${sessionUser}`);
+                expect(await frame.getAttribute('allow')).toBe('payment; otp-credentials');
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('returns keyboard focus to the account button when Add credits is chosen', async () => {
             const context = await menuContext('app-token-subscriber');
             try {

@@ -1815,6 +1815,20 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * Shows the upgrade flow for a button on the page, with no refused call
+     * behind it. On a signed-in first-party page it shows as
+     * {@link requestUpgrade} does there. On any other website it opens on the
+     * dashboard in a new tab and the promise resolves `{ upgraded: false }`.
+     *
+     * @internal
+     * @returns {Promise<import('../lib/types.js').UpgradeResult>}
+     */
+    showUpgrade_ () {
+        if ( this.canShowUpgradeFrame_() ) return this.#showUpgradeFrame({});
+        return this.#openUpgradeTab(upgradeUrl({ appID: appIDOf(puter) })).then(() => ({ upgraded: false }));
+    }
+
+    /**
      * Whether {@link requestUpgrade} shows the upgrade in a frame over this page.
      *
      * @internal

@@ -278,3 +278,47 @@ describe('ui.requestUpgrade elsewhere', () => {
         }
     });
 });
+
+describe('ui.showUpgrade_', () => {
+    // No refusal behind it; the empty `upgrade` still opens the dashboard's upgrade flow.
+    const UPGRADE_TAB = `https://puter.com/dashboard/?upgrade=&upgrade_app=${APP}#home`;
+
+    it('shows the upgrade in a frame on a signed-in first-party page, naming only the user', async () => {
+        const ui = makeUI();
+        const result = ui.showUpgrade_();
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+
+        expect(new URL(upgradeFrame().src).pathname).toBe('/embed/upgrade');
+        expect(fragment()).toEqual({ user: USER });
+        expect(ui.upgradeFrameShowing_()).toBe(true);
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed', upgraded: true });
+
+        await expect(result).resolves.toEqual({ upgraded: true });
+        expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('opens the dashboard upgrade in a tab when the frame cannot show it', async () => {
+        const result = makeUI().showUpgrade_();
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'unavailable' });
+
+        await expect(result).resolves.toEqual({ upgraded: false });
+        expect(window.open).toHaveBeenCalledTimes(1);
+        expect(window.open).toHaveBeenCalledWith(UPGRADE_TAB, '_blank');
+    });
+
+    it.each([
+        ['a page outside the Puter origin', { guiOrigin: 'https://puter.com' }],
+        ['a signed-out first-party page', { signedIn: false }],
+    ])('opens the dashboard upgrade in a tab within the click on %s', async (_label, options) => {
+        fakePuter(options);
+        const result = makeUI().showUpgrade_();
+
+        // Before anything is awaited, so the browser still counts the click.
+        expect(window.open).toHaveBeenCalledTimes(1);
+        expect(window.open).toHaveBeenCalledWith(UPGRADE_TAB, '_blank');
+        expect(upgradeFrame()).toBeNull();
+        await expect(result).resolves.toEqual({ upgraded: false });
+    });
+});

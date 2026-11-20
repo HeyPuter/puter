@@ -27,6 +27,7 @@ const fakePuter = ({ token = null, user = null, picture = null } = {}) => {
         ui: {
             showFeedbackDialog: vi.fn(() => new Promise(() => {})),
             showTopUp_: vi.fn(() => new Promise(() => {})),
+            showUpgrade_: vi.fn(() => new Promise(() => {})),
         },
         auth: {
             getProfilePicture: vi.fn(async () => currentPicture),
@@ -224,6 +225,54 @@ describe('<puter-user-menu>', () => {
         part(el, '.feedback').click();
         expect(sdk.ui.showFeedbackDialog).toHaveBeenCalledTimes(1);
         expect(shown(el, '.menu')).toBe(false);
+    });
+
+    it('leaves the Upgrade button out unless the page asks for it', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        expect(shown(el, '.upgrade-button')).toBe(false);
+    });
+
+    it('shows the Upgrade button beside the Apps button and opens the upgrade from it', async () => {
+        const sdk = fakePuter({ token: 'app-token', user: USER });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount({ 'show-upgrade': '' });
+        expect(shown(el, '.upgrade-button')).toBe(true);
+        expect(part(el, '.upgrade-button').textContent).toBe('Upgrade');
+        expect(part(el, '.upgrade-button').nextElementSibling).toBe(part(el, '.apps-button'));
+
+        part(el, '.apps-button').click();
+        part(el, '.upgrade-button').click();
+        expect(sdk.ui.showUpgrade_).toHaveBeenCalledTimes(1);
+        expect(appsOpen(el)).toBe(false);
+    });
+
+    it.each([
+        ['signed out', {}],
+        ['on a temporary account', { token: 'temp-token', user: TEMP }],
+    ])('keeps the Upgrade button hidden %s', async (_label, state) => {
+        vi.stubGlobal('puter', fakePuter(state));
+        const el = await mount({ 'show-upgrade': '' });
+        expect(shown(el, '.sign-in')).toBe(true);
+        expect(shown(el, '.upgrade-button')).toBe(false);
+    });
+
+    it('follows show-upgrade and the sign-in as they change', async () => {
+        const sdk = fakePuter({ token: 'app-token', user: USER });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        el.setAttribute('show-upgrade', '');
+        expect(shown(el, '.upgrade-button')).toBe(true);
+
+        sdk.signInAs(null);
+        await settle();
+        expect(shown(el, '.upgrade-button')).toBe(false);
+        sdk.signInAs('other-token', OTHER);
+        await settle();
+        expect(shown(el, '.upgrade-button')).toBe(true);
+
+        el.removeAttribute('show-upgrade');
+        expect(shown(el, '.upgrade-button')).toBe(false);
     });
 
     it('offers Add credits, under Usage, to an account with a plan', async () => {
@@ -543,12 +592,14 @@ describe('<puter-user-menu>', () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
         const el = await mount();
         const parts = [...el.shadowRoot.querySelectorAll('[part]')].map(node => node.getAttribute('part'));
-        expect(parts.sort()).toEqual(['apps-button', 'apps-panel', 'avatar', 'menu', 'sign-in']);
+        expect(parts.sort()).toEqual(['apps-button', 'apps-panel', 'avatar', 'menu', 'sign-in', 'upgrade-button']);
     });
 
     it('uses label attributes, including ones changed later', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
         const el = await mount({
+            'show-upgrade': '',
+            'upgrade-label': 'Passer à un forfait',
             'apps-label': 'Applis',
             'sign-out-label': 'Déconnexion',
             'account-label': 'Compte',
@@ -557,6 +608,7 @@ describe('<puter-user-menu>', () => {
             'open-puter-label': 'Ouvrir Puter',
             'feedback-label': 'Envoyer un avis',
         });
+        expect(part(el, '.upgrade-button').textContent).toBe('Passer à un forfait');
         expect(part(el, '.apps-button').getAttribute('aria-label')).toBe('Applis');
         expect(part(el, '.apps-title').textContent).toBe('Applis');
         expect(part(el, '.apps-panel').getAttribute('aria-label')).toBe('Applis');
