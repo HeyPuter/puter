@@ -271,9 +271,19 @@ export class MistralOcrProvider implements IOcrProvider {
         annotations: boolean,
     ) {
         try {
-            const pagesProcessed =
-                response?.usageInfo?.pagesProcessed ??
-                (Array.isArray(response?.pages) ? response.pages.length : 1);
+            const reported = response?.usageInfo?.pagesProcessed;
+            // The count Mistral reports, when it is one, and never more pages
+            // than a document may have.
+            const pagesProcessed = Math.min(
+                typeof reported === 'number' &&
+                    Number.isSafeInteger(reported) &&
+                    reported > 0
+                    ? reported
+                    : Array.isArray(response?.pages)
+                      ? response.pages.length
+                      : 1,
+                OCR_MAX_PAGES[model.provider],
+            );
             this.metering.incrementUsage(
                 actor,
                 model.pageUsageType,
@@ -288,8 +298,9 @@ export class MistralOcrProvider implements IOcrProvider {
                     OCR_COSTS[model.annotationUsageType] * pagesProcessed,
                 );
             }
-        } catch {
-            // Non-critical.
+        } catch (error) {
+            // The text is returned either way; an unrecorded charge is logged.
+            console.error('[mistral-ocr] recording usage failed:', error);
         }
     }
 }
