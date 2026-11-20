@@ -18,6 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { OUTBOUND_FETCH_TIMEOUT_MS } from '../../../../../util/nodeFetchDispatcherGuard.js';
 import {
     SDK_TIMEOUT_MS,
     sdkClientOptions,
@@ -31,6 +32,12 @@ describe('sdkClientOptions', () => {
             timeout: SDK_TIMEOUT_MS,
         });
         expect(SDK_TIMEOUT_MS).toBe(10 * 60 * 1000);
+    });
+
+    // Plain fetch stops waiting at the guard's timeouts, so a longer SDK
+    // timeout would never be reached.
+    it('fits inside the timeouts every plain fetch gets', () => {
+        expect(SDK_TIMEOUT_MS).toBeLessThanOrEqual(OUTBOUND_FETCH_TIMEOUT_MS);
     });
 
     it('takes a per-provider timeout', () => {
