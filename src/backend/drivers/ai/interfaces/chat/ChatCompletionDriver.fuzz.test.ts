@@ -49,6 +49,12 @@ import {
     readStreamResult,
     withTestActor,
 } from '../../shared/integrationTestUtil.js';
+import {
+    anthropicToolStream,
+    chatCompletionsToolStream,
+    chatToolCallDeltas,
+    responsesToolStream,
+} from '../../shared/toolCallStreamTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import type { ICompleteArguments } from './types.js';
 import { clearUnhealthyRoutes } from './utils/providerHealth.js';
@@ -176,6 +182,9 @@ const responsesEvents = [
     { type: 'response.completed', response: responsesBody },
 ];
 
+// Counts the tool-call replies served, so a run that stops reaching them fails.
+let toolRepliesServed = 0;
+
 /** A well-formed answer from whichever vendor API the request went to. */
 const healthyUpstream = ({
     url,
@@ -231,6 +240,22 @@ const healthyUpstream = ({
         return { body: 'video-bytes', contentType: 'video/mp4' };
     }
     const streaming = (json as { stream?: unknown } | undefined)?.stream;
+    const tools = (json as { tools?: unknown } | undefined)?.tools;
+    if (streaming && Array.isArray(tools) && tools.length) {
+        const sse = path.endsWith('/chat/completions')
+            ? chatCompletionsToolStream(
+                  chatToolCallDeltas({ interleave: true }),
+              )
+            : path.endsWith('/responses')
+              ? responsesToolStream()
+              : path.endsWith('/messages')
+                ? anthropicToolStream()
+                : undefined;
+        if (sse) {
+            toolRepliesServed++;
+            return { sse };
+        }
+    }
     if (path.endsWith('/chat/completions')) {
         if (!streaming) {
             return {
@@ -770,6 +795,7 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
         clearUnhealthyRoutes();
         const findings = new Findings();
         let answered = 0;
+        const toolRepliesBefore = toolRepliesServed;
 
         for (let index = 0; index < fuzzCases(3000); index++) {
             const random = caseRandom(0xc4a7, index);
@@ -814,11 +840,13 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
         findings.assertNone();
         // A run where nothing is answered has stopped reaching the providers.
         expect(answered).toBeGreaterThan(0);
+        expect(toolRepliesServed).toBeGreaterThan(toolRepliesBefore);
     }, 600_000);
 
     it('ends every request with an answer or a classified error when the upstream misbehaves', async () => {
         const findings = new Findings();
         const askedBefore = upstream.asked;
+        const toolRepliesBefore = toolRepliesServed;
 
         for (let index = 0; index < fuzzCases(2000); index++) {
             const random = caseRandom(0x0b5e, index);
@@ -836,6 +864,7 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
                 model: route.id,
                 stream: random() < 0.5,
                 fallback: random() < 0.5,
+                tools: random() < 0.5 ? [weatherTool] : undefined,
             });
             const unclassified = error && unclassifiedFailure(error);
             if (unclassified) {
@@ -858,6 +887,7 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
         }
         findings.assertNone();
         expect(upstream.asked).toBeGreaterThan(askedBefore);
+        expect(toolRepliesServed).toBeGreaterThan(toolRepliesBefore);
     }, 1_800_000);
 
     it('classifies a 200 whose JSON body is cut short, on every provider', async () => {
