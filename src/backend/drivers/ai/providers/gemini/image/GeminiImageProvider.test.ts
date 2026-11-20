@@ -141,6 +141,44 @@ describe('GeminiImageProvider construction', () => {
 
 // ── Model catalog ───────────────────────────────────────────────────
 
+describe('Gemini image response errors', () => {
+    it.each([new SyntaxError('Invalid JSON'), new TypeError('Invalid response')])(
+        'classifies an unreadable SDK response as an upstream failure',
+        async (error) => {
+            generateContentMock.mockRejectedValueOnce(error);
+            await expect(
+                withTestActor(() =>
+                    makeProvider().generate({
+                        model: 'gemini-3.1-flash-image',
+                        prompt: 'A cup',
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 502,
+                legacyCode: 'upstream_failed',
+            });
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it('preserves a transport failure with a socket cause', async () => {
+        const error = new TypeError('fetch failed', {
+            cause: Object.assign(new Error('Connection reset'), {
+                code: 'ECONNRESET',
+            }),
+        });
+        generateContentMock.mockRejectedValueOnce(error);
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: 'gemini-3.1-flash-image',
+                    prompt: 'A cup',
+                }),
+            ),
+        ).rejects.toBe(error);
+    });
+});
+
 describe('GeminiImageProvider model catalog', () => {
     it('returns the first catalog entry id as the default', () => {
         const provider = makeProvider();
