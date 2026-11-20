@@ -154,8 +154,7 @@ const PENDING_WRITES_KEY = 'aiPendingUsageWrites';
 const trackWrite = (write: Promise<UsageByType>): Promise<UsageByType> => {
     if (!Context.current()) return write;
     let pending = Context.get(PENDING_WRITES_KEY) as
-        | Set<Promise<void>>
-        | undefined;
+        Set<Promise<void>> | undefined;
     if (!pending) {
         pending = new Set();
         Context.set(PENDING_WRITES_KEY, pending);
@@ -180,8 +179,7 @@ const outlastingWrites = (hold: CreditHold): CreditHold => {
         ...hold,
         release: async () => {
             const pending = Context.get(PENDING_WRITES_KEY) as
-                | Set<Promise<void>>
-                | undefined;
+                Set<Promise<void>> | undefined;
             if (!pending?.size) return hold.release();
             void Promise.all([...pending])
                 .then(() => hold.release())
@@ -296,11 +294,23 @@ export function withAiCostFactor(
     };
 
     const utilRecordUsageObject = <T extends Record<string, number>>(
-        trackedUsageObject: T,
+        reportedUsageObject: T,
         actor: Actor,
         modelPrefix: string,
         costsOverrides?: Partial<Record<keyof T, number>>,
     ): Promise<UsageByType> => {
+        // Counts come from the provider's answer. One that isn't a positive
+        // number records nothing, instead of the ledger's one-unit fallback.
+        const trackedUsageObject = Object.fromEntries(
+            Object.entries(reportedUsageObject).map(([key, amount]) => [
+                key,
+                typeof amount === 'number' &&
+                amount > 0 &&
+                amount <= Number.MAX_SAFE_INTEGER
+                    ? amount
+                    : 0,
+            ]),
+        ) as T;
         noteRequestCosts(
             Object.entries(trackedUsageObject).map(([key, usageAmount]) => ({
                 usageType: key,
@@ -316,8 +326,7 @@ export function withAiCostFactor(
                 modelPrefix,
                 costsOverrides,
             );
-        // Recorded after the lookup; callers may add keys to theirs meanwhile.
-        const usageObject = { ...trackedUsageObject };
+        const usageObject = trackedUsageObject;
         const scaleOverrides = (factor: number) =>
             factor === 1
                 ? costsOverrides
