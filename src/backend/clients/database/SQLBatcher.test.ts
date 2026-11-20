@@ -686,6 +686,33 @@ describe('SQLBatcher', () => {
         expect(getConnection).toHaveBeenCalledTimes(2);
     });
 
+    it('keeps the breaker closed when every read fails with an error the server answered', async () => {
+        const conn = makeConnection(() => {
+            // The message quotes the statement, which mentions a lost connection.
+            throw makeError(
+                'ER_PARSE_ERROR',
+                "syntax error near 'Connection lost'",
+            );
+        });
+        const { pool } = makePool(conn);
+        const batcher = new SQLBatcher(pool, {
+            maxTimeInQueue: 5,
+            failureThreshold: 1,
+            cooldownMs: 60_000,
+            readOnly: true,
+        });
+
+        const results = await Promise.allSettled([
+            batcher.query('SELECT bad', []),
+            batcher.query('SELECT worse', []),
+        ]);
+        expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+        conn.query.mockImplementation(
+            makeConnection(happyBatch).query.getMockImplementation()!,
+        );
+        await expect(batcher.query('SELECT a', [])).resolves.toBeTruthy();
+    });
+
     it('never retries deterministic row-level errors and does not escalate the breaker', async () => {
         let fallbackAttempts = 0;
         const conn = makeConnection((sql) => {

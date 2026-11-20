@@ -8863,6 +8863,22 @@ describe('AuthController dev-app permission flows', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('revoke-dev-app: 400 on a parameter of the wrong type', async () => {
+        const { actor } = await makeUserAndActor();
+        for (const body of [
+            { app_uid: 'app-x', permission: ['fs:read'] },
+            { app_uid: { uid: 'app-x' }, permission: 'fs:read' },
+            { app_uid: 'app-x', permission: 'fs:read', meta: 'note' },
+        ]) {
+            await expect(
+                controller.handleRevokeDevApp(
+                    makeReq(body, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
     it('grant/revoke-dev-app: an unregistered `origin` cannot be redirected onto an app squatting its synthetic uid', async () => {
         // Same hole the user-app handlers close: `appUidFromOrigin`
         // synthesises `app-<uuidv5(origin)>` for an origin with no app row,

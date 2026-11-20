@@ -226,6 +226,12 @@ pickers) for `puter.ui.requestUpgrade(details)`, and for the Upgrade button of
 the usage limit dialog a refused call shows there. Elsewhere both keep their
 behavior: inside an app `requestUpgrade()` asks the desktop, and on any other
 page the usage limit dialog opens the dashboard's upgrade page in a new tab.
+It frames it too for the Upgrade button `<puter-user-menu>` shows unless
+`hide-upgrade` is set, with only `user` in the fragment. On a page that can't frame
+the GUI, that button opens the dashboard's upgrade page in a new tab. Signed
+out, the button signs in first, and the upgrade then shows for that account,
+through the consent dialog on a page that can't frame it, since the click has
+expired by then.
 
 The frame covers the page with no box or close button, and the GUI page is
 transparent (`html.popup-frame-transparent`) so the dialog's own scrim covers
@@ -258,7 +264,9 @@ it shows still rejects but opens no usage limit dialog over it.
 When the frame can't show the upgrade (refused, never ready, `unavailable`, or
 no user to name), puter.js opens the dashboard's upgrade page in a new tab with
 what was refused, through a consent dialog when the click has expired or the
-tab is blocked, and `requestUpgrade()` resolves `{ upgraded: false }`.
+tab is blocked, and `requestUpgrade()` resolves `{ upgraded: false }`. The
+tab's URL always carries `upgrade`, empty when nothing was refused, which is
+what the dashboard opens its upgrade flow for.
 
 ## Top-up
 

@@ -4078,6 +4078,12 @@ export class AuthController extends PuterController {
     async handleRevokeDevApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body ?? {};
         const { origin, permission, meta } = req.body ?? {};
+        this.#validateAppPermissionParams({
+            app_uid,
+            origin,
+            permission,
+            meta,
+        });
         if (origin && !app_uid) {
             // Registered apps only — see handleGrantDevApp.
             app_uid = await this.#registeredAppUidFromOrigin(origin);

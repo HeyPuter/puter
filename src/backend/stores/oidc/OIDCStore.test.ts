@@ -42,6 +42,17 @@ const createStore = (rows: readonly OidcRow[]) => {
 };
 
 describe('OIDCStore', () => {
+    it('links a numeric sub as a string', async () => {
+        const { db, store } = createStore([]);
+        await store.link(1, 'p', 42);
+        expect(db.write).toHaveBeenLastCalledWith(expect.any(String), [
+            1,
+            'p',
+            '42',
+            null,
+        ]);
+    });
+
     it('looks up a string or numeric sub and refuses other shapes', async () => {
         const row = { user_id: 1, provider: 'p', provider_sub: '42' };
         const { db, store } = createStore([row]);
@@ -51,7 +62,7 @@ describe('OIDCStore', () => {
         ).resolves.toEqual(row);
         expect(db.pread).toHaveBeenLastCalledWith(expect.any(String), [
             'p',
-            42,
+            '42',
         ]);
 
         db.pread.mockClear();

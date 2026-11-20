@@ -1524,13 +1524,22 @@ const parseAppUid = (value: unknown): string | null => {
 };
 
 /** Unix seconds or an ISO-8601 string, and it has to be in the future. */
+// The end of year 9999, the latest time a Date can format.
+const MAX_EXPIRES_AT_SECONDS = 253402300799;
+
 const parseExpiresAt = (value: unknown): number | null => {
     if (value === undefined || value === null) return null;
     const seconds =
         typeof value === 'number'
             ? Math.floor(value)
-            : Math.floor(Date.parse(String(value)) / 1000);
-    if (!Number.isFinite(seconds) || seconds <= Math.floor(Date.now() / 1000))
+            : typeof value === 'string'
+              ? Math.floor(Date.parse(value) / 1000)
+              : Number.NaN;
+    if (
+        !Number.isFinite(seconds) ||
+        seconds <= Math.floor(Date.now() / 1000) ||
+        seconds > MAX_EXPIRES_AT_SECONDS
+    )
         throw badRequest(
             'expiresAt must be a future time',
             'invalid_expires_at',

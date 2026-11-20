@@ -48,7 +48,7 @@ import { loadFileInput } from '../util/fileInput.js';
 import {
     normalizeLimit,
     normalizeOffset,
-    openCursor,
+    openIdCursor,
     sealCursor,
 } from '../../util/pagination.js';
 
@@ -858,11 +858,12 @@ export class WorkerDriver extends PuterDriver {
         const limit = normalizeLimit(args.limit, { cap: 5000 });
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = openCursor(
+        const afterId = openIdCursor(
             args.cursor as string | null | undefined,
             this.config.jwt_secret_v2,
-        ) as { id?: number } | undefined;
-        if (payload && offset !== undefined) {
+            { strict: true },
+        );
+        if (afterId !== null && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
                 legacyCode: 'bad_request',
             });
@@ -898,10 +899,7 @@ export class WorkerDriver extends PuterDriver {
                         ? {
                               limit: pageSize + 1,
                               offset,
-                              afterId:
-                                  payload?.id !== undefined
-                                      ? Number(payload.id)
-                                      : undefined,
+                              afterId: afterId ?? undefined,
                           }
                         : {}),
                 },

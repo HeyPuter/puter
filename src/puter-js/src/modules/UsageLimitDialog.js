@@ -13,15 +13,16 @@ import { escapeHtml } from '../lib/html.js';
 const UPGRADE_PAGE = 'https://puter.com/dashboard/';
 
 /**
- * The dashboard page the upgrade button opens. It carries what was refused,
- * so the dashboard can open its upgrade flow with that context.
+ * The dashboard page the upgrade button opens. The dashboard opens its
+ * upgrade flow for the `upgrade` parameter, which says what was refused, or
+ * is empty for an upgrade no refusal asked for.
  *
  * @param {Pick<UsageLimitDialogOptions, 'reason' | 'appID' | 'method'>} [context]
  * @returns {string}
  */
 export const upgradeUrl = ({ reason, appID, method } = {}) => {
     const url = new URL(UPGRADE_PAGE);
-    if ( reason ) url.searchParams.set('upgrade', reason);
+    url.searchParams.set('upgrade', reason || '');
     if ( appID ) url.searchParams.set('upgrade_app', appID);
     if ( method ) url.searchParams.set('upgrade_method', method);
     url.hash = 'home';

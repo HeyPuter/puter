@@ -378,6 +378,7 @@ export class SQLBatcher {
         await Promise.all(workers);
 
         let anySucceeded = false;
+        let anyUnreachable = false;
         let failureCount = 0;
         for (let i = 0; i < batch.length; i++) {
             const b = batch[i];
@@ -387,6 +388,7 @@ export class SQLBatcher {
                 b.resolve(r.value);
             } else {
                 failureCount++;
+                if (isRetriableError(r.error)) anyUnreachable = true;
                 b.reject(r.error);
             }
         }
@@ -394,11 +396,11 @@ export class SQLBatcher {
             fallbackItemFailuresCounter.add(failureCount, this.#metricAttrs);
         }
 
-        // Only escalate the breaker when the database itself looks unhealthy
-        // (no item got through). Row-level errors like duplicate-key are
-        // application concerns, not DB outages, and shouldn't trip it.
+        // Only escalate the breaker when the database itself looks unhealthy:
+        // nothing got through and something failed to reach it. An error the
+        // server answered with (bad SQL, duplicate key) means it is up.
         this.#lastFailureAt = Date.now();
-        if (anySucceeded) {
+        if (anySucceeded || !anyUnreachable) {
             this.#consecutiveFailures = 0;
         } else {
             this.#consecutiveFailures++;

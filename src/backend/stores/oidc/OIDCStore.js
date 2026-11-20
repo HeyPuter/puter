@@ -40,7 +40,9 @@ export class OIDCStore extends PuterStore {
         // the same link, instead of bouncing the user between two accounts.
         const sql =
             'SELECT * FROM `user_oidc_providers` WHERE `provider` = ? AND `provider_sub` = ? ORDER BY `id` ASC LIMIT 1';
-        const params = [provider, providerSub];
+        // As a string: MySQL compares a varchar with a number numerically, so
+        // `123` would also match '0123'.
+        const params = [provider, String(providerSub)];
         const rows = primary
             ? await this.clients.db.pread(sql, params)
             : await this.clients.db.read(sql, params);
@@ -60,7 +62,7 @@ export class OIDCStore extends PuterStore {
         try {
             await this.clients.db.write(
                 'INSERT INTO `user_oidc_providers` (`user_id`, `provider`, `provider_sub`, `refresh_token`) VALUES (?, ?, ?, ?)',
-                [userId, provider, providerSub, refreshToken],
+                [userId, provider, String(providerSub), refreshToken],
             );
             return;
         } catch (e) {

@@ -52,7 +52,7 @@ import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.j
 import {
     normalizeLimit,
     normalizeOffset,
-    openCursor,
+    openIdCursor,
     sealCursor,
 } from '../../util/pagination.js';
 
@@ -269,11 +269,12 @@ export class SubdomainDriver extends PuterDriver {
         const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 5000;
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = openCursor(
+        const afterId = openIdCursor(
             args.cursor as string | null | undefined,
             this.config.jwt_secret_v2,
-        ) as { id?: number } | undefined;
-        if (payload && offset !== undefined) {
+            { strict: true },
+        );
+        if (afterId !== null && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
                 legacyCode: 'bad_request',
             });
@@ -303,7 +304,7 @@ export class SubdomainDriver extends PuterDriver {
         const listOpts = {
             limit: paginated ? limit + 1 : limit,
             offset,
-            afterId: payload?.id !== undefined ? Number(payload.id) : undefined,
+            afterId: afterId ?? undefined,
             appOwner,
             excludePrefix: WORKER_SUBDOMAIN_PREFIX,
         };

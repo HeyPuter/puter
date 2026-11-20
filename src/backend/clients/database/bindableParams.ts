@@ -22,8 +22,11 @@ import { HttpError } from '../../core/http/HttpError.js';
 const isBindable = (value: unknown): boolean => {
     if (value === null || value === undefined) return true;
     switch (typeof value) {
-        case 'string':
         case 'number':
+            // mysql writes NaN and Infinity into the SQL as bare words, and
+            // integers past 2^53 lose precision or overflow BIGINT.
+            return Math.abs(value as number) <= Number.MAX_SAFE_INTEGER;
+        case 'string':
         case 'bigint':
         case 'boolean':
             return true;
