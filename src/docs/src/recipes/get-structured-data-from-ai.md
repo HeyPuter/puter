@@ -65,15 +65,16 @@ feedback go after the fixed prompt, so repeated calls can reuse a cached prefix.
 
 ## Use a Prompt With Another Model
 
-The selected OpenAI model supports structured output. OpenAI's
+The example model, `gpt-5.4-nano`, accepts `outputFormat`. OpenAI's
 [structured-output guide](https://developers.openai.com/api/docs/guides/structured-outputs)
-covers model support. The catalog has no documented universal support flag.
-For a model without `outputFormat`, put the same schema in the system prompt,
-omit that option, and run exactly the same parser and validator.
+lists the OpenAI models that do. The model catalog doesn't say which models
+accept it. For a model without `outputFormat`, put the same schema in the system
+prompt, omit that option, and run exactly the same parser and validator.
 
-The full code includes the schema in the prompt in both modes. After selecting
-your replacement model, call `extract(requests, false)` for prompt-only output.
-A model that returns invalid JSON gets the same bounded correction loop.
+The full code already puts the schema in the system prompt. To use a model
+without `outputFormat`, change the model ID at the top and call
+`extract(requests, false)`. A model that returns invalid JSON gets the same
+bounded correction loop.
 
 ## Reuse a Validated Result
 
