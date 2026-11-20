@@ -944,6 +944,9 @@ An account can also hold at most **150** open connections from one origin, so a 
 
 Every driver call also counts toward **8,000 calls/min**, before the per-API limits above. It only exists to catch runaway loops; a client that hits it is looping.
 
+JSON replies validated by the Mistral, OpenAI image and transcription, BytePlus image, Together image and video, and xAI image clients are capped at 64 MiB. Larger replies fail with `502 upstream_failed`.
+
+
 ## Storage quota
 
 Every account has a filesystem quota (200 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 input_too_large`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
