@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDocx, createZip, pngHeader } from '../../../tests/fixtures/docx.js';
 import { createEpub } from '../../../tests/fixtures/packages.js';
 import { psdPreviewJpeg } from '../../../tests/fixtures/psd.js';
-import { EMBEDDED_PREVIEW_MAX_BYTES } from './config.js';
+import { EMBEDDED_PREVIEW_MAX_BYTES, EMBEDDED_PREVIEW_MAX_PIXELS } from './config.js';
 import { readEmbeddedPreview } from './embedded.js';
 
 const jpeg = psdPreviewJpeg();
@@ -53,6 +53,22 @@ describe('readEmbeddedPreview', () => {
         await expectPreview(createZip({ 'preview.jpg': png }), png, 'image/png');
         await expectPreview(createZip({ 'preview.jpg': 'not an image at all', 'preview-web.jpg': jpeg }), jpeg, 'image/jpeg');
         await expectPreview(createZip({ 'preview.jpg': oversized, 'preview-web.jpg': jpeg }), jpeg, 'image/jpeg');
+    });
+
+    it('moves on from a picture that states more pixels than the limit', async () => {
+        // A square one pixel wider than the limit allows, in a few bytes.
+        const side = Math.sqrt(EMBEDDED_PREVIEW_MAX_PIXELS);
+        const huge = new Uint8Array([...pngHeader(side + 1, side), 1, 2, 3, 4]);
+        const largest = new Uint8Array([...pngHeader(side, side), 1, 2, 3, 4]);
+        await expectPreview(createZip({ 'preview.jpg': huge, 'preview-web.jpg': jpeg }), jpeg, 'image/jpeg');
+        await expectPreview(createZip({ 'preview.jpg': largest }), largest, 'image/png');
+        expect(await readEmbeddedPreview(new File([createEpub({ cover: huge, coverHref: 'images/cover.png' })], 'book.epub'))).toBeUndefined();
+    });
+
+    it('returns a WebP picture, whose size it reads too', async () => {
+        // A lossless WebP of 100 x 50 pixels: its signature, then each dimension less one in 14 bits.
+        const webp = new Uint8Array([...new TextEncoder().encode('RIFF\x1a\0\0\0WEBPVP8L\x0d\0\0\0'), 0x2f, 0x63, 0x40, 0x0c, 0, 1, 2, 3, 4]);
+        await expectPreview(createZip({ 'Thumbnails/thumbnail.png': webp }), webp, 'image/webp');
     });
 
     it('reads only the directory and the preview of a large package', async () => {

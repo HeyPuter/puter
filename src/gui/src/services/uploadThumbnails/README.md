@@ -161,7 +161,9 @@ that picture to the image generator as it is stored:
   still calls its cover one, which is the last thing tried.
 
 Nothing is rendered, so the thumbnail is the editor's own. What kind of image it
-is comes from its own first bytes. A file with none of these, such as a template
+is, and how many pixels it has, comes from its own first bytes, and a picture
+over 16 megapixels is passed over for the next one the file holds, since it
+would be decoded at full size. A file with none of these, such as a template
 or a text file with the name a Keynote file has, retains its normal icon. These
 files go through the same queue as Office documents, and each picture is scaled
 before the next file is opened, since a book's cover can be large and a library

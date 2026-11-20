@@ -407,7 +407,7 @@ The Puter desktop makes an upload thumbnail for a Pages, Numbers, Keynote, OpenD
 | Stored preview thumbnail | Limit |
 | --- | --- |
 | Data read from the file to find its entries | 4 MiB |
-| Stored preview or cover size | 8 MiB |
+| Stored preview or cover | 8 MiB and 16,777,216 pixels |
 | XML read from each of an EPUB's container and package document, after decompression | 1 MiB |
 | Output | At most 128 × 128 pixels, aspect ratio preserved |
 

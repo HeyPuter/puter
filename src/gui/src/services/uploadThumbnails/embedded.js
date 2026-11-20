@@ -1,5 +1,5 @@
-import { EMBEDDED_PREVIEW_MAX_BYTES, OFFICE_XML_MAX_BYTES } from './config.js';
-import { imageTypeOf } from './images.js';
+import { EMBEDDED_PREVIEW_MAX_BYTES, EMBEDDED_PREVIEW_MAX_PIXELS, OFFICE_XML_MAX_BYTES } from './config.js';
+import { imageTypeOf, pixelSizeOf } from './images.js';
 import { TOKEN, attributesOf } from './ooxml.js';
 import { openArchive } from './zip.js';
 
@@ -81,9 +81,16 @@ export const readEmbeddedPreview = async (file, signal) => {
         const entry = entries.get(name);
         if ( !entry || entry.size > EMBEDDED_PREVIEW_MAX_BYTES ) return undefined;
         const content = await contentOf(entry, EMBEDDED_PREVIEW_MAX_BYTES);
-        // What kind of image it is comes from its own first bytes.
-        const type = content && imageTypeOf(new DataView(await content.slice(0, 12).arrayBuffer()));
-        return type ? new File([content], 'preview', { type }) : undefined;
+        if ( ! content ) return undefined;
+        // What kind of image it is, and how large, comes from its own bytes.
+        const view = new DataView(await content.arrayBuffer());
+        const type = imageTypeOf(view);
+        const pixels = pixelSizeOf(view);
+        // A small file can state a very large picture, and decoding one takes memory by the pixel.
+        if ( !type || !pixels?.width || !pixels.height || pixels.width * pixels.height > EMBEDDED_PREVIEW_MAX_PIXELS ) {
+            return undefined;
+        }
+        return new File([content], 'preview', { type });
     };
 
     // The container is what makes an archive an EPUB, whatever the file is called.
