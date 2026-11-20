@@ -1187,6 +1187,65 @@ describe('sign-in pipeline', () => {
         });
     });
 
+    describe('a sign-in that owes proof of the phone on file', () => {
+        const ON_FILE = '+14155550123';
+        const whoami = (token: unknown, cookie?: string) =>
+            fetch(new URL('/whoami', env.apiOrigin), {
+                headers: {
+                    authorization: `Bearer ${String(token)}`,
+                    ...(cookie ? { cookie } : {}),
+                },
+            });
+        const confirmPhone = (token: unknown) =>
+            fetch(new URL('/confirm-phone', env.apiOrigin), {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${String(token)}`,
+                },
+                body: JSON.stringify({ code: '123456' }),
+            });
+        const stubSms = () => {
+            const prelude = env.server.clients.prelude;
+            vi.spyOn(prelude, 'isConfigured').mockReturnValue(true);
+            vi.spyOn(prelude, 'checkVerification').mockResolvedValue({
+                status: 'success',
+            } as never);
+        };
+
+        it('ends the other sessions opened meanwhile when one of them proves it, and remembers only that device', async () => {
+            stubSms();
+            const { username, user } = await account();
+            await env.server.stores.user.update(user.id, { phone: ON_FILE });
+            // Signed in before anything was asked.
+            const earlier = await login(username);
+            expect(earlier.deviceCookie).toBeDefined();
+
+            await env.server.stores.user.update(user.id, {
+                requires_phone_verification: 1,
+            });
+            const other = await login(username);
+            const owner = await login(username);
+            expect(other.body.user?.requires_phone_verification).toBe(true);
+
+            const proved = await confirmPhone(owner.body.token);
+            expect(await proved.json()).toMatchObject({ phone_verified: true });
+
+            expect((await whoami(owner.body.token)).status).toBe(200);
+            expect((await whoami(earlier.body.token)).status).toBe(200);
+            expect((await whoami(other.body.token)).status).toBe(401);
+
+            // Only the device that proved it counts as the account's.
+            const seen: boolean[] = [];
+            listen('puter.signin.validate', (event) => {
+                if (event.user.uuid === user.uuid) seen.push(event.known_device);
+            });
+            await login(username, { cookie: owner.deviceCookie });
+            await login(username, { cookie: other.deviceCookie });
+            expect(seen).toEqual([true, false]);
+        });
+    });
+
     describe('credential exposure from the edge proxy', () => {
         const exposureNotices = () =>
             sent.filter(

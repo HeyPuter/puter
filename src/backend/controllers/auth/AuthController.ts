@@ -73,6 +73,7 @@ import {
 } from '../../util/cardFallback.js';
 import {
     hasPhoneFromBeforeDormancy,
+    isCardOnFileStep,
     isEmailGateLast,
     isEmailPending,
     isPhoneOnFileStep,
@@ -134,7 +135,11 @@ import { PuterController } from '../types.js';
 import type { SignInInput } from '../../services/auth/SignInService.js';
 import { claimOnce } from '../../util/kvClaim.js';
 import { knownDeviceStatus } from './knownDevice.js';
-import { runAfterResponse, startWebSession } from './webSession.js';
+import {
+    runAfterResponse,
+    settleProofOnFile,
+    startWebSession,
+} from './webSession.js';
 import { completeOidcLoginReturn } from './oidcLoginReturn.js';
 
 const FINGERPRINT_MAX_LENGTH = 128;
@@ -1899,7 +1904,10 @@ export class AuthController extends PuterController {
         }
 
         // Verified — persist the number now (and only now) and clear the gate.
-        if (isPhoneOnFileStep(user)) await this.#markPhoneOnFileProven(user);
+        if (isPhoneOnFileStep(user)) {
+            await this.#settleProofOnFile(req, user);
+            await this.#markPhoneOnFileProven(user);
+        }
         await this.stores.user.update(user.id, {
             requires_phone_verification: 0,
             phone: pendingPhone,
@@ -2132,8 +2140,7 @@ export class AuthController extends PuterController {
             return;
         }
         const requiredFingerprint =
-            (onFileStep || user.requires_card_verification) &&
-            user.card_fingerprint
+            onFileStep || isCardOnFileStep(user)
                 ? (user.card_fingerprint as string)
                 : null;
 
@@ -2203,6 +2210,8 @@ export class AuthController extends PuterController {
         // ever clear a phone gate.
         const clearedPhoneGate =
             fallbackEligible && Boolean(user.requires_phone_verification);
+        if (requiredFingerprint !== null)
+            await this.#settleProofOnFile(req, user);
         if (clearedPhoneGate && onFileStep)
             await this.#markPhoneOnFileProven(user);
         await this.stores.user.update(user.id, {
@@ -2908,6 +2917,13 @@ export class AuthController extends PuterController {
             'Please verify your phone number to continue',
             { legacyCode: 'phone_verification_required' },
         );
+    }
+
+    #settleProofOnFile(req: Request, user: UserRow): Promise<void> {
+        return settleProofOnFile(req, user.uuid, {
+            auth: this.services.auth,
+            kv: this.stores.kv,
+        });
     }
 
     /** Best effort: a failed write only means the number is asked for again. */
