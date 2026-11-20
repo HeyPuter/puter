@@ -229,7 +229,7 @@ describe('Upload thumbnails in a real browser', () => {
                 const image = new File([await new Promise(resolve => canvas.toBlob(resolve))], 'image.png', { type: 'image/png' });
                 const file = new File([pdf], 'document.PDF');
                 const generate = window.createUploadThumbnailGenerator();
-                const thumbnails = await Promise.all([file, image, new File(['notes'], 'notes.txt')]
+                const thumbnails = await Promise.all([file, image, new File(['notes'], 'notes.rtf')]
                     .map(file => generate(file, { defaultGenerator: window.defaultGenerator })));
                 // An SDK without the callback context calls the generator with the file alone.
                 const withoutContext = await generate(image);
@@ -732,7 +732,7 @@ describe('Upload thumbnails in a real browser', () => {
         }
     });
 
-    it.each([false, true])('draws the start of a source file in color, and a Markdown file as a page (bundled: %s)', async (bundled) => {
+    it.each([false, true])('draws the start of a source file in color, plain text without, and a Markdown file as a page (bundled: %s)', async (bundled) => {
         const page = await browser.newPage();
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
@@ -743,12 +743,13 @@ describe('Upload thumbnails in a real browser', () => {
                 const generate = window.createUploadThumbnailGenerator();
                 // The bundled page has no SDK generator to pass, as with an SDK that predates the callback context.
                 const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
-                const [script, comment, sheet, markdown, ...skipped] = await Promise.all([
+                const [script, comment, sheet, markdown, text, ...skipped] = await Promise.all([
                     // Three lines of keywords, then a line far longer than the page is wide.
                     new File([`${'return return return\n'.repeat(3)}${'W'.repeat(400)}\n`], 'app.js'),
                     new File(['// nothing here but a comment\n'], 'note.mjs'),
                     new File(['a { color: red; }\n'], 'site.css', { type: 'text/css' }),
                     new File([`# Heading\n\n${'W'.repeat(60)}\n`], 'README.md'),
+                    new File([`${'<p>return return</p>\n'.repeat(3)}${'W'.repeat(400)}\n`], 'index.html', { type: 'text/html' }),
                     new File(['\n\n'], 'blank.js'),
                     new File(['![logo](logo.png)\n'], 'pictures.md'),
                     new File([new Uint8Array(64)], 'binary.css'),
@@ -786,11 +787,11 @@ describe('Upload thumbnails in a real browser', () => {
                     };
                 };
                 return {
-                    pages: await Promise.all([script, comment, sheet, markdown].map(decode)),
+                    pages: await Promise.all([script, comment, sheet, markdown, text].map(decode)),
                     skipped,
                 };
             });
-            const [script, comment, sheet, markdown] = result.pages;
+            const [script, comment, sheet, markdown, text] = result.pages;
             const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 15);
             for ( const drawn of result.pages ) {
                 expect(drawn).toMatchObject({ width: 99, height: 128, below: { count: 0 } });
@@ -801,8 +802,11 @@ describe('Upload thumbnails in a real browser', () => {
             expect(script.top.red).toBeGreaterThan(10);
             expect(comment.top.red).toBe(0);
             expect(sheet.top.red).toBe(0);
-            // The script's long line runs off the page, and the page's long word wraps inside its margins.
+            expect(text.top.red).toBe(0);
+            // The script's and the HTML file's long lines run off the page, and the page's long word wraps inside its
+            // margins.
             expect(script.rightEdge.count).toBeGreaterThan(0);
+            expect(text.rightEdge.count).toBeGreaterThan(0);
             expect(markdown.rightEdge.count).toBe(0);
             expect(markdown.middle.count).toBeGreaterThan(script.middle.count);
             expect(result.skipped).toEqual([undefined, undefined, undefined]);

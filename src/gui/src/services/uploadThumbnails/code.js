@@ -105,7 +105,7 @@ export const indentJson = (text) => {
  * Split source code into runs of one color each.
  *
  * @param {string} text
- * @param {string} language A key of `TOKENS`.
+ * @param {string} language A key of `TOKENS`, or `text` for text drawn without colors.
  * @returns {import('./page.js').PageRun[]}
  */
 export const colorCode = (text, language) => {
@@ -114,7 +114,7 @@ export const colorCode = (text, language) => {
         if ( part ) runs.push({ text: part, size: FONT_SIZE, bold: false, italic: false, color, family: 'monospace' });
     };
     let at = 0;
-    for ( const match of text.matchAll(TOKENS[language]) ) {
+    for ( const match of TOKENS[language] ? text.matchAll(TOKENS[language]) : [] ) {
         const kind = Object.keys(match.groups).find(group => match.groups[group] !== undefined);
         if ( ! kind ) continue;
         add(text.slice(at, match.index), COLORS.plain);
@@ -129,7 +129,7 @@ export const colorCode = (text, language) => {
  * Get a small image of the start of a source file, colored as an editor would color it.
  *
  * @param {File} file
- * @param {string} language A key of `CODE_NAMES` in `kinds.js`.
+ * @param {string} language A key of `CODE_NAMES` in `kinds.js`, or `text` for text drawn without colors.
  * @returns {Promise<File | undefined>} An image file browsers can decode, or `undefined` for a file with no text.
  */
 export const readCodePreview = async (file, language) => {

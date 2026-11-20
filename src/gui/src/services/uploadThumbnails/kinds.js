@@ -22,6 +22,8 @@ export const VIDEO_NAME = /\.(mp4|m4v|mov|webm)$/i;
 export const CODE_NAMES = { javascript: /\.[cm]?js$/i, css: /\.css$/i, json: /\.json$/i };
 export const MARKDOWN_NAME = /\.(md|markdown)$/i;
 export const CSV_NAME = /\.csv$/i;
+// Text drawn as it is, without colors.
+export const PLAIN_TEXT_NAME = /\.(txt|ya?ml|html?)$/i;
 
 export const PSD_TYPE = 'image/vnd.adobe.photoshop';
 export const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
@@ -41,6 +43,7 @@ export const CODE_TYPES = {
 export const MARKDOWN_TYPE = /^text\/(x-)?markdown$/;
 // With Excel installed, Windows types a CSV as `application/vnd.ms-excel`, an old workbook's type, so its name decides.
 export const CSV_TYPE = /^text\/csv$/;
+export const PLAIN_TEXT_TYPE = /^(text\/(plain|html|yaml|x-yaml)|application\/(x-)?yaml)$/;
 // The pictures browsers decode. Many other files are typed `image/` (TIFF scans, CAD drawings, DjVu books) and none of
 // them can be drawn, so a file is only worth downloading for a thumbnail when it's one of these.
 export const DECODABLE_IMAGE_TYPE = /^image\/(png|apng|jpeg|gif|webp|bmp|avif|svg\+xml|x-icon|vnd\.microsoft\.icon)$/;
@@ -57,7 +60,7 @@ export const DECODABLE_IMAGE_NAME = /\.(png|jpe?g|jfif|gif|webp|bmp|avif)$/i;
 export const isPageDocument = (name = '') =>
     [
         PDF_NAME, WORD_NAME, SPREADSHEET_NAME, PRESENTATION_NAME, IWORK_NAME, OPEN_DOCUMENT_NAME, CSV_NAME, MARKDOWN_NAME,
-        ...Object.values(CODE_NAMES),
+        PLAIN_TEXT_NAME, ...Object.values(CODE_NAMES),
     ].some(pattern => pattern.test(name));
 
 /**
@@ -90,7 +93,8 @@ export const codeLanguage = (name = '', type = '') => Object.keys(CODE_NAMES)
  */
 export const leadingBytesRead = (name = '', type = '') =>
     codeLanguage(name, type) || MARKDOWN_TYPE.test(type) || MARKDOWN_NAME.test(name) ||
-    CSV_TYPE.test(type) || CSV_NAME.test(name) ? TEXT_MAX_READ_BYTES : undefined;
+    CSV_TYPE.test(type) || CSV_NAME.test(name) ||
+    PLAIN_TEXT_TYPE.test(type) || PLAIN_TEXT_NAME.test(name) ? TEXT_MAX_READ_BYTES : undefined;
 
 /**
  * Whether the thumbnail generator has a reader for a file of this name and type that works in every browser. It may
