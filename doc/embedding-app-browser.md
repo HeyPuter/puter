@@ -228,7 +228,10 @@ behavior: inside an app `requestUpgrade()` asks the desktop, and on any other
 page the usage limit dialog opens the dashboard's upgrade page in a new tab.
 It frames it too for the Upgrade button `<puter-user-menu>` shows with
 `show-upgrade`, with only `user` in the fragment. On a page that can't frame
-the GUI, that button opens the dashboard's upgrade page in a new tab.
+the GUI, that button opens the dashboard's upgrade page in a new tab. Signed
+out, the button signs in first, and the upgrade then shows for that account,
+through the consent dialog on a page that can't frame it, since the click has
+expired by then.
 
 The frame covers the page with no box or close button, and the GUI page is
 transparent (`html.popup-frame-transparent`) so the dialog's own scrim covers
