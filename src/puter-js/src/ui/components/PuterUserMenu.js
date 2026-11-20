@@ -11,12 +11,12 @@
  * it, for the same user: signed out, or signed in as an account other than
  * the Puter session's, the browser shows only recommended apps. The browser
  * is kept between opens and dropped whenever the page's sign-in changes.
- * With `show-upgrade`, an Upgrade button beside the Apps button opens the
- * upgrade flow for the signed-in user, and reads Manage plan once the account
- * has a plan.
+ * An Upgrade button beside the Apps button, unless `hide-upgrade` is set,
+ * opens the upgrade flow, signing in first when signed out, and reads Manage
+ * plan once the account has a plan.
  * Renders nothing inside the Puter desktop.
  *
- * Attributes: theme, show-upgrade, upgrade-label, manage-plan-label,
+ * Attributes: theme, hide-upgrade, upgrade-label, manage-plan-label,
  *   apps-label, sign-in-label, sign-out-label, close-label, account-label,
  *   manage-account-label, usage-label, add-credits-label, open-puter-label,
  *   feedback-label
@@ -59,13 +59,16 @@ const MENU_LINKS = [
 // Sits under Usage, and shows only for an account with a plan.
 const ADD_CREDITS_ITEM = '<button type="button" class="menu-item add-credits" role="menuitem" hidden></button>';
 
+/** A seat's plan is its team's, and so are paying for its usage and changing the plan. */
+const isSeat = user => typeof user?.team?.uid === 'string' && user.team.uid !== '';
+
 // Gap between a panel and the viewport edge, and between its caret and corners.
 const EDGE = 8;
 const CARET_INSET = 20;
 
 class PuterUserMenu extends PuterWebComponent {
     static get observedAttributes () {
-        return [...Object.keys(LABELS), 'show-upgrade'];
+        return [...Object.keys(LABELS), 'hide-upgrade'];
     }
 
     #unsubscribe = null;
@@ -102,7 +105,7 @@ class PuterUserMenu extends PuterWebComponent {
 
     attributeChangedCallback (name) {
         if ( ! this.$('.bar') ) return;
-        if ( name === 'show-upgrade' ) this._renderPlan();
+        if ( name === 'hide-upgrade' ) this._renderPlan();
         else this._applyLabels();
     }
 
@@ -582,7 +585,7 @@ class PuterUserMenu extends PuterWebComponent {
             if ( this.$('.apps-panel').hidden ) this._openApps();
             else this._closePanels();
         });
-        this.$('.sign-in').addEventListener('click', () => this._signIn());
+        this.$('.sign-in').addEventListener('click', () => void this._signIn());
         this.$('.avatar').addEventListener('click', (event) => {
             // detail is 0 for a click from Enter or Space.
             if ( this.$('.menu').hidden ) this._openMenu({ fromKeyboard: event.detail === 0 });
@@ -646,8 +649,7 @@ class PuterUserMenu extends PuterWebComponent {
 
     /**
      * What follows the account's plan, which whoami reports where there are plans: Add
-     * credits, sold to accounts with one, and what the opt-in Upgrade button reads. A
-     * seat's plan is its team's, and so are paying for its usage and changing the plan.
+     * credits, sold to accounts with one, and what the Upgrade button reads.
      */
     _renderPlan () {
         // The SDK reads whoami into a new object when the same token is set again,
@@ -655,10 +657,10 @@ class PuterUserMenu extends PuterWebComponent {
         const cached = globalThis.puter?.whoami;
         const user = cached?.uuid && cached.uuid === this.#user?.uuid ? cached : this.#user;
         const subscribed = user?.subscribed === true;
-        const isSeat = typeof user?.team?.uid === 'string' && user.team.uid !== '';
-        this.$('.add-credits').hidden = !subscribed || isSeat;
+        const seat = isSeat(user);
+        this.$('.add-credits').hidden = !subscribed || seat;
         const upgrade = this.$('.upgrade-button');
-        upgrade.hidden = !this.#ready || !this._signedIn() || isSeat || !this.hasAttribute('show-upgrade');
+        upgrade.hidden = !this.#ready || seat || this.hasAttribute('hide-upgrade');
         upgrade.textContent = this._label(subscribed ? 'manage-plan-label' : 'upgrade-label');
     }
 
@@ -834,21 +836,30 @@ class PuterUserMenu extends PuterWebComponent {
 
     // -- Sign-in --
 
+    /**
+     * Resolves `{ user }` once signed in, or null when the sign-in is closed,
+     * refused, or one is already open.
+     *
+     * @returns {Promise<{ user: object | null } | null>}
+     */
     _signIn () {
-        if ( this.#signingIn ) return;
+        if ( this.#signingIn ) return Promise.resolve(null);
         const puter = globalThis.puter;
         // A cross-origin isolated page can't see its popup close, so it could never retry.
         this.#signingIn = !globalThis.crossOriginIsolated;
         // Called inside the click, so the sign-in popup isn't blocked.
-        puter.auth.signIn().then(
+        return puter.auth.signIn().then(
             async () => {
                 this.#signingIn = false;
-                const user = await Promise.resolve(puter.whoamiCache_).catch(() => null);
-                this.emitEvent('signin', { user: user && typeof user === 'object' ? user : null });
+                const cached = await Promise.resolve(puter.whoamiCache_).catch(() => null);
+                const user = cached && typeof cached === 'object' ? cached : null;
+                this.emitEvent('signin', { user });
+                return { user };
             },
             () => {
                 // Closed or refused; the button stays for another try.
                 this.#signingIn = false;
+                return null;
             },
         );
     }
@@ -856,7 +867,21 @@ class PuterUserMenu extends PuterWebComponent {
     _upgrade () {
         this._closePanels();
         // Called inside the click, so a tab it falls back to isn't blocked.
-        void globalThis.puter.ui.showUpgrade_();
+        if ( this._signedIn() ) {
+            void globalThis.puter.ui.showUpgrade_();
+            return;
+        }
+        const button = this.$('.upgrade-button');
+        const hadFocus = this.shadowRoot.activeElement === button;
+        // The upgrade follows the sign-in, for the account that signed in, unless its team pays.
+        void this._signIn().then((signedIn) => {
+            if ( ! signedIn ) return;
+            // Loading the new account hid the button, which dropped the focus. The upgrade
+            // frame hands the focus back to wherever it is when the frame opens.
+            const active = document.activeElement;
+            if ( hadFocus && !button.hidden && (!active || active === document.body) ) button.focus({ preventScroll: true });
+            if ( ! isSeat(signedIn.user) ) void globalThis.puter.ui.showUpgrade_();
+        });
     }
 
     _addCredits () {

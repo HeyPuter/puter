@@ -546,7 +546,7 @@ describe('embedded app browser', () => {
             }
         });
 
-        it('shows Upgrade beside the Apps button once the page asks for it, and frames the upgrade over the page', async () => {
+        it('shows Upgrade beside the Apps button unless the page hides it, and frames the upgrade over the page', async () => {
             const context = await menuContext('app-token-session-user');
             try {
                 const page = await context.newPage();
@@ -554,9 +554,10 @@ describe('embedded app browser', () => {
                 await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
                 await page.locator('puter-user-menu .avatar').waitFor();
                 const button = page.locator('puter-user-menu .upgrade-button');
-                expect(await button.isHidden()).toBe(true);
+                await page.locator('puter-user-menu').evaluate(el => el.setAttribute('hide-upgrade', ''));
+                await button.waitFor({ state: 'hidden' });
 
-                await page.locator('puter-user-menu').evaluate(el => el.setAttribute('show-upgrade', ''));
+                await page.locator('puter-user-menu').evaluate(el => el.removeAttribute('hide-upgrade'));
                 await button.waitFor();
                 expect(await button.textContent()).toBe('Upgrade');
                 const upgrade = await button.boundingBox();
@@ -575,6 +576,70 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('shows Upgrade to a signed-out page, which signs in from it first', async () => {
+            const context = await menuContext(null);
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                const button = page.locator('puter-user-menu .upgrade-button');
+                await button.waitFor();
+                expect(await button.textContent()).toBe('Upgrade');
+                const upgrade = await button.boundingBox();
+                const apps = await page.locator('puter-user-menu .apps-button').boundingBox();
+                const signIn = await page.locator('puter-user-menu .sign-in').boundingBox();
+                expect(upgrade.x + upgrade.width).toBeLessThanOrEqual(apps.x);
+                expect(apps.x + apps.width).toBeLessThanOrEqual(signIn.x);
+                expect(Math.abs((upgrade.y + upgrade.height / 2) - (signIn.y + signIn.height / 2))).toBeLessThanOrEqual(1);
+
+                const popupPromise = context.waitForEvent('page');
+                await button.click();
+                const popup = await popupPromise;
+                expect(new URL(popup.url()).pathname).toBe('/action/sign-in');
+                expect(await page.locator('dialog.puter-popup-frame').count()).toBe(0);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
+        it('keeps keyboard focus on Upgrade through the sign-in it asks for and the upgrade after it', async () => {
+            const context = await menuContext(null);
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                const button = page.locator('puter-user-menu .upgrade-button');
+                await button.waitFor();
+                // What `puter.auth.signIn()` does once its popup hands back a token.
+                await page.evaluate(() => {
+                    puter.auth.signIn = async () => {
+                        puter.setAuthToken('app-token-session-user');
+                        return { success: true, token: 'app-token-session-user' };
+                    };
+                });
+                await button.focus();
+                await page.keyboard.press('Enter');
+                const frame = page.locator('dialog.puter-popup-frame iframe');
+                await frame.waitFor({ state: 'attached' });
+                expect(await frame.getAttribute('src')).toBe(`${origin}/embed/upgrade#user=${sessionUser}`);
+
+                await page.evaluate((guiOrigin) => {
+                    const source = document.querySelector('dialog.puter-popup-frame iframe').contentWindow;
+                    for ( const state of ['ready', 'closed'] ) {
+                        window.dispatchEvent(new MessageEvent('message', {
+                            data: { msg: 'puterPopupFrame', state }, origin: guiOrigin, source,
+                        }));
+                    }
+                }, origin);
+                await page.locator('dialog.puter-popup-frame').waitFor({ state: 'detached' });
+                expect(await page.evaluate(() => document.activeElement.shadowRoot?.activeElement?.className ?? document.activeElement.tagName)).toBe('upgrade-button');
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('reads Manage plan on the Upgrade button of an account with a plan', async () => {
             const context = await menuContext('app-token-subscriber');
             try {
@@ -582,7 +647,6 @@ describe('embedded app browser', () => {
                 page.setDefaultTimeout(6000);
                 await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
                 await page.locator('puter-user-menu .avatar').waitFor();
-                await page.locator('puter-user-menu').evaluate(el => el.setAttribute('show-upgrade', ''));
                 const button = page.locator('puter-user-menu .upgrade-button');
                 await button.waitFor();
                 expect(await button.textContent()).toBe('Manage plan');
