@@ -33,7 +33,6 @@ import {
     hasVerifiedCard,
     hasVerifiedPhone,
 } from '../../core/http/middleware/gates.js';
-import { actorOnPaidPlan } from '../../services/metering/enforcement.js';
 import type { Actor } from '../../core/actor.js';
 import { isAppActor, isPlainUserActor, makeActor } from '../../core/actor.js';
 import {
@@ -73,11 +72,12 @@ import {
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
 import {
-    factorsAddedWhileEmailPending,
+    hasPhoneFromBeforeDormancy,
     isEmailGateLast,
     isEmailPending,
     isPhoneOnFileStep,
-    type AddedFactor,
+    PHONE_ON_FILE_PROVEN_TTL_SECONDS,
+    phoneOnFileProvenKey,
 } from '../../util/verificationOrder.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
@@ -1899,8 +1899,7 @@ export class AuthController extends PuterController {
         }
 
         // Verified — persist the number now (and only now) and clear the gate.
-        if (pendingPhone !== user.phone)
-            await this.#noteFactorAddedWhileEmailPending(user, 'phone');
+        if (isPhoneOnFileStep(user)) await this.#markPhoneOnFileProven(user);
         await this.stores.user.update(user.id, {
             requires_phone_verification: 0,
             phone: pendingPhone,
@@ -2124,13 +2123,26 @@ export class AuthController extends PuterController {
                 { legacyCode: 'conflict' },
             );
 
+        // While a number on file waits to be proven, the only card that
+        // verifies is the one already on file, entered again.
+        const onFileStep = isPhoneOnFileStep(user);
+        if (onFileStep && !user.card_fingerprint) {
+            res.json({ card_verified: false, reason: 'card_not_on_file' });
+            return;
+        }
+        const requiredFingerprint = onFileStep
+            ? (user.card_fingerprint as string)
+            : null;
+
         const confirmEvent = {
             user_id: user.id,
             user_uid: user.uuid,
             email: user.email!,
             setup_intent_id,
+            required_fingerprint: requiredFingerprint,
             enabled: null as boolean | null,
             verified: false,
+            card_entered: false,
             reason: null as string | null,
             fingerprint: null as string | null,
             funding: null as string | null,
@@ -2172,22 +2184,15 @@ export class AuthController extends PuterController {
             res.json({ card_verified: false, reason: confirmEvent.reason });
             return;
         }
-        // A number on file is stood in for only by the card already on file.
+        // Checked here too, so the rule doesn't rest on the listener alone.
         if (
-            fallbackEligible &&
-            isPhoneOnFileStep(user) &&
-            (!user.card_fingerprint ||
-                confirmEvent.fingerprint !== user.card_fingerprint)
+            requiredFingerprint !== null &&
+            (confirmEvent.fingerprint !== requiredFingerprint ||
+                confirmEvent.card_entered !== true)
         ) {
             res.json({ card_verified: false, reason: 'card_not_on_file' });
             return;
         }
-
-        if (
-            !user.card_fingerprint ||
-            confirmEvent.fingerprint !== user.card_fingerprint
-        )
-            await this.#noteFactorAddedWhileEmailPending(user, 'card');
 
         // A fallback card clears the phone gate too — the point of the
         // fallback. `fallbackEligible &&` makes the invariant local instead
@@ -2195,6 +2200,8 @@ export class AuthController extends PuterController {
         // ever clear a phone gate.
         const clearedPhoneGate =
             fallbackEligible && Boolean(user.requires_phone_verification);
+        if (clearedPhoneGate && onFileStep)
+            await this.#markPhoneOnFileProven(user);
         await this.stores.user.update(user.id, {
             requires_card_verification: 0,
             ...(clearedPhoneGate ? { requires_phone_verification: 0 } : {}),
@@ -2776,7 +2783,7 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found', {
                 legacyCode: 'not_found',
             });
-        await this.#assertEmailChangeAllowed(req, user);
+        await this.#assertEmailChangeAllowed(user);
         this.#requireAccountTwoFactor(user, req.body?.code);
 
         const { new_email } = req.body ?? {};
@@ -2860,48 +2867,59 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * An address that was never confirmed can be replaced while its code is
-     * pending, so a dead or mistyped one isn't a dead end. The password alone
-     * doesn't prove the account is the caller's, so it also takes a second
-     * factor, a verified phone or card, or a paid plan that the account had
-     * before this. Without one the code is still required.
+     * A dormant account whose address was never confirmed can replace it while
+     * the code is pending, so a dead or mistyped one isn't a dead end. The
+     * password alone doesn't prove the account is the caller's: it also takes
+     * the number the account had before, proven again within the hour (by its
+     * code, or by the card on file). Without that the code is still required.
      */
-    async #assertEmailChangeAllowed(
-        req: Request,
-        user: UserRow,
-    ): Promise<void> {
-        const emailPending = isEmailPending(user);
-        // A provider-only account would lose its sign-in when the change
+    async #assertEmailChangeAllowed(user: UserRow): Promise<void> {
+        if (!isEmailPending(user)) {
+            assertVerifiedAccount(user);
+            return;
+        }
+        // A second factor can't be enabled before the address is confirmed,
+        // and a provider-only account would lose its sign-in when the change
         // unlinks its providers.
-        if (emailPending && user.password === null) assertVerifiedAccount(user);
-        assertVerifiedAccount(
-            emailPending
-                ? { ...user, requires_email_confirmation: false }
-                : user,
+        if (user.password === null || !hasPhoneFromBeforeDormancy(user))
+            assertVerifiedAccount(user);
+        assertVerifiedAccount({ ...user, requires_email_confirmation: false });
+
+        let proven = false;
+        try {
+            const { res } = await this.stores.kv.get({
+                key: phoneOnFileProvenKey(user.id),
+            });
+            proven = res === user.phone;
+        } catch (e) {
+            console.warn('[change-email] phone proof unreadable:', e);
+        }
+        if (proven) return;
+        // Ask for the number again, where a code can be sent at all.
+        if (!this.clients.prelude?.isConfigured()) assertVerifiedAccount(user);
+        await this.stores.user.update(user.id, {
+            requires_phone_verification: 1,
+        });
+        throw new HttpError(
+            403,
+            'Please verify your phone number to continue',
+            { legacyCode: 'phone_verification_required' },
         );
-        // A second factor can't be enabled before the address is confirmed.
-        if (!emailPending || user.otp_enabled) return;
-        const added = factorsAddedWhileEmailPending(user);
-        if (hasVerifiedPhone(user) && !added.includes('phone')) return;
-        if (hasVerifiedCard(user) && !added.includes('card')) return;
-        if (await actorOnPaidPlan(this.services.metering, req.actor)) return;
-        assertVerifiedAccount(user);
     }
 
-    /**
-     * Record a phone or card verified while the address is unconfirmed, before
-     * it is stored, so a failed write can't leave it unrecorded.
-     */
-    async #noteFactorAddedWhileEmailPending(
-        user: UserRow,
-        factor: AddedFactor,
-    ): Promise<void> {
-        if (!isEmailPending(user)) return;
-        const added = factorsAddedWhileEmailPending(user);
-        if (added.includes(factor)) return;
-        await this.stores.user.updateMetadata(user.id, {
-            factorsAddedWhileEmailPending: [...added, factor],
-        });
+    /** Best effort: a failed write only means the number is asked for again. */
+    async #markPhoneOnFileProven(user: UserRow): Promise<void> {
+        try {
+            await this.stores.kv.set({
+                key: phoneOnFileProvenKey(user.id),
+                value: user.phone,
+                expireAt:
+                    Math.floor(Date.now() / 1000) +
+                    PHONE_ON_FILE_PROVEN_TTL_SECONDS,
+            });
+        } catch (e) {
+            console.warn('[verification] phone proof not recorded:', e);
+        }
     }
 
     @Get('/change_email/confirm', {

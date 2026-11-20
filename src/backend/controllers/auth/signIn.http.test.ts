@@ -767,6 +767,46 @@ describe('sign-in pipeline', () => {
             ).toBe(true);
         });
 
+        it('record the number on file once, at the first dormant sign-in', async () => {
+            captureEmail();
+            const withPhone = await account({
+                confirmed: false,
+                inactiveDays: 200,
+            });
+            await env.server.stores.user.update(withPhone.user.id, {
+                phone: '+14155550123',
+            });
+            await login(withPhone.username);
+            expect(
+                (await reread(withPhone.user.id))?.metadata
+                    ?.phoneAtDormantSignIn,
+            ).toBe('+14155550123');
+
+            // A number that shows up later never replaces the record.
+            const without = await account({
+                confirmed: false,
+                inactiveDays: 200,
+            });
+            await login(without.username);
+            expect(
+                (await reread(without.user.id))?.metadata?.phoneAtDormantSignIn,
+            ).toBeNull();
+            await env.server.stores.user.update(without.user.id, {
+                phone: '+14155550199',
+            });
+            await login(without.username);
+            expect(
+                (await reread(without.user.id))?.metadata?.phoneAtDormantSignIn,
+            ).toBeNull();
+
+            // A confirmed dormant account records nothing.
+            const confirmedAccount = await account({ inactiveDays: 200 });
+            await login(confirmedAccount.username);
+            expect(
+                (await reread(confirmedAccount.user.id))?.metadata,
+            ).not.toHaveProperty('phoneAtDormantSignIn');
+        });
+
         it('can confirm the address but not change it while gated', async () => {
             captureEmail();
             const { username, user } = await account({

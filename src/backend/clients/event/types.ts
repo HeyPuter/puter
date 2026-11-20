@@ -548,9 +548,19 @@ export type EventMap = {
         user_uid: string;
         email?: string;
         setup_intent_id: string;
+        /**
+         * Set when only this card may verify: the listener refuses any other,
+         * and one whose details weren't entered for this confirmation.
+         */
+        required_fingerprint: string | null;
         enabled: boolean | null;
         verified: boolean;
         reason: string | null;
+        /**
+         * The card's details were entered for this confirmation, not reused
+         * from a saved card.
+         */
+        card_entered: boolean;
         fingerprint: string | null;
         funding: string | null;
         country: string | null;

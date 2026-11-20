@@ -70,8 +70,8 @@ function UIWindowEmailConfirmationRequired (options) {
               </fieldset>`;
         h += `<button type="submit" class="button button-block button-primary email-confirm-btn" style="margin-top:10px;" disabled>${submit_btn_txt}</button>`;
         h += '</form>';
-        // A dead or mistyped address can be replaced by an account that had a
-        // phone, card or second factor before; the server decides.
+        // A dead or mistyped address can be replaced by a dormant account that
+        // proves the number it had before; the server decides.
         h += '<form class="email-change-form" style="display:none;" novalidate>';
         h += '<div class="error email-change-error"></div>';
         h += `<label for="email-change-new">${i18n('new_email')}</label>`;
@@ -267,6 +267,7 @@ function UIWindowEmailConfirmationRequired (options) {
         });
 
         // -- Replacing the address --
+        let changing = false;
         const $codeForm = $(el_window).find('form').first();
         const $changeForm = $(el_window).find('.email-change-form');
         const $changeSent = $(el_window).find('.email-change-sent');
@@ -282,6 +283,7 @@ function UIWindowEmailConfirmationRequired (options) {
             $(el_window).find('.digit-input').first().focus();
         };
         $(el_window).find('.change-conf-email').on('click', function () {
+            if ( changing ) return;
             if ( $changeForm.is(':visible') || $changeSent.is(':visible') ) {
                 showCodeStep();
                 return;
@@ -308,7 +310,6 @@ function UIWindowEmailConfirmationRequired (options) {
                 : await UIWindowPhoneVerificationRequired(gate_options));
         };
 
-        let changing = false;
         $changeForm.on('submit', async function (e) {
             e.preventDefault();
             if ( changing ) return;

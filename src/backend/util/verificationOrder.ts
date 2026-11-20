@@ -41,13 +41,10 @@ export const isPhoneOnFileStep = (
 ): boolean =>
     Boolean(user?.phone) && Boolean(user?.requires_phone_verification);
 
-export type AddedFactor = 'phone' | 'card';
-
 type EmailPendingUser =
     | {
           requires_email_confirmation?: boolean | number | null;
           email_confirmed?: boolean | number | null;
-          metadata?: Record<string, unknown> | null;
       }
     | null
     | undefined;
@@ -57,18 +54,27 @@ export const isEmailPending = (user: EmailPendingUser): boolean =>
     Boolean(user?.requires_email_confirmation && !user?.email_confirmed);
 
 /**
- * Factors the account verified while its address was unconfirmed. They show who
- * holds the account now, not who created it, so they can't vouch for replacing
- * the address.
+ * Metadata key: the number on file when a dormant sign-in first asked for the
+ * email code.
  */
-export const factorsAddedWhileEmailPending = (
-    user: EmailPendingUser,
-): AddedFactor[] => {
-    const added = user?.metadata?.factorsAddedWhileEmailPending;
-    return Array.isArray(added)
-        ? added.filter(
-              (factor): factor is AddedFactor =>
-                  factor === 'phone' || factor === 'card',
-          )
-        : [];
-};
+export const PHONE_AT_DORMANT_SIGN_IN = 'phoneAtDormantSignIn';
+
+/**
+ * Whether the account's number is the one it had before its dormant sign-in, so
+ * proving it shows the caller is who held the account back then. False when
+ * nothing was recorded.
+ */
+export const hasPhoneFromBeforeDormancy = (
+    user:
+        | { phone?: unknown; metadata?: Record<string, unknown> | null }
+        | null
+        | undefined,
+): boolean =>
+    typeof user?.phone === 'string' &&
+    user.phone !== '' &&
+    user.metadata?.[PHONE_AT_DORMANT_SIGN_IN] === user.phone;
+
+/** KV key set for an hour once the number on file is proven again. */
+export const phoneOnFileProvenKey = (userId: number): string =>
+    `phone-on-file-proven:${userId}`;
+export const PHONE_ON_FILE_PROVEN_TTL_SECONDS = 60 * 60;

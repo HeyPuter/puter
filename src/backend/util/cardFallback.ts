@@ -64,6 +64,8 @@ export const cardFallbackFlagKey = (userId: number): string =>
 /** The user fields the rule reads. */
 export interface PhoneGatedUser {
     id?: number | null;
+    phone?: string | null;
+    card_fingerprint?: string | null;
     requires_phone_verification?: boolean | number | null;
 }
 
@@ -205,6 +207,8 @@ export async function isCardFallbackEligible(
 ): Promise<boolean> {
     if (!user.requires_phone_verification) return false;
     if (typeof user.id !== 'number') return false;
+    // A number on file is stood in for only by the card on file.
+    if (user.phone && !user.card_fingerprint) return false;
     if (!(await isCardFallbackEnabled(config, deps))) return false;
     try {
         return (await readFlag(cardFallbackFlagKey(user.id))) === true;

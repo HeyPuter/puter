@@ -41,6 +41,7 @@ import {
     toUnixSeconds,
     withoutSecrets,
 } from '../../util/userDetails.js';
+import { PHONE_AT_DORMANT_SIGN_IN } from '../../util/verificationOrder.js';
 import { PuterService } from '../types.js';
 import { signupClientIp } from '../user/SignupService.js';
 
@@ -714,8 +715,23 @@ export class SignInService extends PuterService {
             patch.email_confirm_code = gates.emailCode;
         }
         if (Object.keys(patch).length === 0) return user;
+        // Recorded once, at the first such sign-in: a number added later says
+        // who holds the account now, not who held it before.
+        let metadata = user.metadata;
+        if (
+            gates.emailCode &&
+            user.metadata?.[PHONE_AT_DORMANT_SIGN_IN] === undefined
+        ) {
+            metadata = {
+                ...user.metadata,
+                [PHONE_AT_DORMANT_SIGN_IN]: user.phone ?? null,
+            };
+            await this.stores.user.updateMetadata(user.id, {
+                [PHONE_AT_DORMANT_SIGN_IN]: user.phone ?? null,
+            });
+        }
         await this.stores.user.update(user.id, patch);
-        return { ...user, ...patch };
+        return { ...user, ...patch, metadata };
     }
 
     async #sendNewSignInNotice(

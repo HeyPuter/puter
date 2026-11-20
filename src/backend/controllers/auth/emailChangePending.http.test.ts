@@ -10,6 +10,11 @@ describe('changing an email that is still waiting for its code', () => {
     let env: PuterTestEnv;
     const password = 'pending-email-password';
     const links = new Map<string, string>();
+    const PHONE = '+14155550123';
+    // What a dormant sign-in records about the number the account had.
+    const BEFORE = { phoneAtDormantSignIn: PHONE };
+    let smsConfigured: ReturnType<typeof vi.spyOn>;
+    const checkVerification = vi.fn(async () => ({ status: 'success' }));
 
     beforeAll(async () => {
         env = await setupPuterTestEnv();
@@ -20,12 +25,20 @@ describe('changing an email that is still waiting for its code', () => {
                 return null;
             },
         );
+        const prelude = env.server.clients.prelude;
+        smsConfigured = vi.spyOn(prelude, 'isConfigured').mockReturnValue(true);
+        vi.spyOn(prelude, 'checkVerification').mockImplementation(
+            checkVerification as never,
+        );
     }, 120_000);
     afterAll(async () => {
         await env?.shutdown();
     });
 
-    const account = async (patch: Record<string, unknown>) => {
+    const account = async ({
+        metadata,
+        ...patch
+    }: Record<string, unknown> & { metadata?: Record<string, unknown> }) => {
         const username = `pendmail_${uuidv4().slice(0, 8)}`;
         const credentials = await createTestUser(env.server, {
             username,
@@ -38,6 +51,8 @@ describe('changing an email that is still waiting for its code', () => {
             requires_email_confirmation: true,
             ...patch,
         });
+        if (metadata)
+            await env.server.stores.user.updateMetadata(user.id, metadata);
         return { ...credentials, id: user.id };
     };
 
@@ -55,44 +70,35 @@ describe('changing an email that is still waiting for its code', () => {
         (await env.server.stores.user.getById(id, { force: true }))!
             .unconfirmed_change_email;
 
-    it('keeps asking for the code when the account has nothing verified', async () => {
-        const user = await account({});
+    it.each([
+        ['nothing verified', {}],
+        ['a number with no record from before', { phone: PHONE }],
+        [
+            'a number other than the one it had before',
+            { phone: '+14155550199', metadata: BEFORE },
+        ],
+        ['only a card', { card_fingerprint: 'fp_1' }],
+    ])('keeps asking for the code from an account with %s', async (_, patch) => {
+        const user = await account(patch);
         const response = await change(user.token, `${uuidv4()}@example.com`);
         expect(response.status).toBe(403);
         expect(await response.json()).toMatchObject({
             code: 'email_confirmation_required',
         });
         expect(await staged(user.id)).toBeFalsy();
+        // No phone step was started for it either.
+        expect(
+            (await env.server.stores.user.getById(user.id, { force: true }))!
+                .requires_phone_verification,
+        ).toBeFalsy();
     });
 
-    it.each(['phone', 'card'] as const)(
-        'keeps asking for the code when the %s was verified while the address was unconfirmed',
-        async (factor) => {
-            const user = await account({
-                phone: '+14155550123',
-                card_fingerprint: 'fp_1',
-            });
-            // Each factor alone, so the other can't vouch.
-            await env.server.stores.user.update(user.id, {
-                [factor === 'phone' ? 'card_fingerprint' : 'phone']: null,
-            });
-            await env.server.stores.user.updateMetadata(user.id, {
-                factorsAddedWhileEmailPending: [factor],
-            });
-            const response = await change(
-                user.token,
-                `${uuidv4()}@example.com`,
-            );
-            expect(response.status).toBe(403);
-            expect(await response.json()).toMatchObject({
-                code: 'email_confirmation_required',
-            });
-            expect(await staged(user.id)).toBeFalsy();
-        },
-    );
-
     it('keeps asking a provider-only account for the code', async () => {
-        const user = await account({ phone: '+14155550123', password: null });
+        const user = await account({
+            phone: PHONE,
+            metadata: BEFORE,
+            password: null,
+        });
         const proof = env.server.services.token.sign(
             'oidc-state',
             {
@@ -120,13 +126,38 @@ describe('changing an email that is still waiting for its code', () => {
         expect(await staged(user.id)).toBeFalsy();
     });
 
-    it('lets an account with a verified phone replace the address, and the link confirms it', async () => {
-        const user = await account({ phone: '+14155550123' });
+    it('asks for the number it had before, then lets the proven account replace the address', async () => {
+        const user = await account({ phone: PHONE, metadata: BEFORE });
         const newEmail = `${uuidv4()}@example.com`;
         const confirmed: unknown[] = [];
         env.server.clients.event.on('user.email-confirmed', (_key, data) => {
             confirmed.push(data);
         });
+
+        // Having the number isn't enough: it has to be proven now.
+        const asked = await change(user.token, newEmail);
+        expect(asked.status).toBe(403);
+        expect(await asked.json()).toMatchObject({
+            code: 'phone_verification_required',
+        });
+        expect(await staged(user.id)).toBeFalsy();
+        expect(
+            (await env.server.stores.user.getById(user.id, { force: true }))!
+                .requires_phone_verification,
+        ).toBe(true);
+
+        // The code sent to that number clears the step.
+        const proof = await fetch(new URL('/confirm-phone', env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({ code: '123456' }),
+        });
+        expect(await proof.json()).toMatchObject({ phone_verified: true });
+        expect(checkVerification).toHaveBeenLastCalledWith(PHONE, '123456');
+
         expect((await change(user.token, newEmail)).status).toBe(200);
         expect(
             (await fetch(links.get(newEmail)!, { redirect: 'manual' })).status,
@@ -149,9 +180,31 @@ describe('changing an email that is still waiting for its code', () => {
         );
     });
 
+    it('keeps asking for the code where no phone code can be sent', async () => {
+        const user = await account({ phone: PHONE, metadata: BEFORE });
+        smsConfigured.mockReturnValue(false);
+        try {
+            const response = await change(
+                user.token,
+                `${uuidv4()}@example.com`,
+            );
+            expect(response.status).toBe(403);
+            expect(await response.json()).toMatchObject({
+                code: 'email_confirmation_required',
+            });
+        } finally {
+            smsConfigured.mockReturnValue(true);
+        }
+        expect(
+            (await env.server.stores.user.getById(user.id, { force: true }))!
+                .requires_phone_verification,
+        ).toBeFalsy();
+    });
+
     it('still sends a pending phone step first', async () => {
         const user = await account({
-            phone: '+14155550123',
+            phone: PHONE,
+            metadata: BEFORE,
             requires_phone_verification: true,
         });
         const response = await change(user.token, `${uuidv4()}@example.com`);
