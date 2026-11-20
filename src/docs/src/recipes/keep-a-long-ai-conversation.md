@@ -27,11 +27,11 @@ const result = await puter.ai.chat(context, { model, normalize: true, compaction
 context.push(result.message);
 ```
 
-This example selects a model with native compaction. The [Anthropic availability
-list](https://platform.claude.com/docs/en/build-with-claude/compaction-threshold#availability)
-covers its supported models. Puter also implements native compaction for OpenAI
-Responses models. A catalog entry alone establishes availability, not compaction
-support. Choose the manual summary below when your model lacks native compaction.
+This example selects a model with native compaction. Claude models on the
+[Anthropic availability list](https://platform.claude.com/docs/en/build-with-claude/compaction-threshold#availability)
+and OpenAI Responses models support it. The model catalog doesn't say which
+models support compaction. For other models, such as Gemini, use the manual
+summary below.
 
 ## Carry the Artifact Forward
 
@@ -116,7 +116,7 @@ subscription actions, or another failure with its code and message:
 ```js
 const models = await puter.ai.listModels();
 const nativeCompaction = true;
-const modelId = nativeCompaction ? 'claude-sonnet-4-6' : 'gpt-5.4-nano';
+const modelId = nativeCompaction ? 'claude-sonnet-4-6' : 'gemini-3.5-flash-lite';
 const model = models.find(item => item.id === modelId)?.puterId;
 if (!model) throw new Error('The conversation model is unavailable.');
 const chatId = crypto.randomUUID();

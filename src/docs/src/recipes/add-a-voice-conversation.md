@@ -106,6 +106,14 @@ document.body.append(startButton, hangUpButton, status, transcript);
 let conversation = null;
 let starting = false;
 let generation = 0;
+const transcriptionUpdate = {
+    type: 'session.update',
+    session: {
+        type: 'realtime',
+        audio: { input: { transcription: { model: 'gpt-4o-mini-transcribe' } } },
+    },
+};
+const transcriptionModel = transcriptionUpdate.session.audio.input.transcription.model;
 
 function showFailure(event) {
     const error = event.error ?? event;
@@ -174,7 +182,7 @@ async function start() {
         await new Promise((resolve, reject) => {
             const timer = setTimeout(() => finish(new Error('Transcription setup timed out.')), 15000);
             const offUpdated = active.on('session.updated', event => {
-                if (event.session?.audio?.input?.transcription?.model === 'gpt-4o-mini-transcribe') finish();
+                if (event.session?.audio?.input?.transcription?.model === transcriptionModel) finish();
             });
             const offError = active.on('error', event => finish(event.error ?? event));
             const offClose = active.on('close', () => finish(new Error('Call closed during setup.')));
@@ -185,10 +193,7 @@ async function start() {
                 else resolve();
             }
             try {
-                active.send({ type: 'session.update', session: {
-                    type: 'realtime',
-                    audio: { input: { transcription: { model: 'gpt-4o-mini-transcribe' } } },
-                } });
+                active.send(transcriptionUpdate);
             } catch (error) {
                 finish(error);
             }
