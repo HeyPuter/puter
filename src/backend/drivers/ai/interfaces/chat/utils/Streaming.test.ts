@@ -18,7 +18,7 @@
  */
 
 import { Writable } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error — sibling JS module without an adjacent .d.ts
 import Streaming, {
     AIChatMessageStream,
@@ -409,6 +409,29 @@ describe('AIChatToolUseStream (via message().contentBlock)', () => {
 
         const [event] = h.events();
         expect(event.input).toEqual({});
+    });
+
+    it("warns with the call's name and id, not its arguments, when the JSON is malformed", () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const h = makeHarness();
+            const block = h.chatStream.message().contentBlock({
+                type: 'tool_use',
+                id: 'call_5',
+                name: 'lookup',
+            });
+            block.addPartialJSON('{"q": "unterminat');
+            block.end();
+
+            expect(warn).toHaveBeenCalledTimes(1);
+            const message = String(warn.mock.calls[0][0]);
+            expect(message).toContain('lookup');
+            expect(message).toContain('call_5');
+            expect(message).not.toContain('unterminat');
+            expect(h.events()[0].input).toEqual({});
+        } finally {
+            warn.mockRestore();
+        }
     });
 
     it('emits tool_use_start and tool_input_delta only when streamToolInput is set', () => {

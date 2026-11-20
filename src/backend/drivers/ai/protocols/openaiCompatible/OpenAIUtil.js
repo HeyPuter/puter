@@ -558,8 +558,7 @@ export const splitCachedPrompt = (usage) => {
  * @param {{ writeTtl?: '5m' | '30m' }} [opts] The lifetime `cache_write_tokens`
  *   were written with: 5m unless the provider says otherwise (OpenAI's default
  *   entries live 30m).
- * @returns {import('../../interfaces/chat/types.js').UsageDetails
- *     | undefined}
+ * @returns {import('../../interfaces/chat/types.js').UsageDetails | undefined}
  */
 export const usageDetailsFromTrackedUsage = (
     trackedUsage,
@@ -624,6 +623,19 @@ export const normalizeReasoningContent = (result) => {
     }
 };
 
+/**
+ * A tool-call delta's `arguments` as JSON text. Some upstreams leave it out of
+ * a delta, and Mistral's SDK can hand back an already-parsed object.
+ *
+ * @param {unknown} args
+ * @returns {string}
+ */
+const toolCallArgumentsText = (args) => {
+    if (typeof args === 'string') return args;
+    if (args === null || args === undefined) return '';
+    return JSON.stringify(args);
+};
+
 export const create_chat_stream_handler =
     ({ deviations, completion, usage_calculator }) =>
     async ({ chatStream }) => {
@@ -643,7 +655,19 @@ export const create_chat_stream_handler =
         let textblock = message.contentBlock({ type: 'text' });
         let toolblock = null;
         let mode = 'text';
-        const tool_call_blocks = [];
+        // Some upstreams reuse one index for parallel calls or send no index,
+        // so an index alone doesn't always name a call.
+        const blocksById = new Map();
+        /**
+         * @type {Map<
+         *     number,
+         *     {
+         *         block: import('../../interfaces/chat/utils/Streaming.js').AIChatToolUseStream;
+         *         id?: string;
+         *     }
+         * >}
+         */
+        const blocksByIndex = new Map();
         // A parallel tool-call turn opens one block per call; each is ended
         // exactly once, in open order, so every call reaches the stream.
         const opened_tool_blocks = [];
@@ -684,6 +708,9 @@ export const create_chat_stream_handler =
                 // A: For now, reasoning_content and content never appear together, but I’m not sure if they’ll always be mutually exclusive.
             }
 
+            const tool_calls =
+                deviations.index_tool_calls_from_stream_choice(choice);
+
             if (choice.delta.content) {
                 if (mode === 'tool') {
                     endToolBlock(toolblock);
@@ -691,7 +718,8 @@ export const create_chat_stream_handler =
                     textblock = message.contentBlock({ type: 'text' });
                 }
                 textblock.addText(choice.delta.content);
-                continue;
+                // Some upstreams put the call in the same delta as its preamble.
+                if (!tool_calls?.length) continue;
             }
 
             if (choice.delta.extra_content) {
@@ -710,29 +738,52 @@ export const create_chat_stream_handler =
                 textblock.addExtraContent(choice.delta.extra_content);
             }
 
-            const tool_calls =
-                deviations.index_tool_calls_from_stream_choice(choice);
             if (tool_calls) {
                 if (mode === 'text') {
                     mode = 'tool';
                     textblock.end();
                 }
                 for (const tool_call of tool_calls) {
-                    if (!tool_call_blocks[tool_call.index]) {
-                        toolblock = message.contentBlock({
+                    const id = tool_call.id || undefined;
+                    const index = Number.isInteger(tool_call.index)
+                        ? tool_call.index
+                        : undefined;
+                    const atIndex =
+                        index !== undefined
+                            ? blocksByIndex.get(index)
+                            : undefined;
+                    let block;
+                    if (atIndex) {
+                        // A new id that brings its own name is another call
+                        // sharing the index; without a name it continues one.
+                        const startsAnother =
+                            id !== undefined &&
+                            id !== atIndex.id &&
+                            !!tool_call.function?.name;
+                        if (!startsAnother) block = atIndex.block;
+                    } else if (index === undefined) {
+                        block =
+                            id !== undefined ? blocksById.get(id) : toolblock;
+                    }
+                    if (!block) {
+                        block = message.contentBlock({
                             type: 'tool_use',
-                            id: tool_call.id,
-                            name: tool_call.function.name,
+                            id,
+                            name: tool_call.function?.name,
                             ...(tool_call.extra_content
                                 ? { extra_content: tool_call.extra_content }
                                 : {}),
                         });
-                        tool_call_blocks[tool_call.index] = toolblock;
-                        opened_tool_blocks.push(toolblock);
-                    } else {
-                        toolblock = tool_call_blocks[tool_call.index];
+                        opened_tool_blocks.push(block);
+                        if (id !== undefined) blocksById.set(id, block);
+                        if (index !== undefined)
+                            blocksByIndex.set(index, { block, id });
                     }
-                    toolblock.addPartialJSON(tool_call.function.arguments);
+                    toolblock = block;
+                    const args = toolCallArgumentsText(
+                        tool_call.function?.arguments,
+                    );
+                    if (args) block.addPartialJSON(args);
                 }
             }
         }
