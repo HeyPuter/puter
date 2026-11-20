@@ -575,6 +575,23 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('reads Manage plan on the Upgrade button of an account with a plan', async () => {
+            const context = await menuContext('app-token-subscriber');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .avatar').waitFor();
+                await page.locator('puter-user-menu').evaluate(el => el.setAttribute('show-upgrade', ''));
+                const button = page.locator('puter-user-menu .upgrade-button');
+                await button.waitFor();
+                expect(await button.textContent()).toBe('Manage plan');
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('returns keyboard focus to the account button when Add credits is chosen', async () => {
             const context = await menuContext('app-token-subscriber');
             try {

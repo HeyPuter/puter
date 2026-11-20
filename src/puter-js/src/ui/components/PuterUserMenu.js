@@ -12,12 +12,14 @@
  * the Puter session's, the browser shows only recommended apps. The browser
  * is kept between opens and dropped whenever the page's sign-in changes.
  * With `show-upgrade`, an Upgrade button beside the Apps button opens the
- * upgrade flow for the signed-in user.
+ * upgrade flow for the signed-in user, and reads Manage plan once the account
+ * has a plan.
  * Renders nothing inside the Puter desktop.
  *
- * Attributes: theme, show-upgrade, upgrade-label, apps-label, sign-in-label,
- *   sign-out-label, close-label, account-label, manage-account-label,
- *   usage-label, add-credits-label, open-puter-label, feedback-label
+ * Attributes: theme, show-upgrade, upgrade-label, manage-plan-label,
+ *   apps-label, sign-in-label, sign-out-label, close-label, account-label,
+ *   manage-account-label, usage-label, add-credits-label, open-puter-label,
+ *   feedback-label
  * Parts: upgrade-button, apps-button, avatar, sign-in, menu, apps-panel
  * Events: signin (detail.user), signout
  */
@@ -34,6 +36,7 @@ const CLOSE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden=
 
 const LABELS = {
     'upgrade-label': 'Upgrade',
+    'manage-plan-label': 'Manage plan',
     'apps-label': 'Apps',
     'sign-in-label': 'Sign in',
     'sign-out-label': 'Sign out',
@@ -99,7 +102,7 @@ class PuterUserMenu extends PuterWebComponent {
 
     attributeChangedCallback (name) {
         if ( ! this.$('.bar') ) return;
-        if ( name === 'show-upgrade' ) this._renderUpgrade();
+        if ( name === 'show-upgrade' ) this._renderPlan();
         else this._applyLabels();
     }
 
@@ -598,7 +601,7 @@ class PuterUserMenu extends PuterWebComponent {
     }
 
     _applyLabels () {
-        this.$('.upgrade-button').textContent = this._label('upgrade-label');
+        this._renderPlan();
         const apps = this._label('apps-label');
         const appsButton = this.$('.apps-button');
         appsButton.setAttribute('aria-label', apps);
@@ -632,27 +635,26 @@ class PuterUserMenu extends PuterWebComponent {
     }
 
     /**
-     * Add-on credit is sold to accounts with a plan, which whoami reports where there are
-     * plans. A seat's plan is its team's, and so is paying for its usage.
+     * What follows the account's plan, which whoami reports where there are plans: Add
+     * credits, sold to accounts with one, and what the opt-in Upgrade button reads. A
+     * seat's plan is its team's, and so are paying for its usage and changing the plan.
      */
-    _renderAddCredits () {
+    _renderPlan () {
         // The SDK reads whoami into a new object when the same token is set again,
         // and an upgrade made on the page marks that one.
-        const cached = globalThis.puter.whoami;
+        const cached = globalThis.puter?.whoami;
         const user = cached?.uuid && cached.uuid === this.#user?.uuid ? cached : this.#user;
+        const subscribed = user?.subscribed === true;
         const isSeat = typeof user?.team?.uid === 'string' && user.team.uid !== '';
-        this.$('.add-credits').hidden = user?.subscribed !== true || isSeat;
-    }
-
-    /** Opt-in, and only for a signed-in account, since the upgrade is the account's. */
-    _renderUpgrade () {
-        this.$('.upgrade-button').hidden = !this.#ready || !this._signedIn() || !this.hasAttribute('show-upgrade');
+        this.$('.add-credits').hidden = !subscribed || isSeat;
+        const upgrade = this.$('.upgrade-button');
+        upgrade.hidden = !this.#ready || !this._signedIn() || isSeat || !this.hasAttribute('show-upgrade');
+        upgrade.textContent = this._label(subscribed ? 'manage-plan-label' : 'upgrade-label');
     }
 
     _renderState () {
         const signedIn = this._signedIn();
         const username = this._username();
-        this._renderUpgrade();
         this.$('.apps-button').hidden = !this.#ready || !this._appsAllowed();
         this.$('.sign-in').hidden = !this.#ready || signedIn;
 
@@ -666,7 +668,7 @@ class PuterUserMenu extends PuterWebComponent {
         const email = typeof this.#user?.email === 'string' ? this.#user.email : '';
         this.$('.menu-email').textContent = email;
         this.$('.menu-email').hidden = !email;
-        this._renderAddCredits();
+        this._renderPlan();
         for ( const link of MENU_LINKS ) {
             this.$(`.${link.className}`).href = new URL(link.path, globalThis.puter.defaultGUIOrigin).href;
         }
@@ -759,7 +761,7 @@ class PuterUserMenu extends PuterWebComponent {
     _openMenu ({ fromKeyboard = false } = {}) {
         const menu = this.$('.menu');
         // An upgrade made on the page since the account loaded gives it a plan.
-        this._renderAddCredits();
+        this._renderPlan();
         this._showPanel(menu);
         (fromKeyboard ? this.$('.menu-item') : menu).focus({ preventScroll: true });
     }
@@ -844,7 +846,9 @@ class PuterUserMenu extends PuterWebComponent {
     _upgrade () {
         this._closePanels();
         // Called inside the click, so a tab it falls back to isn't blocked.
-        void globalThis.puter.ui.showUpgrade_();
+        const closed = globalThis.puter.ui.showUpgrade_();
+        // An upgrade made in it gives the account a plan, and the button its other label.
+        closed.then(() => this._renderPlan(), () => {});
     }
 
     _addCredits () {

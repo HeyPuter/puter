@@ -275,6 +275,41 @@ describe('<puter-user-menu>', () => {
         expect(shown(el, '.upgrade-button')).toBe(false);
     });
 
+    it('reads Manage plan for an account with a plan', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 't', user: { ...USER, subscribed: true } }));
+        const el = await mount({ 'show-upgrade': '', 'upgrade-label': 'Passer à un forfait' });
+        expect(shown(el, '.upgrade-button')).toBe(true);
+        expect(part(el, '.upgrade-button').textContent).toBe('Manage plan');
+
+        el.setAttribute('manage-plan-label', 'Gérer le forfait');
+        expect(part(el, '.upgrade-button').textContent).toBe('Gérer le forfait');
+    });
+
+    it('reads Manage plan once an upgrade made from the button closes', async () => {
+        const account = { ...USER, subscribed: false };
+        const sdk = fakePuter({ token: 't', user: account });
+        // What the SDK does to its cached whoami when a framed upgrade reports a plan.
+        sdk.ui.showUpgrade_.mockImplementation(async () => {
+            account.subscribed = true;
+            return { upgraded: true };
+        });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount({ 'show-upgrade': '' });
+        expect(part(el, '.upgrade-button').textContent).toBe('Upgrade');
+
+        part(el, '.upgrade-button').click();
+        await settle();
+        expect(part(el, '.upgrade-button').textContent).toBe('Manage plan');
+    });
+
+    it('keeps the Upgrade button hidden for a seat, whose team changes the plan', async () => {
+        const seat = { ...USER, subscribed: true, team: { uid: 'team-1', name: 'Acme' } };
+        vi.stubGlobal('puter', fakePuter({ token: 't', user: seat }));
+        const el = await mount({ 'show-upgrade': '' });
+        expect(shown(el, '.avatar')).toBe(true);
+        expect(shown(el, '.upgrade-button')).toBe(false);
+    });
+
     it('offers Add credits, under Usage, to an account with a plan', async () => {
         const sdk = fakePuter({ token: 't', user: { ...USER, subscribed: true } });
         vi.stubGlobal('puter', sdk);

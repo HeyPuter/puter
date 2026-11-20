@@ -348,7 +348,9 @@ The account button and Puter's app browser for a first-party app on a Puter subd
   - **Sign out**, which calls `puter.auth.signOut()`.
 - The menu opens with focus on its first item. ArrowUp and ArrowDown move between items and wrap around, and Home and End jump to the first and last.
 - On a page exactly one label under the Puter origin, with the same scheme and port, other than Puter's own subdomains such as `api` and `docs`, an **Apps** button opens the app browser (`/embed/apps`) in a panel under the button. It names the signed-in user as `#user=<uuid>`, so the app browser shows the Puter session's apps only to that user (see `doc/embedding-app-browser.md`), and passes a forced `theme` on as `theme=`. Elsewhere the button is hidden, because the server refuses the framing.
-- With the `show-upgrade` attribute, an **Upgrade** button shows to the left of the Apps button for a signed-in user. It is hidden by default, and hidden while signed out or on a temporary account. Clicking it shows the upgrade dialog in a frame over the page (`/embed/upgrade`) on a page that can frame the GUI, and otherwise opens it on the dashboard in a new tab. The component shows it to every signed-in account, so a page that wants it only for accounts without a plan sets the attribute from whoami's `subscribed`.
+- With the `show-upgrade` attribute, an **Upgrade** button shows to the left of the Apps button for a signed-in user. It is hidden by default, and hidden while signed out or on a temporary account. Clicking it shows the upgrade dialog in a frame over the page (`/embed/upgrade`) on a page that can frame the GUI, and otherwise opens it on the dashboard in a new tab.
+  - For an account with a plan (whoami reports `subscribed: true`), the button reads **Manage plan**, since the same dialog is where the plan is changed or cancelled. An upgrade made in the frame changes the label when the frame closes. One made in the dashboard tab shows after the page loads again.
+  - It is hidden for a seat, whose whoami names the `team` that pays for the account, because the team changes the plan.
 - The menu and the Apps panel hang under their button with a caret pointing at it, and close on Escape, a press outside them, or their button. They're in the browser's top layer where it has one, so a host's `transform`, `overflow` or `z-index` can't clip or cover them. On screens up to 600px wide, the Apps panel spans the width below the button.
 - Closing the Apps panel keeps the app browser, so reopening it keeps its scroll and search. Any change to the page's sign-in discards it, so it never stays loaded for the previous user.
 - It renders nothing outside a top-level page (`puter.env !== 'web'`), such as inside the Puter desktop.
@@ -358,7 +360,8 @@ The account button and Puter's app browser for a first-party app on a Puter subd
 | Attribute | Default | Description |
 |-----------|---------|-------------|
 | `show-upgrade` | not set | Presence shows the Upgrade button to a signed-in user |
-| `upgrade-label` | `Upgrade` | Upgrade button text |
+| `upgrade-label` | `Upgrade` | Upgrade button text for an account without a plan |
+| `manage-plan-label` | `Manage plan` | Upgrade button text for an account with a plan |
 | `apps-label` | `Apps` | Apps button label, panel title and iframe title |
 | `sign-in-label` | `Sign in` | Sign-in button text |
 | `sign-out-label` | `Sign out` | Sign-out menu item text |
