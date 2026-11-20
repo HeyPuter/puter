@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 20, 2026
+
+- Added the `senderAuth` field to the [`EmailMessage`](/Objects/emailmessage/) from [`puter.email.get()`](/Email/get/). It holds the result of Puter's check that mail naming a Puter domain as its sender really came from that domain.
+
 ## November 18, 2026
 
 - Changed removing an app from a Puter account to also delete the workers that app deployed there with [`puter.workers.create()`](/Workers/create/). A worker bound to an app the user owns is kept.
