@@ -1523,6 +1523,10 @@ describe('OIDCController sign-in validate', () => {
             });
             return create(...(args as Parameters<typeof create>));
         });
+        const sessions = async () =>
+            ((await server.stores.session.getByUserId(user.id)) as unknown[])
+                .length;
+        const before = await sessions();
         const state = oidc().signState({
             provider: 'custom',
             redirect_uri: TEST_ORIGIN + '/',
@@ -1535,9 +1539,13 @@ describe('OIDCController sign-in validate', () => {
             res,
         );
         expect(captured.redirectStatus).toBe(302);
+        expect(
+            new URL(String(captured.redirectUrl), TEST_ORIGIN).pathname,
+        ).toBe('/');
         expect(captured.redirectUrl).toContain('action=login');
         expect(captured.redirectUrl).toContain('message=unauthorized');
         expect(captured.cookies).toHaveLength(0);
+        expect(await sessions()).toBe(before);
     });
 
     it('never asks puter.signin.attempt listeners', async () => {

@@ -1302,8 +1302,36 @@ describe('sign-in pipeline', () => {
             for (let i = 0; i < passes; i++)
                 revoke.mockResolvedValueOnce(undefined);
             revoke.mockRejectedValueOnce(new Error('session store down'));
+            // What the gate was set to, and how many passes had run by then.
+            const gateWrites: [unknown, number][] = [];
+            const update = env.server.stores.user.update.bind(
+                env.server.stores.user,
+            );
+            vi.spyOn(env.server.stores.user, 'update').mockImplementation(
+                async (...args) => {
+                    const patch = args[1] as Record<string, unknown>;
+                    if (
+                        args[0] === user.id &&
+                        'requires_phone_verification' in patch
+                    )
+                        gateWrites.push([
+                            patch.requires_phone_verification,
+                            revoke.mock.calls.length,
+                        ]);
+                    return update(...(args as Parameters<typeof update>));
+                },
+            );
             expect((await confirmPhone(signedIn.body.token)).status).toBe(500);
             expect(revoke).toHaveBeenCalledTimes(passes + 1);
+            // Cleared after the first pass, put back after the second failed.
+            expect(gateWrites).toEqual(
+                passes === 0
+                    ? []
+                    : [
+                          [0, 1],
+                          [1, 2],
+                      ],
+            );
             expect(
                 (await env.server.stores.user.getById(user.id, { force: true }))
                     ?.requires_phone_verification,
