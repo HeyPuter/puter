@@ -3,7 +3,8 @@
  * `*_required` codes). Used by the global ajax interceptor in initgui.js, the
  * `requestVerificationGate` IPC handler, and the share dialogs, so a gate
  * raised by GUI code and one raised by an app share a single window instead
- * of stacking.
+ * of stacking. Also the run of gates a signup or login goes through when it
+ * comes back with some set.
  */
 
 import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRequired.js';
@@ -53,6 +54,13 @@ export async function openVerificationGateWindow (code, { factors } = {}) {
     if ( !pending ) {
         pending = (async () => {
             try {
+                // A gate set mid-session isn't in the cached account yet, and
+                // the window reads it (which number a phone code goes to).
+                try {
+                    await window.refresh_user_data?.(window.auth_token);
+                } catch (_) {
+                    // The window works from what it has.
+                }
                 const window_options = Array.isArray(factors)
                     ? {
                         stay_on_top: true,
@@ -108,3 +116,87 @@ export async function with_verification_gate (fn) {
         return await fn();
     }
 }
+
+/**
+ * Runs the checks a just-signed-in account has to pass, in the server's order
+ * (see assertVerifiedAccount): email → phone (SMS) → card, or card → phone →
+ * email when the account clears email last.
+ *
+ * @param {object} user The account, as the signup or login answered.
+ * @param {boolean} show_email Ask for the emailed code here.
+ * @param {boolean} reload_on_success
+ * @param {boolean} page The sign-in was a page, so the checks cover it too
+ *   rather than float over whatever was under it.
+ * @returns {Promise<boolean>} Whether the email was confirmed (true when not asked).
+ */
+export const runVerificationGates = async (user, show_email, reload_on_success, page) => {
+    const window_options = page ? { cover_page: true, has_head: false } : {};
+    let email_verified = true;
+    // A gate window can clear another (a fallback card clears the phone gate, a
+    // replaced email asks for a phone first), so the gate after it reads the
+    // account again.
+    const refresh = async () => {
+        try {
+            const fresh = await puter.os.user();
+            if ( fresh ) Object.assign(user, fresh);
+        } catch (_) {
+            // The next gate works from what it has.
+        }
+    };
+    const emailGate = async () => {
+        if ( ! show_email ) return;
+        // No ✕: the auth card it replaced is already gone, so there's
+        // nothing to go back to.
+        email_verified = await UIWindowEmailConfirmationRequired({
+            show_close_button: false,
+            stay_on_top: true,
+            has_head: true,
+            reload_on_success,
+            window_options,
+        });
+        await refresh();
+    };
+    // A user the SMS path keeps failing may take the card fallback instead;
+    // that resolves 'card' and clears the card gate along with the phone
+    // gate (see UIWindowPhoneVerificationRequired).
+    let card_cleared_by_fallback = false;
+    const phoneGate = async () => {
+        if ( ! user?.requires_phone_verification ) return;
+        let phone_ok = false;
+        do {
+            phone_ok = await UIWindowPhoneVerificationRequired({
+                show_close_button: false,
+                stay_on_top: true,
+                has_head: true,
+                card_fallback_available: user.card_fallback_available,
+                phone_on_file: user.phone_on_file,
+                window_options,
+            });
+        } while ( ! phone_ok );
+        card_cleared_by_fallback = phone_ok === 'card';
+        await refresh();
+    };
+    const cardGate = async () => {
+        if ( ! user?.requires_card_verification || card_cleared_by_fallback ) return;
+        let card_ok = false;
+        do {
+            card_ok = await UIWindowCardVerificationRequired({
+                show_close_button: false,
+                stay_on_top: true,
+                has_head: true,
+                window_options,
+            });
+        } while ( ! card_ok );
+        await refresh();
+    };
+    if ( user?.email_gate_last ) {
+        await cardGate();
+        await phoneGate();
+        await emailGate();
+    } else {
+        await emailGate();
+        await phoneGate();
+        await cardGate();
+    }
+    return email_verified;
+};

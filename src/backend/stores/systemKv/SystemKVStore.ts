@@ -165,6 +165,23 @@ export const KV_MAX_KEY_BYTES = 1024;
  */
 const isConditionRefused = (err: unknown): boolean =>
     (err as { name?: string })?.name === 'ConditionalCheckFailedException';
+/**
+ * The live item that refused a write, from the refusal itself
+ * (`returnOldOnRefusal`): its `ttl` is none, null, or a number still ahead.
+ * Null when the refusal carries no item, or one that may need settling first (a
+ * text or boolean `ttl`, or one that has lapsed since the condition ran).
+ */
+const settledRefusal = (err: unknown): { isPrivate: boolean } | null => {
+    const item = (err as { Item?: Record<string, Record<string, unknown>> })
+        .Item;
+    if (!item) return null;
+    const ttl = item.ttl;
+    const live =
+        ttl === undefined ||
+        'NULL' in ttl ||
+        ('N' in ttl && !isExpiredTtl(Number(ttl.N), Date.now() / 1000));
+    return live ? { isPrivate: item[KV_PRIVATE_ATTR]?.BOOL === true } : null;
+};
 const MAX_VALUE_BYTES = 399 * 1024;
 // A number anywhere inside a value is bounded too, to the IEEE-754 safe
 // integer range — past that it cannot round-trip, so it is clamped to the
@@ -761,6 +778,27 @@ const unfitPathsError = (
 };
 
 /**
+ * The store's cap is on the whole stored entry, key and per-element overhead
+ * included, so a value that passed `assertValue` can still be refused.
+ */
+const itemTooLargeError = (cause: unknown, key?: string): HttpError =>
+    new HttpError(
+        400,
+        `kv: this write would take ${key === undefined ? 'a stored value' : `the value stored at \`${key}\``} over the 400 KB limit`,
+        { code: 'value_too_large', cause },
+    );
+
+/**
+ * The caller-facing error for a whole-value write the store refused; anything
+ * else unchanged.
+ */
+const valueWriteError = (err: unknown, key?: string): unknown => {
+    if (isNestingTooDeep(err)) return tooDeeplyNestedError(undefined, err);
+    if (isItemTooLarge(err)) return itemTooLargeError(err, key);
+    return err;
+};
+
+/**
  * The caller-facing error for a path write the store refused; anything else
  * unchanged.
  */
@@ -775,12 +813,7 @@ const pathWriteError = (
         return notAListError(key, paths, false, err);
     if (isInvalidDocumentPath(err))
         return unfitPathsError(key, paths, false, err);
-    if (isItemTooLarge(err))
-        return new HttpError(
-            400,
-            `kv: this write would take the value stored at \`${key}\` over the 400 KB limit`,
-            { code: 'value_too_large', cause: err },
-        );
+    if (isItemTooLarge(err)) return itemTooLargeError(err, key);
     if (isOversizedExpression(err)) return tooManyPathsError(err);
     if (isNestingTooDeep(err))
         return new HttpError(
@@ -2124,18 +2157,28 @@ export class SystemKVStore extends PuterStore {
      * A write whose condition may refuse it, retried once after settling a row
      * the condition reads as live but reads treat as expired (a legacy text or
      * boolean `ttl`). `response` is `null` when the condition still refuses.
+     * `write` should ask for the refusing item, so a plain refusal ends here;
+     * `refusal` is what that item says, when it came back.
      */
     async #writeUnlessRefused<R>(
         namespace: string,
         key: string,
         write: () => Promise<R>,
-    ): Promise<{ response: R | null; usage: KVUsage }> {
+    ): Promise<{
+        response: R | null;
+        usage: KVUsage;
+        refusal?: { isPrivate: boolean } | null;
+    }> {
         try {
             return { response: await write(), usage: emptyUsage() };
         } catch (e) {
             if (!isConditionRefused(e)) throw e;
+            // A refused conditional write still consumes capacity.
+            const refusal = settledRefusal(e);
+            if (refusal) {
+                return { response: null, usage: writeUsage(1), refusal };
+            }
         }
-        // A refused conditional write still consumes capacity.
         const usage = addUsage(
             writeUsage(1),
             await this.#dropIfExpired(namespace, key),
@@ -2144,17 +2187,35 @@ export class SystemKVStore extends PuterStore {
             return { response: await write(), usage };
         } catch (e) {
             if (!isConditionRefused(e)) throw e;
-            return { response: null, usage: addUsage(usage, writeUsage(1)) };
+            return {
+                response: null,
+                usage: addUsage(usage, writeUsage(1)),
+                refusal: settledRefusal(e),
+            };
         }
     }
 
+    /**
+     * `fenceWriter` also answers with `fences`: the last token that writer's
+     * fenced `incr` applied to each key, 0 for none. It reads the table, never
+     * the cache.
+     */
     async get(
         {
             key,
             consistentRead,
-        }: { key: string | string[]; consistentRead?: boolean },
+            fenceWriter,
+        }: {
+            key: string | string[];
+            consistentRead?: boolean;
+            fenceWriter?: string;
+        },
         opts?: KVOpts,
-    ): Promise<KVResult<unknown | null | (unknown | null)[]>> {
+    ): Promise<
+        KVResult<unknown | null | (unknown | null)[]> & {
+            fences?: number | number[];
+        }
+    > {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
         const foreign = isForeignNamespace(opts);
@@ -2167,7 +2228,8 @@ export class SystemKVStore extends PuterStore {
         let usage = emptyUsage();
 
         // A consistent read is asking for the source of truth by definition.
-        const useCache = !consistentRead && this.#cacheable(namespace);
+        const useCache =
+            !consistentRead && !fenceWriter && this.#cacheable(namespace);
         // Deduped so a key repeated in a batch is looked up — and charged for —
         // once, matching what `getBatches` already does.
         const wanted = [...new Set(keys)];
@@ -2189,6 +2251,7 @@ export class SystemKVStore extends PuterStore {
                 const { entries, usage: u } = await this.getBatches(
                     namespace,
                     toFetch,
+                    consistentRead,
                 );
                 fetched = entries;
                 fetchUnits = u.read;
@@ -2233,7 +2296,22 @@ export class SystemKVStore extends PuterStore {
             return entry.value ?? null;
         });
 
-        return { res: multi ? values : values[0], usage };
+        if (!fenceWriter) return { res: multi ? values : values[0], usage };
+        const fences = keys.map((k) => {
+            const entry = entriesByKey.get(k) as
+                | (KvCachedItem & Record<string, unknown>)
+                | undefined;
+            // An expired row is rebuilt from nothing, its fence included.
+            if (!entry || isExpiredTtl(entry.ttl, now)) return 0;
+            if (foreign && entry.noShare) return 0;
+            const held = entry[`${KV_FENCE_ATTR_PREFIX}${fenceWriter}`];
+            return typeof held === 'number' ? held : 0;
+        });
+        return {
+            res: multi ? values : values[0],
+            usage,
+            fences: multi ? fences : fences[0],
+        };
     }
 
     /**
@@ -2289,10 +2367,11 @@ export class SystemKVStore extends PuterStore {
                     ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
                     ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
                 },
-                condition ? { condition } : undefined,
+                condition ? { condition, returnOldOnRefusal: true } : undefined,
             );
         let response: Awaited<ReturnType<typeof put>> | null;
         let settleUsage = emptyUsage();
+        let refusal: { isPrivate: boolean } | null | undefined;
         try {
             if (condition) {
                 const outcome = await this.#writeUnlessRefused(
@@ -2302,20 +2381,25 @@ export class SystemKVStore extends PuterStore {
                 );
                 response = outcome.response;
                 settleUsage = outcome.usage;
+                refusal = outcome.refusal;
             } else {
                 response = await put();
             }
         } catch (e) {
-            if (isNestingTooDeep(e)) throw tooDeeplyNestedError(undefined, e);
-            throw e;
+            throw valueWriteError(e, key);
         }
         if (response === null) {
             if (!onlyIfAbsent) throw new KvPrivateEntryError();
             // A share holder reads a private entry as absent, so `false` would
-            // confirm it; the holder gets the refusal a plain write gets.
-            const probeUsage = opts?.namespaceUser
-                ? await this.#assertNotPrivate(namespace, key, opts)
-                : emptyUsage();
+            // confirm it; the holder gets the refusal a plain write gets. The
+            // refusing item answers that when it came back.
+            if (opts?.namespaceUser && refusal?.isPrivate) {
+                throw new KvPrivateEntryError();
+            }
+            const probeUsage =
+                opts?.namespaceUser && !refusal
+                    ? await this.#assertNotPrivate(namespace, key, opts)
+                    : emptyUsage();
             return { res: false, usage: addUsage(settleUsage, probeUsage) };
         }
         await this.#committed(
@@ -2404,8 +2488,7 @@ export class SystemKVStore extends PuterStore {
         try {
             response = await this.clients.dynamo.batchPut(putParams);
         } catch (e) {
-            if (isNestingTooDeep(e)) throw tooDeeplyNestedError(undefined, e);
-            throw e;
+            throw valueWriteError(e);
         }
         await this.#committed(
             opts,
@@ -2447,7 +2530,9 @@ export class SystemKVStore extends PuterStore {
                 { namespace, key },
                 {
                     returnOld: !isSystemActor(actor),
-                    ...(condition ? { condition } : {}),
+                    ...(condition
+                        ? { condition, returnOldOnRefusal: true }
+                        : {}),
                 },
             );
         const { response, usage: settleUsage } = condition

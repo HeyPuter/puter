@@ -91,7 +91,6 @@ async function UIWindowSaveAccount (options) {
             allow_user_select: true,
             width: 350,
             dominant: true,
-            show_in_taskbar: false,
             ...options.window_options,
             onAppend: function (this_window) {
                 if ( options.default_username )

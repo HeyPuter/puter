@@ -138,7 +138,7 @@ $(document).on('click', '.tab-btn', async function (e) {
             puter.apps.getDeveloperProfile(function (dev_profile) {
                 // show payout method tab if dev has joined incentive program
                 if ( dev_profile.joined_incentive_program ) {
-                    $('#payout-method-email').html(dev_profile.paypal);
+                    $('#payout-method-email').text(dev_profile.paypal);
                 }
                 puter.ui.hideSpinner();
                 if ( activeTab === 'payout-method' )
@@ -208,7 +208,7 @@ $('.jip-submit-btn').on('click', async function (e) {
             //enable submit button
             $('.jip-submit-btn').prop('disabled', false);
             // update dev profile
-            $('#payout-method-email').html(paypal);
+            $('#payout-method-email').text(paypal);
             // show separator
             $('.tab-btn-separator').show();
             // show payout method tab

@@ -54,6 +54,8 @@ describe('update_auth_data', () => {
         window.icons = { 'profile.svg': '/profile.svg' };
         globalThis.fetch = vi.fn(async () => ({ ok: true }));
         puter.setAuthToken.mockClear();
+        delete puter.whoami;
+        delete puter.authToken;
         puter.auth.getProfile.mockReset();
         puter.auth.getProfile.mockResolvedValue({});
     });
@@ -114,5 +116,26 @@ describe('update_auth_data', () => {
         await settle();
         expect(storedUsers().find(stored => stored.uuid === 'b').profile.picture).toBeNull();
         expect(window.user.profile.picture).toBeNull();
+    });
+
+    // puter.js doesn't read the user again for a token it already holds.
+    it("gives puter.js's user for the same token what changed", async () => {
+        puter.authToken = 'token-a';
+        puter.whoami = { uuid: 'a', username: 'guest_1', is_temp: true, feature_flags: { x: true } };
+        await window.update_auth_data('token-a', { uuid: 'a', username: 'alice', is_temp: false });
+        expect(puter.whoami).toMatchObject({
+            uuid: 'a',
+            username: 'alice',
+            is_temp: false,
+            feature_flags: { x: true },
+        });
+        expect(puter.whoami).not.toHaveProperty('auth_token');
+    });
+
+    it("leaves puter.js's user alone for another token", async () => {
+        puter.authToken = 'token-a';
+        puter.whoami = { uuid: 'a', username: 'a' };
+        await window.update_auth_data('token-b', { uuid: 'b', username: 'b' });
+        expect(puter.whoami).toEqual({ uuid: 'a', username: 'a' });
     });
 });

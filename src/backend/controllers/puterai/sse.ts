@@ -20,14 +20,15 @@
 /**
  * SSE transport (`startSse`) plus the Anthropic `/v1/messages` streaming writer
  * (`AnthropicSseWriter`), which turns the driver's NDJSON chunk protocol
- * (`drivers/ai-chat/utils/Streaming.js`) into the exact Anthropic event
- * sequence: `message_start` → `content_block_start/delta/stop`* →
+ * (`drivers/ai/interfaces/chat/utils/Streaming.js`) into the exact Anthropic
+ * event sequence: `message_start` → `content_block_start/delta/stop`* →
  * `message_delta` → `message_stop`.
  */
 
 import type { Response } from 'express';
-import type { UsageDetails } from '../../drivers/ai-chat/types.js';
-import { promoteStopForToolCalls } from '../../drivers/ai-chat/utils/stopReason.js';
+import { onResponseClose } from '../../core/http/onResponseClose.js';
+import type { UsageDetails } from '../../drivers/ai/interfaces/chat/types.js';
+import { promoteStopForToolCalls } from '../../drivers/ai/interfaces/chat/utils/stopReason.js';
 import { anthropicUsage } from './anthropicWire.js';
 
 // -- SSE transport ------------------------------------------------------------
@@ -79,7 +80,7 @@ export const startSse = (res: Response, opts: { ping?: boolean } = {}): Sse => {
         timer.unref?.();
     }
 
-    res.once('close', () => {
+    onResponseClose(res, () => {
         ended = true;
         if (timer) clearInterval(timer);
     });
@@ -369,6 +370,16 @@ export class AnthropicSseWriter {
                     encrypted_content: ev.encrypted_content,
                 });
                 break;
+            case 'refusal_fallback':
+                this.#close();
+                this.#openBlock('other', {
+                    type: 'fallback',
+                    from: ev.from,
+                    to: ev.to,
+                    trigger: ev.trigger,
+                });
+                this.#close();
+                break;
             case 'safeguard_results':
                 this.#safeguards = ev.results as unknown[];
                 break;
@@ -392,13 +403,16 @@ export class AnthropicSseWriter {
             'tool_use',
         );
         const stopDetails = ev.stopDetails as
-            Record<string, unknown> | null | undefined;
+            | Record<string, unknown>
+            | null
+            | undefined;
         const usageDetails = (ev.usageDetails as UsageDetails | undefined) ?? {
             inputTokens: 0,
             outputTokens: 0,
         };
         const contextManagement = ev.contextManagement as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         this.#sse.write('message_delta', {
             type: 'message_delta',
             delta: {

@@ -2,6 +2,7 @@ import { PuterModule } from '../../lib/PuterModule.js';
 import { attach } from './attach.js';
 import { create } from './create.js';
 import { del } from './delete.js';
+import { detach } from './detach.js';
 import { get } from './get.js';
 import { list } from './list.js';
 import { update } from './update.js';
@@ -26,6 +27,7 @@ export class HostingModule extends PuterModule {
     get = get;
     delete = del;
     attach = attach;
+    detach = detach;
 
     /** @param {Puter} puter */
     constructor (puter) {
@@ -34,7 +36,7 @@ export class HostingModule extends PuterModule {
         const methods = /** @type {Record<string, (...args: unknown[]) => unknown>} */ (
             /** @type {unknown} */ (this)
         );
-        for ( const name of ['list', 'create', 'update', 'get', 'delete', 'attach'] ) {
+        for ( const name of ['list', 'create', 'update', 'get', 'delete', 'attach', 'detach'] ) {
             methods[name] = methods[name].bind(this);
         }
     }

@@ -94,7 +94,7 @@ const needsDesktop = app => app.index_url?.startsWith(BUILTIN_PREFIX)
     || app.privateAccess?.hasAccess === false;
 
 /** The app's URL for a tab launch, with the params that name the launch. */
-const tabLaunchUrl = ({ app, name, guiOrigin, apiOrigin, locale }) => {
+const tabLaunchUrl = ({ app, name, guiOrigin, apiOrigin, locale, source }) => {
     const appInstanceID = uuidv4();
     const appDomain = new URL(guiOrigin).hostname;
     const url = appLaunchUrl({ app, name, appInstanceID, guiOrigin, appDomain });
@@ -104,6 +104,8 @@ const tabLaunchUrl = ({ app, name, guiOrigin, apiOrigin, locale }) => {
         apiOrigin,
         locale,
         surface: 'app_browser_embed',
+        trigger: 'app_icon',
+        source,
     });
     return { url, appInstanceID };
 };
@@ -123,9 +125,10 @@ const tabLaunchUrl = ({ app, name, guiOrigin, apiOrigin, locale }) => {
  * @param {string} options.apiOrigin
  * @param {string} options.authToken - the GUI session token
  * @param {string} options.locale
+ * @param {string} [options.source] - the site the embed is on, for `utm_source`
  * @returns {Promise<boolean>} whether the tab was sent to the app
  */
-export const launchAppInTab = async ({ name, tab, guiOrigin, apiOrigin, authToken, locale }) => {
+export const launchAppInTab = async ({ name, tab, guiOrigin, apiOrigin, authToken, locale, source }) => {
     const app = await puter.apps.get(name);
     if ( needsDesktop(app) ) return false;
 
@@ -133,7 +136,7 @@ export const launchAppInTab = async ({ name, tab, guiOrigin, apiOrigin, authToke
     const { token } = await fetchUserAppTokenForLaunch({ appUid, apiOrigin, authToken });
     if ( !token || tab.closed ) return false;
 
-    const { url, appInstanceID } = tabLaunchUrl({ app, name, guiOrigin, apiOrigin, locale });
+    const { url, appInstanceID } = tabLaunchUrl({ app, name, guiOrigin, apiOrigin, locale, source });
     offerAppTabLaunch({ appInstanceID, tab, origin: url.origin, token, item: null });
     tab.location.href = url.href;
     reportAppOpen({ appUid, apiOrigin, authToken });
@@ -151,9 +154,10 @@ export const launchAppInTab = async ({ name, tab, guiOrigin, apiOrigin, authToke
  * @param {string} options.guiOrigin
  * @param {string} options.apiOrigin
  * @param {string} options.locale
+ * @param {string} [options.source] - the site the embed is on, for `utm_source`
  * @returns {string | null}
  */
-export const guestAppLaunchUrl = ({ app, guiOrigin, apiOrigin, locale }) => {
+export const guestAppLaunchUrl = ({ app, guiOrigin, apiOrigin, locale, source }) => {
     if ( needsDesktop(app) ) return null;
-    return tabLaunchUrl({ app, name: app.name, guiOrigin, apiOrigin, locale }).url.href;
+    return tabLaunchUrl({ app, name: app.name, guiOrigin, apiOrigin, locale, source }).url.href;
 };

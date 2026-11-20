@@ -21,7 +21,7 @@
 
 /** @typedef {{ permission: 'default'|'granted'|'denied', registered: boolean, deviceUid?: string }} PushClientStatus */
 
-/** @typedef {{ enable: () => Promise<{ deviceUid: string }>, disable: () => Promise<void>, status: () => Promise<PushClientStatus> }} PushClient */
+/** `background`: a call without a click, which leaves a browser removed in Puter removed (`push_device_removed`). `cached`: a page may answer with its last `on`. @typedef {{ enable: (options?: { background?: boolean }) => Promise<{ deviceUid: string }>, disable: () => Promise<void>, status: (options?: { cached?: boolean }) => Promise<PushClientStatus> }} PushClient */
 
 /** @typedef {'checking'|'unavailable'|'blocked'|'on'|'off'} BrowserPushState */
 
@@ -79,11 +79,11 @@ export const pushClientWithin = (ms = PUSH_CLIENT_WAIT_MS, params = globalThis.g
     globalThis.addEventListener(PUSH_CLIENT_REGISTERED_EVENT, done);
 });
 
-/** @param {PushClient|null} client @returns {Promise<BrowserPushState>} */
-export const browserPushState = async (client) => {
+/** With `cached`, an `on` this page already read may answer. @param {PushClient|null} client @param {{ cached?: boolean }} [options] @returns {Promise<BrowserPushState>} */
+export const browserPushState = async (client, { cached = false } = {}) => {
     if ( ! client ) return 'unavailable';
     try {
-        const status = await client.status();
+        const status = await client.status({ cached });
         if ( status?.permission === 'denied' ) return 'blocked';
         return status?.registered ? 'on' : 'off';
     } catch ( e ) {

@@ -40,7 +40,7 @@ beforeEach(() => {
     })));
     vi.stubGlobal('puter', {
         authToken: 'test-session',
-        kv: { get: async key => saved.get(key), set: vi.fn() },
+        kv: { get: async key => saved.get(typeof key === 'object' ? key.key : key), set: vi.fn() },
     });
     onLaunch.mockClear();
 });
@@ -91,6 +91,22 @@ describe('shared app browser', () => {
         await browser.loadApps($root);
         expect(browser._apps.map(app => app.name)).not.toContain('editor');
         expect(actions.showAlert).not.toHaveBeenCalled();
+    });
+
+    it('takes the saved layout from the boot batch on the first load only', async () => {
+        const reads = [];
+        puter.kv.get = vi.fn(async key => {
+            reads.push(key);
+            return saved.get(typeof key === 'object' ? key.key : key);
+        });
+        const layoutKeys = [APPS_ORDER_KV_KEY, REMOVED_APPS_KV_KEY, APP_GROUPS_KV_KEY];
+        await mount();
+        expect(reads).toEqual(expect.arrayContaining(layoutKeys));
+
+        reads.length = 0;
+        await browser.loadApps($root);
+        expect(reads).toEqual(expect.arrayContaining(layoutKeys.map(key => ({ key }))));
+        expect(reads.filter(key => typeof key === 'string')).toEqual([]);
     });
 
     it('saves one layout at a time, sending only the newest once the last write lands', async () => {
@@ -209,7 +225,7 @@ describe('shared app browser', () => {
         $('.myapps-search').val('editor').trigger('input');
         $('.myapps-tile[data-app-name="editor"]').trigger('click');
         expect(window.open).toHaveBeenCalledWith('', '_blank');
-        expect(actions.launchApp).toHaveBeenCalledWith({ name: 'editor', newTab: tab });
+        expect(actions.launchApp).toHaveBeenCalledWith({ name: 'editor', newTab: tab, trigger: 'app_icon' });
         await vi.waitFor(() => expect(browser._launchingApps.size).toBe(0));
         expect($('.window')).toHaveLength(0);
     });
@@ -228,6 +244,7 @@ describe('shared app browser', () => {
         expect(actions.launchApp).toHaveBeenCalledWith({
             name: 'editor', maximized: true,
             window_options: { morph_from_dashboard_tile: true },
+            trigger: 'app_icon',
         });
         expect(actions.beginTileLaunch).toHaveBeenCalledWith(tile);
         await vi.waitFor(() => expect(actions.settleTileLaunch).toHaveBeenCalledWith(tile));

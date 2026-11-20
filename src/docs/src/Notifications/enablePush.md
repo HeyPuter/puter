@@ -8,9 +8,9 @@ Offers to turn on Puter's push notifications in the browser the user is in, so y
 
 Puter shows them with your app's name and icon, and a tap opens your app inside the Puter desktop. [Where a push goes](/Notifications/push/#where-a-push-goes) says when pushes go through Puter. Call it from a user gesture such as a click.
 
-Inside the Puter desktop, it shows a dialog with a "Turn on notifications" button, and [`enable()`](/Notifications/enable/) is the same call. When your app doesn't hold the permission yet, it shows Puter's permission dialog instead, and allowing it also turns pushes on in this browser, so the user answers one dialog.
+Inside the Puter desktop, it shows a dialog with a "Turn on notifications" button, and [`enable()`](/Notifications/enable/) is the same call. When your app doesn't hold the permission yet, or holds it only from [`enable()`](/Notifications/enable/) on your website, it shows Puter's permission dialog instead, and allowing it also turns pushes on in this browser, so the user answers one dialog.
 
-On a website, it opens a small popup on the Puter origin with the same button. Your app needs the permission first, so call [`requestPermission()`](/Notifications/requestPermission/) before it. Without the permission, it resolves `false`. To get pushes on your own domain instead, use [`enable()`](/Notifications/enable/).
+On a website, it opens a small popup on the Puter origin with the same button. Your app needs the permission first, so call [`requestPermission()`](/Notifications/requestPermission/) before it. Without the permission, it resolves `false`. When your app holds it only from [`enable()`](/Notifications/enable/) on your website, the popup shows Puter's permission prompt instead, and allowing it also turns pushes on in this browser. To get pushes on your own domain instead, use [`enable()`](/Notifications/enable/).
 
 When pushes are already on in this browser and your app holds the permission, it resolves `true` without asking. When the browser blocks notifications for Puter, or the server has no push service, it resolves `false` without asking.
 

@@ -48,6 +48,7 @@ For AI:
 - A streamed response that stops before the model reports its token counts (an upstream error mid-stream, for example) is charged on an estimate of what was streamed. A request that produced no output is free.
 - AI model rates can change. Check the [AI model directory](https://developer.puter.com/ai/models/) for current pricing.
 - In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers. Gemini Omni video is the exception. Its reservation is an estimate, because Google can return more output tokens than requested, and it settles at the tokens actually used even when they cost more (see [Video generation](#video-generation)).
+- A chat request that a Claude model declines can run again on another Claude model. Each run reserves and settles on its own, so only one run is reserved at a time. If the balance can't cover the next run, the response is the refusal. See [Refusal fallback](/AI/chat#refusal-fallback).
 
 ## Rate limits
 
@@ -61,6 +62,8 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | ------------------- | ---- | ---- | --------- |
 | Requests per 10 s   | 200  | 30   | 20        |
 | Concurrent requests | 20   | 3    | 2         |
+
+A chat completion counts as a concurrent request until the model finishes it, even if your app disconnects first, because the model keeps generating and the completion is still billed. That's at most 10 minutes after the disconnect.
 
 | Input                                          | Limit            |
 | ---------------------------------------------- | ---------------- |
@@ -77,9 +80,11 @@ An input over its limit is rejected before it reaches the model, as is an image 
 
 The standard chat timeout is 10 minutes for a response to start, or to finish if it isn't streamed. Stream durations depend on the provider. Native Gemini applies the 10-minute timeout to the whole response, including streaming. Groq uses 60 seconds to start a response. Mistral streams have no timeout of their own. If the caller disconnects, a stream that's still running gets 10 more minutes to finish, and is then stopped. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
 
-GPT-6.1 Terra has a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
+GPT-6.2 Astra, GPT-6.2 Sol, and GPT-6.1 Terra have a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
 
-A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
+Gemini 4 Carbon, Gemini 4 Hydrogen and Gemini 4 Neon accept text and images within a shared 1,048,576-token window and generate up to 65,536 tokens, including thinking.
+
+A `gemini-4-argon` or `gemini-4-carbon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
 Text-to-speech calls to ElevenLabs, xAI, Speechify, Kling and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
 
@@ -124,7 +129,7 @@ Realtime sessions ([`puter.ai.realtime()`](/AI/realtime/), `/puterai/openai/v1/r
 | Audio awaiting a commit acknowledgement | One held item per 160 seconds, at the session's input format | Counts all audio since the last commit or clear without turn detection, or only detected speech with server turn detection. Longer audio holds more items rather than closing the session. If the connection closes before the commit is acknowledged, each held item is billed. |
 | Completed transcription identity history | 128 items | Recent duplicate commits are ignored. Pending identities have a separate lifetime. |
 | Replacement attempts marked `purpose=handover` | 20 per credential per minute | This shared limit is checked before the general 60-attempt limit. A refused probe consumes no general attempt. Initial and dropped-session recovery attempts retain their general budget. |
-| Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. A response whose usage never arrives because the provider connection closed first is billed the full hold. |
+| Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, plus every token the previous response read and wrote, priced as uncached audio input. Held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. A response whose usage never arrives because the provider connection closed first is billed the full hold. |
 | Restart notice (`puter.reconnect`) | At most once a minute per session | Repeated announcements within the minute aren't sent. |
 | In-flight response drain at shutdown | 5 seconds | Close 1012. |
 | Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. Pending input transcriptions share this settlement window. Audio whose commit was not acknowledged is committed during settlement. Accepted work without final usage is billed conservatively. A response that does not report its usage within the 5 seconds is billed the credit held for it. |
@@ -159,7 +164,7 @@ The [`puter.ai.realtime()`](/AI/realtime/) SDK also applies these limits before 
 
 `/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.
 
-Chat requests accept JSON bodies up to 128 MiB (134,217,728 bytes), including `text/plain;actually=json` bodies. That covers `puter-chat-completion` calls through `/drivers/call`, which `puter.ai.chat()` uses, and POSTs to `/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages` and `/puterai/anthropic/v1/messages/count_tokens`. A body over 50 MiB needs a `Content-Length` header and a token in the `Authorization` or `x-api-key` header (or a session cookie); an `auth_token` inside the body isn't read until the body is, so it only works up to 50 MiB. Larger bodies, and bodies over 50 MiB for other drivers, return HTTP 413. One account can have up to 128 MiB of these large bodies in flight at once; past that, requests get `429` with `Retry-After`. A server handling too many large bodies at once returns `503` with `Retry-After`. Retry either after the given number of seconds. Other routes accept JSON bodies up to 50 MiB.
+Chat requests accept JSON bodies up to 128 MiB (134,217,728 bytes), including `text/plain;actually=json` bodies. That covers `puter-chat-completion` calls through `/drivers/call`, which `puter.ai.chat()` uses, and POSTs to `/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages` and `/puterai/anthropic/v1/messages/count_tokens`. A body over 50 MiB needs a `Content-Length` header and a credential that can be read before the rest of the body. That is a token in the `Authorization` or `x-api-key` header, a session cookie, or an `auth_token` that is the first field of the body, which is where Puter.js sends it. An `auth_token` after other fields isn't read until the body is, so it only works up to 50 MiB. Larger bodies, and bodies over 50 MiB for other drivers, return HTTP 413. One account can have up to 128 MiB of these large bodies in flight at once; past that, requests get `429` with `Retry-After`. A server handling too many large bodies at once returns `503` with `Retry-After`. Retry either after the given number of seconds. Other routes accept JSON bodies up to 50 MiB. A JSON body in a charset other than UTF-8 is accepted up to 1 MiB. A JSON body over 32 KiB can nest arrays and objects up to 10,000 levels deep, and deeper nesting returns HTTP 400.
 
 Claude's server-executed tools are clamped so a request can't reserve an unbounded amount of credit:
 
@@ -181,7 +186,7 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 | xAI | Up to 5 reference images; more fails with `bad_request`. |
 | Together | Image routes are excluded because they require third-party data sharing; generation fails before any upstream call. |
 | Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Steps: Schnell 1–8; Lucid Origin 1–40; Phoenix and FLUX.2 Dev 1–50; Klein exactly 4; SDXL and Inpainting 1–20. |
-| Replicate | At most 10 references, or the model's lower limit; FLUX 1.1 Pro accepts one. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For other models with width/height controls, dimensions round to multiples of 8 and clamp to the schema bounds (64–4096 per side if none are given). Predictions expire after 10 minutes and are polled every 2 seconds. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
+| Replicate | At most 10 references, or the model's lower limit; FLUX 1.1 Pro accepts one. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For other models with width/height controls, dimensions round to multiples of 8 and clamp to the schema bounds (64–4096 per side if none are given). A call has 10 minutes for its predictions, which are polled every 2 seconds. A prediction that a model's safety checker rejects is run again up to two more times when no `seed` is set. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
 | BytePlus | Pro: 10 references; other Seedream models: 14. |
 | Kling | `kling-v3-omni` and `kling-image-o1`: 10 references; `kling-v3` and `kling-v2-1`: one. Prompt up to 2,500 characters. Each reference is a JPEG or PNG up to 10 MB. Jobs are polled every 2 seconds for up to 5 minutes, then fail with `504 upstream_timeout` and aren't charged. Each call to Kling times out after 60 seconds. |
 | BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Sizes under 921,600 total pixels are treated as aspect-ratio hints, not exact sizes. |
@@ -207,7 +212,7 @@ A longer prompt, a larger image or video, or input over the token limit fails wi
 
 The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
 
-Kling video models take a prompt of up to 3,072 characters (Kling 3.0 models) or 2,500 (the others, and Kling 3.0 Turbo with `input_reference`). Kling 3.0 Omni and Kling O1 take a source video (`inputVideo`) as a URL or as a Puter file of up to 200 MiB, which fails with `413 input_too_large` above that. Kling fetches either one itself. A Puter file is passed as a link that works for 19 minutes. The source must be an MP4 or QuickTime video of 3 to 15.5 seconds (10 on Kling O1). Kling rejects a source outside its limits, or one it can't decode, with `upstream_bad_request`, and the request isn't charged. An edit holds the price of a 16-second clip (10 on Kling O1). Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
+Kling 4.0 and 4.0 Flash accept a prompt of up to 26,000 characters in English or 11,000 in other languages, and generate 3 to 30 seconds or 3 to 20 seconds respectively. A prompt that mixes English with another language is within the limit when its English characters divided by 26,000 plus its other characters divided by 11,000 come to 1 or less. A prompt over 26,000 characters fails with `bad_request`, and Kling rejects a shorter prompt that is over the limit for its language with `upstream_bad_request`. Neither is charged. Kling 4.0 supports 720p and 1080p, and Flash supports 720p. Other Kling video models take a prompt of up to 3,072 characters (Kling 3.0 models) or 2,500 (the others, and Kling 3.0 Turbo with `input_reference`). Kling 3.0 Omni and Kling O1 take a source video (`inputVideo`) as a URL or as a Puter file of up to 200 MiB, which fails with `413 input_too_large` above that. Kling fetches either one itself. A Puter file is passed as a link that works for 19 minutes. The source must be an MP4 or QuickTime video of 3 to 15.5 seconds (10 on Kling O1). Kling rejects a source outside its limits, or one it can't decode, with `upstream_bad_request`, and the request isn't charged. An edit holds the price of a 16-second clip (10 on Kling O1). Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
 
 MiniMax video models take a prompt of up to 7,000 characters (H3 models) or 2,000 (Hailuo models), and up to 5 images as frames and references together (2 on H3 Max and Hailuo 02, 1 on Hailuo 2.3 and 2.3 Fast). Hailuo 2.3 Fast requires a first-frame image. Hailuo 02 supports first and last frames together at `768p` or `1080p`, and a first frame alone at `512p`. MiniMax fetches an image URL itself, and a Puter file is sent inline. Each call to MiniMax times out after 60 seconds, and a job is polled every 5 seconds.
 
@@ -257,7 +262,7 @@ as soon as the byte cap is exceeded. Oversized AI file inputs return
 
 `File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 input_too_large` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
 
-Before the provider runs, the balance must cover every page the call can be billed for, or it fails with `402 insufficient_funds`. A PDF counts its own pages, or only the `pages` selected when that is fewer. An image, and any Textract input, counts as one page. Other documents, and PDFs whose pages can't be read, count 20 pages per MB, up to 1,000. That amount is reserved while the call runs; the charge is for the pages actually processed.
+Before the provider runs, the balance must cover every page the call can be billed for, or it fails with `402 insufficient_funds`. A PDF counts its own pages, or only the `pages` selected when that is fewer. A document whose pages can't be counted, such as a DOCX or an encrypted PDF, counts 1,000 pages, or only the `pages` selected. When the balance can't cover that, only as many of its first pages as the balance covers are read, and only those count. An image, and any Textract input, counts as one page. That amount is reserved while the call runs; the charge is for the pages actually processed.
 
 ### Key-value store
 
@@ -280,12 +285,13 @@ Sizes are the same for every account:
 | Key, through a share handle | 768 bytes (UTF-8)                       |
 | `list()` pattern, through a share handle | 768 bytes (UTF-8)            |
 | Value                     | 399 KB (408,576 bytes)                    |
+| Stored entry (key and value) | 400 KB                                 |
 | Any number inside a value | ±9,007,199,254,740,991 (2<sup>53</sup>−1) |
 | Path nesting (`add`/`update`/`incr`/`decr`/`remove`) | 31 levels |
 | Path segments in one call, all paths together | 1,500 |
 | Nesting depth of a value, counting its path | 32 levels |
 
-A key or value over its size limit is rejected. A key you pass with a share handle is relative to the handle, and its 768-byte limit stays the same whatever the length of the shared prefix. An empty key or a longer one is refused with `kv_handle_key_invalid`, and so is a longer `list()` pattern.
+A key or value over its size limit is rejected. A value is measured as JSON. The stored entry counts its key too, and a value with many small elements, such as a long array of single digits, takes more room stored than it does as JSON, so it can reach the 400 KB stored limit below 399 KB of JSON. A key you pass with a share handle is relative to the handle, and its 768-byte limit stays the same whatever the length of the shared prefix. An empty key or a longer one is refused with `kv_handle_key_invalid`, and so is a longer `list()` pattern.
 
 A number out of range isn't rejected. It's stored clamped to the bound, and `NaN` is stored as `null`, as `JSON.stringify()` does. This applies at any depth inside an object or array. Store values that must stay exact past 2<sup>53</sup>, such as large ids or running totals, as strings.
 
@@ -321,6 +327,7 @@ Per minute unless stated:
 | Search                                    | 60    | 30    | 10        |
 | `space()`                                 | 60    | 30    | 15        |
 | Sign a URL                                | 300   | 150   | 60        |
+| Set a file's thumbnail                    | 120   | 60    | 30        |
 
 | Concurrency | Paid | Free | Anonymous |
 | ----------- | ---- | ---- | --------- |
@@ -331,6 +338,7 @@ Per minute unless stated:
 | Limit | Value | Scope |
 | ----- | ----- | ----- |
 | Uploads in progress | 10,000 | Per user, all apps |
+| Path length | 4,096 characters | Per path |
 | Entries in one `readdir` response | 10,000 (1,000 per page by default when paginated or `recursive`) | Per request |
 | Levels a `recursive` `readdir` descends | 10 | Per request |
 | Files and folders in one `startBatchWrite`, `completeBatchWrite` or `batchWrite` | 500 | Per request |
@@ -344,6 +352,7 @@ Per minute unless stated:
 | Thumbnail read URLs | Valid for at least 6 days and 23 hours, refreshed hourly | Per URL |
 | `getReadURL()` (shared with all access-token creation) | 20/hour | |
 | `revokeReadURL()` | 60/min | |
+| File downloaded by [`showSaveFilePicker()`](/UI/showSaveFilePicker/) from a URL | 100 MiB, stopped after 60 s without data | Per call |
 
 Non-write operations (mkdir/shortcut/move/delete) inside a legacy `/batch` request also count against the Mutations limits above.
 
@@ -351,7 +360,7 @@ A request over one of the per-request caps fails as a whole before any item is p
 
 An upload is in progress from `startWrite`/`startBatchWrite` (which `puter.fs.upload()` and `puter.fs.write()` use) until it completes, is cancelled, or expires. The count includes uploads by collaborators into the account's folders. Over the limit, new uploads fail with `429 too_many_requests` until some finish.
 
-The Puter desktop makes PDF upload thumbnails locally within these budgets. Going over one skips the preview; the upload itself is unaffected.
+The Puter desktop makes PDF upload thumbnails locally within these budgets. Going over one skips the preview; the upload itself is unaffected. An Illustrator file that holds a PDF of its artwork is rendered the same way, within the same budgets.
 
 | PDF thumbnail | Limit |
 | --- | --- |
@@ -359,11 +368,93 @@ The Puter desktop makes PDF upload thumbnails locally within these budgets. Goin
 | PDF renderers per desktop page | 1 at a time |
 | Preparation per upload, including queued PDFs | 5 seconds from the first eligible PDF |
 | Renderer lifetime per PDF, including loading and cleanup | 4 seconds |
-| Embedded image or intermediate canvas area | 4,194,304 pixels |
+| Embedded image | 16,777,216 pixels |
+| Intermediate canvas area | 4,194,304 pixels |
 | Image resize budget passed to PDF.js | 16 MiB |
 | Output | First page, at most 128 × 128 pixels, aspect ratio preserved |
 | Thumbnail payload | 2 MiB |
 | Thumbnail transfer | 5 seconds each |
+
+The Puter desktop makes a PSD or PSB upload thumbnail from the preview image stored in the document, within these budgets. For a document saved without a preview, the desktop scales down the document's merged image, which it can read from RGB and grayscale documents with 8 or 16 bits per channel. A document over a budget, or one with neither image, keeps its file icon.
+
+| PSD thumbnail | Limit |
+| --- | --- |
+| Data read from the document to find the preview | 1 MiB |
+| Stored preview size | 1 MiB |
+| Data read from the document to scale down its merged image | 16 MiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop makes a Word document, spreadsheet, or presentation upload thumbnail from the first-page thumbnail stored in a DOCX, XLSX, or PPTX, within these budgets. For a DOCX saved without one, the desktop draws the first page from the document's text, styles, tables, and pictures. For a DOC, the desktop draws the first page from the document's text. For an XLSX saved without one, the desktop draws the top-left corner of the first visible worksheet, with its cell text, fills, column widths, and row heights. For a PPTX saved without one, the desktop draws the first slide from its background, shapes, pictures, and text, placed and styled as the slide, its layout, and its master say. A document over a budget keeps its file icon, or is drawn without the content over the budget. An encrypted document, or one with a blank first page, sheet, or slide, keeps its file icon.
+
+| Word, spreadsheet, and presentation thumbnail | Limit |
+| --- | --- |
+| Documents read per upload | 1 at a time |
+| Preparation per upload, including queued documents | 5 seconds from the first document |
+| Data read from the document to find its parts, and to read the text of a DOC | 4 MiB |
+| Stored thumbnail size | 1 MiB |
+| XML read from each part of a DOCX, XLSX, or PPTX, after decompression | 1 MiB |
+| Text laid out from a Word document | 16,384 characters |
+| Pictures drawn from a DOCX | 4, each up to 4 MiB and 16,777,216 pixels |
+| Pictures drawn from a PPTX | 8, each up to 4 MiB and 16,777,216 pixels |
+| Shapes read from each of a slide, its layout, and its master | 256 |
+| Text laid out from each of a slide, its layout, and its master | 4,096 characters |
+| Area drawn from a worksheet | 480 × 480 points, from at most 128 rows and 64 columns |
+| Text drawn from a cell | 256 characters |
+| Output | First page, sheet, or slide, at most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop makes a HEIC or HEIF photo upload thumbnail with the browser's own decoder where it has one, as Safari does. In other browsers the desktop reads the photo's stored thumbnail, or else the photo itself, and decodes it with the device's HEVC video decoder, within these budgets. A photo over a budget, or one on a device with no HEVC decoder, keeps its file icon.
+
+| HEIC thumbnail | Limit |
+| --- | --- |
+| Photos decoded per upload | 1 at a time |
+| Preparation per upload, including queued photos | 10 seconds from the first photo |
+| Decoding one photo | 2 seconds |
+| Index read from the photo | 1 MiB |
+| Coded data read from the photo | 16 MiB |
+| Photo or tile size | 16,777,216 pixels |
+| Tiles in a photo stored as a grid | 64 |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop makes an audio upload thumbnail from the cover art stored in the tags of an MP3, FLAC, M4A, or M4B file, within these budgets. A file with no cover, or one over a budget, keeps its file icon.
+
+| Audio thumbnail | Limit |
+| --- | --- |
+| Audio files read per upload | 1 at a time |
+| Preparation per upload, including queued files | 5 seconds from the first audio file |
+| Data read from the file to find the cover | 1 MiB |
+| Stored cover size | 16 MiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop makes a video upload thumbnail from one frame of an MP4, MOV, M4V, or WebM file, using the browser's video player, within these budgets. A video the browser can't play, or one over a budget, keeps its file icon.
+
+| Video thumbnail | Limit |
+| --- | --- |
+| Videos loaded per upload | 1 at a time |
+| Preparation per upload, including queued videos | 5 seconds from the first video |
+| Loading one video and reaching the frame | 4 seconds |
+| Frame | One tenth of the way into the video, at most 10 seconds in |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop makes a text file upload thumbnail from the start of a JavaScript (`.js`, `.mjs`, `.cjs`), CSS, JSON, CSV, or Markdown (`.md`, `.markdown`) file, within these budgets. For a JavaScript, CSS, or JSON file, the desktop draws the first lines of the file in a fixed-width font, with comments, strings, keywords, and numbers in different colors. A JSON file written on one line is drawn indented, with one value per line. For a CSV file, the desktop draws the first rows and columns as a spreadsheet, with gridlines. For a Markdown file, the desktop draws a page with the file's headings, paragraphs, lists, quotes, code blocks, and tables. A file still queued when the preparation time runs out keeps its file icon. A file with no text to draw keeps its file icon too.
+
+| Text file thumbnail | Limit |
+| --- | --- |
+| Files drawn per upload | 1 at a time |
+| Preparation per upload, including queued files | 2 seconds from the first file |
+| Data read from the file | The first 16 KiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
+The Puter desktop also makes a thumbnail for a file in the user's own folders that has none, such as a file an app wrote or saved over, when the file comes into view. It downloads the file and reads it the same way as an upload, within the budgets above and these. For a text file that gets a thumbnail, it downloads only the first 16 KiB, and the file size limit doesn't apply. A picture is downloaded only in a format every browser draws, which is PNG, JPEG, GIF, WebP, BMP, AVIF, SVG, or ICO. The downloads count toward the account's egress. A file saved over gets a new thumbnail once it's done changing, and shows its old one until then. A file over the size limit keeps its file icon. A file that gives no thumbnail keeps its file icon and isn't downloaded again until it changes. A file skipped because of another budget is tried again after the page reloads.
+
+| Missing thumbnail | Limit |
+| --- | --- |
+| File size | 20 MiB |
+| Files downloaded at a time | 1 |
+| Files started per minute | 20 |
+| Data downloaded per page load | 100 MiB |
+| Wait after the file was last saved | 3 seconds |
+| Old thumbnail shown while the new one is made | At most 10 seconds |
+| Pause after a `429` response or a failed connection | 60 seconds |
 
 ### Permissions
 
@@ -393,6 +484,24 @@ A `LOCK` gets the `Timeout` the client asks for, up to 1 hour, and the response 
 
 For long-lived mounts, sign in with a `-token` username and an API token as the password. That skips the per-account sign-in limit, and the token can be revoked from the dashboard without changing the account password.
 
+### Sign-in
+
+These apply to signing in to Puter itself, through the sign-in screen or [`puter.auth.signIn()`](/Auth/signIn/).
+
+| Limit | Value | Scope |
+| ----- | ----- | ----- |
+| Password sign-in requests | 10 per 15 min | Per network |
+| Password sign-in requests | 50 per 15 min | Per IP address |
+| Wrong passwords | 20/hour, 50/day | Per account being signed into |
+| Wrong two-factor or recovery codes | 10 per 30 min | Per account being signed into |
+| Wrong email confirmation codes | 10/hour, 20/day | Per account |
+| Email confirmation code lifetime | 1 hour from when it was sent | Per code |
+
+Only wrong passwords and wrong codes count toward the per-account limits; a right one costs nothing.
+
+- **Wrong passwords.** Once either window is spent, password sign-in to that account answers `429` with `errorCode: "login_locked"` and `action: "reset_password"`, even for the right password, until the window passes. A browser that has signed in to the account before can still sign in, so the owner isn't locked out by someone else's guesses. Any new password ends the lockout at once, whether the owner changes it, resets it by email, or a team admin sets it. The owner is emailed when a lockout starts. An account with no email address is never locked, since it has no way to reset its password.
+- **Email confirmation codes.** A code older than an hour answers `400` with `code: "confirmation_code_expired"`; send a new one. Over the wrong-code limit, confirming answers `429` until the window passes, even for the right code. Sending a new code doesn't reset the count.
+
 ### Sites and workers
 
 | Limit                               | Paid | Free | Anonymous |
@@ -406,6 +515,8 @@ For long-lived mounts, sign in with a `-token` username and an API token as the 
 | Concurrent worker calls             | 10   | 5    | 3         |
 | Concurrent deploys                  | 5    | 2    | 2         |
 
+A worker's name may be up to 50 characters. A [`puter.workers.create()`](/Workers/create/) call with a longer name is rejected with `400 bad_request`.
+
 ### Apps
 
 | Operation                                                                    | Paid      | Free      | Anonymous |
@@ -418,7 +529,7 @@ For long-lived mounts, sign in with a `-token` username and an API token as the 
 | ------------------------------------------------------------------ | ------------------------------- | ----------- |
 | `nameAvailable`                                                    | 60/min                          |             |
 | App icon                                                           | 12,000/min                      | Per network |
-| App landing page (`/app/<name>`, `/desktop/app/<name>`)            | 600/min                         | Per network |
+| App landing page (`/app/<name>`)                                   | 600/min                         | Per network |
 | Names per batch app lookup (`GET /apps/:names`, `POST /query/app`) | 200, up to 200 characters each  |             |
 | `metadata`                                                         | 16 KiB, measured as JSON        |             |
 | `filetypeAssociations`                                             | 200 entries, 60 characters each |             |
@@ -623,6 +734,8 @@ Counted per event, per region:
 Calls over any of these fail with `too_many_requests`. A share over the `kv.share.received` limit is still made, without notifying the holder. Listing pages hold up to 200 items, and a `fetch()` page defaults to 50 events and holds up to 200.
 
 A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients, and each one counts toward the named-recipient limit. A recipient who doesn't already have the share also counts toward the new-recipient limit, including a username that doesn't exist and a user the share is refused for. The call counts once toward the mint limit when it makes a share, changes one, or has any recipient who counts as new. A call where every recipient already has the share at the same access level and label counts only toward the named-recipient limit. When the recipients don't all fit in a limit, the whole call fails with `too_many_requests`, and the part that did fit still counts.
+
+A client that runs a function `handler` for [`onPersistent()`](/Events/onPersistent/) tells the server which ones it runs when it connects and each time one is added or removed. Each of those counts as one acknowledgement. One refused with `too_many_requests` is sent again after 10 seconds.
 
 Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit. Creating a [schedule](#schedules), or storing a notification with [`notify()`](/Notifications/notify/#send-it-later) and a `sendAt` more than 5 seconds ahead, counts toward the `subscribe` limit. Removing one counts toward `unsubscribe`, and listing or reading one toward the subscription listings.
 
@@ -832,7 +945,7 @@ Every driver call also counts toward **8,000 calls/min**, before the per-API lim
 
 ## Storage quota
 
-Every account has a filesystem quota (100 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 input_too_large`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
+Every account has a filesystem quota (200 MiB free; paid plans add more). It counts bytes stored, not bytes transferred, and deleting files frees space immediately. At the limit, writes fail with `413 input_too_large`; reads keep working. `puter.fs.space()` returns `{ capacity, used }`.
 
 An upload reserves its declared size, minus the size of any file it replaces, from the moment it starts. The reservation is released when the upload completes (the real size counts instead), is cancelled, or expires (15 minutes after starting by default, at most 1 hour, plus 5 minutes' grace). An abandoned upload holds its space until it expires. A `startBatchWrite` that doesn't fit fails as a whole, up front. `space()` counts stored bytes only, not reservations.
 
@@ -853,7 +966,7 @@ A read that times out is retried once. A write or AI call that times out is neve
 
 | Status | `code`                  | Meaning                               | What to do |
 | ------ | ----------------------- | ------------------------------------- | ---------- |
-| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry. Windows are at most 60 s, or 1 h for sustained filesystem mutations. The uploads-in-progress limit clears only when uploads finish, are cancelled, or expire. |
+| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry. Windows are at most 60 s, or 1 h for sustained filesystem mutations; [sign-in](#sign-in) limits run up to a day. The uploads-in-progress limit clears only when uploads finish, are cancelled, or expire. |
 | `402`  | `insufficient_funds`    | Monthly credit spent                  | The user buys credit or upgrades; the allowance resets next month. |
 | `402`  | `subscription_required` | The endpoint requires a paid plan     | The user upgrades. Retrying or waiting doesn't help. |
 | `413`  | `storage_limit_reached` | Storage quota reached                 | The user deletes files or upgrades. |

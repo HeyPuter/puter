@@ -35,6 +35,7 @@ import { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { OIDCService } from '../../services/auth/OIDCService.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { KNOWN_DEVICE_COOKIE_NAME } from '../auth/knownDevice.js';
 
 const TEST_ORIGIN = 'http://test.local';
 
@@ -133,6 +134,8 @@ interface CapturedResponse {
     redirectUrl?: string;
     headers: Record<string, string>;
     cookies: Array<{ name: string; value: string; opts?: unknown }>;
+    /** The known-device cookie a sign-in sets, kept apart from `cookies`. */
+    deviceCookie?: string;
     clearedCookies: Array<{ name: string; opts?: unknown }>;
     contentType?: string;
 }
@@ -197,7 +200,11 @@ const makeRes = () => {
             return res;
         }),
         cookie: vi.fn((name: string, value: string, opts?: unknown) => {
-            captured.cookies.push({ name, value, opts });
+            if (name === KNOWN_DEVICE_COOKIE_NAME) {
+                captured.deviceCookie = value;
+            } else {
+                captured.cookies.push({ name, value, opts });
+            }
             return res;
         }),
         clearCookie: vi.fn((name: string, opts?: unknown) => {
@@ -205,6 +212,7 @@ const makeRes = () => {
             return res;
         }),
         type: vi.fn(() => res),
+        once: vi.fn(() => res),
     };
     return { res: res as unknown as Response, captured };
 };
@@ -372,26 +380,6 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
         );
     });
 
-    it('bakes a whitelisted desktop app landing (/desktop/app/<name>) into the state redirect_uri', async () => {
-        const { res, captured } = makeRes();
-        await callRoute(
-            'get',
-            '/auth/oidc/:provider/start',
-            makeReq({
-                params: { provider: 'custom' },
-                query: { return_to: '/desktop/app/my-App_2' },
-            }),
-            res,
-        );
-        const state = new URL(captured.redirectUrl ?? '').searchParams.get(
-            'state',
-        );
-        const decoded = oidc().verifyState(state!);
-        expect(String(decoded?.redirect_uri)).toBe(
-            `${TEST_ORIGIN}/desktop/app/my-App_2`,
-        );
-    });
-
     it('ignores a non-whitelisted return_to', async () => {
         const bad_values = [
             '/app/evil/extra',
@@ -400,6 +388,8 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
             '//evil.test',
             '/settings',
             `/app/${'a'.repeat(101)}`,
+            '/desktop',
+            '/desktop/app/my-App_2',
             '/desktop/app/evil/extra',
             '/desktop/app/',
             '/dashboard/app/name',
@@ -476,11 +466,11 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
                         sharedPath('b.txt'),
                         sharedPath('a.txt'),
                     ],
-                    '/desktop',
+                    '/dashboard',
                 ),
             );
             const url = new URL(uri);
-            expect(url.origin + url.pathname).toBe(`${TEST_ORIGIN}/desktop`);
+            expect(url.origin + url.pathname).toBe(`${TEST_ORIGIN}/dashboard`);
             expect(url.searchParams.getAll('shared')).toEqual([
                 sharedPath('a.txt'),
                 sharedPath('b.txt'),
@@ -617,6 +607,7 @@ describe('OIDCController login callback', () => {
         // Session cookie was set with the configured cookie name.
         expect(captured.cookies).toHaveLength(1);
         expect(captured.cookies[0]?.value).toBeTruthy();
+        expect(captured.deviceCookie).toBeTruthy();
         // Same-origin redirect target is preserved.
         expect(captured.redirectUrl).toBe('http://test.local/');
 
@@ -1432,6 +1423,139 @@ describe('OIDCController signup veto (abuse harness)', () => {
         expect(captured.redirectUrl).toContain(
             'request_code=trail-custom-code',
         );
+    });
+});
+
+describe('OIDCController sign-in validate', () => {
+    const stubIdp = (sub: string, email: string) => {
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub,
+            email,
+            email_verified: true,
+        } as never);
+    };
+
+    const onValidate = (listener: (data: Record<string, unknown>) => void) => {
+        const handler = async (_key: string, data: unknown) =>
+            listener(data as Record<string, unknown>);
+        server.clients.event.on('puter.signin.validate', handler);
+        return () => server.clients.event.off('puter.signin.validate', handler);
+    };
+
+    it('a refused sign-in redirects with signin_blocked and the request code, minting nothing', async () => {
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
+        );
+        const user = created.user!;
+        stubIdp(sub, email);
+        const seen: Array<Record<string, unknown>> = [];
+        const stop = onValidate((data) => {
+            if ((data.user as { uuid?: string }).uuid !== user.uuid) return;
+            seen.push({ ...data });
+            data.allow = false;
+            data.trail_id = 'trail-oidc-1';
+        });
+        try {
+            const state = oidc().signState({
+                provider: 'custom',
+                redirect_uri: TEST_ORIGIN + '/',
+            });
+            const { res, captured } = makeRes();
+            await callRoute(
+                'get',
+                '/auth/oidc/callback/login',
+                makeReq({ query: { code: 'c', state } }),
+                res,
+            );
+            expect(seen).toHaveLength(1);
+            expect(seen[0]).toMatchObject({
+                method: 'oidc',
+                data: {},
+                account: { oidc_linked: true },
+            });
+            expect(captured.redirectStatus).toBe(302);
+            expect(captured.redirectUrl).toContain('action=login');
+            expect(captured.redirectUrl).toContain('message=signin_blocked');
+            expect(captured.redirectUrl).toContain('request_code=trail-oidc-1');
+            expect(captured.cookies).toHaveLength(0);
+            expect(captured.deviceCookie).toBeUndefined();
+        } finally {
+            stop();
+        }
+    });
+
+    it('never asks puter.signin.attempt listeners', async () => {
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
+        );
+        stubIdp(sub, email);
+        let attempts = 0;
+        const refuse = async (_key: string, data: unknown) => {
+            attempts++;
+            (data as { allow: boolean }).allow = false;
+        };
+        server.clients.event.on('puter.signin.attempt', refuse);
+        try {
+            const state = oidc().signState({
+                provider: 'custom',
+                redirect_uri: TEST_ORIGIN + '/',
+            });
+            const { res, captured } = makeRes();
+            await callRoute(
+                'get',
+                '/auth/oidc/callback/login',
+                makeReq({ query: { code: 'c', state } }),
+                res,
+            );
+            expect(attempts).toBe(0);
+            expect(captured.cookies).toHaveLength(1);
+        } finally {
+            server.clients.event.off('puter.signin.attempt', refuse);
+        }
+    });
+
+    it('is not asked about the sign-in that creates the account', async () => {
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        stubIdp(sub, email);
+        const seen: unknown[] = [];
+        const stop = onValidate((data) => {
+            if ((data.user as { email?: string }).email === email)
+                seen.push(data);
+        });
+        try {
+            const state = oidc().signState({
+                provider: 'custom',
+                redirect_uri: TEST_ORIGIN + '/',
+            });
+            const { res, captured } = makeRes();
+            await callRoute(
+                'get',
+                '/auth/oidc/callback/signup',
+                makeReq({ query: { code: 'c', state } }),
+                res,
+            );
+            expect(captured.cookies).toHaveLength(1);
+            expect(seen).toHaveLength(0);
+        } finally {
+            stop();
+        }
     });
 });
 

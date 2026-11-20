@@ -39,6 +39,12 @@ export interface AlarmOptions {
      * alarm raises its own incident per occurrence.
      */
     dedup?: boolean;
+    /**
+     * Chat channel key naming the area that owns this alarm (`billing`,
+     * `ai_providers`). Config maps keys to channels; an unmapped or absent key
+     * posts to the default channel. Fixed by the alarm's first occurrence.
+     */
+    channel?: string;
 }
 
 export interface Alarm extends AlarmOptions {
@@ -64,6 +70,10 @@ export interface Alarm extends AlarmOptions {
     noAlert?: boolean;
     /** Set once a config mute has been logged, so it's reported only once. */
     muteLogged?: boolean;
+    /** The last call raised, so repeats too frequent to report keep it open. */
+    call?: AlarmCall;
+    /** When `call` was last handed to the call handlers, epoch ms. */
+    callAt?: number;
 }
 
 export interface AlertPayload {
@@ -86,11 +96,33 @@ export interface AlertPayload {
     repeatCount: number;
     /** False for the first occurrence of an alarm id. */
     isRepeat: boolean;
+    /** Chat channel key from {@link AlarmOptions.channel}. */
+    channel?: string;
+    /** Call group config assigned this alarm, when it phones someone. */
+    callGroup?: string;
     /** PagerDuty `custom_details` payload. */
     custom?: Record<string, unknown>;
 }
 
-export type AlertHandler = (alert: AlertPayload) => Promise<void>;
+/** What a transport reports about an alert it delivered. */
+export interface AlertDelivery {
+    /** Link to the delivered alert, such as the chat message it became. */
+    url?: string;
+}
+
+export type AlertHandler = (
+    alert: AlertPayload,
+) => Promise<AlertDelivery | void>;
+
+/** An alarm that config says phones someone, once its transports settled. */
+export interface AlarmCall {
+    group: string;
+    alert: AlertPayload;
+    /** Where a responder can read the alarm; empty when no transport linked. */
+    links: string[];
+}
+
+export type CallHandler = (call: AlarmCall) => Promise<void>;
 
 export interface KnownErrorRule {
     match: {

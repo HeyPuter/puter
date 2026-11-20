@@ -306,6 +306,52 @@ describe('PSocket write', () => {
         expect(Array.from(stream.written[0])).toEqual([1, 2, 3]);
     });
 
+    it('emits drain after pre-open queued writes flush, following open', async () => {
+        const stream = makeStream();
+        mockGetEpoxyClient.mockResolvedValue(makeClient(stream));
+
+        const socket = new PSocket('example.com', 80);
+        const onOpen = vi.fn();
+        const onDrain = vi.fn();
+        socket.on('open', onOpen);
+        socket.on('drain', onDrain);
+        socket.write('backlog');
+
+        await until(() => expect(onDrain).toHaveBeenCalledTimes(1));
+        expect(onOpen).toHaveBeenCalledTimes(1);
+        expect(onOpen.mock.invocationCallOrder[0])
+            .toBeLessThan(onDrain.mock.invocationCallOrder[0]);
+        expect(new TextDecoder().decode(stream.written[0])).toBe('backlog');
+    });
+
+    it('does not emit drain when no writes were queued', async () => {
+        const { events, socket } = await connected();
+        const onDrain = vi.fn();
+        socket.on('drain', onDrain);
+        socket.write(new Uint8Array([1]));
+
+        await until(() => expect(events.open).toHaveBeenCalledTimes(1));
+        // A direct write never queues, so nothing announces a queue drain.
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(onDrain).not.toHaveBeenCalled();
+    });
+
+    it('does not emit drain when an open handler closes the socket', async () => {
+        const stream = makeStream();
+        mockGetEpoxyClient.mockResolvedValue(makeClient(stream));
+
+        const socket = new PSocket('example.com', 80);
+        const onDrain = vi.fn();
+        const onClose = vi.fn();
+        socket.on('open', () => socket.close());
+        socket.on('drain', onDrain);
+        socket.on('close', onClose);
+        socket.write('backlog');
+
+        await until(() => expect(onClose).toHaveBeenCalledTimes(1));
+        expect(onDrain).not.toHaveBeenCalled();
+    });
+
     it('writes an ArrayBuffer', async () => {
         const { socket, stream } = await connected();
 
@@ -549,6 +595,43 @@ describe('PSocket throwing listeners', () => {
         expect(events.error).not.toHaveBeenCalled();
         socket.close();
     });
+
+    it('keeps reading when a data listener throws', async () => {
+        const rethrows = captureRethrows();
+        const { socket, events, stream } = await connected();
+        const listenerError = new Error('handler bug');
+        socket.on('data', (chunk) => {
+            if ( chunk[0] === 1 ) throw listenerError;
+        });
+
+        stream.push(new Uint8Array([1]));
+        stream.push(new Uint8Array([2]));
+        await until(() => expect(events.data).toHaveBeenCalledTimes(2));
+
+        expect(events.error).not.toHaveBeenCalled();
+        expect(events.close).not.toHaveBeenCalled();
+        expect(mockDiscardOnRelayFailure).not.toHaveBeenCalled();
+        expect(rethrows).toHaveLength(1);
+        expect(() => rethrows[0]()).toThrow(listenerError);
+        socket.close();
+    });
+
+    it('closes once when a close listener throws', async () => {
+        const rethrows = captureRethrows();
+        const { socket, events } = await connected();
+        const listenerError = new Error('handler bug');
+        socket.on('close', () => {
+            throw listenerError;
+        });
+
+        socket.close();
+        await until(() => expect(rethrows).toHaveLength(1));
+
+        expect(events.close).toHaveBeenCalledTimes(1);
+        expect(events.close).toHaveBeenCalledWith(false);
+        expect(events.error).not.toHaveBeenCalled();
+        expect(() => rethrows[0]()).toThrow(listenerError);
+    });
 });
 
 describe('PSocket close', () => {
@@ -681,5 +764,20 @@ describe('PTLSSocket', () => {
         socket.addListener('open', onOpen);
 
         await until(() => expect(onOpen).toHaveBeenCalledTimes(1));
+    });
+
+    it('off() removes a handler registered through the plain-name alias', async () => {
+        const stream = makeStream();
+        mockGetEpoxyClient.mockResolvedValue(makeClient(stream));
+
+        const socket = new PTLSSocket('example.com', 443);
+        const removed = vi.fn();
+        const kept = vi.fn();
+        socket.on('open', removed);
+        socket.on('tlsopen', kept);
+        socket.off('open', removed);
+
+        await until(() => expect(kept).toHaveBeenCalledTimes(1));
+        expect(removed).not.toHaveBeenCalled();
     });
 });

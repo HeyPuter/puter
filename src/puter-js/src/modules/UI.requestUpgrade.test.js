@@ -107,6 +107,41 @@ describe('ui.requestUpgrade on a signed-in first-party page', () => {
         expect(account.subscribed).toBe(true);
     });
 
+    it('tells upgrade listeners once the cached account has a plan, and only then', async () => {
+        const account = { uuid: USER, subscribed: false };
+        puter.whoamiCache_ = Promise.resolve(account);
+        const ui = makeUI();
+        const heard = [];
+        const stop = ui.onUpgraded_(() => heard.push(account.subscribed));
+        // One that throws doesn't keep the others from hearing, or the call from resolving.
+        ui.onUpgraded_(() => {
+            throw new Error('listener failed');
+        });
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        let result = ui.requestUpgrade(DETAILS);
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed' });
+        await result;
+        expect(heard).toEqual([]);
+
+        result = ui.requestUpgrade(DETAILS);
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed', upgraded: true });
+        await expect(result).resolves.toEqual({ upgraded: true });
+        expect(heard).toEqual([true]);
+
+        stop();
+        result = ui.requestUpgrade(DETAILS);
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed', upgraded: true });
+        await result;
+        expect(heard).toEqual([true]);
+    });
+
     it('says the upgrade is showing from the call until it closes', async () => {
         const ui = makeUI();
         expect(ui.upgradeFrameShowing_()).toBe(false);
@@ -276,5 +311,49 @@ describe('ui.requestUpgrade elsewhere', () => {
         } finally {
             delete window.location.ancestorOrigins;
         }
+    });
+});
+
+describe('ui.showUpgrade_', () => {
+    // No refusal behind it; the empty `upgrade` still opens the dashboard's upgrade flow.
+    const UPGRADE_TAB = `https://puter.com/dashboard/?upgrade=&upgrade_app=${APP}#home`;
+
+    it('shows the upgrade in a frame on a signed-in first-party page, naming only the user', async () => {
+        const ui = makeUI();
+        const result = ui.showUpgrade_();
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+
+        expect(new URL(upgradeFrame().src).pathname).toBe('/embed/upgrade');
+        expect(fragment()).toEqual({ user: USER });
+        expect(ui.upgradeFrameShowing_()).toBe(true);
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed', upgraded: true });
+
+        await expect(result).resolves.toEqual({ upgraded: true });
+        expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('opens the dashboard upgrade in a tab when the frame cannot show it', async () => {
+        const result = makeUI().showUpgrade_();
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'unavailable' });
+
+        await expect(result).resolves.toEqual({ upgraded: false });
+        expect(window.open).toHaveBeenCalledTimes(1);
+        expect(window.open).toHaveBeenCalledWith(UPGRADE_TAB, '_blank');
+    });
+
+    it.each([
+        ['a page outside the Puter origin', { guiOrigin: 'https://puter.com' }],
+        ['a signed-out first-party page', { signedIn: false }],
+    ])('opens the dashboard upgrade in a tab within the click on %s', async (_label, options) => {
+        fakePuter(options);
+        const result = makeUI().showUpgrade_();
+
+        // Before anything is awaited, so the browser still counts the click.
+        expect(window.open).toHaveBeenCalledTimes(1);
+        expect(window.open).toHaveBeenCalledWith(UPGRADE_TAB, '_blank');
+        expect(upgradeFrame()).toBeNull();
+        await expect(result).resolves.toEqual({ upgraded: false });
     });
 });

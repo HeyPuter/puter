@@ -270,8 +270,8 @@ describe('uninstalling an app', () => {
                     expect.stringContaining(app.uid),
                     expect.any(String),
                     expect.objectContaining({ error: expect.any(Error) }),
-                    'warning',
-                    { dedup: true },
+                    'info',
+                    { dedup: true, channel: 'platform' },
                 ),
             );
         } finally {

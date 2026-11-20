@@ -43,7 +43,7 @@ export type TokenType = 'session' | 'gui' | 'app-under-user' | 'access-token';
 
 /**
  * Browser session token. `'session'` is the HTTP-only-cookie flavor, `'gui'`
- * the same shape served in a response body (e.g. QR login).
+ * the same shape served in a response body (e.g. the login response).
  */
 export interface SessionTokenPayload extends TokenPayloadBase {
     type: 'session' | 'gui';
@@ -109,9 +109,7 @@ export interface AccessTokenPayload extends TokenPayloadBase {
 }
 
 export type AnyTokenPayload =
-    | SessionTokenPayload
-    | AppUnderUserTokenPayload
-    | AccessTokenPayload;
+    SessionTokenPayload | AppUnderUserTokenPayload | AccessTokenPayload;
 
 // -- Session row (from `sessions` table) ----------------------------
 
@@ -128,8 +126,12 @@ export interface SessionRow {
     expires_at?: number | null;
     app_uid?: string | null;
     legacy_token_uid?: string | null;
+    access_token_uid?: string | null;
     created_via?: string | null;
     auth_id?: string | null;
+    label?: string | null;
+    last_ip?: string | null;
+    last_user_agent?: string | null;
 }
 
 export {};

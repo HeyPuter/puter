@@ -210,6 +210,24 @@ describe('pagination util', () => {
         it('refuses an unreadable cursor either way', () => {
             expect(() => openIdCursor('!!!', secret)).toThrowError(HttpError);
         });
+
+        it('reads only an integer or a digit string as the id', () => {
+            expect(openIdCursor({ id: '12' }, secret)).toBe(12);
+            for (const id of [null, [7], true, '7x', 1.5]) {
+                expect(openIdCursor({ id }, secret)).toBeNull();
+                expect(() =>
+                    openIdCursor({ id }, secret, { strict: true }),
+                ).toThrowError(HttpError);
+            }
+        });
+
+        it('refuses a cursor that is neither a string nor an object', () => {
+            for (const cursor of [5, true, ['x']]) {
+                expect(() =>
+                    openIdCursor(cursor as never, secret),
+                ).toThrowError(HttpError);
+            }
+        });
     });
 
     describe('keysetPage', () => {

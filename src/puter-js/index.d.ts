@@ -36,6 +36,7 @@ export type { default as APICallLogger } from './types/lib/APICallLogger.js';
 // -- puter.ai --
 export type {
     AIMessageContent,
+    BuiltInTool,
     ChatMessage,
     ChatOptions,
     ServiceSpeed,
@@ -187,7 +188,10 @@ export type {
     SignResult,
     SpaceInfo,
     StatOptions,
+    UnshareError,
+    UnshareFailure,
     UnshareOptions,
+    UnshareResult,
     UploadBatchError,
     UploadItems,
     UploadOperationResult,
@@ -206,6 +210,7 @@ export type {
 export type {
     CustomDomain,
     CustomDomainRecord,
+    SiteCustomDomain,
     Subdomain,
 } from './types/modules/hosting/types.js';
 
@@ -251,6 +256,7 @@ export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js'
 export type {
     AppNotification,
     DelayedNotificationOptions,
+    EnableOptions,
     NotificationAction,
     NotificationClick,
     NotificationDismissal,

@@ -30,25 +30,28 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import {
     COUNT_TOKENS,
     type ChatCompletionDriver,
-} from '../../drivers/ai-chat/ChatCompletionDriver.js';
+} from '../../drivers/ai/interfaces/chat/ChatCompletionDriver.js';
 import type {
     IChatCompleteResult,
     IChatMessageResult,
     IChatModel,
     ICompleteArguments,
     UsageDetails,
-} from '../../drivers/ai-chat/types.js';
+} from '../../drivers/ai/interfaces/chat/types.js';
 import {
     outputFormatFromResponseFormat,
     rejectStatefulResponsesFields,
     toolChoiceFromWire,
-} from '../../drivers/ai-chat/utils/openaiParams.js';
+} from '../../drivers/ai/protocols/openaiCompatible/openaiParams.js';
 import {
     promoteStopForToolCalls,
     toFinishReason,
-} from '../../drivers/ai-chat/utils/stopReason.js';
+} from '../../drivers/ai/interfaces/chat/utils/stopReason.js';
 import { isDriverStreamResult } from '../../drivers/meta.js';
-import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
+import {
+    AI_CONCURRENT,
+    AI_RATE_LIMIT,
+} from '../../drivers/ai/shared/aiLimits.js';
 import { PuterController } from '../types.js';
 import { parseAnthropicRequest, toAnthropicMessage } from './anthropicWire.js';
 import { pipeNdjsonStream } from './ndjsonStream.js';
@@ -547,7 +550,8 @@ export class PuterAIController extends PuterController {
                         }
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -696,7 +700,8 @@ export class PuterAIController extends PuterController {
                         sendChunk(ev.text);
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            UsageDetails | undefined;
+                            | UsageDetails
+                            | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -750,7 +755,8 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                Record<string, unknown> | undefined
+                                | Record<string, unknown>
+                                | undefined
                         )?.content,
                     ),
                     index: 0,
@@ -1301,13 +1307,18 @@ export class PuterAIController extends PuterController {
         return driver;
     }
 
-    /** A completion that stops, and stops billing, when the caller hangs up. */
+    /**
+     * A completion whose caller may hang up. It runs on to its usage report
+     * either way, so it holds the route's concurrency slot until it settles.
+     */
     #complete(
         res: Response,
         args: ICompleteArguments,
     ): Promise<IChatCompleteResult> {
         Context.set('abortSignal', abortOnDisconnect(res));
-        return this.#driver().complete(args);
+        const completion = this.#driver().complete(args);
+        Context.get('keepConcurrencySlot')?.(completion);
+        return completion;
     }
 }
 

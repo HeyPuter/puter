@@ -23,18 +23,14 @@ import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('../UI/UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UI/UIWindowItemProperties.js', () => ({ default: vi.fn() }));
-vi.mock('../UI/UIWindowPublishWorker.js', () => ({ default: vi.fn() }));
-vi.mock('../UI/UIWindowShare.js', () => ({ default: vi.fn() }));
-vi.mock('./publishAsWebsite.js', () => ({ default: vi.fn() }));
-vi.mock('./ensureCanPublish.js', () => ({ default: vi.fn() }));
 vi.mock('./openItem.js', () => ({ default: vi.fn() }));
 vi.mock('./openWithAI.js', () => ({ default: vi.fn() }));
 vi.mock('./launchApp.js', () => ({ default: vi.fn() }));
-vi.mock('./pathOwner.js', () => ({ is_owned_by_me: () => false }));
+vi.mock('./pathOwner.js', () => ({ is_owned_by_me: vi.fn(() => false) }));
 vi.mock('./sharedAccess.js', () => ({
     can_rename: async () => false,
     can_restructure: async () => false,
-    can_share: async () => false,
+    can_share: vi.fn(async () => false),
     invalidate_shared_roots: vi.fn(),
 }));
 
@@ -52,6 +48,9 @@ const { default: generate_file_context_menu } =
     await import('./generateFileContextMenu.js');
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
+const { unshareAnswering, allRefused, goneRefused } = await import('../../tests/fixtures/sdkUnshare.js');
+const { can_share } = await import('./sharedAccess.js');
+const { is_owned_by_me } = await import('./pathOwner.js');
 
 const sharedRow = () => {
     const row = document.createElement('div');
@@ -89,6 +88,93 @@ it('does not offer it on a share held through a team', async () => {
     );
 });
 
+describe('Share', () => {
+    const shareItem = async (options) => {
+        can_share.mockResolvedValueOnce(true);
+        const items = await generate_file_context_menu({
+            element: sharedRow(),
+            fsentry: { name: 'notes.txt', path: '/ann/uid-1/notes.txt' },
+            associated_app_name: 'editor',
+            ...options,
+        });
+        return items.find((item) => item !== '-' && item.html === 'share_ellipsis');
+    };
+
+    it('hands the item to onShare', async () => {
+        const onShare = vi.fn();
+        await (await shareItem({ onShare })).onClick();
+        expect(onShare).toHaveBeenCalledWith(expect.objectContaining({
+            name: 'notes.txt',
+            path: '/ann/uid-1/notes.txt',
+        }));
+    });
+
+    it('is left out without onShare', async () => {
+        expect(await shareItem({})).toBeUndefined();
+    });
+});
+
+describe('Publish as Website', () => {
+    const publishItem = async (options) => {
+        is_owned_by_me.mockReturnValueOnce(true);
+        can_share.mockResolvedValueOnce(true);
+        const row = document.createElement('div');
+        row.setAttribute('data-path', '/me/Site');
+        row.setAttribute('data-name', 'Site');
+        const items = await generate_file_context_menu({
+            element: row,
+            fsentry: { uid: 'dir-1', name: 'Site', path: '/me/Site', is_dir: true },
+            associated_app_name: 'editor',
+            ...options,
+        });
+        return items.find((item) => item !== '-' && item.html === 'publish_as_website');
+    };
+
+    it('hands the folder to onPublishWebsite', async () => {
+        const onPublishWebsite = vi.fn();
+        await (await publishItem({ onPublishWebsite })).onClick();
+        expect(onPublishWebsite).toHaveBeenCalledWith({
+            uid: 'dir-1',
+            name: 'Site',
+            path: '/me/Site',
+        });
+    });
+
+    it('is left out without onPublishWebsite', async () => {
+        expect(await publishItem({})).toBeUndefined();
+    });
+});
+
+describe('Publish as Worker', () => {
+    const publishItem = async (options) => {
+        is_owned_by_me.mockReturnValueOnce(true);
+        const row = document.createElement('div');
+        row.setAttribute('data-path', '/me/worker.js');
+        row.setAttribute('data-name', 'worker.js');
+        const items = await generate_file_context_menu({
+            element: row,
+            fsentry: { uid: 'file-1', name: 'worker.js', path: '/me/worker.js' },
+            associated_app_name: 'editor',
+            ...options,
+        });
+        return items.find((item) => item !== '-' && item.html === 'publish_as_serverless_worker');
+    };
+
+    it('hands the file to onPublishWorker', async () => {
+        const onPublishWorker = vi.fn();
+        await (await publishItem({ onPublishWorker })).onClick();
+        expect(onPublishWorker).toHaveBeenCalledWith({
+            uid: 'file-1',
+            name: 'worker.js',
+            path: '/me/worker.js',
+        });
+    });
+
+    it('is left out without onPublishWorker', async () => {
+        expect(await publishItem({})).toBeUndefined();
+    });
+});
+
 describe('Remove from Shared', () => {
     const remove = async (fsentry) => {
         const row = sharedRow();
@@ -110,6 +196,29 @@ describe('Remove from Shared', () => {
 
     afterEach(() => {
         document.body.innerHTML = '';
+        UIAlert.mockReset();
+    });
+
+    it.each([
+        ['is refused', allRefused, 'Held through a team'],
+        ['resolves with the pair refused', goneRefused, 'Subject does not exist'],
+    ])('keeps the row and shows the error when leaving the share %s', async (_, answer, message) => {
+        const row = sharedRow();
+        document.body.append(row);
+        const onRemovedFromShared = vi.fn();
+        window.user = { username: 'alice' };
+        globalThis.puter = { fs: { unshare: unshareAnswering(answer) } };
+        const items = await generate_file_context_menu({
+            element: row,
+            fsentry: { name: 'notes.txt', path: '/ann/uid-1/notes.txt' },
+            associated_app_name: 'editor',
+            onRemovedFromShared,
+        });
+        await items.find((item) => item.html === 'share_remove_from_shared').onClick();
+
+        expect(UIAlert).toHaveBeenCalledWith({ message });
+        expect(row.isConnected).toBe(true);
+        expect(onRemovedFromShared).not.toHaveBeenCalled();
     });
 
     it('takes the row away once the user has left it', async () => {
@@ -166,17 +275,18 @@ describe('Open With', () => {
         }));
     });
 
-    it('opens the tab after the make-default prompt is answered', async () => {
-        let openedBeforeAnswer = null;
-        UIAlert.mockImplementation(async () => {
-            openedBeforeAnswer = window.open.mock.calls.length > 0;
-            return 'yes';
-        });
+    it('opens another app right away without asking to make it the default', async () => {
         await openWith(1, { openWithInNewTab: true });
-        expect(openedBeforeAnswer).toBe(false);
+        expect(UIAlert).not.toHaveBeenCalled();
+        expect(window.mutate_user_preferences).not.toHaveBeenCalled();
         expect(window.open).toHaveBeenCalledOnce();
-        expect(window.mutate_user_preferences).toHaveBeenCalled();
         expect(launch_app).toHaveBeenCalledWith(expect.objectContaining({ name: 'viewer', newTab: tab }));
+    });
+
+    it('lists the default app first', async () => {
+        window.user_preferences = { 'default_apps.txt': viewer.uuid };
+        await openWith(0);
+        expect(launch_app).toHaveBeenCalledWith(expect.objectContaining({ name: 'viewer' }));
     });
 
     it('opens in-page when the popup blocker refuses the tab', async () => {

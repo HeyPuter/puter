@@ -428,7 +428,7 @@ export const transformToV2 = (source) => {
         // (confirmed via git grep on puter@main), no v2 consumers.
         'ipgeo', 'newsdata', 'weather', 'user-send-mail',
         // `ai-chat.concurrentRequests` — v1 concurrency limiter not ported
-        // yet; see TODO in v2 drivers/ai-chat/ChatCompletionDriver.ts. Config
+        // yet; see TODO in v2 drivers/ai/interfaces/chat/ChatCompletionDriver.ts. Config
         // shape should move under `rate_limit.*` in IConfig when reintroduced,
         // so dropping avoids migrating a soon-to-be-renamed shape.
         'ai-chat',

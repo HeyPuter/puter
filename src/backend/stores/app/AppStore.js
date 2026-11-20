@@ -26,7 +26,9 @@ import {
     PuterStore,
 } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
+import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { escapeLike } from '../../util/sqlLike.js';
 import {
     validateUrl,
     WEB_AND_EXTENSION_PROTOCOLS,
@@ -89,21 +91,26 @@ const STATS_CACHE_TTL_SECONDS = 30 * 60;
 // `app-` + a UUID. ClickHouse's `app_opens.app_uid` is FixedString(40) and
 // fails the whole query on a longer value.
 const APP_UID_MAX_BYTES = 40;
+// ClickHouse caps the size of one query parameter, and the uid list is one.
+const CLICKHOUSE_UIDS_PER_QUERY = 1000;
 
 // Period helpers for detailed/grouped stats. Ported from v1
 // AppInformationService — queries go straight to ClickHouse/MySQL on demand
 // (no cache) since they're UI-driven and rarely repeated with identical args.
+// Weeks are ISO 8601 weeks (Monday first, numbered within the ISO year) in
+// every engine, to match the keys `#isoWeekKey` generates.
 const MYSQL_DATE_FORMATS = {
     hour: '%Y-%m-%d %H:00:00',
     day: '%Y-%m-%d',
-    week: '%Y-%U',
+    week: '%x-%v',
     month: '%Y-%m',
     year: '%Y',
 };
+const SQLITE_DATE_FORMATS = { ...MYSQL_DATE_FORMATS, week: '%G-%V' };
 const CLICKHOUSE_GROUP_BY_FORMATS = {
     hour: 'toStartOfHour(fromUnixTimestamp(ts))',
     day: 'toStartOfDay(fromUnixTimestamp(ts))',
-    week: 'toStartOfWeek(fromUnixTimestamp(ts))',
+    week: 'toStartOfWeek(fromUnixTimestamp(ts), 1)',
     month: 'toStartOfMonth(fromUnixTimestamp(ts))',
     year: 'toStartOfYear(fromUnixTimestamp(ts))',
 };
@@ -146,6 +153,7 @@ const READ_ONLY_COLUMNS = new Set([
     'created_by_app',
     'filetype_associations',
 ]);
+const COLUMN_NAME = /^[a-z_][a-z0-9_]*$/;
 // Unique-key columns `#getManyByProperty` may build an IN-list against.
 const BATCH_LOOKUP_COLUMNS = new Set(['id', 'uid', 'name']);
 const APP_BOOLEAN_COLUMNS = new Set([
@@ -267,7 +275,7 @@ export class AppStore extends PuterStore {
      * extensions.
      */
     async uidExistsOnPrimary(uid) {
-        if (!uid) return false;
+        if (!uid || typeof uid !== 'string') return false;
         const rows = await this.clients.db.pread(
             'SELECT `id` FROM `apps` WHERE `uid` = ? LIMIT 1',
             [uid],
@@ -316,8 +324,11 @@ export class AppStore extends PuterStore {
         if (!BATCH_LOOKUP_COLUMNS.has(prop)) {
             throw new Error(`AppStore: unsupported batch lookup key ${prop}`);
         }
+        // Same rule as `#getByProperty`: only `id` takes a number.
         const present = (Array.isArray(values) ? values : []).filter(
-            (value) => value !== null && value !== undefined,
+            (value) =>
+                typeof value === 'string' ||
+                (prop === 'id' && typeof value === 'number'),
         );
         return this.#cache.getMany(prop, present, async (missing, primary) => {
             const apps = [];
@@ -345,11 +356,35 @@ export class AppStore extends PuterStore {
     }
 
     async existsByName(name) {
+        if (typeof name !== 'string') return false;
         const rows = await this.clients.db.read(
             'SELECT `id` FROM `apps` WHERE `name` = ? LIMIT 1',
             [name],
         );
         return rows.length > 0;
+    }
+
+    /**
+     * A godmode app other than `excludeAppId` loading from `host`. Godmode apps
+     * run with the desktop's authority, so their origin is theirs alone.
+     */
+    async findGodmodeOnHost(host, { excludeAppId } = {}) {
+        const params = [];
+        const clauses = [];
+        for (const scheme of ['https', 'http']) {
+            clauses.push("`index_url` = ? OR `index_url` LIKE ? ESCAPE '!'");
+            params.push(
+                `${scheme}://${host}`,
+                `${escapeLike(`${scheme}://${host}`)}/%`,
+            );
+        }
+        let sql = `SELECT \`id\`, \`uid\` FROM \`apps\` WHERE \`godmode\` = 1 AND (${clauses.join(' OR ')})`;
+        if (Number.isInteger(excludeAppId) && excludeAppId > 0) {
+            sql += ' AND `id` != ?';
+            params.push(excludeAppId);
+        }
+        const rows = await this.clients.db.read(`${sql} LIMIT 1`, params);
+        return rows[0] ?? null;
     }
 
     /**
@@ -1112,10 +1147,13 @@ export class AppStore extends PuterStore {
 
         // Rows written before writes were canonicalized may carry a leading
         // dot (`.docx`); match both forms so they work without a migration.
+        // Ordered by registration: the list feeds "Open With" and, for
+        // extensions without a built-in opener, which app opens by default.
         const rows = await this.clients.db.read(
             `SELECT a.*, ${this.#createdEpochColumn('a.')} FROM \`apps\` a
              INNER JOIN \`app_filetype_association\` fa ON fa.\`app_id\` = a.\`id\`
-             WHERE fa.\`type\` IN (?, ?)`,
+             WHERE fa.\`type\` IN (?, ?)
+             ORDER BY fa.\`id\``,
             [ext, `.${ext}`],
         );
         // An app associated under both forms joins to two rows.
@@ -1243,7 +1281,13 @@ export class AppStore extends PuterStore {
     // -- Internals ----------------------------------------------------
 
     async #getByProperty(prop, value) {
-        if (value === undefined || value === null) return null;
+        // A text column compared with a number casts the column, so only `id`
+        // takes a number.
+        if (
+            typeof value !== 'string' &&
+            !(prop === 'id' && typeof value === 'number')
+        )
+            return null;
         return this.#cache.get(
             this.#cache.key(prop, value),
             async (primary) => {
@@ -1527,6 +1571,10 @@ export class AppStore extends PuterStore {
         const out = {};
         for (const [k, v] of Object.entries(fields)) {
             if (READ_ONLY_COLUMNS.has(k)) continue;
+            // Keys become column names in the statement.
+            if (!COLUMN_NAME.test(k)) {
+                throw new Error(`AppStore: invalid column name ${k}`);
+            }
             if (k === 'index_url' && typeof v === 'string' && v) {
                 try {
                     out[k] = new URL(v).href;
@@ -1696,10 +1744,13 @@ export class AppStore extends PuterStore {
         const clickhouse = this.clients.clickhouse;
 
         if (grouping) {
-            if (!MYSQL_DATE_FORMATS[grouping]) {
+            if (
+                typeof grouping !== 'string' ||
+                !Object.hasOwn(MYSQL_DATE_FORMATS, grouping)
+            ) {
                 throw new HttpError(
                     400,
-                    `Invalid grouping: ${grouping}. Supported: hour, day, week, month, year`,
+                    'Invalid grouping. Supported: hour, day, week, month, year',
                     { legacyCode: 'bad_request' },
                 );
             }
@@ -1727,20 +1778,30 @@ export class AppStore extends PuterStore {
 
         const clickhouse = this.clients.clickhouse;
         if (clickhouse) {
-            const res = await clickhouse.query({
-                query: `
-                    SELECT app_uid,
-                           uniqExact((user_id, intDiv(ts, ${APP_OPEN_COUNT_PERIOD_SECONDS}))) AS open_count,
-                           count(DISTINCT user_id) AS user_count
-                    FROM app_opens
-                    WHERE app_uid IN {uids:Array(String)}
-                    GROUP BY app_uid
-                `,
-                query_params: { uids: uids.map((u) => String(u)) },
-                format: 'JSONEachRow',
-            });
-            const rows = await res.json();
-            for (const row of rows) {
+            const chunks = [];
+            for (let i = 0; i < uids.length; i += CLICKHOUSE_UIDS_PER_QUERY) {
+                chunks.push(uids.slice(i, i + CLICKHOUSE_UIDS_PER_QUERY));
+            }
+            const results = await runWithConcurrencyLimit(
+                chunks,
+                4,
+                async (chunk) => {
+                    const res = await clickhouse.query({
+                        query: `
+                            SELECT app_uid,
+                                   uniqExact((user_id, intDiv(ts, ${APP_OPEN_COUNT_PERIOD_SECONDS}))) AS open_count,
+                                   count(DISTINCT user_id) AS user_count
+                            FROM app_opens
+                            WHERE app_uid IN {uids:Array(String)}
+                            GROUP BY app_uid
+                        `,
+                        query_params: { uids: chunk.map((u) => String(u)) },
+                        format: 'JSONEachRow',
+                    });
+                    return res.json();
+                },
+            );
+            for (const row of results.flat()) {
                 out.set(row.app_uid, {
                     open_count: parseInt(row.open_count, 10) || 0,
                     user_count: parseInt(row.user_count, 10) || 0,
@@ -1857,7 +1918,7 @@ export class AppStore extends PuterStore {
         // ts is stored as unix seconds — no /1000 in the date conversion.
         const periodExpr = this.clients.db.case({
             mysql: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
-            sqlite: `STRFTIME('${timeFormat}', datetime(ts, 'unixepoch'))`,
+            sqlite: `STRFTIME('${SQLITE_DATE_FORMATS[grouping]}', datetime(ts, 'unixepoch'))`,
             postgres: `TO_CHAR(TO_TIMESTAMP(ts), '${this.#postgresDateFormat(grouping)}')`,
             otherwise: `DATE_FORMAT(FROM_UNIXTIME(ts), '${timeFormat}')`,
         });
@@ -1886,7 +1947,7 @@ export class AppStore extends PuterStore {
             case 'day':
                 return 'YYYY-MM-DD';
             case 'week':
-                return 'YYYY-WW';
+                return 'IYYY-IW';
             case 'month':
                 return 'YYYY-MM';
             case 'year':
@@ -1898,9 +1959,8 @@ export class AppStore extends PuterStore {
 
     #assembleGroupedResult(rows, allPeriods, grouping) {
         // Totals come from raw rows so they survive even if a row's
-        // period key fails to match an `allPeriods` entry (e.g. week
-        // grouping format mismatches, timezone edge cases). Matches v1
-        // AppInformationService.get_stats behaviour.
+        // period key fails to match an `allPeriods` entry (e.g. timezone
+        // edge cases). Matches v1 AppInformationService.get_stats behaviour.
         let totalOpen = 0;
         let totalUser = 0;
         for (const r of rows) {
@@ -1932,10 +1992,8 @@ export class AppStore extends PuterStore {
                 return `${period.toISOString().slice(0, 13)}:00:00`;
             case 'day':
                 return period.toISOString().slice(0, 10);
-            case 'week': {
-                const wn = String(this.#getWeekNumber(period)).padStart(2, '0');
-                return `${period.getFullYear()}-${wn}`;
-            }
+            case 'week':
+                return this.#isoWeekKey(period);
             case 'month':
                 return period.toISOString().slice(0, 7);
             case 'year':
@@ -2027,6 +2085,11 @@ export class AppStore extends PuterStore {
         const out = [];
         const cur = new Date(startDate);
         if (Number.isNaN(cur.getTime())) return out;
+        if (grouping === 'week') {
+            // From the week's Monday, so stepping a week at a time also
+            // reaches the week the range ends in.
+            cur.setUTCDate(cur.getUTCDate() - ((cur.getUTCDay() + 6) % 7));
+        }
         while (cur <= endDate) {
             let period;
             switch (grouping) {
@@ -2038,15 +2101,10 @@ export class AppStore extends PuterStore {
                     period = cur.toISOString().slice(0, 10);
                     cur.setDate(cur.getDate() + 1);
                     break;
-                case 'week': {
-                    const wn = String(this.#getWeekNumber(cur)).padStart(
-                        2,
-                        '0',
-                    );
-                    period = `${cur.getFullYear()}-${wn}`;
-                    cur.setDate(cur.getDate() + 7);
+                case 'week':
+                    period = this.#isoWeekKey(cur);
+                    cur.setUTCDate(cur.getUTCDate() + 7);
                     break;
-                }
                 case 'month':
                     period = cur.toISOString().slice(0, 7);
                     cur.setMonth(cur.getMonth() + 1);
@@ -2063,15 +2121,22 @@ export class AppStore extends PuterStore {
         return out;
     }
 
-    #getWeekNumber(date) {
-        const target = new Date(date.valueOf());
-        const dayNumber = (date.getDay() + 6) % 7;
-        target.setDate(target.getDate() - dayNumber + 3);
-        const firstThursday = target.valueOf();
-        target.setMonth(0, 1);
-        if (target.getDay() !== 4) {
-            target.setMonth(0, 1 + ((4 - target.getDay() + 7) % 7));
-        }
-        return 1 + Math.ceil((firstThursday - target) / 604800000);
+    // `<ISO year>-<ISO week>` in UTC. A week belongs to the year its
+    // Thursday falls in, so 2025-12-29 is `2026-01`.
+    #isoWeekKey(date) {
+        const thursday = new Date(
+            Date.UTC(
+                date.getUTCFullYear(),
+                date.getUTCMonth(),
+                date.getUTCDate(),
+            ),
+        );
+        thursday.setUTCDate(
+            thursday.getUTCDate() + 3 - ((thursday.getUTCDay() + 6) % 7),
+        );
+        const year = thursday.getUTCFullYear();
+        const week =
+            1 + Math.floor((thursday - Date.UTC(year, 0, 1)) / 604800000);
+        return `${year}-${String(week).padStart(2, '0')}`;
     }
 }

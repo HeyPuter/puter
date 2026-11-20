@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 The largest value the key-value store accepts, in bytes.
 
-It's `408576` (399 KB). A value is measured as the UTF-8 bytes of `JSON.stringify(value)`, so a string's quotes and escapes count.
+It's `408576` (399 KB). A value is measured as the UTF-8 bytes of `JSON.stringify(value)`, so a string's quotes and escapes count. A smaller value can still be too large once stored, as described on [`puter.kv.set()`](/KV/set/).
 
 ## Syntax
 

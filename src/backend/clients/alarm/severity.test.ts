@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { meetsMinSeverity, resolveSeverityOverride } from './severity';
+import {
+    meetsMinSeverity,
+    resolveCallGroup,
+    resolveSeverityOverride,
+} from './severity';
 
 describe('meetsMinSeverity', () => {
     it('accepts everything at or above the floor', () => {
@@ -72,5 +76,32 @@ describe('resolveSeverityOverride', () => {
         ).toBeUndefined();
         expect(warn).toHaveBeenCalled();
         warn.mockRestore();
+    });
+});
+
+describe('resolveCallGroup', () => {
+    it('picks the group of the longest matching rule', () => {
+        const rules = {
+            'appstore_billing_error:*': 'billing',
+            'appstore_billing_error:topup_stuck:*': 'billing-urgent',
+        };
+        expect(
+            resolveCallGroup('appstore_billing_error:topup_stuck:tx1', rules),
+        ).toBe('billing-urgent');
+        expect(
+            resolveCallGroup('appstore_billing_error:refund:tx1', rules),
+        ).toBe('billing');
+        expect(resolveCallGroup('http_500:GET:/x', rules)).toBeUndefined();
+    });
+
+    it('ignores a group that cannot be used as a key', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        expect(resolveCallGroup('a:b', { 'a:*': 'on call' })).toBeUndefined();
+        expect(warn).toHaveBeenCalled();
+        warn.mockRestore();
+    });
+
+    it('does not read inherited keys as rules', () => {
+        expect(resolveCallGroup('constructor', {})).toBeUndefined();
     });
 });

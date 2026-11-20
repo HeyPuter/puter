@@ -10,6 +10,7 @@ import { request } from './lib/api.js';
 import {
     CLICK_KEEP_MS,
     HANDLERS_STORE,
+    SUBSCRIPTION_CHANGED_MESSAGE,
     SUBSCRIPTION_CHANGED_PREFIX,
     SYNCED_PREFIX,
     TAP_BASE_PREFIX,
@@ -24,9 +25,10 @@ import {
 } from './lib/pushStore.js';
 import { closeNotification, reconcileDismissed } from './lib/osNotifications.js';
 import { HANDLED_EVENT, ReceiptLog, handledHere } from './lib/receipts.js';
-import { toClick } from './lib/shapes.js';
+import { currentWebPushDevice, toClick } from './lib/shapes.js';
 import {
     currentWebPush,
+    forgetWebPushReceipt,
     removeWebPush,
     syncWebPush,
     unsubscribeWebPush,
@@ -37,7 +39,7 @@ import {
     workerFor,
     workerScope,
 } from './lib/webPush.js';
-import { listDevices } from './listDevices.js';
+import { listDevices, readDevices } from './listDevices.js';
 import { markShown } from './markShown.js';
 import { notify } from './notify.js';
 import { onNotification } from './onNotification.js';
@@ -52,8 +54,7 @@ export const CLICK_BROADCAST = 'notificationClick';
 export const WORKER_CLICK_MESSAGE = 'puter-notification-click';
 /** What the page answers a tap with when a click handler took it. */
 export const WORKER_CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-/** What a worker posts when the browser replaced the push subscription. */
-export const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
+export { SUBSCRIPTION_CHANGED_MESSAGE };
 /** Query parameter `push-sw.js` adds to a page it opens for a tap. */
 export const CLICK_PARAM = 'puter.notification';
 
@@ -191,6 +192,7 @@ const tapBaseFor = (worker, pageUrl) => {
  */
 export class NotificationsModule extends EventListener {
     // Rebound in the constructor so destructured calls keep `this`.
+    /** @type {OmitThisParameter<typeof notify>} */
     notify = notify;
     /** @type {OmitThisParameter<typeof cancel>} */
     cancel = cancel;
@@ -198,16 +200,34 @@ export class NotificationsModule extends EventListener {
     markShown = markShown;
     /** @type {OmitThisParameter<typeof dismiss>} */
     dismiss = dismiss;
+    /** @type {OmitThisParameter<typeof onNotification>} */
     onNotification = onNotification;
+    /** @type {OmitThisParameter<typeof enable>} */
     enable = enable;
+    /** @type {OmitThisParameter<typeof disable>} */
     disable = disable;
+    /** @type {OmitThisParameter<typeof status>} */
     status = status;
+    /** @type {OmitThisParameter<typeof onPush>} */
     onPush = onPush;
+    /** @type {OmitThisParameter<typeof requestPermission>} */
     requestPermission = requestPermission;
+    /** @type {OmitThisParameter<typeof hasPermission>} */
     hasPermission = hasPermission;
+    /** @type {OmitThisParameter<typeof enablePush>} */
     enablePush = enablePush;
+    /** @type {OmitThisParameter<typeof listDevices>} */
     listDevices = listDevices;
+    /** @type {OmitThisParameter<typeof removeDevice>} */
     removeDevice = removeDevice;
+
+    /**
+     * `enable()` takes `background`. The desktop checks it, since an older
+     * puter.js would run that call as a click.
+     *
+     * @internal
+     */
+    _enableTakesBackground = true;
 
     #pushListener = (notification) => {
         if (this.#pushHandlers.size > 0) return this.#dispatchPush(notification);
@@ -491,10 +511,20 @@ export class NotificationsModule extends EventListener {
      * failed confirmation is tried again on the next load.
      *
      * @param {{ url: string; scope?: string }} worker
+     * @param {{ background?: boolean }} [options] `background` is a call without
+     *   a click. A browser the user removed in Puter rejects with
+     *   `push_device_removed` and a rejected token opens no sign-in. On a website
+     *   it resolves false without the user's opt-in here, and rejects with
+     *   `push_verification_canceled` when the opt-in goes while it runs.
+     * @returns {Promise<boolean>} Whether this browser was registered.
      * @internal
      */
-    async _enableWebPush(worker) {
+    async _enableWebPush(worker, { background = false } = {}) {
         await this.#userChange;
+        const signal = this.#stopVerifying.signal;
+        const needsOptIn = background && this.puter.env === 'web';
+        if (needsOptIn && (!(await this.#optedIn()) || signal.aborted))
+            return false;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
         /** @type {() => void} */
@@ -502,13 +532,13 @@ export class NotificationsModule extends EventListener {
         const sent = new Promise((resolve) => {
             pending = () => resolve(undefined);
         });
-        const signal = this.#stopVerifying.signal;
         const syncing = syncWebPush(this.puter, {
             worker,
             onPending: pending,
             signal,
-            renewRemoved: true,
-            interactive: true,
+            renewRemoved: !background,
+            interactive: !background,
+            ...(needsOptIn ? { stillWanted: () => this.#optedIn() } : {}),
             withLock: withPushLock,
             onAnnounced: () => this.#recordOptIn(true),
             onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
@@ -534,6 +564,7 @@ export class NotificationsModule extends EventListener {
             worker,
             'could not confirm this browser for pushes',
         );
+        return true;
     }
 
     /**
@@ -584,7 +615,26 @@ export class NotificationsModule extends EventListener {
             await this.#recordOptIn(false);
             return 'off';
         }
+        // Another account in this browser may have made the subscription.
+        if (
+            state === 'unknown' &&
+            this.puter.env === 'gui' &&
+            (await this.#listsThisBrowser()) === false
+        )
+            return 'off';
         return 'on';
+    }
+
+    /** @returns {Promise<boolean | null>} Null when the list can't be read */
+    async #listsThisBrowser() {
+        try {
+            const devices = await readDevices(this.puter, {
+                interactiveReauth: false,
+            });
+            return devices ? currentWebPushDevice(devices) !== null : null;
+        } catch {
+            return null;
+        }
     }
 
     /**
@@ -614,6 +664,16 @@ export class NotificationsModule extends EventListener {
                 );
             }
         });
+    }
+
+    /**
+     * Sign-out in the Puter GUI: forgets the receipt, so the next account to
+     * sign in confirms this browser itself. Never throws.
+     *
+     * @internal
+     */
+    async _forgetPushReceipt() {
+        await forgetWebPushReceipt(this.puter, workerFor('gui'));
     }
 
     /** Another user signing in here ends push for the last one, as sign-out. */
@@ -729,6 +789,11 @@ export class NotificationsModule extends EventListener {
         return on;
     }
 
+    /** Whether the user's opt-in here is known to be on. */
+    async #optedIn() {
+        return (await this.#readOptIn()) === true;
+    }
+
     /** Stops other tabs' syncs once push is turned off here. */
     #optInChanged(kind) {
         this.#listenForOptInChanges();
@@ -761,7 +826,7 @@ export class NotificationsModule extends EventListener {
             syncWebPush(this.puter, {
                 worker,
                 signal: this.#stopVerifying.signal,
-                stillWanted: async () => (await this.#readOptIn()) === true,
+                stillWanted: () => this.#optedIn(),
                 withLock: withPushLock,
                 onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
             }),
@@ -847,15 +912,12 @@ export class NotificationsModule extends EventListener {
 
     /** Remembers the subscription the server confirmed, for the next loads. */
     async #noteSynced(worker, endpoint) {
-        if (this.puter.env !== 'web') return;
+        await this._noteWebPushSynced(endpoint);
+        await this.#clearChanged(worker);
+    }
+
+    async #clearChanged(worker) {
         try {
-            const uuid = await this.#userUuid();
-            if (uuid) {
-                await idbPut(HANDLERS_STORE, SYNCED_PREFIX + uuid, {
-                    endpoint,
-                    at: Date.now(),
-                });
-            }
             await idbDelete(
                 HANDLERS_STORE,
                 SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
@@ -863,6 +925,87 @@ export class NotificationsModule extends EventListener {
         } catch {
             // The next load registers again.
         }
+    }
+
+    /**
+     * The worker's mark and, unless `endpoint` is false, the user's confirmed
+     * endpoint; nulls when unknown.
+     *
+     * @param {{ endpoint?: boolean }} [options]
+     * @returns {Promise<{
+     *     endpoint: string | null;
+     *     changed: { at?: number; oldEndpoint?: string } | null;
+     * }>}
+     * @internal
+     */
+    async _webPushRecord({ endpoint = true } = {}) {
+        const worker = workerFor(this.puter.env);
+        const readSynced = async () => {
+            if (!endpoint) return null;
+            try {
+                const uuid = await this.#userUuid();
+                return uuid
+                    ? await idbGet(HANDLERS_STORE, SYNCED_PREFIX + uuid)
+                    : null;
+            } catch {
+                return null;
+            }
+        };
+        const readChanged = async () => {
+            try {
+                return await idbGet(
+                    HANDLERS_STORE,
+                    SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
+                );
+            } catch {
+                return null;
+            }
+        };
+        const [synced, changed] = await Promise.all([
+            readSynced(),
+            readChanged(),
+        ]);
+        return {
+            endpoint:
+                typeof synced?.endpoint === 'string' && synced.endpoint
+                    ? synced.endpoint
+                    : null,
+            changed: changed ?? null,
+        };
+    }
+
+    /**
+     * Records `endpoint` as the one the server confirmed.
+     *
+     * @param {string} endpoint
+     * @returns {Promise<boolean>} Whether it was recorded.
+     * @internal
+     */
+    async _noteWebPushSynced(endpoint) {
+        try {
+            const uuid = await this.#userUuid();
+            if (!uuid) return false;
+            await idbPut(HANDLERS_STORE, SYNCED_PREFIX + uuid, {
+                endpoint,
+                at: Date.now(),
+            });
+            return true;
+        } catch {
+            // The next load registers again.
+            return false;
+        }
+    }
+
+    /**
+     * Ends a subscription removed in Puter, with its receipt and mark.
+     *
+     * @returns {Promise<void>}
+     * @internal
+     */
+    async _dropRemovedWebPush() {
+        const worker = workerFor(this.puter.env);
+        await this.#dropRemoved(worker);
+        await this.#clearChanged(worker);
     }
 
     /** Ends a subscription left here without an opt-in, in the browser only. */
@@ -908,6 +1051,7 @@ export class NotificationsModule extends EventListener {
         } catch {
             // Already gone, or the browser can't tell.
         }
+        await forgetWebPushReceipt(this.puter, worker);
         await this.#recordOptIn(false);
     }
 

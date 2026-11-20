@@ -53,6 +53,8 @@ const hostTheme = embedHostTheme(window.location.hash);
 if ( hostTheme ) forceColorScheme(document, hostTheme);
 // Apps whose launch is still fetching; a second click would open a second tab.
 const launching = new Set();
+// Apps opened from the embed name the page it's on as the site that sent the user.
+const source = config.hostOrigin ? new URL(config.hostOrigin).hostname : undefined;
 
 /**
  * Opens a tile's app in a new tab at its own URL, as the dashboard does.
@@ -73,6 +75,7 @@ function launchTile ({ appName, targetLink }) {
             guiOrigin: window.location.origin,
             apiOrigin: config.apiOrigin,
             locale: window.locale,
+            source,
         });
         window.open(url || href, '_blank', 'noopener');
         return;
@@ -90,6 +93,7 @@ function launchTile ({ appName, targetLink }) {
         apiOrigin: config.apiOrigin,
         authToken: window.auth_token,
         locale: window.locale,
+        source,
     })
         .catch((err) => {
             console.error(`Failed to launch ${appName}:`, err);

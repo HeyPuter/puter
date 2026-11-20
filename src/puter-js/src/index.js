@@ -14,7 +14,6 @@ import {
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
-import * as utils from './lib/utils.js';
 import { AI } from './modules/ai/index.js';
 import { Apps } from './modules/apps/index.js';
 import Auth from './modules/Auth.js';
@@ -104,6 +103,25 @@ class Lock {
 //       generalize this behavior rather than hard-coding it.
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
+
+// The desktops Puter itself serves. An app learns which one launched it from
+// the URL (`puter.origin`), and only one of these is believed: the GUI origin
+// is what every message from the desktop is checked against, so taking an
+// arbitrary one would let any page that frames an app drive it.
+const FIRST_PARTY_GUI_ORIGINS = new Set([
+    'https://puter.com',
+    'https://desktop.puter.com',
+]);
+
+/** `value`'s origin when it is a first-party desktop, otherwise null. */
+const firstPartyGUIOrigin = (value) => {
+    try {
+        const { origin } = new URL(value);
+        return FIRST_PARTY_GUI_ORIGINS.has(origin) ? origin : null;
+    } catch {
+        return null;
+    }
+};
 
 // localStorage key for the auth token. The retired key below is never read —
 // only deleted, so a token from before the format change doesn't linger in a
@@ -214,6 +232,9 @@ export class Puter {
 
     #defaultAPIOrigin = 'https://api.puter.com';
     #defaultGUIOrigin = 'https://puter.com';
+    // In app mode, the first-party desktop that launched this app, when it
+    // isn't the build's default one.
+    #launchGUIOrigin = null;
 
     /** @returns {string} */
     get defaultAPIOrigin() {
@@ -231,6 +252,7 @@ export class Puter {
     get defaultGUIOrigin() {
         return (
             globalThis.PUTER_ORIGIN ||
+            this.#launchGUIOrigin ||
             globalThis.PUTER_ORIGIN_ENV ||
             this.#defaultGUIOrigin
         );
@@ -278,6 +300,15 @@ export class Puter {
      */
     openerLaunchItem_ = null;
 
+    /**
+     * Whether this is a tab the GUI opened for an app and handed a session
+     * token, which it then keeps in sessionStorage the way a framed app does.
+     *
+     * @internal
+     * @type {boolean}
+     */
+    appTabSession_ = false;
+
     // Holds the unique app instance ID that is provided by the host environment
     appInstanceID;
 
@@ -316,6 +347,14 @@ export class Puter {
      * delivery and never wants it parked in a delivery-room socket.
      */
     socketEnabled = globalThis.puter_socket_enabled !== false;
+
+    /**
+     * @internal
+     * Whether this client reports an app open (`/rao`) when it authenticates.
+     * Seeded off `puter_report_app_open`, which the worker runtimes set to
+     * `false`: code running as the account isn't a visit.
+     */
+    reportsAppOpen = globalThis.puter_report_app_open !== false;
 
     /**
      * Puter.js Modules
@@ -626,6 +665,15 @@ export class Puter {
             this.APIOrigin = `https://api.${URLParams.get('puter.domain')}`;
         }
 
+        // An app launched by a first-party desktop other than puter.com
+        // (e.g. desktop.puter.com) talks to that desktop: its messages come
+        // from there, and replies meant only for it go there.
+        if (this.env === 'app') {
+            this.#launchGUIOrigin = firstPartyGUIOrigin(
+                URLParams.get('puter.origin'),
+            );
+        }
+
         // === START :: Logger ===
 
         // Basic logger replacement (console-based)
@@ -648,6 +696,10 @@ export class Puter {
         // The in-flight boot `/whoami`, awaited by anything that wants the
         // cached user without issuing its own request.
         this.whoamiCache_ = null;
+        /** @internal The boot `/whoami` while in flight, for `getUser()` to join. */
+        this.whoamiInFlight_ = null;
+        /** @internal The token and API origin `whoami` was read with. */
+        this.whoamiFor_ = null;
 
         // A user session token must never be adopted from storage, and an
         // earlier boot may have left one behind.
@@ -750,6 +802,9 @@ export class Puter {
         // the SDK needs to show a dialog to the user to ask for permission to access their Puter account.
         else if (this.env === 'web') {
             try {
+                // A godmode app reloading in the tab the GUI opened it in;
+                // only that handoff stores a session token on this origin.
+                const godmodeToken = this.readStoredSessionToken_();
                 const storedToken = this.normalizeAuthTokenCandidate(
                     localStorage.getItem(STORAGE_KEY_V2),
                 );
@@ -762,7 +817,10 @@ export class Puter {
                 const boundOrigin = this.normalizeStringCandidate(
                     localStorage.getItem(STORAGE_KEY_ORIGIN_V2),
                 );
-                if (
+                if (godmodeToken) {
+                    this.appTabSession_ = true;
+                    this.setAuthToken(godmodeToken);
+                } else if (
                     storedToken &&
                     this._storedTokenUsableForCurrentOrigin(boundOrigin)
                 ) {
@@ -799,7 +857,12 @@ export class Puter {
                             launch.item,
                         );
                     }
-                    if (launch?.token) this.setAuthToken(launch.token);
+                    if (launch?.token) {
+                        this.appTabSession_ = this.isUserSessionToken_(
+                            launch.token,
+                        );
+                        this.setAuthToken(launch.token);
+                    }
                 });
             }
 
@@ -864,7 +927,12 @@ export class Puter {
         // when running as a Puter app (i.e. within an iframe in the GUI).
         // Same call opted out of by `socketEnabled: false` — that flag means
         // this client is a disposable per-invocation one, not a real visit.
-        if (this.env === 'gui' || this.env === 'app' || !this.socketEnabled) {
+        if (
+            this.env === 'gui' ||
+            this.env === 'app' ||
+            !this.socketEnabled ||
+            !this.reportsAppOpen
+        ) {
             return;
         }
 
@@ -920,26 +988,62 @@ export class Puter {
         // use for a cached user and shouldn't pay for the request.
         if (!this.authToken || !this.socketEnabled) return null;
         const issuedUnder = this.authToken;
+        // `user` settles with the user, or null at the first failed attempt.
+        let settle;
+        const inFlight = {
+            token: issuedUnder,
+            origin: this.APIOrigin,
+            user: new Promise((resolve) => {
+                settle = resolve;
+            }),
+            refusal: null,
+        };
+        this.whoamiInFlight_ = inFlight;
         try {
             const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
                 authToken: this.authToken,
                 interactiveReauth: false,
+                onRetry: () => settle(null),
                 logContext: {
                     service: 'auth',
                     operation: 'whoami',
                     params: {},
                 },
             });
-            if (!resp.ok) return null;
+            if (!resp.ok) {
+                inFlight.refusal = await resp.json().catch(() => null);
+                return null;
+            }
             const body = await resp.json();
             // The answer belongs to the token that asked for it.
-            if (this.authToken !== issuedUnder) return null;
-            this.whoami = body;
+            if (!this.rememberWhoami_(body, issuedUnder, inFlight.origin))
+                return null;
+            settle(body);
             return this.whoami;
         } catch (e) {
             // Best-effort cache — a network failure leaves it unset.
             return null;
+        } finally {
+            settle(null);
+            if (this.whoamiInFlight_ === inFlight) this.whoamiInFlight_ = null;
         }
+    }
+
+    /**
+     * Keeps `user` as `whoami` if it was read with the current token and API
+     * origin.
+     *
+     * @internal
+     * @param {import('./modules/Auth.js').User} user
+     * @param {string} token
+     * @param {string} origin
+     * @returns {boolean} Whether it was kept.
+     */
+    rememberWhoami_(user, token, origin) {
+        if (token !== this.authToken || origin !== this.APIOrigin) return false;
+        this.whoami = user;
+        this.whoamiFor_ = { token, origin };
+        return true;
     }
 
     /**
@@ -1021,10 +1125,10 @@ export class Puter {
 
         // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage.
         // A user session token (a godmode app's launch token) never goes there:
-        // an app keeps it in sessionStorage so a frame reload still has it.
+        // an app keeps it in sessionStorage so a reload still has it.
         if (this.env === 'web' || this.env === 'app') {
             this.storeSessionToken_(
-                this.env === 'app' &&
+                (this.env === 'app' || this.appTabSession_) &&
                     this.isUserSessionToken_(normalizedAuthToken)
                     ? normalizedAuthToken
                     : null,
@@ -1065,6 +1169,18 @@ export class Puter {
 
         // rao
         this.request_rao_();
+
+        // The desktop hands back the token it holds after every user
+        // refresh, right after reading the user with it.
+        const readWith = (f) =>
+            f?.token === normalizedAuthToken && f?.origin === this.APIOrigin;
+        if (this.env === 'gui') {
+            if (readWith(this.whoamiInFlight_)) return;
+            if (this.whoami && readWith(this.whoamiFor_)) {
+                this.whoamiCache_ = Promise.resolve(this.whoami);
+                return;
+            }
+        }
 
         // perform whoami and cache results
         this.whoamiCache_ = this.cacheWhoami_();
@@ -1164,7 +1280,9 @@ export class Puter {
     /** Nothing read as one identity may answer for the next. */
     _dropIdentityCaches = function () {
         this.whoami = undefined;
+        this.whoamiFor_ = null;
         this.whoamiCache_ = null;
+        this.whoamiInFlight_ = null;
         try {
             this._cache.flushall();
         } catch (e) {
@@ -1710,24 +1828,7 @@ export class Puter {
             };
         }
 
-        return new Promise((resolve, reject) => {
-            const xhr = utils.initXhr(
-                '/whoami',
-                this.APIOrigin,
-                this.authToken,
-                'get',
-            );
-            // set up event handlers for load and error events
-            utils.setupXhrEventHandlers(
-                xhr,
-                options.success,
-                options.error,
-                resolve,
-                reject,
-            );
-
-            xhr.send();
-        });
+        return this.auth.requestUser_(options);
     };
 
     print = function (...args) {

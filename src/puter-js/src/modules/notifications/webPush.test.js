@@ -21,6 +21,8 @@ vi.mock('./lib/pushStore.js', () => {
         SERVER_KEYS_ENTRY: 'puter:server-keys',
         SYNCED_PREFIX: 'puter:synced:',
         SUBSCRIPTION_CHANGED_PREFIX: 'puter:subscription-changed:',
+        SUBSCRIPTION_CHANGED_MESSAGE: 'puter-push-subscription-changed',
+        RECEIPT_PREFIX: 'puter:receipt:',
         TAP_BASE_PREFIX: 'puter:tap-base:',
         CLICK_KEEP_MS: 5 * 60 * 1000,
         takeClick: stored(async (uid, id) => {
@@ -60,8 +62,13 @@ vi.mock('./lib/pushStore.js', () => {
     };
 });
 
-const { syncWebPush, removeWebPush, fromBase64Url, workerFor } =
-    await import('./lib/webPush.js');
+const {
+    syncWebPush,
+    removeWebPush,
+    unsubscribeWebPush,
+    fromBase64Url,
+    workerFor,
+} = await import('./lib/webPush.js');
 const { NotificationsModule } = await import('./index.js');
 const { PuterJSError } = await import('../../lib/PuterJSError.js');
 
@@ -2171,6 +2178,126 @@ describe('enable', () => {
     });
 });
 
+describe('enable({ background: true })', () => {
+    it('resolves false without a request where the browser can`t receive pushes', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        delete globalThis.PushManager;
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
+    });
+
+    it('registers again without a click for a user who turned pushes on here with a click', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server();
+        const { module } = makeModule();
+        await expect(module.enable()).resolves.toBe(true);
+        mockRequest.mockClear();
+        await expect(module.enable({ background: true })).resolves.toBe(true);
+        expect(Notification.requestPermission).toHaveBeenCalledTimes(0);
+        expect(
+            mockRequest.mock.calls.map(([, method, route]) => [method, route]),
+        ).toContainEqual(['POST', '/push/web/subscriptions']);
+        expect(store.get(OPT_IN)).toBe(true);
+    });
+
+    it('resolves false without a request for a user who never turned pushes on here', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        server();
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('stays off when disable() runs while it reads the opt-in', async () => {
+        store.set(OPT_IN, true);
+        const nav = makeNav();
+        withBrowser(nav);
+        server();
+        const { hasOptIn } = await import('./lib/pushStore.js');
+        hasOptIn.mockClear();
+        let answer = () => {};
+        hasOptIn.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    answer = () => resolve(true);
+                }),
+        );
+        const { module } = makeModule();
+        const enabling = module.enable({ background: true });
+        await vi.waitFor(() => expect(hasOptIn).toHaveBeenCalled());
+        await module.disable();
+        answer();
+        await expect(enabling).resolves.toBe(false);
+        await flush();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(
+            mockRequest.mock.calls.filter(
+                ([, method, route]) =>
+                    method === 'POST' && route === '/push/web/subscriptions',
+            ),
+        ).toEqual([]);
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('stops before subscribing when another tab turns pushes off meanwhile', async () => {
+        store.set(OPT_IN, true);
+        const nav = makeNav();
+        withBrowser(nav);
+        let keyAnswer = () => {};
+        mockRequest.mockImplementation(async (_p, _method, route) => {
+            if (route === '/push/web/key') {
+                return await new Promise((resolve) => {
+                    keyAnswer = () => resolve({ publicKey: KEY });
+                });
+            }
+            return { status: 'active', device: { uid: 'd1' } };
+        });
+        const { module } = makeModule();
+        const enabling = module.enable({ background: true });
+        await vi.waitFor(() =>
+            expect(mockRequest.mock.calls.map(([, , route]) => route)).toContain(
+                '/push/web/key',
+            ),
+        );
+        store.delete(OPT_IN);
+        keyAnswer();
+        await expect(enabling).resolves.toBe(false);
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('resolves false without a request after disable()', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server();
+        const { module } = makeModule();
+        await module.enable();
+        await module.disable();
+        nav.pushManager.getSubscription.mockResolvedValue(null);
+        nav.pushManager.subscribe.mockClear();
+        mockRequest.mockClear();
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('resolves false without a request outside a website or the Puter GUI', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server();
+        const { module } = makeModule({ env: 'web-worker' });
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
+    });
+});
+
 describe('enable() while another tab loads', () => {
     it('records the opt-in before the other tab checks it, so the new subscription stays', async () => {
         store.set(SERVER_KEY, KEY);
@@ -2234,6 +2361,193 @@ describe('enable after the user removed this browser in Puter', () => {
         expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
         expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(1);
         expect(store.get(OPT_IN)).toBe(true);
+    });
+
+    it('leaves it removed for a background enable(), registering nothing new', async () => {
+        store.set(OPT_IN, true);
+        const removed = makeSubscription(undefined, 'https://push.example/1');
+        const nav = makeNav({ existing: removed });
+        withBrowser(nav);
+        server((route, body) => {
+            if (body.subscription.endpoint === 'https://push.example/1')
+                throw new PuterJSError('removed', 'push_device_removed');
+            return { status: 'active', device: { uid: 'd2' } };
+        });
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).rejects.toMatchObject(
+            { code: 'push_device_removed' },
+        );
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(
+            mockRequest.mock.calls
+                .filter(([, , route]) => route === '/push/web/subscriptions')
+                .map(([, , , body]) => body.subscription.endpoint),
+        ).toEqual(['https://push.example/1']);
+        expect(store.has(OPT_IN)).toBe(false);
+
+        mockRequest.mockClear();
+        nav.pushManager.getSubscription.mockResolvedValue(null);
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    describe('in the Puter GUI', () => {
+        const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
+        /** A browser holding a removed subscription and its receipt. */
+        const removedHere = () => {
+            const removed = makeSubscription(
+                undefined,
+                'https://push.example/1',
+            );
+            store.set(RECEIPT, {
+                endpoint: 'https://push.example/1',
+                receipt: 'r-1',
+            });
+            const nav = makeNav({
+                existing: removed,
+                active: { scriptURL: `${ORIGIN}/sw.js` },
+            });
+            nav.pushManager.subscribe.mockResolvedValue(
+                makeSubscription(undefined, 'https://push.example/2'),
+            );
+            withBrowser(nav);
+            server((route, body) => {
+                if (body.subscription.endpoint === 'https://push.example/1')
+                    throw new PuterJSError('removed', 'push_device_removed');
+                return { status: 'active', device: { uid: 'd2' } };
+            });
+            return { removed, nav };
+        };
+        const announced = () =>
+            mockRequest.mock.calls
+                .filter(([, , route]) => route === '/push/web/subscriptions')
+                .map(([, , , body]) => body);
+        /** Whether each call to `route` could open Puter's sign-in. */
+        const reauthOf = (route) =>
+            mockRequest.mock.calls
+                .filter(([, , r]) => r === route)
+                .map(([, , , , options]) => options?.interactiveReauth);
+
+        it('replaces the removed subscription for a click', async () => {
+            const { removed, nav } = removedHere();
+            const { module } = makeModule({ env: 'gui' });
+            await expect(module.enable()).resolves.toBe(true);
+            expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(1);
+            expect(reauthOf('/push/web/key')).toEqual([true]);
+        });
+
+        it('leaves it removed in the background, and forgets its receipt', async () => {
+            const { removed, nav } = removedHere();
+            const { module } = makeModule({ env: 'gui' });
+            await expect(
+                module.enable({ background: true }),
+            ).rejects.toMatchObject({ code: 'push_device_removed' });
+            expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+            expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(announced()).toEqual([
+                expect.objectContaining({ receipt: 'r-1' }),
+            ]);
+            expect(store.has(RECEIPT)).toBe(false);
+        });
+
+        it('opens no sign-in for a rejected token in the background', async () => {
+            removedHere();
+            const { module } = makeModule({ env: 'gui' });
+            await expect(
+                module.enable({ background: true }),
+            ).rejects.toMatchObject({ code: 'push_device_removed' });
+            expect(reauthOf('/push/web/key')).toEqual([false]);
+            expect(reauthOf('/push/web/subscriptions')).toEqual([false]);
+        });
+
+        it('tells the desktop that enable() takes background', () => {
+            const { module } = makeModule({ env: 'gui' });
+            expect(module._enableTakesBackground).toBe(true);
+        });
+    });
+});
+
+describe('the push record inside the Puter GUI', () => {
+    const SYNCED = 'handlers:puter:synced:u-1';
+    const CHANGED = `handlers:puter:subscription-changed:${ORIGIN}/`;
+    const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
+    const guiNav = (existing = null) => {
+        const nav = makeNav({
+            existing,
+            active: { scriptURL: `${ORIGIN}/sw.js` },
+        });
+        withBrowser(nav);
+        return nav;
+    };
+
+    it('records the endpoint the server confirmed and clears the mark on enable()', async () => {
+        guiNav(makeSubscription());
+        server();
+        store.set(CHANGED, { at: 1, oldEndpoint: 'https://push.example/0' });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module._webPushRecord()).resolves.toEqual({
+            endpoint: null,
+            changed: { at: 1, oldEndpoint: 'https://push.example/0' },
+        });
+        await expect(module.enable({ background: true })).resolves.toBe(true);
+        expect(store.get(SYNCED)).toEqual({
+            endpoint: 'https://push.example/send/abc',
+            at: expect.any(Number),
+        });
+        expect(store.has(CHANGED)).toBe(false);
+        await expect(module._webPushRecord()).resolves.toEqual({
+            endpoint: 'https://push.example/send/abc',
+            changed: null,
+        });
+    });
+
+    it('records a confirmed endpoint without clearing the mark', async () => {
+        guiNav();
+        store.set(CHANGED, { at: 1 });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(
+            module._noteWebPushSynced('https://push.example/1'),
+        ).resolves.toBe(true);
+        await expect(module._webPushRecord()).resolves.toEqual({
+            endpoint: 'https://push.example/1',
+            changed: { at: 1 },
+        });
+        await expect(
+            module._webPushRecord({ endpoint: false }),
+        ).resolves.toEqual({ endpoint: null, changed: { at: 1 } });
+    });
+
+    it('reads nulls, and records nothing, when IndexedDB fails', async () => {
+        guiNav();
+        storage.broken = true;
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module._webPushRecord()).resolves.toEqual({
+            endpoint: null,
+            changed: null,
+        });
+        await expect(
+            module._noteWebPushSynced('https://push.example/1'),
+        ).resolves.toBe(false);
+    });
+
+    it('ends a removed subscription and forgets its receipt and the mark', async () => {
+        const removed = makeSubscription(undefined, 'https://push.example/1');
+        guiNav(removed);
+        store.set(CHANGED, { at: 1, oldEndpoint: 'https://push.example/0' });
+        store.set(RECEIPT, {
+            endpoint: 'https://push.example/1',
+            receipt: 'r',
+        });
+        store.set(SYNCED, { endpoint: 'https://push.example/0', at: 1 });
+        const { module } = makeModule({ env: 'gui' });
+        await module._dropRemovedWebPush();
+        expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+        expect(store.has(RECEIPT)).toBe(false);
+        expect(store.has(CHANGED)).toBe(false);
+        expect(store.get(SYNCED)?.endpoint).toBe('https://push.example/0');
+        expect(mockRequest).not.toHaveBeenCalled();
     });
 });
 
@@ -2381,6 +2695,142 @@ describe('status', () => {
             const { module } = makeModule({ env: 'gui' });
             await expect(module.status()).resolves.toBe('off');
             expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
+        });
+
+        describe('when Puter doesn`t know the endpoint', () => {
+            const routes = () => mockRequest.mock.calls.map(([, , r]) => r);
+            const devicesSay = (reply) =>
+                mockRequest.mockImplementation(async (_p, _m, route) => {
+                    if (route === '/push/web/subscriptions/status')
+                        return { state: 'unknown' };
+                    if (route === '/push/devices') return await reply();
+                    throw new Error(`unexpected ${route}`);
+                });
+            const inGui = () => {
+                store.delete(OPT_IN);
+                withBrowser(
+                    makeNav({
+                        existing: subscription,
+                        active: { scriptURL: `${ORIGIN}/sw.js` },
+                    }),
+                );
+                return makeModule({ env: 'gui' }).module;
+            };
+            const device = (over = {}) => ({
+                uid: 'd1',
+                platform: 'webpush',
+                label: null,
+                user_agent: null,
+                created_at: 1,
+                last_seen_at: 1,
+                current: true,
+                ...over,
+            });
+
+            it.each([
+                ['no devices', []],
+                ['only other devices', [device({ current: false })]],
+                [
+                    'only a current non-push device',
+                    [device({ platform: 'web' })],
+                ],
+            ])(
+                'is off in the GUI when the user has %s, as when another account made the subscription',
+                async (_label, devices) => {
+                    devicesSay(() => ({ devices }));
+                    await expect(inGui().status()).resolves.toBe('off');
+                    expect(routes()).toEqual([
+                        '/push/web/subscriptions/status',
+                        '/push/devices',
+                    ]);
+                    expect(mockRequest).toHaveBeenLastCalledWith(
+                        expect.anything(),
+                        'GET',
+                        '/push/devices',
+                        undefined,
+                        { interactiveReauth: false },
+                    );
+                    expect(subscription.unsubscribe).not.toHaveBeenCalled();
+                },
+            );
+
+            it('stays on in the GUI when the user`s devices have this browser, as right after enable()', async () => {
+                devicesSay(() => ({
+                    devices: [device({ current: false, uid: 'd0' }), device()],
+                }));
+                await expect(inGui().status()).resolves.toBe('on');
+                expect(routes()).toContain('/push/devices');
+            });
+
+            it.each([
+                [
+                    'a network failure',
+                    () => {
+                        throw new TypeError('Failed to fetch');
+                    },
+                ],
+                [
+                    'a 429',
+                    () => {
+                        throw new PuterJSError(
+                            'slow down',
+                            'too_many_requests',
+                        );
+                    },
+                ],
+                [
+                    'a rejected token',
+                    () => {
+                        throw new PuterJSError('no', 'token_auth_failed');
+                    },
+                ],
+                ['a malformed reply', () => ({})],
+            ])(
+                'stays on in the GUI when the device list fails with %s',
+                async (_label, reply) => {
+                    devicesSay(reply);
+                    await expect(inGui().status()).resolves.toBe('on');
+                    expect(routes()).toContain('/push/devices');
+                },
+            );
+
+            it.each([
+                ['says active', () => ({ state: 'active' })],
+                [
+                    'answers a 429',
+                    () => {
+                        throw new PuterJSError(
+                            'slow down',
+                            'too_many_requests',
+                        );
+                    },
+                ],
+                [
+                    'fails on the network',
+                    () => {
+                        throw new TypeError('Failed to fetch');
+                    },
+                ],
+            ])(
+                'stays on in the GUI without reading the device list when Puter %s',
+                async (_label, reply) => {
+                    mockRequest.mockImplementation(async (_p, _m, route) => {
+                        if (route === '/push/web/subscriptions/status')
+                            return await reply();
+                        return { devices: [] };
+                    });
+                    await expect(inGui().status()).resolves.toBe('on');
+                    expect(routes()).toEqual([
+                        '/push/web/subscriptions/status',
+                    ]);
+                },
+            );
+
+            it('stays on on a website without reading the device list', async () => {
+                devicesSay(() => ({ devices: [] }));
+                await expect(makeModule().module.status()).resolves.toBe('on');
+                expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            });
         });
     });
 });
@@ -2872,5 +3322,308 @@ describe('a different user signing in', () => {
         await flush();
         host.setAuthToken('token-b');
         await vi.waitFor(() => expect(deletes()).toHaveLength(1));
+    });
+});
+
+
+describe('receipts for a confirmed subscription', () => {
+    const ENDPOINT = 'https://push.example/send/abc';
+    const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
+    const gui = { ...puter, env: 'gui' };
+    const guiWorker = workerFor('gui');
+    const guiNav = (over = {}) =>
+        makeNav({ active: { scriptURL: `${ORIGIN}/sw.js` }, ...over });
+    const sync = (nav, options = {}) =>
+        syncWebPush(gui, { worker: guiWorker, nav, ...options });
+    const announced = () =>
+        mockRequest.mock.calls
+            .filter(([, , route]) => route === '/push/web/subscriptions')
+            .map(([, , , body]) => body);
+    /** Answers `active` only to an announce that carries `r-1`. */
+    const serverWithReceipts = (nav) =>
+        server((route, body) => {
+            if (route === '/push/web/subscriptions') {
+                if (body.receipt === 'r-1')
+                    return {
+                        status: 'active',
+                        device: { uid: 'd1' },
+                        receipt: 'r-2',
+                    };
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            return { device: { uid: 'd2' }, receipt: 'r-3' };
+        });
+
+    it('sends the kept receipt with the announce when it is for this endpoint', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        serverWithReceipts(nav);
+        await expect(sync(nav)).resolves.toEqual({ uid: 'd1' });
+        expect(announced()).toEqual([
+            {
+                subscription: {
+                    endpoint: ENDPOINT,
+                    keys: { p256dh: 'p', auth: 'a' },
+                },
+                receipt: 'r-1',
+            },
+        ]);
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-2',
+        });
+    });
+
+    it('leaves out and forgets a receipt kept for another endpoint', async () => {
+        store.set(RECEIPT, {
+            endpoint: 'https://push.example/other',
+            receipt: 'r-1',
+        });
+        const nav = guiNav({ existing: makeSubscription() });
+        let keptAtAnnounce;
+        server((route) => {
+            if (route === '/push/web/subscriptions') {
+                keptAtAnnounce = store.has(RECEIPT);
+                return { status: 'active', device: { uid: 'd1' } };
+            }
+        });
+        await sync(nav);
+        expect(announced()[0]).not.toHaveProperty('receipt');
+        expect(keptAtAnnounce).toBe(false);
+    });
+
+    it('keeps the receipt the verify answer gives', async () => {
+        const nav = guiNav();
+        serverWithReceipts(nav);
+        await sync(nav);
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-3',
+        });
+    });
+
+    it('forgets a receipt the server answers pending to', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-0' });
+        const nav = guiNav({ existing: makeSubscription() });
+        let keptAtVerify;
+        server((route) => {
+            if (route === '/push/web/subscriptions') {
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            keptAtVerify = store.has(RECEIPT);
+            return { device: { uid: 'd2' } };
+        });
+        await sync(nav);
+        expect(announced()[0].receipt).toBe('r-0');
+        expect(keptAtVerify).toBe(false);
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('keeps a receipt when the announce fails', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        server(() => {
+            throw new PuterJSError('later', 'too_many_requests');
+        });
+        await expect(sync(nav)).rejects.toMatchObject({
+            code: 'too_many_requests',
+        });
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-1',
+        });
+    });
+
+    it('keeps the new receipt when push is turned off during the announce', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        const stop = new AbortController();
+        server(() => {
+            stop.abort();
+            return { status: 'active', device: { uid: 'd1' }, receipt: 'r-2' };
+        });
+        await expect(sync(nav, { signal: stop.signal })).rejects.toThrow();
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-2',
+        });
+    });
+
+    it('is neither sent nor kept outside the Puter GUI', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = makeNav({ existing: makeSubscription() });
+        server(() => ({
+            status: 'active',
+            device: { uid: 'd1' },
+            receipt: 'r-2',
+        }));
+        await syncWebPush(puter, { worker, nav });
+        expect(announced()[0]).not.toHaveProperty('receipt');
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-1',
+        });
+    });
+
+    it('works as before with a server that gives no receipts', async () => {
+        const nav = guiNav();
+        server((route) => {
+            if (route === '/push/web/subscriptions') {
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            return { device: { uid: 'd2' } };
+        });
+        await expect(sync(nav)).resolves.toEqual({ uid: 'd2' });
+        expect(store.has(RECEIPT)).toBe(false);
+        mockRequest.mockClear();
+        nav.pushManager.getSubscription.mockResolvedValue(makeSubscription());
+        server();
+        await expect(sync(nav)).resolves.toEqual({ uid: 'd1' });
+        expect(announced()[0]).not.toHaveProperty('receipt');
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten when a subscription made with another key is replaced', async () => {
+        store.set(RECEIPT, {
+            endpoint: 'https://push.example/old',
+            receipt: 'r-1',
+        });
+        const stale = makeSubscription(
+            fromBase64Url(OLD_KEY),
+            'https://push.example/old',
+        );
+        const nav = guiNav({ existing: stale });
+        stale.unsubscribe.mockImplementation(async () => {
+            return true;
+        });
+        server();
+        await sync(nav);
+        expect(stale.unsubscribe).toHaveBeenCalled();
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten when a removed subscription is renewed', async () => {
+        store.set(RECEIPT, {
+            endpoint: 'https://push.example/1',
+            receipt: 'r-1',
+        });
+        const removed = makeSubscription(undefined, 'https://push.example/1');
+        const nav = guiNav({ existing: removed });
+        nav.pushManager.subscribe.mockResolvedValue(
+            makeSubscription(undefined, 'https://push.example/2'),
+        );
+        server((route, body) => {
+            if (body.subscription.endpoint === 'https://push.example/1')
+                throw new PuterJSError('removed', 'push_device_removed');
+            return { status: 'active', device: { uid: 'd6' } };
+        });
+        await sync(nav, { renewRemoved: true });
+        expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten by removeWebPush', async () => {
+        store.set(SERVER_KEY, KEY);
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        mockRequest.mockResolvedValue({ removed: true });
+        await removeWebPush(gui, {
+            worker: guiWorker,
+            nav: guiNav({ existing: makeSubscription() }),
+        });
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten by disable() in the Puter GUI', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        mockRequest.mockResolvedValue({ removed: true });
+        await makeModule({ env: 'gui' }).module.disable();
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is forgotten once status() hears the subscription is removed', async () => {
+        store.set(OPT_IN, true);
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        mockRequest.mockResolvedValue({ state: 'removed' });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.status()).resolves.toBe('off');
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('is kept when status() hears this account turned the app off in Puter', async () => {
+        store.set(OPT_IN, true);
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        mockRequest.mockResolvedValue({ state: 'revoked' });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.status()).resolves.toBe('off');
+        expect(store.has(RECEIPT)).toBe(true);
+    });
+
+    it('is kept when enable() hears this account turned the app off in Puter', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        server(() => {
+            throw new PuterJSError('off', 'push_revoked');
+        });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.enable()).rejects.toMatchObject({
+            code: 'push_revoked',
+        });
+        expect(store.has(RECEIPT)).toBe(true);
+    });
+
+    it('is forgotten by _forgetPushReceipt, at the registration`s scope', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        const { module } = makeModule({ env: 'gui' });
+        await module._forgetPushReceipt();
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('_forgetPushReceipt never throws without service workers', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser({});
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module._forgetPushReceipt()).resolves.toBeUndefined();
+    });
+
+    it('lets the Puter GUI turn push on for the next account at once, without a confirmation push', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server((route, body) =>
+            route === '/push/web/subscriptions' && body.receipt === 'r-1'
+                ? { status: 'active', device: { uid: 'd1' }, receipt: 'r-2' }
+                : { status: 'pending' },
+        );
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.enable()).resolves.toBe(true);
+        expect(
+            mockRequest.mock.calls.map(([, , route]) => route),
+        ).not.toContain('/push/web/subscriptions/verify');
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-2',
+        });
     });
 });

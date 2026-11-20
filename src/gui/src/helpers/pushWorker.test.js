@@ -18,6 +18,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SUBSCRIPTION_CHANGED_MESSAGE } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import { closeLocalBanner, pushWorkerEnabled } from './pushWorker.js';
 
 afterEach(() => {
@@ -91,6 +92,16 @@ describe('startPushWorker', () => {
         });
         expect(source.postMessage.mock.calls).toEqual([[{ type: 'puter-notification-click-ack', id: 'click-1' }]]);
         expect(handler.mock.calls).toEqual([[{ uid: UID }]]);
+    });
+
+    it('syncs again when the worker reports the subscription replaced', async () => {
+        const resync = vi.fn(async () => 'on');
+        const nav = makeNav();
+        await start(await load(), { nav, resync });
+        nav.listeners.message({ data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: UID } }, source: { postMessage: vi.fn() } });
+        expect(resync).not.toHaveBeenCalled();
+        nav.listeners.message({ data: { type: SUBSCRIPTION_CHANGED_MESSAGE }, source: {} });
+        expect(resync).toHaveBeenCalledTimes(1);
     });
 
     it('registers nothing inside a frame', async () => {

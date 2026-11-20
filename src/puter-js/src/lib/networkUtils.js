@@ -924,6 +924,7 @@ async function sendWithRetry(
             return shapeStream(outcome.lineStream, outcome.xhr);
         const decision = await classifyRetry(outcome, ctx);
         if (decision) {
+            spec.onRetry?.();
             const before = Date.now();
             await sleep(decision.delayMs, spec.signal);
             if (
@@ -1012,6 +1013,8 @@ function dedupe(key, factory, { windowMs = 2000 } = {}) {
  *   the 401 surfaces to the caller instead. Default is `true`
  * @param {number} [opts.timeout] - Idle limit in ms, replacing the defaults
  *   (see `watchIdle`); `0` turns it off.
+ * @param {() => void} [opts.onRetry] - Called each time an attempt fails and
+ *   the request is about to be sent again.
  * @param {Object} [opts.paginate] - Reserved for a later sprint step (ignored).
  * @returns {Promise<PuterResponse>}
  */
@@ -1032,6 +1035,7 @@ function fetchUrl(url, opts = {}) {
         dedupe: dedupeOpt,
         interactiveReauth = true,
         timeout,
+        onRetry,
     } = opts;
 
     const logId = logContext ?? {
@@ -1054,6 +1058,7 @@ function fetchUrl(url, opts = {}) {
         logId,
         interactiveReauth,
         timeout,
+        onRetry,
     };
 
     // Read-safety: idempotent methods auto-retry; a POST read opts in with
@@ -1149,15 +1154,18 @@ const DRIVER_CONTENT_TYPE = 'text/plain;actually=json';
 
 const callInstance = (call) => call.puter ?? globalThis.puter;
 
-/** The wire body. Fields left `undefined` drop out of the JSON. */
+/**
+ * The wire body. Fields left `undefined` drop out of the JSON. The token goes
+ * first, where the server can read it before it has the rest of a large body.
+ */
 const callBody = (call, puter) =>
     JSON.stringify({
+        auth_token: puter.authToken,
         interface: call.iface,
         driver: call.driver,
         test_mode: call.testMode,
         method: call.method,
         args: call.args,
-        auth_token: puter.authToken,
     });
 
 const logCall = (call, fields) => {
@@ -1201,11 +1209,13 @@ const SILENT_TOSTRING_CHUNK_TYPES = new Set([
 /**
  * Wrap the engine's parsed NDJSON lines in the driver stream contract: the
  * per-line upgrade/email prompts, `toString()` on text parts, and the `start`
- * adapter that lets the stream feed a `ReadableStream` controller.
+ * adapter that lets the stream feed a `ReadableStream` controller. `onLine`
+ * sees each line before the consumer does.
  */
-function driverLineStream(lineStream, puter, upgradePrompt) {
+function driverLineStream(lineStream, puter, upgradePrompt, onLine) {
     const stream = (async function* () {
         for await (const line of lineStream) {
+            onLine?.(line);
             promptIfUpgradeRequired(line, upgradePrompt, puter);
             promptEmailConfirmation(puter, line?.error);
             if (typeof line.text === 'string') {
@@ -1264,6 +1274,7 @@ function driverLineStream(lineStream, puter, upgradePrompt) {
  *     responseType?: '' | 'text' | 'blob';
  *     readonly?: boolean;
  *     transform?: (result: unknown) => unknown;
+ *     onLine?: (line: unknown) => void;
  *     onError?: (error: unknown) => void;
  *     upgradePrompt?: UpgradePromptContext;
  *     timeout?: number;
@@ -1272,7 +1283,8 @@ function driverLineStream(lineStream, puter, upgradePrompt) {
  *   `readonly` marks the method retry-safe on transient failures (a
  *   rate/concurrency 429 replays either way — see GATE_REJECT_STATUS),
  *   `timeout` replaces the idle limits in ms (`0` turns it off),
- *   `transform` post-processes a successful result, `onError` is the legacy
+ *   `transform` post-processes a successful result, `onLine` observes each
+ *   line of a streaming response, `onError` is the legacy
  *   error callback the module APIs accept alongside the promise, and
  *   `upgradePrompt` is how the upgrade prompt names this method (defaulting to
  *   the wire `iface::method`) and explains its plan gate.
@@ -1283,6 +1295,7 @@ async function driverCall(call, opts = {}) {
         responseType = '',
         readonly = false,
         transform,
+        onLine,
         onError,
         upgradePrompt,
         timeout,
@@ -1329,7 +1342,7 @@ async function driverCall(call, opts = {}) {
     return await sendWithRetry(spec, {
         retrySafe: readonly,
         shapeStream: (lineStream) =>
-            driverLineStream(lineStream, puter, promptContext),
+            driverLineStream(lineStream, puter, promptContext, onLine),
         // Reauth and transient retries are already spent by the time the
         // engine hands the outcome over, so this is terminal.
         shape: async (outcome) => {

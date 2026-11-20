@@ -23,12 +23,11 @@
 
 import check_password_strength from '../../helpers/checkPasswordStrength.js';
 import { bonusRequirementsKey, checkSignupBonusCode } from '../../helpers/signupBonusCode.js';
+import { runVerificationGates } from '../../helpers/verification_gates.js';
 import { bindPasswordReveal, formFieldHtml } from '../Dashboard/UIDashboardFormDialog.js';
-import UIWindowCardVerificationRequired from '../UIWindowCardVerificationRequired.js';
-import UIWindowEmailConfirmationRequired from '../UIWindowEmailConfirmationRequired.js';
-import UIWindowPhoneVerificationRequired from '../UIWindowPhoneVerificationRequired.js';
 import openAuthFlow, {
     authHeadHtml,
+    deviceFingerprint,
     joinAuthFlow,
     navigateAfterSignIn,
     setAuthStatus,
@@ -37,10 +36,10 @@ import openAuthFlow, {
     wireAuthHead,
 } from './authFlow.js';
 import { mayOfferProviders, renderProviderButtons } from './authProviders.js';
+import { mountTurnstile, turnstileHtml } from './authTurnstile.js';
 import { pushLoginScreen } from './UIAuthLogin.js';
 
 const SIGNUP_TIMEOUT_MS = 30000;
-const TURNSTILE_POLL_MS = 100;
 // How long the email form waits for the provider lookup before showing anyway.
 const PROVIDERS_WAIT_MS = 1500;
 
@@ -92,74 +91,6 @@ const showSignupBlocked = (message) => {
         </div>
     `;
     document.body.appendChild(overlay);
-};
-
-/**
- * Runs the checks a new account has to pass, in the server's order (see
- * assertVerifiedAccount): email → phone (SMS) → card, or card → phone →
- * email when the account clears email last.
- *
- * @param {object} user The new account, as the signup answered.
- * @param {boolean} show_email Ask for the emailed code here.
- * @param {boolean} reload_on_success
- * @param {boolean} page Signup was a page, so the checks cover it too
- *   rather than float over whatever was under it.
- * @returns {Promise<boolean>} Whether the email was confirmed (true when not asked).
- */
-const runVerificationGates = async (user, show_email, reload_on_success, page) => {
-    const window_options = page ? { cover_page: true, has_head: false } : {};
-    let email_verified = true;
-    const emailGate = async () => {
-        if ( ! show_email ) return;
-        // No ✕: the signup card it replaced is already gone, so there's
-        // nothing to go back to.
-        email_verified = await UIWindowEmailConfirmationRequired({
-            show_close_button: false,
-            stay_on_top: true,
-            has_head: true,
-            reload_on_success,
-            window_options,
-        });
-    };
-    // A user the SMS path keeps failing may take the card fallback instead;
-    // that resolves 'card' and clears the card gate along with the phone
-    // gate (see UIWindowPhoneVerificationRequired).
-    let card_cleared_by_fallback = false;
-    const phoneGate = async () => {
-        if ( ! user?.requires_phone_verification ) return;
-        let phone_ok = false;
-        do {
-            phone_ok = await UIWindowPhoneVerificationRequired({
-                show_close_button: false,
-                stay_on_top: true,
-                has_head: true,
-                window_options,
-            });
-        } while ( ! phone_ok );
-        card_cleared_by_fallback = phone_ok === 'card';
-    };
-    const cardGate = async () => {
-        if ( ! user?.requires_card_verification || card_cleared_by_fallback ) return;
-        let card_ok = false;
-        do {
-            card_ok = await UIWindowCardVerificationRequired({
-                show_close_button: false,
-                stay_on_top: true,
-                has_head: true,
-                window_options,
-            });
-        } while ( ! card_ok );
-    };
-    if ( user?.email_gate_last ) {
-        await cardGate();
-        await phoneGate();
-        await emailGate();
-    } else {
-        await emailGate();
-        await phoneGate();
-        await cardGate();
-    }
-    return email_verified;
 };
 
 /**
@@ -233,9 +164,7 @@ export function pushSignupScreen (flow, options = {}) {
     }, id);
     // Bot trap: the server ignores a request that fills it in.
     h += '<input type="text" name="p102xyzname" class="p102xyzname" value="" tabindex="-1" autocomplete="off" aria-hidden="true">';
-    if ( turnstile_key ) {
-        h += `<div class="auth-turnstile"><div class="cf-turnstile" data-sitekey="${html_encode(turnstile_key)}" data-appearance="interaction-only"></div></div>`;
-    }
+    if ( turnstile_key ) h += turnstileHtml(turnstile_key);
     h += submitButtonHtml(i18n('create_free_account', [], false), 'signup-btn');
     h += '</form>';
     h += `<p class="signup-terms">${i18n('tos_fineprint', [], false)}</p>`;
@@ -251,8 +180,6 @@ export function pushSignupScreen (flow, options = {}) {
     });
     const $form = $screen.find('.signup-form');
     const field = (name) => $form.find(`[name="${name}"]`);
-    const $turnstile = $form.find('.cf-turnstile');
-    let turnstile_widget = null;
     let offers_providers = false;
 
     wireAuthHead($screen);
@@ -275,33 +202,11 @@ export function pushSignupScreen (flow, options = {}) {
         $screen.find('.oidc-providers-wrapper').prop('hidden', false);
     };
 
-    // Turnstile renders into the form once its script has loaded.
-    const initTurnstile = () => {
-        if ( ! turnstile_key || ! $turnstile.length || flow.isClosed() ) return;
-        if ( ! window.turnstile ) {
-            setTimeout(initTurnstile, TURNSTILE_POLL_MS);
-            return;
-        }
-        turnstile_widget = window.turnstile.render($turnstile.get(0), {
-            sitekey: turnstile_key,
-            callback: (token) => {
-                $turnstile.attr('data-token', token).addClass('captcha-completed');
-            },
-            'expired-callback': () => {
-                $turnstile.removeAttr('data-token').removeClass('captcha-completed');
-            },
-        });
-    };
-    initTurnstile();
+    const turnstile = turnstile_key ? mountTurnstile($form, turnstile_key, flow.isClosed) : null;
 
     if ( window.signup_bonus_code ) {
         (async () => {
-            let fingerprint = null;
-            try {
-                fingerprint = await window.getDeviceFingerprint?.();
-            } catch {
-                // The check works without device signals.
-            }
+            const fingerprint = await deviceFingerprint();
             const result = await checkSignupBonusCode(window.signup_bonus_code, {
                 origin: window.gui_origin,
                 fingerprint,
@@ -366,17 +271,6 @@ export function pushSignupScreen (flow, options = {}) {
         if ( ! flow.goTo('login') ) pushLoginScreen(flow);
     });
 
-    const resetTurnstile = () => {
-        try {
-            if ( window.turnstile && turnstile_widget !== null ) {
-                window.turnstile.reset(turnstile_widget);
-                $turnstile.removeAttr('data-token').removeClass('captcha-completed');
-            }
-        } catch ( e ) {
-            console.log(e);
-        }
-    };
-
     const fail = (text, field_name) => {
         setAuthStatus($screen, text, field_name ? { field: `[name="${field_name}"]` } : {});
     };
@@ -399,24 +293,14 @@ export function pushSignupScreen (flow, options = {}) {
         if ( ! confirm_password ) return fail(i18n('confirm_password_required', [], false), 'confirm_password');
         if ( password !== confirm_password ) return fail(i18n('passwords_do_not_match', [], false), 'confirm_password');
 
-        let turnstile_token = null;
-        if ( window.turnstile && turnstile_key ) {
-            turnstile_token = $turnstile.attr('data-token');
-            if ( ! turnstile_token ) return fail(i18n('captcha_required', [], false));
-        }
+        const turnstile_token = turnstile?.token() ?? null;
+        if ( turnstile_token === '' ) return fail(i18n('captcha_required', [], false));
         setAuthStatus($screen, '');
 
         flow.setBusy(true);
         setFormBusy($form, true);
 
-        // A device signal for abuse prevention; signup never waits on or
-        // fails because of it.
-        let fingerprint = null;
-        try {
-            fingerprint = await window.getDeviceFingerprint?.();
-        } catch {
-            // Omitted.
-        }
+        const fingerprint = await deviceFingerprint();
 
         const request = {
             username,
@@ -448,7 +332,7 @@ export function pushSignupScreen (flow, options = {}) {
         } catch ( err ) {
             setFormBusy($form, false);
             flow.setBusy(false);
-            resetTurnstile();
+            turnstile?.reset();
             handleError(err);
             return;
         }
@@ -467,9 +351,15 @@ export function pushSignupScreen (flow, options = {}) {
             && !! (flow.options.send_confirmation_code || data.user?.requires_email_confirmation);
         let email_verified = true;
         if ( data.user?.requires_phone_verification || data.user?.requires_card_verification || show_email ) {
-            // The checks are windows of their own; the card makes way for them.
-            flow.close();
+            // Hidden, not closed: a sign-in prompt meanwhile joins this flow
+            // instead of signing another account in under these checks.
+            flow.hide();
             email_verified = await runVerificationGates(data.user, show_email, reload_on_success, flow.page);
+            // The checks were this account's; the page may have moved on.
+            if ( window.auth_token !== data.token ) {
+                flow.finish(false);
+                return;
+            }
         }
 
         if ( reload_on_success ) {
@@ -526,9 +416,10 @@ export function pushSignupScreen (flow, options = {}) {
  *   page?: boolean, dismissable?: boolean, closeOnBackdrop?: boolean,
  * }} [options] `page`, `dismissable` and `closeOnBackdrop` as in `openAuthFlow`.
  * @returns {Promise<boolean>} True once signed up (or false if a requested
- *   email confirmation wasn't completed), unless the page reloads first;
- *   false when the user dismisses it. Joins an auth flow that is already
- *   open instead of opening another.
+ *   email confirmation wasn't completed, or the page signed in as another
+ *   account meanwhile), unless the page reloads first; false when the user
+ *   dismisses it. Joins an auth flow that is already open instead of opening
+ *   another.
  */
 export default function UIAuthSignup (options = {}) {
     const joined = joinAuthFlow();

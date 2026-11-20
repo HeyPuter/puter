@@ -356,12 +356,16 @@ describe('PuterServer host header validation', () => {
                 res.body.match(/id="app-browser-config">(.*?)<\/script>/)[1],
             );
             expect(Array.isArray(config.guestApps)).toBe(true);
+            expect(config.hostOrigin).toBe(parent);
         }
         const gui = await request('/embed/apps', {
             host: `puter.localhost:${port}`,
             referer: `http://puter.localhost:${port}/dashboard`,
         });
         expect(gui.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        expect(
+            JSON.parse(gui.body.match(/id="app-browser-config">(.*?)<\/script>/)[1]).hostOrigin,
+        ).toBeNull();
         const dashboard = await request('/dashboard', { host: `puter.localhost:${port}` });
         expect(dashboard.headers['x-frame-options']).toBe('SAMEORIGIN');
         const api = await request('/embed/apps', { host: `api.puter.localhost:${port}` });
@@ -416,6 +420,7 @@ describe('PuterServer host header validation', () => {
         'upgrade',
         'top-up',
         'request-email-confirmation',
+        'attach-custom-domain',
     ])('lets a deployment subdomain frame the %s popup and names it to the GUI', async (action) => {
         const parent = `http://spreadsheet.puter.localhost:${port}`;
         const guiParams = (body: string) =>
@@ -644,6 +649,59 @@ describe('PuterServer host header validation — permissive modes', () => {
     });
 });
 
+describe('PuterServer behind a trusted proxy', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                api_base_url: `http://api.puter.localhost:${port}`,
+                allow_all_host_values: false,
+                allow_no_host_header: false,
+                custom_domains_enabled: false,
+                static_hosting_domain: 'site.puter.localhost',
+                trust_proxy: 1,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('serves the main domain whatever X-Forwarded-Host names', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `puter.localhost:${port}`,
+            'x-forwarded-host': 'nosuchsite.site.puter.localhost',
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
+    it('keeps a hosted-site host on site hosting', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `nosuchsite.site.puter.localhost:${port}`,
+            'x-forwarded-host': 'api.puter.localhost',
+        });
+        expect(res.status).toBe(404);
+    });
+
+    it('reads subdomains from Host', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `api.puter.localhost:${port}`,
+            'x-forwarded-host': 'puter.localhost',
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBeUndefined();
+    });
+});
+
 describe('PuterServer host header validation — custom domains with every host accepted', () => {
     let server: PuterServer;
     let port: number;
@@ -791,6 +849,26 @@ describe('PuterServer request parsing', () => {
             expect(res.status, contentType).toBe(404);
             expect(res.body).toContain('no-such-method');
         }
+    });
+
+    it('parses a chat call above 50 MiB whose body opens with its token', async () => {
+        const fields = `"interface":"puter-chat-completion","method":"no-such-method","pad":"${'x'.repeat(51 * MiB)}"`;
+        const asText = { 'content-type': 'text/plain;actually=json' };
+        const first = await postJson(
+            '/drivers/call',
+            `{"auth_token":"${token}",${fields}}`,
+            asText,
+        );
+        expect(first.status).toBe(404);
+        expect(first.body).toContain('no-such-method');
+
+        // A token after other fields can't be read ahead of the body.
+        const last = await postJson(
+            '/drivers/call',
+            `{${fields},"auth_token":"${token}"}`,
+            asText,
+        );
+        expect(last.status).toBe(413);
     });
 
     it('keeps the default JSON limit for other drivers', async () => {
@@ -1466,6 +1544,7 @@ describe('PuterServer HTTP alarm gate', () => {
                     throw new HttpError(400, 'Model not available: m', {
                         legacyCode: 'upstream_bad_request',
                         alarmSeverity: 'info',
+                        alarmChannel: 'ai_providers',
                     });
                 }) as unknown as RequestHandler,
             },
@@ -1514,6 +1593,7 @@ describe('PuterServer HTTP alarm gate', () => {
             id: raised![0] as string,
             fields: raised![2] as Record<string, unknown>,
             severity: raised![3] as string,
+            opts: raised![4] as { dedup?: boolean; channel?: string },
         };
     };
 
@@ -1570,15 +1650,16 @@ describe('PuterServer HTTP alarm gate', () => {
         expect(fields.queryKeys).toEqual(['auth_token']);
     });
 
-    it('raises a warning when an upstream account is out of credits', async () => {
-        const { id, fields, severity } = await raisedFor(
+    it('records an upstream account out of credits in the AI providers channel', async () => {
+        const { id, fields, severity, opts } = await raisedFor(
             '/credits-exhausted',
             503,
         );
         expect(id).toBe(
             'http_503:GET:/credits-exhausted:upstream_credits_exhausted:AI provider out of credits',
         );
-        expect(severity).toBe('warning');
+        expect(severity).toBe('info');
+        expect(opts).toEqual({ dedup: true, channel: 'ai_providers' });
         expect(fields.details).toEqual({
             attempts: [
                 {
@@ -1591,12 +1672,22 @@ describe('PuterServer HTTP alarm gate', () => {
         });
     });
 
-    it("alarms a 4xx at the thrower's alarmSeverity", async () => {
-        const { id, severity } = await raisedFor('/model-unavailable', 400);
+    it("alarms a 4xx at the thrower's alarmSeverity and alarmChannel", async () => {
+        const { id, severity, opts } = await raisedFor(
+            '/model-unavailable',
+            400,
+        );
         expect(id).toBe(
             'http_400:GET:/model-unavailable:upstream_bad_request:Model not available: m',
         );
         expect(severity).toBe('info');
+        expect(opts).toEqual({ dedup: true, channel: 'ai_providers' });
+    });
+
+    it('raises an unhandled error with no channel', async () => {
+        const { severity, opts } = await raisedFor('/plain');
+        expect(severity).toBe('critical');
+        expect(opts).toEqual({ dedup: true });
     });
 
     it('does not alarm an upstream 4xx without one', async () => {

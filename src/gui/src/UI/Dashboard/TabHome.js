@@ -23,7 +23,11 @@ import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget }
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
-import { openAppInNewTab } from '../../helpers/dashboardAppLaunch.js';
+import {
+    DESKTOP_URL,
+    openAppInNewTab,
+    openDesktopInNewTab,
+} from '../../helpers/dashboardAppLaunch.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 import { intlLocale } from '../../i18n/intlLocale.js';
 
@@ -298,7 +302,7 @@ const TabHome = {
 
         // Open Desktop card (spans full width, links to the desktop interface)
         h +=
-            '<a href="/desktop" target="_blank" rel="noopener" class="bento-card bento-desktop allow-native-ctxmenu">';
+            `<a href="${html_encode(DESKTOP_URL)}" target="_blank" rel="noopener" class="bento-card bento-desktop allow-native-ctxmenu">`;
         h +=
             '<div class="bento-card-fancy-icon bento-card-fancy-icon-desktop">';
         h +=
@@ -400,6 +404,13 @@ const TabHome = {
             } else if (appName) {
                 openAppInNewTab(appName);
             }
+        });
+
+        // The desktop opens signed in, like an app's tab. A modified click
+        // stays a plain link.
+        $el_window.on('click', '.bento-desktop', function (e) {
+            if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+            if (openDesktopInNewTab()) e.preventDefault();
         });
 
         // Handle "View details" link clicks

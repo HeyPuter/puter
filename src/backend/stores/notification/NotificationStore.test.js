@@ -112,6 +112,28 @@ describe('NotificationStore', () => {
         );
     });
 
+    it('builds the row a replacement leaves as the table holds it', async () => {
+        const created = await store.create({
+            userId: user.id,
+            value: { title: 'before' },
+            type: 'app.message',
+            audience: 'app-user',
+            appUid: `app-${uuidv4()}`,
+            group: 'g',
+        });
+        const replacedAt = Date.now();
+        await store.updateValue(
+            created.uid,
+            user.id,
+            { title: 'after' },
+            { onlyUnseen: true, replacedAt },
+        );
+
+        expect(
+            store.replacedRow(created, { title: 'after' }, replacedAt),
+        ).toEqual(await store.getByUid(created.uid, { primary: true }));
+    });
+
     it('rejects a create with no user', async () => {
         await expect(store.create({ value: {} })).rejects.toThrow(
             'userId is required',
@@ -689,5 +711,28 @@ describe('NotificationStore', () => {
 
         expect(await store.deleteByUid(n.uid, u.id)).toBe(true);
         expect(await store.getByUid(n.uid)).toBeNull();
+    });
+});
+
+describe('NotificationStore lookups by a value that is not a string', () => {
+    let lookupServer;
+
+    beforeAll(async () => {
+        lookupServer = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await lookupServer?.shutdown();
+    });
+
+    it('match no row', async () => {
+        const stores = lookupServer.stores;
+        for (const value of [0, 1, true, ['x'], { uid: 'x' }]) {
+            for (const row of [
+                await stores.notification.getByUid(value),
+                await stores.notification.getBySendKey(value),
+            ])
+                expect(row).toBeNull();
+        }
     });
 });

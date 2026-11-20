@@ -78,8 +78,18 @@ describe('open_item with a new tab', () => {
             name: 'editor',
             file_uid: 'file-1',
             newTab: tab,
+            trigger: 'file_open',
         }));
         expect(tab.close).not.toHaveBeenCalled();
+    });
+
+    it('launches an app shortcut as an app icon click', async () => {
+        const el = row();
+        el.setAttribute('data-app', 'notes');
+        const tab = newTab();
+        await open_item({ item: el, newTab: tab });
+
+        expect(launch_app).toHaveBeenCalledWith({ name: 'notes', newTab: tab, trigger: 'app_icon' });
     });
 
     it('closes the tab before offering a download when no app opens the file', async () => {

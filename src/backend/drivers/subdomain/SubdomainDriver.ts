@@ -18,6 +18,10 @@
  */
 
 import { posix as pathPosix } from 'node:path';
+import type {
+    EventMetadata,
+    SiteCustomDomainsBySite,
+} from '../../clients/event/types.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
@@ -48,7 +52,7 @@ import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.j
 import {
     normalizeLimit,
     normalizeOffset,
-    openCursor,
+    openIdCursor,
     sealCursor,
 } from '../../util/pagination.js';
 
@@ -265,11 +269,12 @@ export class SubdomainDriver extends PuterDriver {
         const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 5000;
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = openCursor(
+        const afterId = openIdCursor(
             args.cursor as string | null | undefined,
             this.config.jwt_secret_v2,
-        ) as { id?: number } | undefined;
-        if (payload && offset !== undefined) {
+            { strict: true },
+        );
+        if (afterId !== null && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
                 legacyCode: 'bad_request',
             });
@@ -299,7 +304,7 @@ export class SubdomainDriver extends PuterDriver {
         const listOpts = {
             limit: paginated ? limit + 1 : limit,
             offset,
-            afterId: payload?.id !== undefined ? Number(payload.id) : undefined,
+            afterId: afterId ?? undefined,
             appOwner,
             excludePrefix: WORKER_SUBDOMAIN_PREFIX,
         };
@@ -713,6 +718,9 @@ export class SubdomainDriver extends PuterDriver {
         const pendingEntries = awaitLater(
             this.stores.fsEntry.getEntriesByIds(rootDirIds),
         );
+        const pendingCustomDomains = awaitLater(
+            this.#customDomainsBySite(rows),
+        );
 
         // `associated_app` is derived: match apps owned by `subdomain.user_id`
         // whose `index_url` resolves to one of the subdomain's host
@@ -728,13 +736,19 @@ export class SubdomainDriver extends PuterDriver {
         // Single round-trip per store, all in parallel — the filetype
         // lookup keys off the requested ids (not on getByIds' result),
         // so it doesn't need to wait for the app rows.
-        const [usersById, entriesById, appsById, filetypesByAppId] =
-            await Promise.all([
-                pendingUsers,
-                pendingEntries,
-                this.stores.app.getByIds(allAppIds),
-                this.stores.app.getFiletypeAssociationsByIds(allAppIds),
-            ]);
+        const [
+            usersById,
+            entriesById,
+            appsById,
+            filetypesByAppId,
+            customDomainsBySite,
+        ] = await Promise.all([
+            pendingUsers,
+            pendingEntries,
+            this.stores.app.getByIds(allAppIds),
+            this.stores.app.getFiletypeAssociationsByIds(allAppIds),
+            pendingCustomDomains,
+        ]);
 
         const embeddedApps = [...appsById.values()];
         const embedViews = await this.services.app.views(embeddedApps, actor, {
@@ -751,8 +765,35 @@ export class SubdomainDriver extends PuterDriver {
                 entriesById,
                 appViewsById,
                 associatedAppIdByRowUuid,
+                customDomainsBySite,
             }),
         );
+    }
+
+    /**
+     * The custom domains attached to each row's site, as the custom-domain
+     * listener reports them. Null when a listener failed, so an outage leaves
+     * the field out instead of reporting no domains.
+     */
+    async #customDomainsBySite(
+        rows: Array<Record<string, unknown>>,
+    ): Promise<SiteCustomDomainsBySite | null> {
+        const result: SiteCustomDomainsBySite = {};
+        if (!this.config.custom_domains_enabled) return result;
+        const sites = rows.flatMap((row) => {
+            const userId = Number(row.user_id);
+            return typeof row.subdomain === 'string' && Number.isFinite(userId)
+                ? [{ subdomain: row.subdomain, userId }]
+                : [];
+        });
+        if (sites.length === 0) return result;
+        const meta: EventMetadata = {};
+        await this.clients.event.emitAndWait(
+            'site.customDomains',
+            { sites, result },
+            meta,
+        );
+        return meta.listener_failed ? null : result;
     }
 
     /**
@@ -848,6 +889,7 @@ export class SubdomainDriver extends PuterDriver {
             entriesById: Map<number, FSEntry>;
             appViewsById: Map<number, AppView>;
             associatedAppIdByRowUuid: Map<string, number>;
+            customDomainsBySite: SiteCustomDomainsBySite | null;
         },
     ): Record<string, unknown> {
         const ts = row.ts;
@@ -906,6 +948,13 @@ export class SubdomainDriver extends PuterDriver {
                 : null,
             app_owner: appOwnerApp,
             protected: Boolean(row.protected),
+            ...(lookups.customDomainsBySite
+                ? {
+                      custom_domains:
+                          lookups.customDomainsBySite[String(row.subdomain)] ??
+                          [],
+                  }
+                : {}),
         };
     }
 }

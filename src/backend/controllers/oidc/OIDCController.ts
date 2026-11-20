@@ -23,6 +23,7 @@ import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
+import { SignInRefusedError } from '../../services/auth/SignInService.js';
 import { startWebSession } from '../auth/webSession.js';
 import {
     completeOidcLoginReturn,
@@ -64,6 +65,7 @@ const ALLOWED_ERRORS = [
     'account_suspended',
     'unauthorized',
     'signup_blocked',
+    'signin_blocked',
     'bonus_code_invalid',
 ] as const;
 
@@ -102,16 +104,14 @@ function signupOptionsFromState(
 }
 
 // GUI pages an OIDC flow may return to: the root (where a share email lands),
-// /desktop, /dashboard, and direct app landings (/app/<name> and its
-// desktop-booted twin /desktop/app/<name>, mirroring APP_NAME_REGEX in
-// AppDriver). Strict whitelist — never a client-supplied URL (no open
-// redirect).
+// /dashboard, and direct app landings (/app/<name>, mirroring
+// APP_NAME_REGEX in AppDriver). Strict whitelist — never a client-supplied URL
+// (no open redirect).
 function isWhitelistedReturnPath(path: string): boolean {
     return (
         path === '/' ||
-        path === '/desktop' ||
         path === '/dashboard' ||
-        /^(\/desktop)?\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
+        /^\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
     );
 }
 
@@ -438,9 +438,8 @@ export class OIDCController extends PuterController {
 
                 let appRedirectUri = flowRedirects[flow] ?? (origin || '/');
 
-                // Optional GUI return path so login started from /desktop,
-                // /dashboard, an /app/<name> landing, or a share link lands
-                // back there.
+                // Optional GUI return path so login started from /dashboard,
+                // an /app/<name> landing, or a share link lands back there.
                 const rawReturnTo = Array.isArray(req.query.return_to)
                     ? req.query.return_to[0]
                     : req.query.return_to;
@@ -624,7 +623,14 @@ export class OIDCController extends PuterController {
                 );
             }
 
-            await this.#finishLogin(req, res, user, stateDecoded);
+            await this.#finishLogin(
+                req,
+                res,
+                user,
+                stateDecoded,
+                'login',
+                resolved.created ? 'signup' : 'oidc',
+            );
         };
         router.get('/auth/oidc/callback/login', cbOpts, loginCb);
         router.post('/auth/oidc/callback/login', cbOpts, loginCb);
@@ -688,7 +694,14 @@ export class OIDCController extends PuterController {
                 );
             }
 
-            await this.#finishLogin(req, res, user, stateDecoded);
+            await this.#finishLogin(
+                req,
+                res,
+                user,
+                stateDecoded,
+                'signup',
+                resolved.created ? 'signup' : 'oidc',
+            );
         };
         router.get('/auth/oidc/callback/signup', cbOpts, signupCb);
         router.post('/auth/oidc/callback/signup', cbOpts, signupCb);
@@ -827,7 +840,11 @@ if (window.opener) {
         attempt = 0,
     ): Promise<
         | { error: string; code?: string; requestCode?: string }
-        | { user: import('../../stores/user/UserStore.js').UserRow }
+        | {
+              user: import('../../stores/user/UserStore.js').UserRow;
+              /** Created by this callback, so its sign-in is the signup's. */
+              created?: boolean;
+          }
     > {
         // 1. Existing provider/sub link.
         const linked = await this.services.oidc.findUserByProviderSub(
@@ -901,7 +918,7 @@ if (window.opener) {
                 requestCode: outcome.requestCode,
             };
         }
-        return { user: outcome.user };
+        return { user: outcome.user, created: true };
     }
 
     async #processCallback(
@@ -990,6 +1007,8 @@ if (window.opener) {
         res: Response,
         user: UserRow,
         stateDecoded: Record<string, unknown>,
+        sourceFlow: 'login' | 'signup',
+        method: 'oidc' | 'signup',
     ): Promise<void> {
         const origin = (this.config.origin ?? '').replace(/\/$/, '');
         const continuation: OidcLoginContinuation = {
@@ -1045,10 +1064,35 @@ if (window.opener) {
             res.redirect(302, `${origin}/action/oidc-2fa#${fragment}`);
             return;
         }
-        await startWebSession(req, res, user, {
-            config: this.config,
-            auth: this.services.auth,
-        });
+        try {
+            await startWebSession(
+                req,
+                res,
+                user,
+                {
+                    config: this.config,
+                    auth: this.services.auth,
+                    signIn: this.services.signIn,
+                    token: this.services.token,
+                    kv: this.stores.kv,
+                },
+                method,
+            );
+        } catch (e) {
+            if (!(e instanceof SignInRefusedError)) throw e;
+            return res.redirect(
+                302,
+                buildErrorRedirectUrl(
+                    origin,
+                    sourceFlow,
+                    'other',
+                    'signin_blocked',
+                    stateDecoded,
+                    e.requestCode,
+                    (p) => this.#mintPopupReturn(res, p),
+                ),
+            );
+        }
         res.redirect(
             302,
             completeOidcLoginReturn(res, user, continuation, {

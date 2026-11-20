@@ -33,6 +33,27 @@ import { PuterStore } from '../types';
  * }} NotificationInsert
  */
 
+/**
+ * A `notification` row as this store returns it. `send_key` is absent on a
+ * table that has no such column yet.
+ *
+ * @typedef {{
+ *     id: number;
+ *     uid: string;
+ *     user_id: number;
+ *     value: Record<string, unknown> | string;
+ *     acknowledged: number | null;
+ *     shown: number | null;
+ *     created_at: Date | string;
+ *     app_uid: string | null;
+ *     audience: string;
+ *     type: string;
+ *     group_key: string | null;
+ *     replaced_at: number | null;
+ *     send_key?: string | null;
+ * }} NotificationRow
+ */
+
 /** How long a probe that found no `send_key` column stands. */
 const SEND_KEY_REPROBE_MS = 60_000;
 
@@ -42,6 +63,9 @@ const SEND_KEY_REPROBE_MS = 60_000;
  */
 const groupKey = (group) =>
     group ? createHash('sha256').update(group, 'utf8').digest('hex') : null;
+
+const serialize = (value) =>
+    typeof value === 'string' ? value : JSON.stringify(value ?? {});
 
 const pageLimit = (limit) => {
     const n = Number(limit);
@@ -96,6 +120,7 @@ export class NotificationStore extends PuterStore {
      * @param {{ userId?: number; primary?: boolean }} [opts]
      */
     async getByUid(uid, { userId, primary = false } = {}) {
+        if (typeof uid !== 'string') return null;
         const where =
             userId !== undefined
                 ? 'WHERE `uid` = ? AND `user_id` = ?'
@@ -115,6 +140,7 @@ export class NotificationStore extends PuterStore {
      * @param {string} sendKey
      */
     async getBySendKey(sendKey) {
+        if (typeof sendKey !== 'string') return null;
         const rows = await this.clients.db.pread(
             'SELECT * FROM `notification` WHERE `send_key` = ? LIMIT 1',
             [sendKey],
@@ -131,8 +157,11 @@ export class NotificationStore extends PuterStore {
      * @param {string} appUid
      * @param {string} group
      * @param {{ primary?: boolean }} [opts]
+     * @returns {Promise<NotificationRow | null>}
      */
     async getUnseenByGroup(userId, appUid, group, { primary = false } = {}) {
+        if (typeof appUid !== 'string' || typeof group !== 'string')
+            return null;
         const sql =
             'SELECT * FROM `notification` WHERE `user_id` = ? AND `app_uid` = ? ' +
             'AND `group_key` = ? ORDER BY `id` DESC LIMIT 1';
@@ -391,6 +420,7 @@ export class NotificationStore extends PuterStore {
      * `group` is kept as a key `getUnseenByGroup` finds the row by.
      *
      * @param {NotificationInsert} args
+     * @returns {Promise<NotificationRow>}
      */
     async create({
         userId,
@@ -403,8 +433,7 @@ export class NotificationStore extends PuterStore {
     }) {
         if (!userId) throw new Error('create: userId is required');
         const db = this.clients.db;
-        const serialized =
-            typeof value === 'string' ? value : JSON.stringify(value ?? {});
+        const serialized = serialize(value);
         const createdAt = Math.floor(Date.now() / 1000);
         const key = groupKey(group);
         const { insertId } = await db.write(
@@ -428,16 +457,6 @@ export class NotificationStore extends PuterStore {
             replaced_at: null,
             send_key: null,
         });
-    }
-
-    /**
-     * `create` for a caller that needs only the uid.
-     *
-     * @param {NotificationInsert} args
-     * @returns {Promise<string>}
-     */
-    async insert(args) {
-        return (await this.create(args)).uid;
     }
 
     /**
@@ -553,9 +572,9 @@ export class NotificationStore extends PuterStore {
         value,
         { onlyUnseen = false, replacedAt = undefined } = {},
     ) {
+        if (typeof uid !== 'string') return false;
         const db = this.clients.db;
-        const serialized =
-            typeof value === 'string' ? value : JSON.stringify(value ?? {});
+        const serialized = serialize(value);
         const set = ['`value` = ?', '`shown` = NULL'];
         if (await this.#hasSendKey()) set.push('`send_key` = NULL');
         const params = [serialized];
@@ -575,18 +594,50 @@ export class NotificationStore extends PuterStore {
         return result.anyRowsAffected;
     }
 
+    /**
+     * The row `updateValue` leaves on a replacement at `replacedAt` (ms).
+     *
+     * @param {NotificationRow} row @param {unknown} value
+     * @param {number} replacedAt
+     * @returns {NotificationRow}
+     */
+    replacedRow(row, value, replacedAt) {
+        const replaced = {
+            ...row,
+            value: serialize(value),
+            shown: null,
+            created_at: this.clients.db.timestampValue(
+                Math.floor(replacedAt / 1000),
+            ),
+            replaced_at: replacedAt,
+        };
+        if ('send_key' in row) replaced.send_key = null;
+        return this.#normalizeRow(replaced);
+    }
+
+    // The event's columns never change: replica first, primary when it lags.
     async markAcknowledged(uid, userId) {
+        if (typeof uid !== 'string') return false;
+        const db = this.clients.db;
         const now = Math.floor(Date.now() / 1000);
-        const result = await this.clients.db.write(
+        const fixed =
+            'SELECT `type`, `app_uid`, `audience` FROM `notification` WHERE `uid` = ? AND `user_id` = ? LIMIT 1';
+        // Starts with the UPDATE; awaited only when a row changed.
+        const replica = db.read(fixed, [uid, userId]).catch((error) => {
+            console.warn('[notification] dismissal replica read failed', error);
+            return [];
+        });
+        const result = await db.write(
             'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
             [now, uid, userId],
         );
         if (result.anyRowsAffected) {
             try {
-                const [row] = await this.clients.db.pread(
-                    'SELECT `type`, `app_uid`, `audience` FROM `notification` WHERE `uid` = ? AND `user_id` = ? LIMIT 1',
-                    [uid, userId],
-                );
+                const found = await replica;
+                const [row] =
+                    found.length > 0
+                        ? found
+                        : await db.pread(fixed, [uid, userId]);
                 if (row?.type === 'app.message' && row.app_uid) {
                     this.clients.event.emit(
                         'notif.acknowledged',
@@ -611,6 +662,7 @@ export class NotificationStore extends PuterStore {
     }
 
     async markShown(uid, userId) {
+        if (typeof uid !== 'string') return false;
         const now = Math.floor(Date.now() / 1000);
         const result = await this.clients.db.write(
             'UPDATE `notification` SET `shown` = ? WHERE `uid` = ? AND `user_id` = ? AND `shown` IS NULL',
@@ -640,6 +692,7 @@ export class NotificationStore extends PuterStore {
     }
 
     async deleteByUid(uid, userId) {
+        if (typeof uid !== 'string') return false;
         const result = await this.clients.db.write(
             'DELETE FROM `notification` WHERE `uid` = ? AND `user_id` = ?',
             [uid, userId],

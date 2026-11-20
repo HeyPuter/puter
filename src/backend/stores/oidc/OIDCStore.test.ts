@@ -42,6 +42,38 @@ const createStore = (rows: readonly OidcRow[]) => {
 };
 
 describe('OIDCStore', () => {
+    it('links a numeric sub as a string', async () => {
+        const { db, store } = createStore([]);
+        await store.link(1, 'p', 42);
+        expect(db.write).toHaveBeenLastCalledWith(expect.any(String), [
+            1,
+            'p',
+            '42',
+            null,
+        ]);
+    });
+
+    it('looks up a string or numeric sub and refuses other shapes', async () => {
+        const row = { user_id: 1, provider: 'p', provider_sub: '42' };
+        const { db, store } = createStore([row]);
+
+        await expect(
+            store.getByProviderSub('p', 42, { primary: true }),
+        ).resolves.toEqual(row);
+        expect(db.pread).toHaveBeenLastCalledWith(expect.any(String), [
+            'p',
+            '42',
+        ]);
+
+        db.pread.mockClear();
+        for (const sub of [true, ['42'], { sub: '42' }, null]) {
+            await expect(
+                store.getByProviderSub('p', sub, { primary: true }),
+            ).resolves.toBeNull();
+        }
+        expect(db.pread).not.toHaveBeenCalled();
+    });
+
     it('treats a Postgres unique violation as idempotent for an existing same-user link', async () => {
         const { db, store } = createStore([
             {

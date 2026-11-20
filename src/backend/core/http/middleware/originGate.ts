@@ -26,7 +26,7 @@ import type { IConfig } from '../../../types';
  * Browsers send none of those variations, but config values do — a hand-edited
  * `origin` with a trailing slash would otherwise reject every real request.
  */
-const normalizeOrigin = (raw: string | undefined): string =>
+export const normalizeOrigin = (raw: string | undefined): string =>
     (raw ?? '').trim().replace(/\/+$/, '').toLowerCase();
 
 /**

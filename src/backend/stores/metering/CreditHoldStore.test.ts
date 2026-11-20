@@ -142,6 +142,53 @@ describe('CreditHoldStore', () => {
         expect(await store.outstanding(id)).toBe(0);
         spy.mockRestore();
     });
+
+    /** Spy on `method` so its next call lands, then rejects as timed out. */
+    const landsThenTimesOut = (
+        method: 'creditHoldTake' | 'creditHoldReserve',
+    ) => {
+        const redis = server.clients.redis as unknown as Record<
+            string,
+            (...args: string[]) => Promise<unknown>
+        >;
+        const real = redis[method].bind(redis);
+        return vi
+            .spyOn(redis, method)
+            .mockImplementationOnce(async (...args) => {
+                await real(...args);
+                throw new Error('Command timed out');
+            });
+    };
+
+    it('drops a hold whose take timed out but landed', async () => {
+        const id = user();
+        await store.take(id, 100);
+        const late = landsThenTimesOut('creditHoldTake');
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        expect(await store.take(id, 4000)).toBeNull();
+        late.mockRestore();
+        warn.mockRestore();
+
+        expect(await store.outstanding(id)).toBe(100);
+    });
+
+    it('drops a hold whose reserve timed out but landed', async () => {
+        const id = user();
+        await store.take(id, 100);
+        const version = (await store.version(id))!;
+        const before = await store.outstanding(id);
+        const late = landsThenTimesOut('creditHoldReserve');
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        expect(await store.reserve(id, 4000, 1_000_000, version)).toEqual({
+            outcome: 'unavailable',
+        });
+        late.mockRestore();
+        warn.mockRestore();
+
+        expect(await store.outstanding(id)).toBe(before);
+    });
 });
 
 // Opt in to a real Redis Cluster with PUTER_TEST_REDIS_CLUSTER=host:port.

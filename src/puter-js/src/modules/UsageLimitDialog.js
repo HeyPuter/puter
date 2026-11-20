@@ -15,15 +15,16 @@ import { escapeHtml } from '../lib/html.js';
 const UPGRADE_PAGE = 'https://puter.com/dashboard/';
 
 /**
- * The dashboard page the upgrade button opens. It carries what was refused,
- * so the dashboard can open its upgrade flow with that context.
+ * The dashboard page the upgrade button opens. The dashboard opens its
+ * upgrade flow for the `upgrade` parameter, which says what was refused, or
+ * is empty for an upgrade no refusal asked for.
  *
  * @param {Pick<UsageLimitDialogOptions, 'reason' | 'appID' | 'method'>} [context]
  * @returns {string}
  */
 export const upgradeUrl = ({ reason, appID, method } = {}) => {
     const url = new URL(UPGRADE_PAGE);
-    if ( reason ) url.searchParams.set('upgrade', reason);
+    url.searchParams.set('upgrade', reason || '');
     if ( appID ) url.searchParams.set('upgrade_app', appID);
     if ( method ) url.searchParams.set('upgrade_method', method);
     url.hash = 'home';
@@ -34,11 +35,13 @@ export const upgradeUrl = ({ reason, appID, method } = {}) => {
  * The dashboard page that opens the top-up flow, for buying add-on credit.
  *
  * @param {string} [guiOrigin] The deployment whose dashboard it is; Puter's by default.
+ * @param {string} [appID] The app whose page asked for the top-up.
  * @returns {string}
  */
-export const topUpUrl = (guiOrigin) => {
+export const topUpUrl = (guiOrigin, appID) => {
     const url = new URL('/dashboard/', guiOrigin || UPGRADE_PAGE);
     url.searchParams.set('topup', '');
+    if ( appID ) url.searchParams.set('topup_app', appID);
     url.hash = 'usage';
     return url.href;
 };

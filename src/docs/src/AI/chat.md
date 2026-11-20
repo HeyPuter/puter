@@ -34,7 +34,7 @@ An object containing the following properties:
 | `stream` | `Boolean` | A boolean indicating whether you want to stream the completion. Defaults to `false`. |
 | `max_tokens` | `Number` | The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used. |
 | `temperature` | `Number` | A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. See [Model-specific features](#model-specific-features). |
-| `reasoning_effort` / `reasoning.effort` | `String` | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. OpenAI models, Moonshot's Kimi K3.1 Pro models, Meta's Muse Spark models, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only. See [Model-specific features](#model-specific-features). |
+| `reasoning_effort` / `reasoning.effort` | `String` | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. See [Model-specific features](#model-specific-features). |
 | `thinking` | `Object \| null` | Extended-thinking control: `{ type: "adaptive" \| "enabled" \| "disabled" \| "between_tools", budgetTokens?, display? }`. Pass `null` to send no thinking configuration at all (the model's own default); leaving it unset falls back to the legacy derivation from `reasoning_effort`. `budgetTokens` only applies to `type: "enabled"`. |
 | `verbosity` / `text.verbosity` | `String` | Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only. |
 | `tools` | `Array` | Function definitions the AI can call. See [Function Calling](#function-calling) for details. |
@@ -375,23 +375,29 @@ With `provider` set as well, the request is answered by that provider or fails. 
 
 ## Service speed
 
-The `serviceSpeed` option selects service capacity independently of reasoning effort. If the requested speed is unavailable for the selected model, the request uses the next supported speed in the order `ultrafast`, `fast`, `standard`.
+The `serviceSpeed` option sets how fast the model serves the request, separately from reasoning effort. If the requested speed is unavailable for the selected model, the request uses the next supported speed in the order `ultrafast`, `fast`, `standard`.
 
-A faster tier that rejects a request because its capacity or access is unavailable can retry at a lower speed on the same provider. The `fallback` option controls retries on other providers separately. Once streaming output starts, a failed stream ends with an error instead of restarting at another speed.
-
-The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the tier or equivalent model that served the request. A provider downgrade is billed at the lower tier's rates. Response normalization follows the same rule as a request without this option, including when a faster equivalent model is selected.
+The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the tier or equivalent model that served the request. A provider downgrade is billed at the lower tier's rates.
 
 ## Model-specific features
 
 ### OpenAI models
 
-Fast service is available on models with a published Fast rate card. Ultrafast is available for GPT-6.1 Sol and GPT-6 Astra. Other models fall back to fast or standard. Cache and long-context rates apply to the served tier.
+GPT-5.6 Sol uses regular prices of $5 per million input tokens and $30 per million output tokens.
+
+Passing `service_tier: "priority"` selects fast service, and `service_tier: "ultrafast"` selects ultrafast service. These requests use the same prices and supported-speed selection as `serviceSpeed`. An explicit `serviceSpeed` takes precedence.
+
+Input and reasoning tokens reported by a non-streaming Responses API call are billed even when its output is empty. These charges apply whether the request fails or retries another provider.
+
+Fast service is available on models with a published Fast rate card. Ultrafast is available for GPT-6.2 Astra, GPT-6.2 Sol, GPT-6.1 Sol, and GPT-6 Astra. For GPT-6.2 Astra and Sol, Ultrafast costs 3 times Standard through February 28, 2027, and 6 times Standard starting March 1, 2027, Pacific time. Other models fall back to fast or standard. Cache and long-context rates apply to the served tier.
 
 #### `temperature`
 
-Some OpenAI reasoning models ignore `temperature` and `top_p`. GPT-5.6, GPT-6 Sol/Luna, and GPT-6.1 Terra accept them only with `reasoning_effort: 'none'`, and GPT-6 Astra, GPT-6.1 Sol, and GPT-5.3 Codex always ignore them.
+Some OpenAI reasoning models ignore `temperature` and `top_p`. GPT-5.6, GPT-6 Sol/Luna, and GPT-6.1 Terra accept them only with `reasoning_effort: 'none'`, and GPT-6 Astra, GPT-6.1 Sol, GPT-6.2 Astra/Sol, and GPT-5.3 Codex always ignore them.
 
 #### `reasoning_effort`
+
+GPT-6.2 Astra and Sol accept `low`, `medium`, `high`, `xhigh`, and `max`. A requested `none` or `minimal` is clamped to `low`.
 
 GPT-6.1 Terra accepts `none`, `low`, `medium` (default), `high`, `xhigh`, and `max`.
 
@@ -431,7 +437,27 @@ The `usageDetails` object on every result carries the same counts under provider
 
 ### Anthropic models
 
-Fast service is available on Claude models with a Fast rate card. Ultrafast falls back to fast. When the account has no Fast quota, the request retries at standard speed. The upstream service tier and inference speed are separate fields.
+Fast service is available on Claude models with a Fast rate card. Ultrafast falls back to fast.
+
+Pass `speed: "fast"` to request Fast mode, or `speed: "standard"` for standard inference. This option applies to Claude models. An explicit `serviceSpeed` takes precedence.
+
+#### Refusal fallback
+
+A Claude model can decline a request. A declined request ends with `stopReason` set to `"refusal"`, and `stopDetails` says why.
+
+When Claude Fable 5.2, Fable 5.1, Fable 5, Opus 5.5, Opus 5, or Sonnet 5.5 declines, the same request runs again on an earlier Claude model, and the response carries that model's answer. Fable 5.2, Fable 5.1, Fable 5 and Opus 5.5 fall back to Opus 5, and then to Opus 4.8 if Opus 5 declines too. Opus 5 falls back to Opus 4.8. Sonnet 5.5 falls back to Sonnet 5. If the last model declines too, the response ends with `stopReason` set to `"refusal"`.
+
+A streamed request runs again only when the model declines before it produces any output. A streamed request that is declined after its output started ends with `stopReason` set to `"refusal"`.
+
+When another model answers, `usageDetails.fallbackModel` holds its ID and `refusalFallbacks` lists each switch. A streamed response has a `refusal_fallback` chunk for each switch before the answer, with the two models in `from.model` and `to.model`. See the [ChatResponse](/Objects/chatresponse/) and [ChatResponseChunk](/Objects/chatresponsechunk/) objects for these fields.
+
+A request that a model declines before it produces any output is charged only when Anthropic charges for it, which depends on the refusal category in `stopDetails.category`. A request declined after it produced output is charged for its prompt and that output.
+
+Each model that ran is charged at its own rates, and `usage.cost` is the total. The `usage` object holds the tokens of the model that answered under its usual keys, and the tokens of a model that declined under keys that start with `declined_`, such as `declined_input_tokens`. Each run is checked against your balance before it starts. If the balance can't cover the next model, the request doesn't run again and the response is the refusal.
+
+After a model declines a turn of a conversation, later calls for that conversation run on the model that answered, and the declined model isn't tried again. A call belongs to the conversation when it asks for the same `model` and its `messages` start with the messages of the declined call. The response keeps the format of the model you asked for. This lasts until the page is reloaded.
+
+To get the refusal as it is, pass `refusalFallback: false`.
 
 #### Prompt Caching
 
@@ -457,15 +483,19 @@ You can find the implementation in our [prompt caching example](/playground/ai-c
 
 ### Gemini models
 
+Gemini models use regular token prices, including during provider launch promotions.
+
 Fast service uses Priority inference on supported text and image requests. Other media use standard service to preserve input handling.
 
 #### `temperature`
 
-`gemini-4-argon` ignores `temperature`. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` use it.
+Gemini 4 Carbon (`gemini-4-carbon`), Gemini 4 Argon (`gemini-4-argon`), Gemini 4 Hydrogen (`gemini-4-hydrogen`) and Gemini 4 Neon (`gemini-4-neon`) ignore `temperature`. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models use it.
 
 #### `reasoning_effort`
 
-`gemini-4-argon` accepts `low`, `medium` and `high`, and uses `medium` when you leave it unset. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these three Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
+Gemini 4 Carbon and Gemini 4 Argon accept `low`, `medium` and `high`, and use `medium` when you leave it unset. Gemini 4 Hydrogen and Gemini 4 Neon accept `low`, `medium`, `high` and `xhigh`, and use `high` when you leave it unset. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these six Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
+
+The other Gemini models ignore `reasoning_effort`.
 
 #### Function calling
 
@@ -564,7 +594,7 @@ Models with an equivalent Highspeed variant select that variant for fast service
 
 #### `reasoning_effort`
 
-Kimi K3.1 Pro accepts `low`, `high` and `max`, uses `max` when you leave it unset, and fails with `400 bad_request` on any other value.
+Kimi K3.1 Pro accepts `low`, `high` and `max`, uses `max` when you leave it unset, and fails with `400 bad_request` on any other value. The other Kimi models ignore `reasoning_effort`.
 
 #### Prompt Caching
 
@@ -586,7 +616,9 @@ MiniMax M3 uses Priority admission for fast service. Earlier models with an equi
 
 ### Mistral models
 
-Fast service requests Priority when the account and model are eligible. The provider can serve the request at standard speed.
+Fast service requests Priority on models with a Fast rate card. Mistral can still serve the request at standard speed.
+
+Passing `service_tier: "auto"` selects fast service, with the same prices as `serviceSpeed: "fast"`. An explicit `serviceSpeed` takes precedence.
 
 ### Alibaba Cloud models
 

@@ -18,10 +18,14 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { RedisClient } from '../../clients/redis/RedisClient.ts';
 import { PuterServer } from '../../server.ts';
 import { CACHE_TOMBSTONE_TTL_SECONDS } from '../../stores/types.ts';
+import { startSilentRedis } from '../../testFixtures/silentRedis.ts';
 import { setupTestServer } from '../../testUtil.ts';
+import type { IConfig } from '../../types';
+import { CacheReplicationService } from './CacheReplicationService.ts';
 
 describe('CacheReplicationService', () => {
     let server: PuterServer;
@@ -138,4 +142,55 @@ describe('CacheReplicationService', () => {
         await expect(emitRemote([123, '', null])).resolves.not.toThrow();
         await expect(emitRemote(undefined)).resolves.not.toThrow();
     });
+});
+
+describe('CacheReplicationService while Redis is failing fast', () => {
+    it('still applies a peer invalidation', async () => {
+        const silent = await startSilentRedis(true);
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const redis = new RedisClient({
+            redis: {
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 200,
+                failFastMs: 60_000,
+            },
+        } as unknown as IConfig);
+        try {
+            await new Promise<void>((r) => redis.once('ready', () => r()));
+            await expect(redis.set('a', '1')).rejects.toThrow(
+                'Command timed out',
+            );
+            await expect(redis.get('b')).rejects.toThrow('Redis unavailable');
+
+            let onUpdate: (
+                key: string,
+                data: unknown,
+                meta: unknown,
+            ) => unknown = () => {};
+            const event = {
+                on: (_key: string, handler: typeof onUpdate) => {
+                    onUpdate = handler;
+                },
+            };
+            new CacheReplicationService(
+                {} as IConfig,
+                { redis, event } as unknown as PuterServer['clients'],
+                {} as PuterServer['stores'],
+            ).onServerStart();
+            const applied = onUpdate(
+                'outer.cacheUpdate',
+                { cacheKey: ['row:1'] },
+                { from_outside: true },
+            );
+            silent.answer();
+            await applied;
+            expect(silent.seen).toEqual(['set', 'del']);
+        } finally {
+            redis.disconnect();
+            await silent.close();
+            vi.restoreAllMocks();
+        }
+    }, 5000);
 });

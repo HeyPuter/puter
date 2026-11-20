@@ -319,6 +319,51 @@ support@puter.com immediately.
 </p>
         `,
     },
+    login_locked_notification: {
+        subject: 'Sign-in attempts to your Puter account were blocked',
+        html: `
+<p>Hi there,</p>
+<p>Someone entered the wrong password for your Puter account
+<b>{{username}}</b> many times, so we have paused password sign-in to it for
+now. Browsers you have signed in with before can still sign in.</p>
+<p>If this wasn't you, <a href="{{reset_link}}">reset your password</a> and
+<a href="{{sessions_link}}">check where you are signed in</a>. Resetting your
+password lifts the pause.</p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
+    new_sign_in_notification: {
+        subject: 'New sign-in to your Puter account',
+        html: `
+<p>Hi there,</p>
+<p>Your Puter account <b>{{username}}</b> was just signed in to.</p>
+<p>When: {{time}}<br />
+IP address: {{ip}}<br />
+Device: {{device}}</p>
+<p>If this was you, there's nothing to do.</p>
+<p>If this wasn't you, <a href="{{security_link}}">change your password and
+review where you are signed in</a>. If you can't sign in anymore,
+<a href="{{reset_link}}">reset your password</a>.</p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
+    credential_exposure_notification: {
+        subject: 'Your Puter password appears in a known data breach',
+        html: `
+<p>Hi there,</p>
+<p>The password you use for your Puter account <b>{{username}}</b> appears in
+publicly known breach data from other websites. This does not mean Puter was
+breached. It means the same password was exposed somewhere else, so other
+people may know it.</p>
+<p>Please <a href="{{security_link}}">change your password</a> to one you
+don't use anywhere else, and turn on two-factor authentication on the same
+page.</p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
     email_verification_code: {
         subject: '{{code}} is your confirmation code',
         html: `

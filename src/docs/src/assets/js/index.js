@@ -8,5 +8,6 @@ import './context-menu.js';
 import './example.js';
 import './sidebar.js';
 import './toc.js';
+import './changelog.js';
 
 window.hljs = hljs;

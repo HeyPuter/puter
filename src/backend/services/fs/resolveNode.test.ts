@@ -23,6 +23,7 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import {
     assertNormalized,
+    MAX_PATH_LENGTH,
     expandTildePath,
     isOwnersTrash,
     isTildePath,
@@ -122,6 +123,21 @@ describe('resolveNode', () => {
             'subject_does_not_exist',
         );
         expect(error.message).toContain('uuid=ghost');
+    });
+
+    it('treats a path-less row found by uid or id as missing', async () => {
+        const orphan = makeEntry({ path: null as unknown as string });
+        const store = makeStore({
+            getEntryByUuid: vi.fn(async () => orphan),
+            getEntryById: vi.fn(async () => orphan),
+        });
+
+        await expect(resolveNode(store, { uid: 'uuid-7' })).resolves.toBeNull();
+        await expectHttpError(
+            () => resolveNode(store, { id: 7 }, { required: true }),
+            404,
+            'subject_does_not_exist',
+        );
     });
 
     it('falls back to id lookup when uid is blank', async () => {
@@ -240,6 +256,29 @@ describe('assertNormalized', () => {
         expect(assertNormalized('/alice/Dökümanlar/my file.txt')).toBe(
             '/alice/Dökümanlar/my file.txt',
         );
+    });
+});
+
+describe('path length', () => {
+    const longest = `/${'a'.repeat(MAX_PATH_LENGTH - 1)}`;
+
+    it('refuses a path longer than the path column holds', () => {
+        expect(normalizeAbsolutePath(longest)).toBe(longest);
+        expect(() => normalizeAbsolutePath(`${longest}b`)).toThrowError(
+            /Path is too long/,
+        );
+    });
+
+    it('measures the path after adding the leading slash and dropping the trailing one', () => {
+        expect(normalizeAbsolutePath(`${longest}/`)).toBe(longest);
+        expect(() => normalizeAbsolutePath(`${longest.slice(1)}b`)).toThrowError(
+            /Path is too long/,
+        );
+    });
+
+    it('counts characters, not UTF-16 code units', () => {
+        const emoji = `/${'😀'.repeat(MAX_PATH_LENGTH - 1)}`;
+        expect(normalizeAbsolutePath(emoji)).toBe(emoji);
     });
 });
 

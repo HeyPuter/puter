@@ -46,6 +46,16 @@ An alternative to `path` and `data`. A `File` object to write directly, where th
 
 Returns a `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of the written file.
 
+## Errors
+
+The promise rejects with `{ message, code }`. These codes mean the name is already taken:
+
+| Code | Meaning |
+| -- | -- |
+| `item_with_same_name_exists` | A file with this name exists, and `overwrite` and `dedupeName` are both `false`. |
+| `cannot_overwrite_a_directory` | A folder with this name exists. |
+| `conflict` | The name differs from an existing file or folder's name only by accents or emoji, such as `😁.txt` next to `😀.txt`. The existing item is never replaced, even with `overwrite: true`. To write the file under a new name instead, set `overwrite: false` and `dedupeName: true`. |
+
 ## Examples
 
 ### Create a new file containing "Hello, world!"

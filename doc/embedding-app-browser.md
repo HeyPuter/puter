@@ -17,7 +17,8 @@ destination with no opener.
 The embed follows the OS's light or dark setting. A host with a fixed theme adds
 `theme=dark` or `theme=light` to the fragment (`#user=<uuid>&theme=dark`), since
 Chromium doesn't pass an iframe's `color-scheme` on to the page inside it.
-Apps opened from the embed carry `utm_source=puter.com&utm_medium=referral&utm_campaign=app_browser_embed`;
+Apps opened from the embed carry `utm_medium=referral&utm_campaign=app_browser_embed&utm_content=app_icon`,
+with `utm_source` set to the framing page's host (`puter.com` when no allowed page frames it);
 the desktop and dashboard send `utm_campaign=desktop` and `utm_campaign=dashboard`.
 
 ## Session and framing
@@ -225,6 +226,12 @@ pickers) for `puter.ui.requestUpgrade(details)`, and for the Upgrade button of
 the usage limit dialog a refused call shows there. Elsewhere both keep their
 behavior: inside an app `requestUpgrade()` asks the desktop, and on any other
 page the usage limit dialog opens the dashboard's upgrade page in a new tab.
+It frames it too for the Upgrade button `<puter-user-menu>` shows unless
+`hide-upgrade` is set, with only `user` in the fragment. On a page that can't frame
+the GUI, that button opens the dashboard's upgrade page in a new tab. Signed
+out, the button signs in first, and the upgrade then shows for that account,
+through the consent dialog on a page that can't frame it, since the click has
+expired by then.
 
 The frame covers the page with no box or close button, and the GUI page is
 transparent (`html.popup-frame-transparent`) so the dialog's own scrim covers
@@ -257,7 +264,9 @@ it shows still rejects but opens no usage limit dialog over it.
 When the frame can't show the upgrade (refused, never ready, `unavailable`, or
 no user to name), puter.js opens the dashboard's upgrade page in a new tab with
 what was refused, through a consent dialog when the click has expired or the
-tab is blocked, and `requestUpgrade()` resolves `{ upgraded: false }`.
+tab is blocked, and `requestUpgrade()` resolves `{ upgraded: false }`. The
+tab's URL always carries `upgrade`, empty when nothing was refused, which is
+what the dashboard opens its upgrade flow for.
 
 ## Top-up
 
@@ -327,6 +336,36 @@ app reads from the desktop's answer. A call made while the frame shows settles
 with it. A frame that is refused, never ready, or `unavailable` resolves
 `{ response: false }`, since there's no popup to fall back to.
 
+## Custom domains
+
+`GET /embed/attach-custom-domain` is the custom domain dialog of
+`puter.hosting.attach()`, the popup at `/action/attach-custom-domain`, served
+like the upgrade: the GUI shell with the same framing rules, redirects and
+`no-store`, run only when framed by an allowed page. puter.js frames it on a
+signed-in first-party page (the same pages as the pickers).
+
+The frame covers the page with no box or close button, over a transparent GUI
+page, so the dialog floats over the host with its own scrim as it does on the
+desktop. The frame allows `clipboard-write`, for the dialog's copy buttons, as
+well as `otp-credentials`. Escape on the page is left to the dialog, which
+doesn't close while a request is in flight. Its fragment names `user` (the
+page's signed-in user), `subdomain` (the site to attach a domain to) and
+`msg_id`.
+
+The GUI reports `unavailable` unless its session belongs to `user` and the
+account has no verification or password change waiting. It then runs the
+popup's action unchanged, with the framing page as the requester the dialog
+names: it posts `ready` once the dialog is on the page, answers
+`{ msg: 'customDomainAttached', domain, original_msg_id }` once the dialog has
+closed and its exit has played, and then posts `closed`. `domain` is the domain the user chose, or
+null. `attach()` resolves it. A frame that closes without an answer, or a
+loading scrim the user dismisses, resolves null.
+
+A call made while the frame shows resolves null without replacing it, as a
+second call does on the desktop. A frame that is refused, never ready, or
+`unavailable` falls back to the popup, which can sign in, through a consent
+dialog when the click has expired.
+
 ## Checks
 
 Run the GUI component/browser tests (with the SDK bundle built and Playwright
@@ -334,7 +373,7 @@ Chromium installed), and the backend route tests:
 
 ```sh
 npx vitest run --config src/gui/vitest.config.js src/gui/src/UI/Dashboard/AppBrowser src/feedbackEmbed
-npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js src/puter-js/src/modules/Auth.signInFrame.test.js src/puter-js/src/modules/UI.pickerFrame.test.js src/puter-js/src/modules/UI.requestUpgrade.test.js src/puter-js/src/modules/UI.showTopUp.test.js src/puter-js/src/lib/upgradePrompt.test.js src/puter-js/src/modules/UsageLimitDialog.upgrade.test.js
+npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js src/puter-js/src/modules/Auth.signInFrame.test.js src/puter-js/src/modules/UI.pickerFrame.test.js src/puter-js/src/modules/UI.requestUpgrade.test.js src/puter-js/src/modules/UI.showTopUp.test.js src/puter-js/src/modules/UI.attachCustomDomainFrame.test.js src/puter-js/src/lib/upgradePrompt.test.js src/puter-js/src/modules/UsageLimitDialog.upgrade.test.js
 npx vitest run --config src/gui/vitest.config.js src/gui/src/helpers/popupFrame.test.js
 npx vitest run --config src/backend/vitest.config.ts src/backend/server.test.ts
 ```

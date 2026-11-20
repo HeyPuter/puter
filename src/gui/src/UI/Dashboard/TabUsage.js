@@ -19,7 +19,7 @@
 
 import { formatCount, formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { isOrgSeat } from './orgSeat.js';
-import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { addonCreditsBudget, addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
@@ -67,7 +67,7 @@ const TabUsage = {
                 </div>
                 <div class="driver-usage-container" style="margin-top: 30px;">
                     <div class="driver-usage-header">
-                        <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('Resources')}</h3>
+                        <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('monthly_credits_title')}</h3>
                         <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
                             <span class="usage-progbar-percent">--%</span>
                             <span> &middot; </span>
@@ -77,12 +77,29 @@ const TabUsage = {
                     <div class="usage-progbar-wrapper">
                         <div class="usage-progbar" style="width: 0;"></div>
                     </div>
-                    <p class="usage-addon-credits" style="display: none;">
-                        <span class="usage-addon-left"></span>
-                        <span class="usage-addon-note">&middot; ${i18n('addon_credits_note')}</span>
-                    </p>
-                    <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">${i18n('usage_details')}</h3>
-                    <div class="driver-usage-details-content visible">
+                    <div class="usage-addon" style="display: none;">
+                        <div class="driver-usage-header">
+                            <h3 id="usage-addon-title" style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('addon_credits')}</h3>
+                            <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
+                                <span class="usage-addon-percent">--%</span>
+                                <span> &middot; </span>
+                                ${i18n('used_of', { used: '<span class="usage-addon-used">--</span>', available: '<span class="usage-addon-capacity">--</span>' }, false)}
+                            </div>
+                        </div>
+                        <div class="usage-progbar-wrapper" role="progressbar" aria-labelledby="usage-addon-title" aria-valuemin="0" aria-valuemax="100">
+                            <div class="usage-addon-bar" style="width: 0;"></div>
+                        </div>
+                        <p class="usage-addon-credits">
+                            <span class="usage-addon-note">${i18n('addon_credits_note')}</span>
+                        </p>
+                    </div>
+                    <h3 style="margin:22px 0 10px 0; font-size: 13px; font-weight: 400;">
+                        <button type="button" class="usage-details-toggle" aria-expanded="false" aria-controls="usage-details-content">
+                            <svg class="usage-details-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+                            ${i18n('usage_details')}
+                        </button>
+                    </h3>
+                    <div class="driver-usage-details-content" id="usage-details-content" hidden>
                     </div>
                 </div>
             </div>`;
@@ -107,6 +124,12 @@ const TabUsage = {
             if ( ! $($el_window).find('.dashboard-section-usage').hasClass('active') ) return;
             setupPlanButton($el_window);
             refreshUsageDetails($el_window);
+        });
+
+        $($el_window).on('click', '.usage-details-toggle', function () {
+            const expanded = $(this).attr('aria-expanded') === 'true';
+            $(this).attr('aria-expanded', expanded ? 'false' : 'true');
+            $($el_window).find('.driver-usage-details-content').prop('hidden', expanded);
         });
 
         // Click handler for sortable table headers
@@ -330,9 +353,20 @@ async function update_usage_details ($el_window) {
             'background-color': window.usage_bar_color(budget.barPercent),
         });
 
-        $('.usage-addon-credits').toggle(addonLeft !== null);
-        if ( addonLeft !== null ) {
-            $('.usage-addon-left').html(i18n('addon_credits_available', { amount: amount(addonLeft) }));
+        // Its own meter under the monthly one, for an account that has ever had any.
+        const addon = addonCreditsBudget(res.allowanceInfo);
+        $('.usage-addon').toggle(addon !== null);
+        if ( addon !== null ) {
+            $('.usage-addon-used').html(amount(addon.used));
+            $('.usage-addon-capacity').html(amount(addon.capacity));
+            $('.usage-addon-percent').html(`${addon.percent}%`);
+            $('.usage-addon-bar').css({
+                width: `${addon.barPercent}%`,
+                'background-color': window.usage_bar_color(addon.barPercent),
+            }).parent().attr({
+                'aria-valuenow': addon.percent,
+                'aria-valuetext': `${addon.percent}%`,
+            });
         }
 
         // Store raw data for sorting

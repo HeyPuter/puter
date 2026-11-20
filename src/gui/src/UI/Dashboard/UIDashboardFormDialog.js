@@ -187,11 +187,12 @@ export const copyRowHtml = ({ value, label, copiedLabel, compact = false, after 
  *   the submit button or Enter, with the fields locked and the button busy
  *   until it settles. It reports back through the dialog: `setStatus`,
  *   `finish`, or `close`.
+ * @param {() => void} [opts.onClose] Runs once when the dialog closes, however it was closed.
  * @param {jQuery} [opts.$container] Where the overlay mounts; defaults to body.
  * @param {HTMLElement} [opts.returnFocusTo] Where focus goes on close.
  * @returns {FormDialog}
  */
-export default function UIDashboardFormDialog ({ title, intro, tone, fields = [], submitLabel, onSubmit, $container, returnFocusTo }) {
+export default function UIDashboardFormDialog ({ title, intro, tone, fields = [], submitLabel, onSubmit, onClose, $container, returnFocusTo }) {
     const id = `dashboard-form-${window.uuidv4?.() ?? Date.now()}`;
     const danger = tone === 'danger';
 
@@ -220,12 +221,18 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
     let keep_on_backdrop = false;
     // While the handler runs, the dialog is where its outcome will show, so
     // only the explicit ✕ closes it then; a stray click or Escape does not.
-    const { $dialog, close, isClosed } = mountDashboardOverlay({
+    const { $dialog, close: closeOverlay, isClosed } = mountDashboardOverlay({
         html: h,
         $container,
         returnFocusTo,
         canDismiss: (via) => via === 'close' || ! (busy || (keep_on_backdrop && via === 'backdrop')),
+        onDismiss: () => onClose?.(),
     });
+    const close = () => {
+        if ( isClosed() ) return;
+        closeOverlay();
+        onClose?.();
+    };
     const $status = $dialog.find('.dashboard-form-status');
     const $submit = $dialog.find('.dashboard-form-submit');
     const $controls = () => $dialog.find('.dashboard-form-input');

@@ -22,6 +22,7 @@ import { isAbsolute, resolve as resolvePath } from 'path';
 import type { IConfig } from '../../types';
 import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
+import { assertBindableParams } from './bindableParams.js';
 import { compareMigrationFilenames } from './migrationFilenames.js';
 
 export interface WriteResult {
@@ -170,6 +171,37 @@ export class AbstractDatabaseClient extends PuterClient {
         const result = await (primary ?? settle(this.pread(query, params)));
         if ('error' in result) throw result.error;
         return result.value;
+    }
+
+    /** Reads the primary only when every replica read is empty or fails. */
+    @Span('db.tryHardReadAll', (reads: unknown[]) => ({
+        'db.batch_size': reads.length,
+    }))
+    async tryHardReadAll(
+        reads: { query: string; params?: unknown[] }[],
+    ): Promise<Record<string, unknown>[][]> {
+        // A failed replica read counts as a miss below, so refuse up front.
+        for (const { query, params } of reads)
+            assertBindableParams(query, params);
+        if (!this.hasReadReplica()) {
+            return Promise.all(
+                reads.map(({ query, params = [] }) => this.read(query, params)),
+            );
+        }
+        const onReplica = await Promise.all(
+            reads.map(async ({ query, params = [] }) => {
+                try {
+                    return await this.replicaRead(query, params);
+                } catch {
+                    // A failed replica read counts as a miss.
+                    return [];
+                }
+            }),
+        );
+        if (onReplica.some((rows) => rows.length > 0)) return onReplica;
+        return Promise.all(
+            reads.map(({ query, params = [] }) => this.pread(query, params)),
+        );
     }
 
     /**

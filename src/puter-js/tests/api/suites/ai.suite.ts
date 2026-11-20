@@ -97,6 +97,28 @@ const textOf = (result: {
 };
 
 export default suite('ai', {
+    'chat accepts native speed alongside serviceSpeed': async t => {
+        useApiToken(t);
+        for (const speed of ['fast', 'standard'] as const) {
+            const result = await t.puter.ai.chat('Hello', {
+                model: 'fake', speed, serviceSpeed: 'standard', normalize: true,
+            });
+            t.assert.equal(typeof result.message.content, 'string');
+            t.assert.equal(result.usageDetails?.serviceSpeed, 'standard');
+        }
+    },
+
+    'chat accepts refusalFallback on a model that never falls back': async t => {
+        useApiToken(t);
+        for (const refusalFallback of [false, true]) {
+            const result = await t.puter.ai.chat('Hello', {
+                model: 'fake', refusalFallback, normalize: true,
+            });
+            t.assert.equal(typeof result.message.content, 'string');
+            t.assert.equal(result.usageDetails?.fallbackModel, undefined);
+        }
+    },
+
     'service speed falls back on unsupported models without changing the normalized response': async t => {
         useApiToken(t);
         for (const serviceSpeed of ['standard', 'fast', 'ultrafast'] as const) {
@@ -181,6 +203,16 @@ export default suite('ai', {
             ],
             { model: 'fake' },
         );
+        t.assert.ok(textOf(result).length > 0, 'message should contain text');
+    },
+
+    'chat accepts the built-in web search tool': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('Search the web', {
+            model: 'fake',
+            tools: [{ type: 'web_search' }],
+        });
+        t.assert.equal(result.message?.role, 'assistant');
         t.assert.ok(textOf(result).length > 0, 'message should contain text');
     },
 

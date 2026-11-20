@@ -33,20 +33,6 @@ Sent on app startup, and whenever the user's locale on Puter is changed. The val
 }
 ```
 
-#### `themeChanged`
-Sent on app startup, and whenever the user's desktop theme on Puter is changed. The value passed to `handler` is:
-```js
-{
-    palette: {
-        primaryHue,         // (Float) Hue of the theme color
-        primarySaturation,  // (String) Saturation of the theme color as a percentage, with % sign
-        primaryLightness,   // (String) Lightness of the theme color as a percentage, with % sign
-        primaryAlpha,       // (Float) Opacity of the theme color from 0 to 1
-        primaryColor,       // (String) CSS color value for text
-    }
-}
-```
-
 #### `connection`
 Sent when another app requests a connection to your app. The value passed to `handler` is:
 ```js

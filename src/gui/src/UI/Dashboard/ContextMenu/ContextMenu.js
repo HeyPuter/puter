@@ -232,9 +232,13 @@ export default class ContextMenuModal {
             const disabledClass = item.disabled ? 'context-menu-item--disabled' : '';
             const hasSubmenu = Array.isArray(item.items) && item.items.length > 0;
 
-            // Get icon - support both formats (HTML string or base64)
+            // Get icon - support both formats (HTML string or base64).
+            // A checked item shows a checkmark in its place, as in UIContextMenu.
+            const checkable = typeof item.checked === 'boolean';
             let iconHtml = '';
-            if ( item.icon ) {
+            if ( item.checked === true ) {
+                iconHtml = '✓';
+            } else if ( item.icon ) {
                 if ( item.icon.startsWith('data:') ) {
                     // Base64 image
                     iconHtml = `<img src="${item.icon}" alt="" />`;
@@ -250,7 +254,7 @@ export default class ContextMenuModal {
                 : '';
 
             return `
-                <button class="context-menu-item ${deleteClass} ${disabledClass}" role="menuitem" data-index="${index}"${hasSubmenu ? ' aria-haspopup="menu"' : ''}${item.disabled ? ' disabled' : ''}>
+                <button class="context-menu-item ${deleteClass} ${disabledClass}" role="${checkable ? 'menuitemradio' : 'menuitem'}"${checkable ? ` aria-checked="${item.checked}"` : ''} data-index="${index}"${hasSubmenu ? ' aria-haspopup="menu"' : ''}${item.disabled ? ' disabled' : ''}>
                     <div class="context-menu-item-icon">
                         ${iconHtml}
                     </div>

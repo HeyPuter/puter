@@ -106,9 +106,6 @@ const runLaunch = async (options) => {
         const launchAttributes = {
             'launch.app': options?.name ?? options?.app_obj?.name ?? 'unknown',
             'launch.dashboard_mode': !! window.is_dashboard_mode,
-            // url_paths has the `/desktop` prefix stripped, so this counts the
-            // desktop-booted landing (`/desktop/app/<name>`) as the app URL
-            // it is.
             'launch.from_app_url':
                 window.url_paths?.[0]?.toLocaleLowerCase() === 'app'
                 && !! window.url_paths?.[1],
@@ -554,6 +551,7 @@ const runLaunch = async (options) => {
             locale: window.locale,
             args: withoutNotificationClick(options.args),
             surface: window.is_dashboard_mode ? 'dashboard' : 'desktop',
+            trigger: options.trigger,
         });
 
         // Closed by the user while the launch was on its way: they called it off.
@@ -625,14 +623,14 @@ const runLaunch = async (options) => {
             window_height = parseFloat(app_info.metadata.window_size.height);
         } if ( options.maximized )
         {
-            window_height = `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`;
+            window_height = 'calc(100% - 1px)';
         }
 
         // top
         let top;
         if ( app_info.metadata?.window_position?.top !== undefined && app_info.metadata?.window_position?.top !== '' )
         {
-            top = parseFloat(app_info.metadata.window_position.top) + window.toolbar_height + 1;
+            top = parseFloat(app_info.metadata.window_position.top) + 1;
         }
         if ( options.maximized )
         {
@@ -676,18 +674,6 @@ const runLaunch = async (options) => {
         if ( app_info.metadata?.set_title_to_opened_file !== undefined && typeof app_info.metadata.set_title_to_opened_file === 'boolean' && app_info.metadata.set_title_to_opened_file === true )
         {
             title = options.file_path ? path.basename(options.file_path) : title;
-        }
-
-        // show_in_taskbar
-        // Deliberately keyed on the app's own `background`, not on this launch's:
-        // an app that always runs windowless has nothing to put in the taskbar,
-        // ever. A background *launch* is a normal app that happens to start
-        // hidden, so it keeps asking for an item — UIWindow just holds it back
-        // until the window is first shown (see its taskbar block).
-        let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
-        if ( window_options?.show_in_taskbar !== undefined )
-        {
-            show_in_taskbar = window_options.show_in_taskbar;
         }
 
         // has_head
@@ -748,7 +734,6 @@ const runLaunch = async (options) => {
             ...window_options,
             is_resizable: window_resizable,
             has_head: has_head,
-            show_in_taskbar: show_in_taskbar,
             update_window_url: update_window_url,
             custom_path: custom_path,
         });
@@ -852,6 +837,7 @@ const runLaunch = async (options) => {
  *   opening an in-page window. The launch owns the tab: it is closed when the
  *   launch fails. Explorer and built-in apps are part of the desktop, so for
  *   them the tab is closed and the app opens in-page.
+ * @param {import('./appLaunchUrl.js').LaunchTrigger} [options.trigger] - what the user did to open the app
  */
 const launch_app = async (options) => {
     const tab = options.newTab;

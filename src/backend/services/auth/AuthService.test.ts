@@ -124,6 +124,106 @@ describe('AuthService (integration)', () => {
         return u;
     };
 
+    const makeDebugApp = async (): Promise<string> => {
+        const uid = `app-${uuidv4()}`;
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+            [uid, `n-${uid}`, `t-${uid}`, `https://${uid}.example/`, 1],
+        );
+        return uid;
+    };
+
+    describe('createDebugAppToken', () => {
+        it('mints an app-under-user token on its own expiring, hidden session', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const { token, sessionUuid, expiresAt } =
+                await authService.createDebugAppToken(
+                    user as never,
+                    { uid: appUid },
+                    {
+                        ttlSeconds: 3600,
+                        label: 'debug',
+                        meta: { debug_admin_username: 'op' },
+                    },
+                );
+
+            // Its own dedicated row, not reusing a kind='app' session.
+            const row = (
+                (await server.clients.db.read(
+                    'SELECT `kind`, `app_uid`, `expires_at` FROM `sessions` WHERE `uuid` = ?',
+                    [sessionUuid],
+                )) as Array<Record<string, unknown>>
+            )[0];
+            expect(row?.kind).toBe('debug_app');
+            expect(row?.app_uid).toBe(appUid);
+            expect(Number(row?.expires_at)).toBeGreaterThan(
+                Math.floor(Date.now() / 1000) + 3500,
+            );
+            expect(expiresAt).toBeGreaterThan(Date.now() + 3500 * 1000);
+
+            // Authenticates as the user acting in the app.
+            const { actor } = await authService.authenticate(token);
+            expect(actor?.user.uuid).toBe(user.uuid);
+            expect(actor?.app?.uid).toBe(appUid);
+
+            // Hidden from the user's own session list.
+            const listed = await authService.listSessions({
+                user: { id: user.id },
+            } as Actor);
+            expect(listed.some((s) => s.uuid === sessionUuid)).toBe(false);
+        });
+
+        it('carries an exp, so the token lapses on its own', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const { token } = await authService.createDebugAppToken(
+                user as never,
+                { uid: appUid },
+                { ttlSeconds: 1234 },
+            );
+            const claims = server.services.token.verify('auth', token) as {
+                iat: number;
+                exp: number;
+            };
+            expect(claims.exp - claims.iat).toBe(1234);
+        });
+
+        it('records no activity for the user', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const { token } = await authService.createDebugAppToken(
+                user as never,
+                { uid: appUid },
+                { ttlSeconds: 600 },
+            );
+            const touch = vi.spyOn(server.stores.session, 'touch');
+            try {
+                const ctx = { ip: '9.9.9.9', userAgent: 'debug' };
+                expect(
+                    (await authService.authenticate(token, ctx)).actor,
+                ).toBeTruthy();
+                expect(touch).not.toHaveBeenCalled();
+            } finally {
+                touch.mockRestore();
+            }
+        });
+
+        it('is evicted by a password reset', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const { token } = await authService.createDebugAppToken(
+                user as never,
+                { uid: appUid },
+                { ttlSeconds: 600 },
+            );
+            await authService.revokeInteractiveSessionsForUserId(user.id);
+            const result = await authService.authenticate(token);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
+        });
+    });
+
     describe('authenticateFromToken', () => {
         it('returns null for a malformed/unverifiable token', async () => {
             const actor = await authService.authenticateFromToken('not-a-jwt');
@@ -183,6 +283,96 @@ describe('AuthService (integration)', () => {
                 app_uid: 'app-doesnotexist',
             });
             expect(await authService.authenticateFromToken(jwt)).toBeNull();
+        });
+    });
+
+    describe('signedSessionClaims', () => {
+        it('names the user and session of a session token', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                {},
+            );
+            expect(authService.signedSessionClaims(token)).toEqual({
+                userUid: user.uuid,
+                sessionUuid: (session as { uuid: string }).uuid,
+            });
+        });
+
+        it('names the app too for an app token', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const sessionUuid = uuidv4();
+            const token = server.services.token.sign('auth', {
+                type: 'app-under-user',
+                version: '2',
+                user_uid: user.uuid,
+                app_uid: appUid,
+                session_uid: sessionUuid,
+            });
+            expect(authService.signedSessionClaims(token)).toEqual({
+                userUid: user.uuid,
+                sessionUuid,
+                appUid,
+            });
+        });
+
+        it('reads the session from `uuid` on a token without `session_uid`', () => {
+            const [userUid, sessionUuid] = [uuidv4(), uuidv4()];
+            const token = server.services.token.sign('auth', {
+                type: 'gui',
+                version: '0.0.0',
+                uuid: sessionUuid,
+                user_uid: userUid,
+            });
+            expect(authService.signedSessionClaims(token)).toEqual({
+                userUid,
+                sessionUuid,
+            });
+        });
+
+        it('returns null for worker, access, expired, tampered and session-less tokens', async () => {
+            const user = await makeUser();
+            const accessToken = await authService.createAccessToken(
+                {
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                } as Actor,
+                [[`user:${user.uuid}:email:read`]],
+            );
+            const sign = (claims: Record<string, unknown>, expiresIn?: number) =>
+                server.services.token.sign(
+                    'auth',
+                    claims,
+                    expiresIn === undefined ? undefined : { expiresIn },
+                );
+            const sessionUuid = uuidv4();
+            const session = {
+                type: 'session',
+                version: '2',
+                uuid: sessionUuid,
+                session_uid: sessionUuid,
+                user_uid: user.uuid,
+            };
+            const valid = sign(session);
+            for (const token of [
+                accessToken,
+                sign({ ...session, worker: true, worker_name: 'w' }),
+                sign({
+                    type: 'app-under-user',
+                    version: '2',
+                    user_uid: user.uuid,
+                    app_uid: `app-${uuidv4()}`,
+                }),
+                sign(session, -120),
+                `${valid.slice(0, -4)}AAAA`,
+                'not-a-jwt',
+            ]) {
+                expect(authService.signedSessionClaims(token)).toBeNull();
+            }
         });
     });
 
@@ -648,6 +838,60 @@ describe('AuthService (integration)', () => {
             expect(
                 await server.stores.session.getByUuid(sessionUuid),
             ).toBeFalsy();
+        });
+
+        describe('listSessions and expiry', () => {
+            const nowS = () => Math.floor(Date.now() / 1000);
+
+            const listedUuids = async (user: { id: number }) =>
+                (await authService.listSessions({ user } as Actor)).map(
+                    (r) => (r as { uuid: string }).uuid,
+                );
+
+            it.each(['web', 'app', 'access_token'])(
+                'leaves out an expired %s session and lists a live one',
+                async (kind) => {
+                    const user = await makeUser();
+                    const sessions = server.stores.session;
+                    const live = await sessions.create(user.id, {
+                        kind,
+                        expires_at: nowS() + 3600,
+                    });
+                    const expired = await sessions.create(user.id, {
+                        kind,
+                        expires_at: nowS() - 1,
+                    });
+
+                    const uuids = await listedUuids(user);
+                    expect(uuids).toContain(live.uuid);
+                    expect(uuids).not.toContain(expired.uuid);
+                },
+            );
+
+            it('leaves out a token whose parent session has expired or is gone', async () => {
+                const user = await makeUser();
+                const sessions = server.stores.session;
+                const token = (parent: string) =>
+                    sessions.create(user.id, {
+                        kind: 'access_token',
+                        parent_session_id: parent,
+                        expires_at: nowS() + 3600,
+                    });
+                const liveParent = await sessions.create(user.id);
+                const expiredParent = await sessions.create(user.id, {
+                    expires_at: nowS() - 1,
+                });
+                const listed = await token(liveParent.uuid);
+                const underExpired = await token(expiredParent.uuid);
+                const underMissing = await token(uuidv4());
+
+                const uuids = await listedUuids(user);
+                expect(uuids).toContain(liveParent.uuid);
+                expect(uuids).toContain(listed.uuid);
+                expect(uuids).not.toContain(expiredParent.uuid);
+                expect(uuids).not.toContain(underExpired.uuid);
+                expect(uuids).not.toContain(underMissing.uuid);
+            });
         });
 
         it('listSessions excludes kind="asset" rows', async () => {
@@ -3099,7 +3343,7 @@ describe('AuthService (integration)', () => {
             const emit = vi.spyOn(server.clients.event, 'emit');
             const announced = () =>
                 emit.mock.calls.filter(
-                    (c) => c[0] === 'auth.access-token.revoked',
+                    (c) => c[0] === 'outer.auth.access-token.revoked',
                 ).length;
 
             const scoped = await authService.createAccessToken(actor, [
@@ -3115,6 +3359,35 @@ describe('AuthService (integration)', () => {
             expect(announced()).toBe(1);
 
             emit.mockRestore();
+        });
+
+        it('announces a desktop app token it replaces past its max age', async () => {
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user);
+            const actor = makeActor({
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: String(session.uuid), kind: 'web' },
+            });
+            const app = { uid: `app-${uuidv4()}`, title: 'Retire probe' };
+            const { token } = await authService.getGodmodeAppToken(actor, app);
+            const { token_uid } = server.services.token.verify<{
+                token_uid: string;
+            }>('auth', token);
+
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            const later = Date.now() + 8 * 24 * 60 * 60 * 1000;
+            vi.spyOn(Date, 'now').mockReturnValue(later);
+            try {
+                await authService.getGodmodeAppToken(actor, app);
+                expect(emit).toHaveBeenCalledWith(
+                    'outer.auth.access-token.revoked',
+                    { token_uid },
+                    {},
+                );
+            } finally {
+                vi.mocked(Date.now).mockRestore();
+                emit.mockRestore();
+            }
         });
 
         it('revokeAccessToken rejects with 404 when the token belongs to another user', async () => {
@@ -3433,11 +3706,13 @@ describe('AuthService (integration)', () => {
 
         it('verifying a private token throws 401 when expected app_uid mismatches', async () => {
             const user = await makeUser();
+            const { session } = await authService.createSessionToken(user, {});
             const appA = `app-${uuidv4()}`;
             const appB = `app-${uuidv4()}`;
             const token = await authService.createHostedAssetToken('private', {
                 appUid: appA,
                 userUid: user.uuid,
+                sessionUuid: (session as { uuid: string }).uuid,
             });
             await expect(
                 authService.verifyHostedAssetToken('private', token, {
@@ -3483,12 +3758,14 @@ describe('AuthService (integration)', () => {
         });
 
         it('verifying as public rejects a private-kind token (kind mismatch)', async () => {
-            const user = { uuid: uuidv4() };
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user, {});
             const privateToken = await authService.createHostedAssetToken(
                 'private',
                 {
                     appUid: `app-${uuidv4()}`,
                     userUid: user.uuid,
+                    sessionUuid: (session as { uuid: string }).uuid,
                 },
             );
             await expect(
@@ -3724,6 +4001,163 @@ describe('AuthService (integration)', () => {
                 authService.revokeAccessToken(otherActor, decoded.token_uid),
             ).rejects.toMatchObject({ statusCode: 404 });
             expect(await authService.authenticateFromToken(jwt)).toBeTruthy();
+        });
+
+        const migratedTokenRow = async (userId: number) => {
+            const legacyUid = uuidv4();
+            const row = await server.stores.session.create(userId, {
+                kind: 'access_token',
+                legacy_token_uid: legacyUid,
+                created_via: 'legacy_backfill',
+            });
+            return { legacyUid, rowUuid: row.uuid as string };
+        };
+
+        it('soft-revokes a migrated token row named by its legacy token uid', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const { legacyUid, rowUuid } = await migratedTokenRow(user.id);
+
+            await authService.revokeAccessToken(actor, legacyUid);
+
+            expect(await server.stores.session.getByUuid(rowUuid)).toBeNull();
+        });
+
+        it('404s for a raw uid that names no token row', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+
+            await expect(
+                authService.revokeAccessToken(actor, uuidv4()),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it("404s when another user names a migrated token's legacy uid", async () => {
+            const owner = await makeUser();
+            const other = await makeUser();
+            const otherActor = {
+                user: {
+                    id: other.id,
+                    uuid: other.uuid,
+                    username: other.username,
+                },
+            } as Actor;
+            const { legacyUid, rowUuid } = await migratedTokenRow(owner.id);
+
+            await expect(
+                authService.revokeAccessToken(otherActor, legacyUid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(
+                await server.stores.session.getByUuid(rowUuid),
+            ).toBeTruthy();
+        });
+    });
+
+    describe('tokens minted by a full-access token', () => {
+        const fullAccessToken = async () => {
+            const user = await makeUser();
+            const userActor = makeActor({
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            });
+            const jwt = await authService.createAccessToken(userActor, [
+                [FULL_API_ACCESS],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                token_uid: string;
+                session_uid: string;
+                auth_id: string;
+            };
+            return { user, userActor, jwt, decoded };
+        };
+
+        const parentOf = async (token: string) => {
+            const { session_uid } = server.services.token.verify(
+                'auth',
+                token,
+            ) as { session_uid: string };
+            const rows = (await server.clients.db.read(
+                'SELECT `parent_session_id` FROM `sessions` WHERE `uuid` = ?',
+                [session_uid],
+            )) as Array<{ parent_session_id: string | null }>;
+            return rows[0]?.parent_session_id;
+        };
+
+        /** A replica that has not seen any access-token row yet. */
+        const lagTokenRows = () => {
+            const db = server.clients.db;
+            const original = db.read.bind(db);
+            const spy = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql: string, params?: unknown[]) =>
+                    sql.includes("FROM `sessions` WHERE `kind` = 'access_token'")
+                        ? []
+                        : original(sql, params),
+                );
+            return () => spy.mockRestore();
+        };
+
+        it('parents the child to the minting token row while the replica lags, and revoking it takes the child', async () => {
+            const { user, userActor, jwt, decoded } = await fullAccessToken();
+            const minter = await authService.authenticateFromToken(jwt);
+
+            const restore = lagTokenRows();
+            let child: string;
+            try {
+                child = await authService.createAccessToken(minter!, [
+                    [`user:${user.uuid}:email:read`],
+                ]);
+            } finally {
+                restore();
+            }
+
+            expect(await parentOf(child)).toBe(decoded.session_uid);
+            expect(await authService.authenticateFromToken(child)).toBeTruthy();
+            await authService.revokeAccessToken(userActor, jwt);
+            expect(await authService.authenticateFromToken(child)).toBeNull();
+        });
+
+        it('carries the row whether auth read it from the cache or the database', async () => {
+            const { jwt, decoded } = await fullAccessToken();
+            const key = `sessions:v2:uuid:${decoded.session_uid}`;
+
+            expect(await server.clients.redis.get(key)).toBeTruthy();
+            const cached = await authService.authenticateFromToken(jwt);
+            await server.clients.redis.del(key);
+            const fromDb = await authService.authenticateFromToken(jwt);
+
+            expect(cached?.accessToken?.sessionUid).toBe(decoded.session_uid);
+            expect(fromDb?.accessToken?.sessionUid).toBe(decoded.session_uid);
+        });
+
+        it('looks the row up by token uid when the claim names no row of its own', async () => {
+            const { user, decoded } = await fullAccessToken();
+            const otherSession = await authService.createSessionToken(user, {});
+            const claims = {
+                type: 'access-token',
+                version: '2',
+                token_uid: decoded.token_uid,
+                user_uid: user.uuid,
+                auth_id: decoded.auth_id,
+                full_access: true,
+            };
+            const unclaimed = server.services.token.sign('auth', claims);
+            const misclaimed = server.services.token.sign('auth', {
+                ...claims,
+                session_uid: (otherSession.session as { uuid: string }).uuid,
+            });
+
+            for (const token of [unclaimed, misclaimed]) {
+                const minter = await authService.authenticateFromToken(token);
+                expect(minter?.accessToken?.sessionUid).toBeUndefined();
+                const child = await authService.createAccessToken(minter!, [
+                    [`user:${user.uuid}:email:read`],
+                ]);
+                expect(await parentOf(child)).toBe(decoded.session_uid);
+            }
         });
     });
 
@@ -4025,6 +4459,32 @@ describe('AuthService (integration)', () => {
             },
         );
 
+        it.each(revokers)(
+            '%s revokes an expired session and its live children',
+            async (_name, revoke) => {
+                const user = await makeUser();
+                const sessions = server.stores.session;
+                const now = Math.floor(Date.now() / 1000);
+                const web = await sessions.create(user.id, {
+                    expires_at: now - 1,
+                });
+                const child = await sessions.create(user.id, {
+                    kind: 'access_token',
+                    parent_session_id: web.uuid,
+                    expires_at: now + 3600,
+                });
+
+                await revoke(user);
+
+                const rows = await server.clients.db.read(
+                    'SELECT `uuid`, `revoked_at` FROM `sessions` WHERE `uuid` IN (?, ?)',
+                    [web.uuid, child.uuid],
+                );
+                expect(rows).toHaveLength(2);
+                for (const row of rows) expect(row.revoked_at).not.toBeNull();
+            },
+        );
+
         it('a password reset leaves workers and standalone access tokens; a forced sign-out takes them', async () => {
             const user = await makeUser();
             const sessions = server.stores.session;
@@ -4045,6 +4505,569 @@ describe('AuthService (integration)', () => {
             await authService.revokeAllSessionsForUserId(user.id);
             expect(await sessions.getByUuid(worker.uuid)).toBeNull();
             expect(await sessions.getByUuid(token.uuid)).toBeNull();
+        });
+
+        describe('revokeAllSessionsForUserIds', () => {
+            /** A web session and an asset session under it. */
+            const makeSessions = async (userId: number) => {
+                const sessions = server.stores.session;
+                const web = await sessions.create(userId);
+                const asset = await sessions.create(userId, {
+                    kind: 'asset',
+                    parent_session_id: web.uuid,
+                });
+                return [web.uuid, asset.uuid] as string[];
+            };
+
+            const announced = (emit: { mock: { calls: unknown[][] } }) =>
+                emit.mock.calls
+                    .filter(([key]) => key === 'outer.auth.sessions.revoked')
+                    .map(
+                        ([, data]) =>
+                            data as { user_id: number; session_uids: string[] },
+                    );
+
+            it('revokes every session of each user and announces each user once', async () => {
+                const users = [
+                    await makeUser(),
+                    await makeUser(),
+                    await makeUser(),
+                ];
+                const bystander = await makeUser();
+                const kept = await makeSessions(bystander.id);
+                const uuids = new Map<number, string[]>();
+                for (const user of users) {
+                    uuids.set(user.id, await makeSessions(user.id));
+                }
+
+                const db = server.clients.db;
+                const pread = vi.spyOn(db, 'pread');
+                const write = vi.spyOn(db, 'write');
+                const cascades = vi.spyOn(
+                    server.stores.session,
+                    'revokeCascades',
+                );
+                const emit = vi.spyOn(server.clients.event, 'emit');
+                let primaryQueries: string[];
+                let cascadeCalls: number;
+                let events: ReturnType<typeof announced>;
+                try {
+                    await authService.revokeAllSessionsForUserIds(
+                        users.map((user) => user.id),
+                    );
+                } finally {
+                    primaryQueries = [
+                        ...pread.mock.calls,
+                        ...write.mock.calls,
+                    ].map(([sql]) => String(sql));
+                    cascadeCalls = cascades.mock.calls.length;
+                    events = announced(emit);
+                    for (const spy of [pread, write, cascades, emit]) {
+                        spy.mockRestore();
+                    }
+                }
+
+                // List, select, update, re-seed: once for all three users.
+                expect(
+                    primaryQueries.filter((sql) => sql.includes('`sessions`')),
+                ).toHaveLength(4);
+                expect(cascadeCalls).toBe(1);
+                expect(events).toHaveLength(users.length);
+                for (const user of users) {
+                    const event = events.find((e) => e.user_id === user.id);
+                    expect(event?.session_uids.sort()).toEqual(
+                        [...uuids.get(user.id)!].sort(),
+                    );
+                    for (const uuid of uuids.get(user.id)!) {
+                        expect(
+                            await server.stores.session.getByUuid(uuid),
+                        ).toBeNull();
+                    }
+                }
+                for (const uuid of kept) {
+                    expect(
+                        await server.stores.session.getByUuid(uuid),
+                    ).toBeTruthy();
+                }
+            });
+
+            it('reads and cascades once per 200 users', async () => {
+                const first = await makeUser();
+                const last = await makeUser();
+                const uuids = [
+                    ...(await makeSessions(first.id)),
+                    ...(await makeSessions(last.id)),
+                ];
+                // Ids no user holds fill the first chunk and are skipped.
+                const absent = Array.from(
+                    { length: 199 },
+                    (_, i) => 900_000_000 + i,
+                );
+
+                const reads = vi.spyOn(server.stores.session, 'getByUserIds');
+                const cascades = vi.spyOn(
+                    server.stores.session,
+                    'revokeCascades',
+                );
+                let readSizes: number[];
+                let cascadeCalls: number;
+                try {
+                    await authService.revokeAllSessionsForUserIds([
+                        first.id,
+                        ...absent,
+                        last.id,
+                        first.id,
+                    ]);
+                } finally {
+                    readSizes = reads.mock.calls.map(([ids]) => ids.length);
+                    cascadeCalls = cascades.mock.calls.length;
+                    reads.mockRestore();
+                    cascades.mockRestore();
+                }
+
+                expect(readSizes).toEqual([200, 1]);
+                expect(cascadeCalls).toBe(2);
+                for (const uuid of uuids) {
+                    expect(
+                        await server.stores.session.getByUuid(uuid),
+                    ).toBeNull();
+                }
+            });
+
+            it('does nothing for an empty list or ids no user holds', async () => {
+                const db = server.clients.db;
+                const pread = vi.spyOn(db, 'pread');
+                const write = vi.spyOn(db, 'write');
+                const emit = vi.spyOn(server.clients.event, 'emit');
+                let emptyQueries: number;
+                let writes: number;
+                let events: number;
+                try {
+                    await authService.revokeAllSessionsForUserIds([]);
+                    await authService.revokeAllSessionsForUserIds([0]);
+                    emptyQueries = pread.mock.calls.length;
+                    await authService.revokeAllSessionsForUserIds([
+                        900_000_500, 900_000_501,
+                    ]);
+                } finally {
+                    writes = write.mock.calls.length;
+                    events = announced(emit).length;
+                    for (const spy of [pread, write, emit]) spy.mockRestore();
+                }
+
+                expect(emptyQueries).toBe(0);
+                expect(writes).toBe(0);
+                expect(events).toBe(0);
+            });
+
+            it('revokes sessions the replica has not seen yet', async () => {
+                const users = [await makeUser(), await makeUser()];
+                const uuids: string[] = [];
+                for (const user of users) {
+                    uuids.push(...(await makeSessions(user.id)));
+                }
+
+                const db = server.clients.db;
+                const original = db.read.bind(db);
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation(
+                        async (sql: string, params?: unknown[]) =>
+                            sql.includes('FROM `sessions`')
+                                ? []
+                                : original(sql, params),
+                    );
+                // sqlite's `pread` goes through `read`; keep it on the primary.
+                const pread = vi
+                    .spyOn(db, 'pread')
+                    .mockImplementation((sql: string, params?: unknown[]) =>
+                        original(sql, params),
+                    );
+                try {
+                    await authService.revokeAllSessionsForUserIds(
+                        users.map((user) => user.id),
+                    );
+                } finally {
+                    read.mockRestore();
+                    pread.mockRestore();
+                }
+
+                for (const uuid of uuids) {
+                    expect(
+                        await server.stores.session.getByUuid(uuid),
+                    ).toBeNull();
+                }
+            });
+        });
+    });
+
+    describe('sessions that predate expires_at or went idle', () => {
+        const DAY = 24 * 60 * 60;
+        const nowS = () => Math.floor(Date.now() / 1000);
+
+        /** Age a row in the database and drop its cached copy. */
+        const age = async (
+            uuid: string,
+            fields: { expires_at: number | null; activeDaysAgo: number },
+        ) => {
+            const at = nowS() - fields.activeDaysAgo * DAY;
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ?, `last_activity` = ?, `created_at` = ? WHERE `uuid` = ?',
+                [fields.expires_at, at, at, uuid],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${uuid}`);
+        };
+
+        const makeTempUser = async () => {
+            const username = `tmp-${Math.random().toString(36).slice(2, 10)}`;
+            return server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: null,
+                email: null,
+                free_storage: 100 * 1024 * 1024,
+                requires_email_confirmation: false,
+            });
+        };
+
+        const sessionUidOf = (token: string) =>
+            (
+                server.services.token.verify('auth', token) as {
+                    session_uid: string;
+                }
+            ).session_uid;
+
+        const webSession = async (
+            user: Awaited<ReturnType<typeof makeUser>>,
+        ) => {
+            const { token, session } = await authService.createSessionToken(
+                user,
+                {},
+            );
+            return { token, uuid: (session as { uuid: string }).uuid };
+        };
+
+        it('ends a web session whose row has no expires_at and no activity within the store window', async () => {
+            const user = await makeUser();
+            const { token, uuid } = await webSession(user);
+            await age(uuid, { expires_at: null, activeDaysAgo: 400 });
+            expect(await authService.authenticate(token)).toEqual({
+                reauth: { reason: 'session_expired', auth_id: user.uuid },
+            });
+        });
+
+        it('ends a web session idle past the window although its expires_at is ahead', async () => {
+            const user = await makeUser();
+            const { token, uuid } = await webSession(user);
+            await age(uuid, {
+                expires_at: nowS() + 184 * DAY,
+                activeDaysAgo: 181,
+            });
+            expect(await authService.authenticate(token)).toEqual({
+                reauth: { reason: 'session_expired', auth_id: user.uuid },
+            });
+
+            const fresh = await webSession(user);
+            await age(fresh.uuid, {
+                expires_at: nowS() + 186 * DAY,
+                activeDaysAgo: 179,
+            });
+            expect(
+                (await authService.authenticate(fresh.token)).actor,
+            ).toBeTruthy();
+        });
+
+        it('keeps a temp account signed in at 200 idle days, until the store window ends', async () => {
+            const user = await makeTempUser();
+            const { token, uuid } = await webSession(user);
+            await age(uuid, {
+                expires_at: nowS() + 165 * DAY,
+                activeDaysAgo: 200,
+            });
+            expect(
+                (await authService.authenticate(token)).actor?.user.uuid,
+            ).toBe(user.uuid);
+
+            await age(uuid, { expires_at: null, activeDaysAgo: 200 });
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+
+            await age(uuid, { expires_at: null, activeDaysAgo: 366 });
+            expect(await authService.authenticate(token)).toEqual({
+                reauth: { reason: 'session_expired', auth_id: user.uuid },
+            });
+        });
+
+        it('keeps an access token minted without an expiry working however old its row', async () => {
+            const user = await makeUser();
+            const token = await authService.createAccessToken(
+                { user } as Actor,
+                [[FULL_API_ACCESS]],
+            );
+            await age(sessionUidOf(token), {
+                expires_at: null,
+                activeDaysAgo: 2000,
+            });
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+
+        it('ends a token minted under a sign-in that went idle', async () => {
+            const user = await makeUser();
+            const token = await authService.createAccessToken(
+                { user } as Actor,
+                [[`user:${user.uuid}:email:read`]],
+            );
+            const tokenRow = sessionUidOf(token);
+            const parent = await webSession(user);
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `parent_session_id` = ? WHERE `uuid` = ?',
+                [parent.uuid, tokenRow],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${tokenRow}`);
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+
+            await age(parent.uuid, {
+                expires_at: nowS() + 184 * DAY,
+                activeDaysAgo: 181,
+            });
+            expect(await authService.authenticate(token)).toEqual({
+                reauth: { reason: 'session_expired' },
+            });
+        });
+
+        it('ends an idle app session, and the next launch mints a fresh one', async () => {
+            const user = await makeUser();
+            const appUid = await makeDebugApp();
+            const actor = makeActor({ user });
+            const first = await authService.getUserAppToken(actor, appUid);
+            expect((await authService.authenticate(first)).actor).toBeTruthy();
+
+            await age(sessionUidOf(first), {
+                expires_at: nowS() + 184 * DAY,
+                activeDaysAgo: 181,
+            });
+            await server.clients.redis.del(
+                `sessions:v2:app:${user.id}:${appUid}`,
+            );
+            expect(await authService.authenticate(first)).toEqual({
+                reauth: { reason: 'session_expired' },
+            });
+
+            const second = await authService.getUserAppToken(actor, appUid);
+            expect(sessionUidOf(second)).not.toBe(sessionUidOf(first));
+            expect((await authService.authenticate(second)).actor).toBeTruthy();
+        });
+
+        it('leaves an idle session out of listSessions', async () => {
+            const user = await makeUser();
+            const idle = await webSession(user);
+            const live = await webSession(user);
+            await age(idle.uuid, {
+                expires_at: nowS() + 184 * DAY,
+                activeDaysAgo: 181,
+            });
+            const listed = (
+                await authService.listSessions({ user } as Actor)
+            ).map((row) => (row as { uuid: string }).uuid);
+            expect(listed).toContain(live.uuid);
+            expect(listed).not.toContain(idle.uuid);
+        });
+
+        describe('hosted-asset cookies', () => {
+            const appUid = () => `app-${uuidv4()}`;
+
+            const fullAccessToken = async (
+                user: Awaited<ReturnType<typeof makeUser>>,
+                options: { expiresIn?: string } = {},
+            ) => {
+                const token = await authService.createAccessToken(
+                    { user } as Actor,
+                    [[FULL_API_ACCESS]],
+                    options,
+                );
+                const { actor } = await authService.authenticate(token);
+                return { token, row: actor!.accessToken!.sessionUid! };
+            };
+
+            const privateCookie = (
+                user: { uuid: string },
+                sessionUuid: string,
+            ) =>
+                authService.createHostedAssetToken('private', {
+                    appUid: appUid(),
+                    userUid: user.uuid,
+                    sessionUuid,
+                });
+
+            it('a private cookie minted from a full-access token ends when the token is revoked', async () => {
+                const user = await makeUser();
+                const { token, row } = await fullAccessToken(user);
+                const cookie = await privateCookie(user, row);
+                await authService.verifyHostedAssetToken('private', cookie);
+
+                await authService.revokeAccessToken({ user } as Actor, token);
+                await expect(
+                    authService.verifyHostedAssetToken('private', cookie),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    legacyCode: 'session_required',
+                });
+            });
+
+            it('a private cookie minted from a full-access token ends when the token expires', async () => {
+                const user = await makeUser();
+                const { row } = await fullAccessToken(user, {
+                    expiresIn: '1h',
+                });
+                const cookie = await privateCookie(user, row);
+                await authService.verifyHostedAssetToken('private', cookie);
+
+                await age(row, { expires_at: nowS() - 1, activeDaysAgo: 0 });
+                await expect(
+                    authService.verifyHostedAssetToken('private', cookie),
+                ).rejects.toMatchObject({ statusCode: 401 });
+            });
+
+            it('a private cookie minted from a token ends with the sign-in the token hangs off', async () => {
+                const user = await makeUser();
+                const { row } = await fullAccessToken(user);
+                const parent = await webSession(user);
+                await server.clients.db.write(
+                    'UPDATE `sessions` SET `parent_session_id` = ? WHERE `uuid` = ?',
+                    [parent.uuid, row],
+                );
+                await server.clients.redis.del(`sessions:v2:uuid:${row}`);
+                const cookie = await privateCookie(user, row);
+                await authService.verifyHostedAssetToken('private', cookie);
+
+                await age(parent.uuid, {
+                    expires_at: nowS() - 1,
+                    activeDaysAgo: 0,
+                });
+                await expect(
+                    authService.verifyHostedAssetToken('private', cookie),
+                ).rejects.toMatchObject({ statusCode: 401 });
+            });
+
+            it('refuses a private cookie that names no session', async () => {
+                const user = await makeUser();
+                const app = appUid();
+                const unbound = server.services.token.sign('hosted-asset', {
+                    kind: 'private',
+                    version: '2',
+                    user_uid: user.uuid,
+                    app_uid: app,
+                });
+                await expect(
+                    authService.verifyHostedAssetToken('private', unbound, {
+                        appUid: app,
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    legacyCode: 'session_required',
+                });
+                await expect(
+                    authService.createHostedAssetToken('private', {
+                        appUid: app,
+                        userUid: user.uuid,
+                    }),
+                ).rejects.toMatchObject({ statusCode: 401 });
+            });
+
+            it('signs both kinds to expire with the cookie and the asset window', async () => {
+                const user = await makeUser();
+                const { uuid } = await webSession(user);
+                const lifetime = 7 * DAY;
+                expect(authService.getHostedAssetCookieOptions().maxAge).toBe(
+                    lifetime * 1000,
+                );
+                for (const kind of ['private', 'public'] as const) {
+                    const cookie = await authService.createHostedAssetToken(
+                        kind,
+                        {
+                            appUid: appUid(),
+                            userUid: user.uuid,
+                            sessionUuid: uuid,
+                        },
+                    );
+                    const { iat, exp } = jwt.decode(cookie) as {
+                        iat: number;
+                        exp?: number;
+                    };
+                    expect(exp! - iat, kind).toBe(lifetime);
+                }
+            });
+
+            it('refuses a public cookie past its signed expiry while its sign-in lives on', async () => {
+                const user = await makeUser();
+                const { uuid } = await webSession(user);
+                const cookie = await authService.createHostedAssetToken(
+                    'public',
+                    { appUid: appUid(), userUid: user.uuid, sessionUuid: uuid },
+                );
+                vi.useFakeTimers({ toFake: ['Date'] });
+                try {
+                    vi.setSystemTime(Date.now() + 8 * DAY * 1000);
+                    expect(
+                        await server.stores.session.getByUuid(uuid),
+                    ).toBeTruthy();
+                    await expect(
+                        authService.verifyHostedAssetToken('public', cookie),
+                    ).rejects.toThrow();
+                } finally {
+                    vi.useRealTimers();
+                }
+            });
+
+            it('a private cookie minted from a sign-in reads only its own row', async () => {
+                const user = await makeUser();
+                const { uuid } = await webSession(user);
+                const cookie = await privateCookie(user, uuid);
+                await authService.verifyHostedAssetToken('private', cookie);
+
+                const reads = vi.spyOn(server.stores.session, 'getByUuid');
+                try {
+                    await authService.verifyHostedAssetToken('private', cookie);
+                    expect(reads).toHaveBeenCalledTimes(1);
+                } finally {
+                    reads.mockRestore();
+                }
+            });
+
+            it.each([
+                ['ends', 'an account that can sign back in', makeUser, true],
+                ['keeps', 'a temp account', makeTempUser, false],
+            ] as const)(
+                'a public cookie %s when the sign-in of %s goes idle',
+                async (_verb, _who, make, ends) => {
+                    const user = await make();
+                    const { uuid } = await webSession(user);
+                    const cookie = await authService.createHostedAssetToken(
+                        'public',
+                        {
+                            appUid: appUid(),
+                            userUid: user.uuid,
+                            sessionUuid: uuid,
+                        },
+                    );
+                    await age(uuid, {
+                        expires_at: nowS() + 184 * DAY,
+                        activeDaysAgo: 181,
+                    });
+                    const verifying = authService.verifyHostedAssetToken(
+                        'public',
+                        cookie,
+                    );
+                    if (ends) {
+                        await expect(verifying).rejects.toMatchObject({
+                            statusCode: 401,
+                        });
+                    } else {
+                        await expect(verifying).resolves.toMatchObject({
+                            userUid: user.uuid,
+                        });
+                    }
+                },
+            );
         });
     });
 

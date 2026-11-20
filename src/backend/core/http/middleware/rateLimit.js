@@ -19,7 +19,13 @@
  */
 
 import crypto from 'node:crypto';
+import {
+    isCommandTimeout,
+    sendAsUndo,
+} from '../../../clients/redis/commandTimeout.js';
 import { withSpan } from '../../../util/span.js';
+import { Context } from '../../context.js';
+import { CallSlot } from '../callSlot.js';
 import { HttpError } from '../HttpError.js';
 import { subscriptionOverride } from '../../../services/metering/consts.js';
 
@@ -95,7 +101,8 @@ export function sweepMemoryWindows() {
     sweep.unref?.();
 }
 
-async function checkMemory(key, limit, windowMs) {
+/** Records a hit and returns its timestamp, or null when the bucket is full. */
+function admitMemory(key, limit, windowMs) {
     const now = Date.now();
     const cutoff = now - windowMs;
     let entry = memoryWindows.get(key);
@@ -114,9 +121,24 @@ async function checkMemory(key, limit, windowMs) {
     }
     const timestamps = entry.ts;
     while (timestamps.length > 0 && timestamps[0] < cutoff) timestamps.shift();
-    if (timestamps.length >= limit) return false;
+    if (timestamps.length >= limit) return null;
     timestamps.push(now);
-    return true;
+    return now;
+}
+
+async function checkMemory(key, limit, windowMs) {
+    return admitMemory(key, limit, windowMs) !== null;
+}
+
+/** `checkMemory` that returns a function giving the hit back, or null. */
+async function reserveMemory(key, limit, windowMs) {
+    const at = admitMemory(key, limit, windowMs);
+    if (at === null) return null;
+    return async () => {
+        const timestamps = memoryWindows.get(key)?.ts;
+        const i = timestamps ? timestamps.lastIndexOf(at) : -1;
+        if (i >= 0) timestamps.splice(i, 1);
+    };
 }
 
 /**
@@ -218,7 +240,9 @@ async function claimCountRedis(redis, key, limit, windowMs, units) {
         windowMs,
     );
     const admitted = countedAdmits(used, limit, units);
-    if (admitted < units) await redis.decrby(current, units - admitted);
+    if (admitted < units) {
+        sendAsUndo(() => redis.decrby(current, units - admitted)).catch(noop);
+    }
     return admitted;
 }
 
@@ -266,7 +290,12 @@ function multiResult(results, i) {
     return entry;
 }
 
-async function checkRedis(
+async function checkRedis(redis, key, limit, windowMs) {
+    return (await reserveRedis(redis, key, limit, windowMs)) !== null;
+}
+
+/** `checkRedis` that returns a function giving the hit back, or null. */
+async function reserveRedis(
     /** @type {import('ioredis').Cluster} */
     redis,
     /** @type {string} */
@@ -296,10 +325,12 @@ async function checkRedis(
 
     const count = Number(multiResult(results, 2));
     if (count > limit) {
-        await redis.zrem(redisKey, member);
-        return false;
+        sendAsUndo(() => redis.zrem(redisKey, member)).catch(noop);
+        return null;
     }
-    return true;
+    return async () => {
+        await redis.zrem(redisKey, member);
+    };
 }
 
 /**
@@ -324,7 +355,11 @@ async function claimRedis(redis, key, limit, windowMs, units) {
 
     const count = Number(multiResult(results, 2));
     const excess = Math.min(units, Math.max(0, count - limit));
-    if (excess > 0) await redis.zrem(redisKey, ...members.slice(-excess));
+    if (excess > 0) {
+        sendAsUndo(() => redis.zrem(redisKey, ...members.slice(-excess))).catch(
+            noop,
+        );
+    }
     return units - excess;
 }
 
@@ -341,6 +376,11 @@ async function peekRedis(redis, key, limit, windowMs) {
 // -- KV backend ------------------------------------------------------
 
 async function checkKv(kv, key, limit, windowMs) {
+    return (await reserveKv(kv, key, limit, windowMs)) !== null;
+}
+
+/** `checkKv` that returns a function giving the hit back, or null. */
+async function reserveKv(kv, key, limit, windowMs) {
     const prefix = `rate:${key}:`;
     // `list` filters by TTL already, so a non-expired row ⇒ in-window.
     // Cap the fetch at `limit + 1` — once we know it's over, the exact
@@ -353,15 +393,18 @@ async function checkKv(kv, key, limit, windowMs) {
         reverse: true,
     });
     const keys = Array.isArray(res) ? res : (res?.items ?? []);
-    if (keys.length >= limit) return false;
+    if (keys.length >= limit) return null;
 
     const now = Date.now();
+    const row = `${prefix}${now}:${crypto.randomUUID()}`;
     await kv.set({
-        key: `${prefix}${now}:${crypto.randomUUID()}`,
+        key: row,
         value: 1,
         expireAt: Math.ceil((now + windowMs) / 1000),
     });
-    return true;
+    return async () => {
+        await kv.del({ key: row });
+    };
 }
 
 // `checkKv` for many units: one read, then a row per admitted unit. Newest
@@ -412,8 +455,8 @@ async function peekKv(kv, key, limit) {
 //
 // Lifecycle is the wedge between rate and concurrent limits: rate just
 // records a tick, concurrent has to track "still in flight" → "done"
-// across a request boundary. The route middleware hooks `res.finish` /
-// `res.close`; the driver helper wraps the invocation in `try/finally`.
+// across a request boundary. The route middleware and the driver controller
+// both hold the slot in a `CallSlot`.
 
 // Orphan TTL safety nets — used when the process dies between acquire
 // and release. Memory backend doesn't need one (the process is also
@@ -479,17 +522,22 @@ async function acquireRedisConcurrent(redis, key, limit, retried = false) {
             await redis.del(redisKey);
             return acquireRedisConcurrent(redis, key, limit, true);
         }
+        // Same key, so this runs behind the timed-out MULTI if that ever does.
+        if (isCommandTimeout(err)) {
+            sendAsUndo(() => redis.zrem(redisKey, member)).catch(noop);
+        }
         throw err;
     }
+    const release = () => sendAsUndo(() => redis.zrem(redisKey, member));
     if (count > limit) {
-        await redis.zrem(redisKey, member);
+        release().catch(noop);
         return { ok: false };
     }
     return {
         ok: true,
-        release: async () => {
-            await redis.zrem(redisKey, member);
-        },
+        release,
+        // Later commands on this key queue behind it, so callers need not wait.
+        releaseInOrder: true,
         renew: async () => {
             // Re-score in place so a slot held longer than the orphan window
             // isn't mistaken for one whose owner died. `ZADD XX` only touches
@@ -566,6 +614,10 @@ function instrumentBackendPair(name, pair) {
             withSpan('rate_limit.peek', attrs, () =>
                 pair.peek(key, limit, windowMs),
             ),
+        reserve: (key, limit, windowMs) =>
+            withSpan('rate_limit.reserve', attrs, () =>
+                pair.reserve(key, limit, windowMs),
+            ),
         claim: (key, limit, windowMs, units) =>
             withSpan('rate_limit.claim', attrs, () =>
                 pair.claim(key, limit, windowMs, units),
@@ -584,6 +636,7 @@ function instrumentBackendPair(name, pair) {
 const memoryBackendPair = instrumentBackendPair('memory', {
     rate: checkMemory,
     peek: peekMemory,
+    reserve: reserveMemory,
     claim: claimMemory,
     count: claimCountMemory,
     acquire: acquireMemoryConcurrent,
@@ -634,6 +687,8 @@ export function configureRateLimit({
                 checkRedis(redis, key, limit, windowMs),
             peek: (key, limit, windowMs) =>
                 peekRedis(redis, key, limit, windowMs),
+            reserve: (key, limit, windowMs) =>
+                reserveRedis(redis, key, limit, windowMs),
             claim: (key, limit, windowMs, units) =>
                 claimRedis(redis, key, limit, windowMs, units),
             count: (key, limit, windowMs, units) =>
@@ -645,6 +700,8 @@ export function configureRateLimit({
         backends.kv = instrumentBackendPair('kv', {
             rate: (key, limit, windowMs) => checkKv(kv, key, limit, windowMs),
             peek: (key, limit) => peekKv(kv, key, limit),
+            reserve: (key, limit, windowMs) =>
+                reserveKv(kv, key, limit, windowMs),
             claim: (key, limit, windowMs, units) =>
                 claimKv(kv, key, limit, windowMs, units),
             count: (key, limit, windowMs, units) =>
@@ -838,11 +895,12 @@ function guardSlot(slot, label) {
         release: async () => {
             if (released) return;
             released = true;
-            try {
-                await slot.release();
-            } catch (err) {
-                console.error(`${label} release failed:`, err);
-            }
+            const pending = Promise.resolve()
+                .then(() => slot.release())
+                .catch((err) => {
+                    console.error(`${label} release failed:`, err);
+                });
+            if (!slot.releaseInOrder) await pending;
         },
         renew: async () => {
             if (released) return;
@@ -960,6 +1018,40 @@ export async function checkRateLimit(
 }
 
 /**
+ * `checkRateLimit` whose hit can be given back: `{ ok, release }`, where
+ * `release()` returns an admitted hit to the bucket and never rejects. For a
+ * budget charged by an outcome known only after the work, such as a failed
+ * credential check: counting the hit first means concurrent callers can't all
+ * pass on the last slot. Fails open, admitting with a no-op `release`.
+ */
+export async function reserveRateLimit(key, limit, windowMs, backend) {
+    let giveBack;
+    try {
+        giveBack = await resolveBackend(backend).reserve(key, limit, windowMs);
+    } catch (err) {
+        console.error(
+            '[rate-limit] imperative reserve failed, failing open:',
+            err,
+        );
+        return { ok: true, release: noop };
+    }
+    if (!giveBack) return { ok: false, release: noop };
+    let released = false;
+    return {
+        ok: true,
+        release: async () => {
+            if (released) return;
+            released = true;
+            try {
+                await giveBack();
+            } catch (err) {
+                console.error('[rate-limit] imperative release failed:', err);
+            }
+        },
+    };
+}
+
+/**
  * `checkRateLimit` for `units` hits at once, in one backend round trip.
  * Resolves to how many were admitted (0..units) and spent; the rest were not
  * charged. Fails open, admitting every unit, like the rest of this module.
@@ -1072,10 +1164,10 @@ export async function peekRateLimit(key, limit, windowMs, backend) {
  * (`ok: false` still returns a no-op `release`, so callers can release
  * unconditionally). Fails open on backend error.
  *
- * `release()` returns a promise that settles once the slot is actually back —
- * await it when the next observation has to see the freed slot. Fire-and-forget
- * is fine for the usual case (an event handler on connection close), which is
- * why it never rejects.
+ * `release()` never rejects. On the redis backend it settles once the release
+ * is sent, and later commands on the key queue behind it; on the others it
+ * settles once the slot is back. Fire-and-forget is fine for the usual case (an
+ * event handler on connection close).
  *
  * A holder that can outlive `ORPHAN_SAFETY_TTL_MS` must call `renew()` on a
  * timer, or the orphan sweep will reclaim its slot as abandoned and the cap
@@ -1137,8 +1229,9 @@ async function resolveSubscriptionLimit(req, opts) {
  * bySubscription: { user_free: 2, unlimited: 50 } } } { concurrent: { limit:
  * 10, backend: 'redis', scope: 'expensive-op' } }
  *
- * On accept, schedules release on `res.finish` / `res.close` so even aborted
- * requests give their slot back. On reject, 429 with the same
+ * On accept, holds the slot until the response is done and any work the handler
+ * registered through `keepConcurrencySlot` has settled, so work that outlives a
+ * caller who hung up still counts. On reject, 429 with the same
  * `too_many_requests` legacyCode as the rate gate (clients already handle that
  * branch). Fails open on backend error.
  */
@@ -1164,13 +1257,11 @@ export function concurrencyGate(opts) {
             return;
         }
 
-        // `finish` (response sent) and `close` (connection closed, possibly
-        // aborted before finish) can both fire; the guard releases once.
-        const { release } = guardSlot(slot, '[concurrent]');
-        const onDone = () => void release();
-        res.once('finish', onDone);
-        res.once('close', onDone);
-        if (res.destroyed || res.writableFinished) onDone();
+        const held = new CallSlot();
+        held.attach(guardSlot(slot, '[concurrent]'), res);
+        if (Context.current()) {
+            Context.set('keepConcurrencySlot', (work) => held.keep(work));
+        }
         next();
     };
 }

@@ -517,15 +517,15 @@ test.describe('the upgrade a first-party page shows framed', () => {
 
 const EMAIL_FRAME = '/embed/request-email-confirmation';
 
-/** Has the email confirmation frame's session read as `patch` says, so the account can need a code. */
-const routeFrameSession = (page, patch) => page.context().route(`${API_ORIGIN}/whoami**`, async (route) => {
+/** Has the session of the frame at `framePath` read as `patch` says, so the account can need a check. */
+const routeFrameSession = (page, patch, framePath = EMAIL_FRAME) => page.context().route(`${API_ORIGIN}/whoami**`, async (route) => {
     let frameUrl = '';
     try {
         frameUrl = route.request().frame().url();
     } catch {
         // A request from no frame, such as a service worker's.
     }
-    if ( route.request().method() !== 'GET' || ! frameUrl.includes(EMAIL_FRAME) ) return route.fallback();
+    if ( route.request().method() !== 'GET' || ! frameUrl.includes(framePath) ) return route.fallback();
     const response = await route.fetch();
     return route.fulfill({ response, json: { ...(await response.json()), ...patch } });
 });
@@ -742,5 +742,82 @@ test.describe('the email confirmation a first-party page shows framed', () => {
         expect(await result(page)).toEqual({ ok: true, value: { response: false } });
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
         expect(popups).toHaveLength(0);
+    });
+});
+
+const DOMAIN_FRAME = '/embed/attach-custom-domain';
+const domainDialog = (page) => frame(page).locator('.custom-domain-overlay');
+
+// The test instance runs without the custom domains backend, so the dialog
+// shows its unavailable pane, as in attachCustomDomain.spec.js.
+test.describe('the custom domain dialog a first-party page shows framed', () => {
+    test('hosting.attach() shows it over the page and closing it resolves null', async ({ page }) => {
+        await signInFirstPartyPage(page);
+        const popups = [];
+        page.on('popup', (p) => popups.push(p));
+
+        await runFromClick(page, 'puter.hosting.attach("e2e-attach-site")');
+        await frameReady(page);
+        // It floats over the page, which is named as the requester.
+        await expect(domainDialog(page)).toBeVisible();
+        await expect(domainDialog(page)).not.toHaveClass(/app-feedback-fullpage/);
+        await expect(domainDialog(page).locator('.custom-domain-intro')).toContainText('e2e-attach-site.');
+        await expect(domainDialog(page).locator('.custom-domain-requester')).toContainText(FIRST_PARTY);
+        const domainFrame = page.frames().find((f) => new URL(f.url()).pathname === DOMAIN_FRAME);
+        expect(await domainFrame.evaluate(() => [
+            getComputedStyle(document.documentElement).backgroundColor,
+            getComputedStyle(document.body).backgroundColor,
+        ])).toEqual(['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']);
+        await expect(domainDialog(page).locator('[data-pane="unavailable"]')).toBeVisible({ timeout: 15_000 });
+
+        // The answer removes the frame, so it waits for the dialog's exit.
+        await page.evaluate(() => {
+            window.__fromFrame = [];
+            window.addEventListener('message', (e) => window.__fromFrame.push(e.data?.msg));
+        });
+        await domainFrame.evaluate(() => {
+            new MutationObserver(() => {
+                if ( ! document.querySelector('.custom-domain-overlay') ) window.parent.postMessage({ msg: 'overlayGone' }, '*');
+            }).observe(document.body, { childList: true });
+        });
+        await domainDialog(page).locator('.app-feedback-x').click();
+        expect(await result(page)).toEqual({ ok: true, value: null });
+        expect(await page.evaluate(() => window.__fromFrame.slice(0, 2))).toEqual(['overlayGone', 'customDomainAttached']);
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+        expect(popups).toHaveLength(0);
+    });
+
+    test('Escape in the dialog resolves null', async ({ page }) => {
+        await signInFirstPartyPage(page);
+
+        await runFromClick(page, 'puter.hosting.attach("e2e-attach-site")');
+        await frameReady(page);
+        await domainDialog(page).locator('.custom-domain-modal').click();
+        await page.keyboard.press('Escape');
+        expect(await result(page)).toEqual({ ok: true, value: null });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
+    test('an account with a check waiting gets the popup', async ({ page }) => {
+        await routeFrameSession(page, { requires_phone_verification: true }, DOMAIN_FRAME);
+        await signInFirstPartyPage(page);
+
+        const popup = page.waitForEvent('popup', { timeout: 60_000 });
+        await runFromClick(page, 'puter.hosting.attach("e2e-attach-site")');
+        expect(new URL((await popup).url()).pathname).toBe('/action/attach-custom-domain');
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
+    test('a page signed in as someone else gets the popup', async ({ page }) => {
+        await signInFirstPartyPage(page);
+        await page.evaluate(async () => {
+            await puter.whoamiCache_;
+            puter.whoami = { uuid: '00000000-0000-4000-8000-000000000000' };
+        });
+
+        const popup = page.waitForEvent('popup', { timeout: 60_000 });
+        await runFromClick(page, 'puter.hosting.attach("e2e-attach-site")');
+        expect(new URL((await popup).url()).pathname).toBe('/action/attach-custom-domain');
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
     });
 });

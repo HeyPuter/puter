@@ -504,3 +504,95 @@ describe.runIf(process.env.PUTER_TEST_DB_ENGINE === 'postgres')(
         });
     },
 );
+
+describe('an immediate send answers with the row it wrote', () => {
+    /** What the driver returns for a row. */
+    const clientShape = (row: Record<string, unknown> | null) => ({
+        uid: row?.uid,
+        value: row?.value,
+        app_uid: row?.app_uid ?? null,
+        shown: row?.shown ?? null,
+        acknowledged: row?.acknowledged ?? null,
+        created_at: row?.created_at ?? null,
+    });
+
+    /** `fn`'s result, with the notification writes and uid lookups it made. */
+    const traced = async <T>(fn: () => Promise<T>) => {
+        const reads = [vi.spyOn(db(), 'read'), vi.spyOn(db(), 'pread')];
+        const write = vi.spyOn(db(), 'write');
+        try {
+            const result = await fn();
+            const sql = (calls: unknown[][]) =>
+                calls
+                    .map(([q]) => String(q))
+                    .filter((q) => /`notification`/u.test(q));
+            return {
+                result: result as Record<string, unknown>,
+                writes: sql(write.mock.calls),
+                uidReads: reads
+                    .flatMap((spy) => sql(spy.mock.calls))
+                    .filter((q) =>
+                        /FROM `notification` WHERE `uid` = \?/u.test(q),
+                    ),
+            };
+        } finally {
+            for (const spy of [...reads, write]) spy.mockRestore();
+        }
+    };
+
+    const stored = (uid: unknown) =>
+        server.stores.notification.getByUid(String(uid), {
+            userId: holder.user!.id,
+            primary: true,
+        });
+
+    it('a new row: one insert and no read of it', async () => {
+        setSchedules(undefined);
+        const { result, writes, uidReads } = await traced(() =>
+            notify({ text: 'new' }),
+        );
+
+        expect(writes).toHaveLength(1);
+        expect(writes[0]).toMatch(/^INSERT INTO `notification`/u);
+        expect(uidReads).toEqual([]);
+        expect(result).toEqual(clientShape(await stored(result.uid)));
+    });
+
+    it('a group replacement: one update and no read of the row after it', async () => {
+        setSchedules(undefined);
+        const first = (await notify({ group: 'g', text: 'one' })) as {
+            uid: string;
+        };
+        const { result, writes, uidReads } = await traced(() =>
+            notify({ group: 'g', text: 'two' }),
+        );
+
+        expect(result.uid).toBe(first.uid);
+        expect(writes).toHaveLength(1);
+        expect(writes[0]).toMatch(/^UPDATE `notification`/u);
+        expect(uidReads).toEqual([]);
+        expect(result).toEqual(clientShape(await stored(first.uid)));
+        expect(result.value).toMatchObject({ text: 'two' });
+    });
+
+    it('a replacement of the row a delayed send wrote', async () => {
+        setSchedules(undefined);
+        const token = uuidv4();
+        const key = uuidv4();
+        const id = await claimed(token);
+        await write(key, txFor(id, token), {
+            payload: JSON.stringify({
+                message: { title: 'Later', group: 'g' },
+            }),
+        });
+        const { result, uidReads } = await traced(() =>
+            notify({ group: 'g', text: 'now' }),
+        );
+
+        expect(result.uid).toBe(key);
+        expect(uidReads).toEqual([]);
+        const row = await stored(key);
+        expect(row?.send_key).toBeNull();
+        expect(result).toEqual(clientShape(row));
+    });
+});

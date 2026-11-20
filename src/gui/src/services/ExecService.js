@@ -121,7 +121,7 @@ export class ExecService extends Service {
             params,
             // A background launch starts the window hidden: the caller wants the
             // app to do work, not to be looked at. It stays the caller's alone
-            // — no taskbar item, no running dot, and not what the user's own
+            // — no running dot, and not what the user's own
             // "open this app" finds — until it shows itself.
             ...(background === true ? { background: true } : {}),
             ...source_app_metadata,

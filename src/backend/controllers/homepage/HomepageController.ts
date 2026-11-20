@@ -20,6 +20,8 @@
 import express from 'express';
 import path from 'node:path';
 import { PuterController } from '../types.js';
+import { rememberDevice } from '../auth/knownDevice.js';
+import { isPlainUserActor } from '../../core/actor.js';
 import { toAppShellView } from '../../util/appShellView.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
 import {
@@ -27,11 +29,12 @@ import {
     subdomainLabelOf,
 } from '../../core/http/middleware/hostRedirects.js';
 import type { IConfig } from '../../types';
+import type { UserRow } from '../../stores/user/UserStore';
 import type {
     PuterHomepageService,
     PageMeta,
-    LaunchOptions,
     PopupFrame,
+    ShellContext,
 } from '../../services/homepage/PuterHomepageService';
 
 /**
@@ -48,6 +51,8 @@ export const FRAMED_POPUP_ACTIONS = [
     'upgrade',
     'top-up',
     'request-email-confirmation',
+    'attach-custom-domain',
+    'detach-custom-domain',
 ] as const;
 
 /** Longest description/og:description/twitter:description on `/app/<name>`. */
@@ -169,7 +174,6 @@ export class HomepageController extends PuterController {
             req: express.Request,
             res: express.Response,
             metaOverrides: Partial<PageMeta> = {},
-            launch: LaunchOptions = {},
             popupFrame?: PopupFrame,
         ) => {
             const meta = { ...defaultMeta(req), ...metaOverrides };
@@ -179,7 +183,17 @@ export class HomepageController extends PuterController {
                         actor?: Parameters<typeof homepage.send>[0]['actor'];
                     }
                 ).actor ?? null;
-            await homepage.send({ req, res, actor }, meta, launch, popupFrame);
+            this.#seedKnownDevice(req, res, actor);
+            await homepage.send(
+                {
+                    req,
+                    res,
+                    actor,
+                    guiTokenDigest: this.#guiTokenDigest(req, actor),
+                },
+                meta,
+                popupFrame,
+            );
         };
 
         // -- Root + path-aliased shell routes ------------------------
@@ -217,7 +231,15 @@ export class HomepageController extends PuterController {
             const guestApps = await this.services.recommendedApps
                 .getRecommendedApps()
                 .catch((): Array<Record<string, unknown>> => []);
-            res.send(homepage.renderAppBrowserEmbed({ guestApps }));
+            res.send(
+                homepage.renderAppBrowserEmbed({
+                    guestApps,
+                    hostOrigin: embedHostOrigin(
+                        this.config,
+                        req.get('referer'),
+                    ),
+                }),
+            );
         });
 
         router.get('/embed/feedback', {}, (req, res) => {
@@ -251,7 +273,6 @@ export class HomepageController extends PuterController {
                     req,
                     res,
                     {},
-                    {},
                     {
                         hostOrigin: embedHostOrigin(
                             this.config,
@@ -262,23 +283,46 @@ export class HomepageController extends PuterController {
             });
         }
 
-        router.get('/settings', {}, (req, res) => sendShell(req, res));
-        router.get('/settings/*splat', {}, (req, res) => sendShell(req, res));
+        // Old settings links land on the dashboard's Home tab.
+        router.get('/settings', {}, (_req, res) =>
+            res.redirect('/dashboard#home'),
+        );
+        router.get('/settings/*splat', {}, (_req, res) =>
+            res.redirect('/dashboard#home'),
+        );
 
         router.get('/dashboard', {}, (req, res) => sendShell(req, res));
         router.get('/dashboard/', {}, (req, res) => sendShell(req, res));
 
-        router.get('/desktop', {}, (req, res) => sendShell(req, res));
-        router.get('/desktop/', {}, (req, res) => sendShell(req, res));
+        const queryOf = (req: express.Request) => {
+            const separator = req.originalUrl.indexOf('?');
+            return separator === -1 ? '' : req.originalUrl.slice(separator);
+        };
 
+        // Old desktop links land on the dashboard, query intact.
+        router.get('/desktop', {}, (req, res) =>
+            res.redirect(`/${queryOf(req)}`),
+        );
+        router.get('/desktop/', {}, (req, res) =>
+            res.redirect(`/${queryOf(req)}`),
+        );
+
+        // Old change-username links land on the dashboard's Account tab.
+        router.get('/action/change-username', {}, (_req, res) =>
+            res.redirect('/dashboard#account'),
+        );
         router.get('/action/*splat', {}, (req, res) => sendShell(req, res));
 
-        router.get('/@:username', {}, (req, res) => sendShell(req, res));
+        // Old links to a user's public folder land on the dashboard.
+        router.get('/@:username', {}, (_req, res) => res.redirect('/'));
+
+        // Old desktop app links open the app in the dashboard, query intact.
+        router.get('/desktop/app/:name', {}, (req, res) => {
+            const name = encodeURIComponent(String(req.params.name ?? ''));
+            res.redirect(`/app/${name}${queryOf(req)}`);
+        });
 
         // -- /app/:name - app metadata baked into the shell ----------
-        // `/desktop/app/:name` is the same landing booted on the desktop
-        // instead of the dashboard; the GUI strips the prefix and treats the
-        // rest of the path identically, so both render the same shell.
 
         const sendAppShell = async (
             req: express.Request,
@@ -333,26 +377,11 @@ export class HomepageController extends PuterController {
             { rateLimit: APP_LANDING_LIMIT },
             sendAppShell,
         );
-        router.get(
-            '/desktop/app/:name',
-            { rateLimit: APP_LANDING_LIMIT },
-            sendAppShell,
-        );
 
-        // -- /show/* - launch explorer with the requested file path --
-
+        // Old /show links open the path in the dashboard's Files tab, query intact.
         router.get('/show/*splat', {}, (req, res) => {
             const filePath = req.path.slice('/show'.length);
-            const launch: LaunchOptions = {
-                on_initialized: [
-                    {
-                        $: 'window-call',
-                        fn_name: 'launch_app',
-                        args: [{ name: 'explorer', path: filePath }],
-                    },
-                ],
-            };
-            return sendShell(req, res, {}, launch);
+            res.redirect(`/dashboard${queryOf(req)}#files${filePath}`);
         });
 
         // -- /sw.js - the service worker, scoped to the whole origin --
@@ -380,6 +409,68 @@ export class HomepageController extends PuterController {
                 express.static(path.join(this.config.gui_assets_root, 'src')),
             );
         }
+    }
+
+    /**
+     * Records the device behind a signed-in GUI page load, so browsers signed
+     * in before devices were recorded count as known. Top-level loads only: a
+     * framed page can't keep the SameSite=Lax cookie. The cookie is set before
+     * the page is sent; the record update runs on without holding the page.
+     */
+    #seedKnownDevice(
+        req: express.Request,
+        res: express.Response,
+        actor: ShellContext['actor'],
+    ): void {
+        if (req.tokenSource !== 'cookie') return;
+        if (req.headers['sec-fetch-dest'] !== 'document') return;
+        if (!actor || !isPlainUserActor(actor)) return;
+        if (actor.session?.kind !== 'web' || actor.session.parentUid) return;
+        const { uuid, hasPassword, email } = actor.user;
+        if (!uuid || (!hasPassword && !email)) return;
+        void (async () => {
+            try {
+                await rememberDevice(req, res, uuid, {
+                    config: this.config,
+                    token: this.services.token,
+                    kv: this.stores.kv,
+                });
+            } catch (e) {
+                console.warn('[known-device] page-load record failed:', e);
+            }
+        })();
+    }
+
+    /**
+     * Lets the GUI skip `/get-gui-token`, which reads the session cookie: the
+     * digest of the token it would hand over, null when there is no session
+     * cookie (either name the auth probe reads), and undefined (the GUI asks)
+     * when a cookie didn't resolve to a session.
+     */
+    #guiTokenDigest(
+        req: express.Request,
+        actor: ShellContext['actor'],
+    ): string | null | undefined {
+        if (req.tokenSource === 'cookie') {
+            if (!actor || !isPlainUserActor(actor) || !actor.session?.uid) {
+                return undefined;
+            }
+            return this.services.auth.guiTokenDigest(
+                actor.user as UserRow,
+                actor.session.uid,
+            );
+        }
+        const cookies = (req.cookies ?? {}) as Record<string, unknown>;
+        const hasSessionCookie = [
+            this.config.cookie_name,
+            'puter_token_v2',
+        ].some(
+            (name) =>
+                !!name &&
+                typeof cookies[name] === 'string' &&
+                cookies[name] !== '',
+        );
+        return hasSessionCookie ? undefined : null;
     }
 }
 

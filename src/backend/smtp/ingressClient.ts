@@ -74,6 +74,8 @@ export const buildIngressUrl = (
         subject: string;
         from: string;
         messageId: string;
+        /** The envelope sender (MAIL FROM); empty for a null sender. */
+        mailFrom?: string;
         secret: string;
     },
 ): URL => {
@@ -82,6 +84,7 @@ export const buildIngressUrl = (
     url.searchParams.set('messageid', params.messageId);
     url.searchParams.set('from', params.from);
     url.searchParams.set('to', params.to);
+    if (params.mailFrom) url.searchParams.set('mailfrom', params.mailFrom);
     url.searchParams.set('SECRET', params.secret);
     return url;
 };
@@ -99,16 +102,27 @@ export const describeTarget = (base: string): string => {
     }
 };
 
+/** Longest refusal reason quoted back to the sender. */
+const MAX_REASON_CHARS = 200;
+
 /**
- * Anything other than "stored" and "no such user" is reported as temporary, so
- * the sending server retries rather than bouncing mail over a problem at this
- * end - a wrong secret included.
+ * Anything other than "stored", "no such user", "too big" and "refused by
+ * policy" is reported as temporary, so the sending server retries rather than
+ * bouncing mail over a problem at this end - a wrong secret included. A policy
+ * refusal (422) quotes the endpoint's reason.
  */
-export const replyForStatus = (status: number): SmtpReply => {
+export const replyForStatus = (status: number, reason = ''): SmtpReply => {
     if (status >= 200 && status < 300) return ACCEPTED;
     if (status === 404) return { code: 550, text: '5.1.1 No such user here' };
     if (status === 413)
         return { code: 552, text: '5.3.4 Message too big for system' };
+    if (status === 422) {
+        const text = reason
+            .replace(/[^\x20-\x7e]+/g, ' ')
+            .trim()
+            .slice(0, MAX_REASON_CHARS);
+        return { code: 550, text: `5.7.1 ${text || 'Message refused'}` };
+    }
     return { code: 451, text: '4.3.0 Temporary server error' };
 };
 
@@ -116,7 +130,12 @@ export const replyForStatus = (status: number): SmtpReply => {
 export const deliver = async (
     message: Buffer,
     recipient: string,
-    fields: { subject: string; from: string; messageId: string },
+    fields: {
+        subject: string;
+        from: string;
+        messageId: string;
+        mailFrom?: string;
+    },
     target: IngressTarget,
 ): Promise<SmtpReply> => {
     const url = buildIngressUrl(target.url, {
@@ -140,9 +159,14 @@ export const deliver = async (
                 timeout: target.timeoutMs,
             },
             (res) => {
-                res.resume();
+                // Only the start of the body is kept: a refusal's reason.
+                let reason = '';
+                res.setEncoding('latin1');
+                res.on('data', (chunk: string) => {
+                    if (reason.length < MAX_REASON_CHARS) reason += chunk;
+                });
                 res.once('end', () =>
-                    resolve(replyForStatus(res.statusCode ?? 0)),
+                    resolve(replyForStatus(res.statusCode ?? 0, reason)),
                 );
             },
         );

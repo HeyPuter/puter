@@ -75,8 +75,7 @@ async function UIDashboard (options) {
     // eslint-disable-next-line no-unused-vars
     options = options ?? {};
 
-    // Mark dashboard mode on <body> so window chrome can adapt — e.g. app
-    // windows keep their minimize button even though fullpage-mode hides it.
+    // Mark dashboard mode on <body> so window chrome and notifications can adapt.
     $('body').addClass('dashboard-mode');
 
     // Create mutable tabs array from built-in tabs

@@ -293,6 +293,57 @@ describe('create API token', () => {
     });
 });
 
+describe('change language', () => {
+    beforeEach(() => {
+        window.locale = 'en';
+        window.listSupportedLanguages = () => [
+            { code: 'en', name: 'English' },
+            { code: 'de', name: 'Deutsch' },
+            { code: 'ja', name: '日本語' },
+        ];
+        window.mutate_user_preferences = vi.fn();
+        globalThis.puter.kv = { set: vi.fn(async () => true) };
+    });
+
+    it('lists every language by its own name, with the current one selected', () => {
+        dialogs.openChangeLanguageDialog();
+        const options = field('language').find('option').map((_, el) => [[el.value, el.textContent]]).get();
+        expect(options).toEqual([['en', 'English'], ['de', 'Deutsch'], ['ja', '日本語']]);
+        expect(field('language').val()).toBe('en');
+    });
+
+    it('closes without saving when the language is unchanged', async () => {
+        dialogs.openChangeLanguageDialog();
+
+        await submitWith({ language: 'en' });
+
+        expect(puter.kv.set).not.toHaveBeenCalled();
+        expect(isOpen()).toBe(false);
+    });
+
+    it('saves the picked language to the account', async () => {
+        dialogs.openChangeLanguageDialog();
+
+        await submitWith({ language: 'de' });
+
+        expect(puter.kv.set).toHaveBeenCalledWith('user_preferences.language', 'de');
+        expect(window.mutate_user_preferences).toHaveBeenCalledWith({ language: 'de' });
+        expect(status()).toBe('');
+    });
+
+    it('stays open with an error when the save fails', async () => {
+        puter.kv.set.mockRejectedValue(new Error('offline'));
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        dialogs.openChangeLanguageDialog();
+
+        await submitWith({ language: 'de' });
+
+        expect(window.mutate_user_preferences).not.toHaveBeenCalled();
+        expect(status()).toBe('language_save_failed');
+        expect(isOpen()).toBe(true);
+    });
+});
+
 describe('delete account', () => {
     it('asks a temporary account to type confirm', async () => {
         // What the server sends for a temporary account: no password, so `oidc_only` too.
@@ -337,5 +388,183 @@ describe('delete account', () => {
         expect(window.logout).not.toHaveBeenCalled();
         expect(window.user.deleted).toBeUndefined();
         expect(status()).toBe('reauth_required_message');
+    });
+});
+
+describe('disable 2FA', () => {
+    const open = (user = {}) => {
+        window.user = { username: 'alice', otp: true, ...user };
+        const result = { settled: false, value: undefined };
+        dialogs.openDisable2FADialog().then((value) => Object.assign(result, { settled: true, value }));
+        return result;
+    };
+
+    it('sends the password and code, and resolves true only once the server accepts', async () => {
+        fetch.mockResolvedValueOnce(reply(200));
+        const result = open();
+
+        await submitWith({ password: 'hunter2', code: '000123' });
+
+        expect(String(fetch.mock.calls[0][0])).toBe('https://puter.test/user-protected/disable-2fa');
+        expect(fetch.mock.calls[0][1].headers.Authorization).toBeUndefined();
+        expect(bodyOf(0)).toEqual({ password: 'hunter2', code: '000123' });
+        expect(window.user.otp).toBe(false);
+        expect(isOpen()).toBe(false);
+        expect(result).toEqual({ settled: true, value: true });
+    });
+
+    it('trims and uppercases a pasted recovery code', async () => {
+        fetch.mockResolvedValueOnce(reply(200));
+        open();
+
+        await submitWith({ password: 'hunter2', code: ' abcd2345\n' });
+
+        expect(bodyOf(0)).toEqual({ password: 'hunter2', code: 'ABCD2345' });
+    });
+
+    it('asks for the password before sending anything', async () => {
+        const result = open();
+
+        await submitWith({ code: '000123' });
+
+        expect(fetch).not.toHaveBeenCalled();
+        expect(status()).toBe('all_fields_required');
+        expect(field('password').attr('aria-invalid')).toBe('true');
+        expect(result.settled).toBe(false);
+    });
+
+    it.each([400, 401])('leaves 2FA on and allows a retry after a code is refused (%s)', async (code) => {
+        fetch.mockResolvedValueOnce(reply(code, { factor: 'otp', code: code === 401 ? 'code_mismatch' : 'bad_request', message: 'Enter your code' }));
+        const result = open();
+
+        await submitWith({ password: 'hunter2', code: '000123' });
+
+        expect(window.user.otp).toBe(true);
+        expect(window.handleReauthRequired).not.toHaveBeenCalled();
+        expect(isOpen()).toBe(true);
+        expect(result.settled).toBe(false);
+        expect(status()).toBe(code === 401 ? 'confirm_code_generic_incorrect' : 'Enter your code');
+        expect(field('code').attr('aria-invalid')).toBe('true');
+        expect(field('code').prop('disabled')).toBe(false);
+        expect($('.dashboard-form-submit').prop('disabled')).toBe(false);
+    });
+
+    it('puts a wrong password on the password field', async () => {
+        fetch.mockResolvedValueOnce(reply(400, { code: 'password_mismatch' }));
+        open();
+
+        await submitWith({ password: 'nope', code: '000123' });
+
+        expect(status()).toBe('incorrect_password');
+        expect(field('password').attr('aria-invalid')).toBe('true');
+        expect(window.user.otp).toBe(true);
+    });
+
+    it.each([true, false])('keeps the code across a provider sign-in (cached provider-only state: %s)', async (oidcOnly) => {
+        if ( ! oidcOnly ) {
+            fetch.mockResolvedValueOnce(reply(403, { code: 'oidc_revalidation_required', revalidate_url: 'https://puter.test/revalidate' }));
+        }
+        fetch.mockResolvedValueOnce(reply(200));
+        const result = open({ oidc_only: oidcOnly, oidc_revalidate_url: 'https://puter.test/revalidate' });
+        expect(field('password').closest('.dashboard-form-field').prop('hidden')).toBe(oidcOnly);
+
+        await submitWith(oidcOnly ? { code: '000123' } : { password: 'hunter2', code: '000123' });
+
+        expect(openRevalidatePopup).toHaveBeenCalledOnce();
+        expect(openRevalidatePopup).toHaveBeenCalledWith('https://puter.test/revalidate');
+        expect(bodyOf(oidcOnly ? 0 : 1)).toEqual({ code: '000123' });
+        expect(result).toEqual({ settled: true, value: true });
+    });
+
+    it('sends nothing when the provider sign-in does not finish', async () => {
+        openRevalidatePopup.mockRejectedValueOnce(new Error('closed'));
+        const result = open({ oidc_only: true });
+
+        await submitWith({ code: '000123' });
+
+        expect(fetch).not.toHaveBeenCalled();
+        expect(status()).toBe('revalidate_failed');
+        expect(window.user.otp).toBe(true);
+        expect(result.settled).toBe(false);
+    });
+
+    it('keeps the code when a missing session cookie is renewed', async () => {
+        fetch.mockResolvedValueOnce(reply(401, { code: 'token_missing' }))
+            .mockResolvedValueOnce(reply(200))
+            .mockResolvedValueOnce(reply(200));
+        const result = open();
+
+        await submitWith({ password: 'hunter2', code: '000123' });
+
+        expect(String(fetch.mock.calls[1][0])).toContain('/session/sync-cookie');
+        expect(bodyOf(2)).toEqual(bodyOf(0));
+        expect(bodyOf(2).code).toBe('000123');
+        expect(result).toEqual({ settled: true, value: true });
+    });
+
+    it('starts the sign-in flow when the session cookie cannot be renewed', async () => {
+        fetch.mockResolvedValueOnce(reply(401, { code: 'reauth_required', reason: 'legacy', auth_id: 'a1' }))
+            .mockResolvedValueOnce(reply(401));
+        const result = open();
+
+        await submitWith({ password: 'hunter2', code: '000123' });
+
+        expect(window.handleReauthRequired).toHaveBeenCalledWith({ reason: 'legacy', auth_id: 'a1' });
+        expect(status()).toBe('reauth_required_message');
+        expect(window.user.otp).toBe(true);
+        expect(result.settled).toBe(false);
+    });
+
+    it('says something went wrong when the request gets no answer, and allows a retry', async () => {
+        fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+        const result = open();
+
+        await submitWith({ password: 'hunter2', code: '000123' });
+
+        expect(status()).toBe('something_went_wrong');
+        expect($('.dashboard-form-submit').prop('disabled')).toBe(false);
+        expect(result.settled).toBe(false);
+    });
+
+    it.each(['.dashboard-form-cancel', '.dashboard-dialog-close'])('resolves false and changes nothing when closed with %s', async (selector) => {
+        const result = open();
+
+        $(selector).trigger('click');
+        await settle();
+
+        expect(result).toEqual({ settled: true, value: false });
+        expect(window.user.otp).toBe(true);
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['true when the server accepts', reply(200), true],
+        ['false when the server refuses', reply(400, { code: 'code_mismatch', factor: 'otp' }), false],
+    ])('closed while the request is out, resolves %s', async (_, response, value) => {
+        let answer;
+        fetch.mockReturnValueOnce(new Promise((resolve) => {
+            answer = resolve;
+        }));
+        const result = open();
+        await submitWith({ password: 'hunter2', code: '000123' });
+
+        $('.dashboard-dialog-close').trigger('click');
+        await settle();
+        expect(isOpen()).toBe(false);
+        expect(result.settled).toBe(false);
+
+        answer(response);
+        for ( let i = 0; i < 10; i++ ) await settle();
+        expect(result).toEqual({ settled: true, value });
+        expect(window.user.otp).toBe(! value);
+    });
+
+    it('resolves false when dismissed with Escape', async () => {
+        const result = open();
+
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await settle();
+
+        expect(result).toEqual({ settled: true, value: false });
     });
 });

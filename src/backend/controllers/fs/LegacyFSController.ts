@@ -90,6 +90,7 @@ import {
     FS_SIGNED_READ_LIMIT,
     FS_SIGNED_WRITE_LIMIT,
     FS_STAT_LIMIT,
+    FS_THUMBNAIL_LIMIT,
 } from './limits.js';
 import {
     asRecord,
@@ -138,6 +139,9 @@ const BATCH_MUTATING_OPS = new Set(['mkdir', 'shortcut', 'move', 'delete']);
 
 /** Rows per `readdir-subdomains` read; the response pages until done. */
 const SUBDOMAIN_PAGE_SIZE = 500;
+
+/** The largest `fsentries.modified` every database engine's column holds. */
+const MAX_MODIFIED_SECONDS = 2 ** 31 - 1;
 
 // An op's `as` names the path it produced; later ops in the same batch refer
 // to it as `$name` or `$name/rest`, since a deduped mkdir can land elsewhere.
@@ -401,11 +405,9 @@ export class LegacyFSController extends PuterController {
                             .filter(Boolean);
 
                     // Don't hand out an index_url whose puter-hosted backing is
-                    // gone or reclaimed. The taskbar launches recents by name (so
-                    // AppDriver's guard applies), but this list is a
-                    // launch-metadata producer like any other — a future consumer
-                    // reading index_url straight off it shouldn't inherit a stale
-                    // origin.
+                    // gone or reclaimed. This list is a launch-metadata producer
+                    // like any other — a consumer reading index_url straight off
+                    // it shouldn't inherit a stale origin.
                     let backingGoneFlags: boolean[];
                     try {
                         backingGoneFlags =
@@ -477,7 +479,7 @@ export class LegacyFSController extends PuterController {
         );
         router.post(
             '/update-fsentry-thumbnail',
-            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            { ...apiOptions, rateLimit: FS_THUMBNAIL_LIMIT },
             this.updateFsentryThumbnail,
         );
 
@@ -767,8 +769,10 @@ export class LegacyFSController extends PuterController {
             normalizedTarget,
         );
         if (dedupeName) {
-            const existing =
-                await this.stores.fsEntry.getEntryByPath(normalizedTarget);
+            const existing = await this.stores.fsEntry.getEntryByPath(
+                normalizedTarget,
+                { foldedNames: true },
+            );
             if (existing) {
                 const parent = pathPosix.dirname(normalizedTarget);
                 await assertAccess(
@@ -950,9 +954,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const overwrittenEntry = replacedByMove(overwriteTarget, moved, name);
         const oldPath = source.path;
@@ -1197,9 +1199,10 @@ export class LegacyFSController extends PuterController {
         res: Response,
     ): Promise<void> => {
         const actor = this.#requireActor(req);
-        const { uid, thumbnail } = asRecord(req.body) as {
+        const { uid, thumbnail, expectedModified } = asRecord(req.body) as {
             uid?: string;
             thumbnail?: string;
+            expectedModified?: unknown;
         };
         if (!uid)
             throw new HttpError(400, 'Missing `uid`', {
@@ -1217,6 +1220,21 @@ export class LegacyFSController extends PuterController {
             throw new HttpError(400, '`thumbnail` must be a data: URL', {
                 legacyCode: 'bad_request',
             });
+        // The `modified` time of the contents the thumbnail was made from, so
+        // a thumbnail of an older version isn't stored on a newer one. Only a
+        // value the column can hold reaches the query.
+        if (
+            expectedModified !== undefined &&
+            (typeof expectedModified !== 'number' ||
+                !Number.isInteger(expectedModified) ||
+                expectedModified < 0 ||
+                expectedModified > MAX_MODIFIED_SECONDS)
+        )
+            throw new HttpError(
+                400,
+                '`expectedModified` must be a whole number of seconds',
+                { legacyCode: 'bad_request' },
+            );
 
         const entry = await this.stores.fsEntry.getEntryByUuid(uid);
         if (!entry || !entry.path)
@@ -1235,13 +1253,63 @@ export class LegacyFSController extends PuterController {
         // `event.url` from a data URL to an `s3://` pointer, and the DB
         // write below needs to see that rewrite.
         const event = { url: thumbnail, uuid: entry.uuid };
-        await this.clients.event.emitAndWait('thumbnail.created', event, {});
+        const meta: import('../../clients/event/types.js').EventMetadata = {};
+        await this.clients.event.emitAndWait('thumbnail.created', event, meta);
+        const discard = (url: string | null) => {
+            if (url) {
+                this.clients.event.emit(
+                    'thumbnail.discarded',
+                    { uuid: entry.uuid, url },
+                    {},
+                );
+            }
+        };
+        // Storing a pointer whose upload failed, or the null left for an image
+        // that can't be decoded, would replace a thumbnail that works.
+        if (meta.listener_failed) {
+            if (event.url !== thumbnail) discard(event.url);
+            throw new HttpError(500, 'The thumbnail could not be saved', {
+                legacyCode: 'internal_error',
+            });
+        }
+        // The listener's rewrite isn't bound by the event's declared type.
+        if (typeof event.url !== 'string' || !event.url)
+            throw new HttpError(400, '`thumbnail` is not a usable image', {
+                legacyCode: 'bad_request',
+            });
 
         // Not the owner-scoped update: a shared writer passed the check above.
-        await this.stores.fsEntry.updateEntryThumbnailByUuid(
-            entry.uuid,
-            event.url,
-        );
+        // The entry is read again alongside it: a rename that landed during
+        // the upload would otherwise be announced below with the name and
+        // path it replaced.
+        const [stored, current] = await Promise.all([
+            this.stores.fsEntry.updateEntryThumbnailByUuid(
+                entry.uuid,
+                event.url,
+                typeof expectedModified === 'number'
+                    ? { modified: expectedModified }
+                    : {},
+            ),
+            this.stores.fsEntry.getEntryByUuid(entry.uuid),
+        ]);
+        if (!stored) {
+            discard(event.url);
+            if (typeof expectedModified !== 'number')
+                throw new HttpError(404, `Entry not found: uid=${uid}`, {
+                    legacyCode: 'subject_does_not_exist',
+                });
+            throw new HttpError(
+                409,
+                'The file changed after this thumbnail was made',
+                { legacyCode: 'conflict' },
+            );
+        }
+        if (entry.thumbnail !== event.url) discard(entry.thumbnail);
+        // Other open tabs show the new thumbnail instead of each making one.
+        await this.#emitGuiEvent('outer.gui.item.updated', {
+            ...(current ?? entry),
+            thumbnail: event.url,
+        });
         res.json({ thumbnail: event.url });
     };
 
@@ -1324,7 +1392,7 @@ export class LegacyFSController extends PuterController {
         if (options.realMime) {
             res.setHeader(
                 'Content-Type',
-                contentTypeFromMime(entry.name) as string,
+                contentTypeFromMime(entry.name) || 'application/octet-stream',
             );
         } else {
             res.setHeader('Content-Type', 'application/octet-stream');
@@ -1426,8 +1494,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -2054,10 +2121,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

@@ -12,7 +12,7 @@ When the user adds a new domain, the dialog shows the DNS records to set at thei
 
 Your app doesn't need any permission to call this method. The user makes the choice in the dialog, and your app only receives the domain they chose. Custom domains are billed to the user's Puter account, and the dialog shows the price before the user adds one.
 
-Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog and signs the user in first if needed.
+Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog and signs the user in first if needed. Puter's own apps on puter.com subdomains show it in a frame over the page instead, when the user is signed in to both.
 
 ## Syntax
 
@@ -31,6 +31,8 @@ The name of the website to connect a domain to, such as `example` for `example.p
 A `Promise` that resolves to a [`CustomDomain`](/Objects/customdomain/) object for the domain the user chose, or `null` if the user closed the dialog without choosing one.
 
 A newly added domain resolves with `status` set to `pending`. Its `records` list the DNS records the user still has to set.
+
+When the user moved the domain from another of their websites, its `previousSite` attribute names that website. The other website no longer has the domain.
 
 On a website that is cross-origin isolated, the popup can't send its result back to your page, so the promise resolves `null` even if the user goes on to connect a domain in the popup.
 

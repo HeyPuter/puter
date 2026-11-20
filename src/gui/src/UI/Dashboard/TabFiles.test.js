@@ -792,10 +792,10 @@ describe('TabFiles image preview', () => {
         expect($('.image-preview-popover')).toHaveLength(0);
     });
 
-    it('reads the image rather than spending an access token on it, typed so an SVG shows', async () => {
-        mountListing(['logo.svg'], '/alice/Pictures');
-        $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'logo.svg', 'data-is_dir': '0' });
-        window.puter = { fs: { read: vi.fn(async () => new Blob(['<svg/>'])), getReadURL: vi.fn() } };
+    it('reads the image rather than spending an access token on it, from a typed blob: URL', async () => {
+        mountListing(['photo.PNG'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'photo.PNG', 'data-is_dir': '0' });
+        window.puter = { fs: { read: vi.fn(async () => new Blob(['x'])), getReadURL: vi.fn() } };
         const created = [];
         URL.createObjectURL = vi.fn((blob) => {
             created.push(blob);
@@ -806,11 +806,63 @@ describe('TabFiles image preview', () => {
         await TabFiles.showImagePreview($('.files .row'));
 
         expect(window.puter.fs.getReadURL).not.toHaveBeenCalled();
-        expect(created[0].type).toBe('image/svg+xml');
+        expect(created[0].type).toBe('image/png');
         expect($('.image-preview-popover img').attr('src')).toBe('blob:preview');
 
         TabFiles.closeImagePreview();
         expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+    });
+
+    it('shows an SVG from a data: URL, never a blob: URL on this origin', async () => {
+        mountListing(['logo.SVG'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'logo.SVG', 'data-is_dir': '0' });
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
+        window.puter = { fs: { read: vi.fn(async () => new Blob([svg])), getReadURL: vi.fn() } };
+        URL.createObjectURL = vi.fn(() => 'blob:preview');
+        URL.revokeObjectURL = vi.fn();
+
+        await TabFiles.showImagePreview($('.files .row'));
+
+        expect(URL.createObjectURL).not.toHaveBeenCalled();
+        expect($('.image-preview-popover img').attr('src'))
+            .toBe(`data:image/svg+xml;base64,${btoa(svg)}`);
+        expect(TabFiles.previewOpen).toBe(true);
+        TabFiles.closeImagePreview();
+    });
+
+    it('drops an SVG that a newer preview supersedes while it encodes', async () => {
+        mountListing(['a.svg', 'b.png'], '/alice/Pictures');
+        const $rows = $('.files .row');
+        $rows.eq(0).attr({ 'data-uid': 'u1', 'data-name': 'a.svg', 'data-is_dir': '0' });
+        $rows.eq(1).attr({ 'data-uid': 'u2', 'data-name': 'b.png', 'data-is_dir': '0' });
+        window.puter = { fs: { read: vi.fn(async () => new Blob(['<svg/>'])) } };
+        URL.createObjectURL = vi.fn(() => 'blob:b');
+        URL.revokeObjectURL = vi.fn();
+        const RealFileReader = globalThis.FileReader;
+        let finishEncode;
+        globalThis.FileReader = class {
+            readAsDataURL () {
+                finishEncode = () => {
+                    this.result = 'data:image/svg+xml;base64,';
+                    this.onload();
+                };
+            }
+        };
+
+        try {
+            const first = TabFiles.showImagePreview($rows.eq(0));
+            await vi.waitFor(() => expect(finishEncode).toBeDefined());
+            await TabFiles.showImagePreview($rows.eq(1));
+            finishEncode();
+            await first;
+        } finally {
+            globalThis.FileReader = RealFileReader;
+        }
+
+        expect($('.image-preview-popover')).toHaveLength(1);
+        expect($('.image-preview-popover').attr('data-uid')).toBe('u2');
+        expect($('.image-preview-popover img').attr('src')).toBe('blob:b');
+        TabFiles.closeImagePreview();
     });
 
     it('closes, rather than showing the last image, when the next one fails to load', async () => {

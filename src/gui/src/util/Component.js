@@ -57,7 +57,7 @@ export const Component = def(class Component extends HTMLElement {
         property_values = property_values || {};
 
         // We allow a subclass of component to define custom behavior
-        // for the `RENDER_MODE` static property. This is so JustHTML
+        // for the `RENDER_MODE` static property. This is so Button
         // can have ths `no_shadow: true` option.
         this._set_dom_based_on_render_mode({ property_values });
 

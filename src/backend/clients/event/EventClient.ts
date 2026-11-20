@@ -87,14 +87,19 @@ export class EventClient extends PuterClient {
      *
      * Listeners run sequentially in the order they're registered so an earlier
      * handler's mutation is visible to later ones. A listener that throws is
-     * logged and the chain continues, with `meta.listener_failed` set.
+     * logged and the chain continues, with `meta.listener_failed` set. With
+     * `revertOnFailure`, those fields of `data` go back to what they held
+     * before a listener that threw, so only completed listeners' outputs
+     * count.
      */
     async emitAndWait<T extends keyof EventMap>(
         key: T,
         data: EventMap[T],
         meta: EventMetadata,
+        { revertOnFailure }: { revertOnFailure?: readonly string[] } = {},
     ) {
         if (!this.hasListeners(key)) return;
+        const fields = data as Record<string, unknown>;
         // Spanned because callers block on listeners — this is where time
         // spent in extension hooks (e.g. `ip.validate`) gets attributed.
         return withSpan('event.emitAndWait', { 'event.key': key }, async () => {
@@ -102,9 +107,15 @@ export class EventClient extends PuterClient {
                 // A wildcard listener observes the event; it does not implement it.
                 const isExact = matchKey === key;
                 for (const listener of this.#listenersFor(matchKey)) {
+                    const before = revertOnFailure?.map(
+                        (name) => [name, fields[name]] as const,
+                    );
                     try {
                         await listener(key, data, meta);
                     } catch (e) {
+                        for (const [name, value] of before ?? []) {
+                            fields[name] = value;
+                        }
                         // The chain continues, but the caller is told: a hook
                         // that could not run is not a hook that approved.
                         if (isExact) meta.listener_failed = true;

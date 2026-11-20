@@ -20,6 +20,7 @@
 import { createHmac } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { describe, expect, it } from 'vitest';
+import { tokenClaimsDigest } from '../../../gui/src/helpers/guiToken.js';
 import { isTokenForAnotherUser } from '../../../gui/src/helpers/tokenUser.js';
 import { TokenService } from './TokenService.js';
 
@@ -401,5 +402,37 @@ describe('session token read by the desktop', () => {
 
         expect(isTokenForAnotherUser(token, { uuid: userUid })).toBe(false);
         expect(isTokenForAnotherUser(token, { uuid: otherUid })).toBe(true);
+    });
+});
+
+describe('TokenService.claimsDigest', () => {
+    const claims = {
+        type: 'gui',
+        version: '2',
+        uuid: '6f1e2d3c-0000-4000-8000-000000000001',
+        session_uid: '6f1e2d3c-0000-4000-8000-000000000001',
+        user_uid: '5d4adce0-a381-4982-9c02-6e2540026238',
+        auth_id: '5d4adce0-a381-4982-9c02-6e2540026238',
+    };
+
+    it('is what the desktop computes over a token signed with those claims', async () => {
+        const svc = createTokenService();
+        const digest = svc.claimsDigest('auth', claims);
+        expect(digest).toMatch(/^[0-9a-f]{32}$/);
+        expect(await tokenClaimsDigest(svc.sign('auth', claims))).toBe(digest);
+    });
+
+    it('differs for another session or token type', () => {
+        const svc = createTokenService();
+        const digest = svc.claimsDigest('auth', claims);
+        expect(
+            svc.claimsDigest('auth', {
+                ...claims,
+                session_uid: 'b0b0b0b0-0000-4000-8000-000000000002',
+            }),
+        ).not.toBe(digest);
+        expect(svc.claimsDigest('auth', { ...claims, type: 'session' })).not.toBe(
+            digest,
+        );
     });
 });

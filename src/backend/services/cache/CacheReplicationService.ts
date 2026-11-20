@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { sendAsUndo } from '../../clients/redis/commandTimeout.js';
 import {
     CACHE_TOMBSTONE_SUFFIX,
     CACHE_TOMBSTONE_TTL_SECONDS,
@@ -52,7 +53,8 @@ export class CacheReplicationService extends PuterService {
                     pipeline.del(key);
                 }
             }
-            await pipeline.exec();
+            // Sent while failing fast, as a local invalidation is.
+            await sendAsUndo(() => pipeline.exec());
         } catch {
             console.warn(
                 '[CacheReplicationService] failed to apply remote cache update:',

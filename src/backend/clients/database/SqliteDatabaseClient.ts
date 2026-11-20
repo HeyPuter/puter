@@ -23,6 +23,7 @@ import { createContext, runInContext } from 'vm';
 import type { IConfig } from '../../types';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { Span } from '../../util/span.js';
+import { assertBindableParams } from './bindableParams.js';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 
 const MIGRATIONS_DIR = resolve(__dirname, './migrations/sqlite');
@@ -137,6 +138,9 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [95, ['0100_notification-send-key.sql']],
     [96, ['0101_user-scoped-handlers.sql']],
     [97, ['0102_notification-scope-id-index.sql']],
+    [98, ['0103_share-entry-owner-backfill.sql']],
+    [99, ['0104_signup-tls-fingerprint.sql']],
+    [100, ['0105_sessions_kind_debug_app.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {
@@ -192,7 +196,7 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
         return this.prepare(query).all(
-            ...this.transformParams(params),
+            ...this.transformParams(query, params),
         ) as Record<string, unknown>[];
     }
 
@@ -209,7 +213,9 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[] = [],
     ): Promise<WriteResult> {
-        const info = this.prepare(query).run(...this.transformParams(params));
+        const info = this.prepare(query).run(
+            ...this.transformParams(query, params),
+        );
 
         return {
             insertId: info.lastInsertRowid,
@@ -229,7 +235,9 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
     ): Promise<void> {
         this.db.transaction(() => {
             for (const { statement, values } of entries) {
-                this.prepare(statement).run(...this.transformParams(values));
+                this.prepare(statement).run(
+                    ...this.transformParams(statement, values),
+                );
             }
         })();
     }
@@ -251,7 +259,8 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         return query.replace(/now\(\)/gi, "datetime('now')");
     }
 
-    private transformParams(params: unknown[]): unknown[] {
+    private transformParams(query: string, params: unknown[]): unknown[] {
+        assertBindableParams(query, params);
         return params.map((p) => {
             if (typeof p === 'boolean') return p ? 1 : 0;
             return p;

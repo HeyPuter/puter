@@ -24,8 +24,10 @@ import {
     authmeRequestUrl,
     authmeReturnUrl,
     confirmationSatisfied,
+    forwardedDestination,
     fullTokenAllowed,
     isDeliverableRedirect,
+    isGuiRedirect,
     isLoopbackTarget,
     isRemoteBackendGui,
     shouldUseRemoteAuthme,
@@ -190,6 +192,74 @@ describe('confirmationSatisfied', () => {
         expect(confirmationSatisfied('anything', '')).toBe(false);
         expect(confirmationSatisfied('', undefined)).toBe(false);
         expect(confirmationSatisfied('   ', '   ')).toBe(false);
+    });
+});
+
+describe('forwardedDestination', () => {
+    const RELAYS = ['https://mcp.puter.com'];
+    const relay = (query) => `https://mcp.puter.com/oauth/callback?flow=x${query}`;
+    const read = (url) => forwardedDestination(url, RELAYS);
+
+    it('reads the host a configured relay passes the grant to', () => {
+        expect(read(relay('&forwards_to=client.example'))).toBe('client.example');
+        expect(read(relay('&forwards_to=127.0.0.1:33418'))).toBe('127.0.0.1:33418');
+        expect(read(relay('&forwards_to=Client.Example:80'))).toBe('client.example:80');
+        expect(forwardedDestination(relay('&forwards_to=client.example'), ['https://MCP.puter.com/'])).toBe('client.example');
+    });
+
+    it('reads the first value, the one the relay compares', () => {
+        expect(read(relay('&forwards_to=first.example&forwards_to=second.example'))).toBe('first.example');
+    });
+
+    it('has nothing to add when the redirect is the destination', () => {
+        expect(read(relay(''))).toBe(null);
+        expect(read(relay('&forwards_to='))).toBe(null);
+        expect(read(relay('&forwards_to=mcp.puter.com'))).toBe(null);
+    });
+
+    it('ignores a name given by any origin that is not a configured relay', () => {
+        expect(read('https://evil.example/cb?forwards_to=client.example')).toBe(null);
+        expect(read('https://mcp.puter.com.evil.example/cb?forwards_to=client.example')).toBe(null);
+        expect(read('http://mcp.puter.com/cb?forwards_to=client.example')).toBe(null);
+        expect(read('https://mcp.puter.com:8443/cb?forwards_to=client.example')).toBe(null);
+        expect(forwardedDestination(relay('&forwards_to=client.example'), undefined)).toBe(null);
+        expect(forwardedDestination(relay('&forwards_to=client.example'), [])).toBe(null);
+    });
+
+    it('ignores a name given by a page on the deployment domain itself', () => {
+        expect(read('https://puter.com/app/some-app?forwards_to=client.example')).toBe(null);
+        expect(read('https://docs.puter.com/cb?forwards_to=client.example')).toBe(null);
+        expect(read('https://someone.puter.site/cb?forwards_to=client.example')).toBe(null);
+    });
+
+    it('refuses what could not be a host, or a redirect that is not deliverable', () => {
+        expect(read(relay('&forwards_to=client.example%20(trusted)'))).toBe(null);
+        expect(read(relay(`&forwards_to=${'a'.repeat(256)}`))).toBe(null);
+        expect(read('javascript:alert(1)//?forwards_to=client.example')).toBe(null);
+        expect(read('not a url')).toBe(null);
+    });
+});
+
+describe('isGuiRedirect', () => {
+    const GUI = ['https://puter.com', 'https://www.puter.com'];
+
+    it('is true for any page on the GUI origin', () => {
+        expect(isGuiRedirect('https://puter.com/app/some-app?forwards_to=client.example', GUI)).toBe(true);
+        expect(isGuiRedirect('https://www.puter.com/app/some-app', GUI)).toBe(true);
+        expect(isGuiRedirect('https://puter.com/desktop/app/some-app', GUI)).toBe(true);
+        expect(isGuiRedirect('https://PUTER.com/', GUI)).toBe(true);
+    });
+
+    it('is false for any other origin, including a local GUI and a relay', () => {
+        expect(isGuiRedirect('https://mcp.puter.com/oauth/callback', GUI)).toBe(false);
+        expect(isGuiRedirect('http://localhost:4100/', GUI)).toBe(false);
+        expect(isGuiRedirect('http://puter.com/app/x', GUI)).toBe(false);
+        expect(isGuiRedirect('https://app.example/cb', GUI)).toBe(false);
+    });
+
+    it('is false for an unparseable redirect or a missing origin', () => {
+        expect(isGuiRedirect('not a url', GUI)).toBe(false);
+        expect(isGuiRedirect('https://puter.com/', [undefined])).toBe(false);
     });
 });
 

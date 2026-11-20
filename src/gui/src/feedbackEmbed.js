@@ -22,6 +22,7 @@ import { encode } from 'html-entities';
 import { loadLocale } from './i18n/embedI18n.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import { embedSession } from './helpers/embedSession.js';
+import { overlayGone } from './helpers/overlayGone.js';
 
 window.$ = window.jQuery = jQuery;
 window.html_encode = value => encode(String(value ?? ''), { mode: 'nonAsciiPrintable' });
@@ -36,18 +37,6 @@ const localeReady = loadLocale(window.locale);
 
 /** Answers only the page frame-ancestors pinned, which the feedback is for. */
 const tellHost = (data) => window.parent.postMessage(data, config.hostOrigin);
-
-/** Resolves once the dialog's overlay has left the page, after its success pane and exit. */
-const overlayGone = () => new Promise((resolve) => {
-    const gone = () => !document.querySelector('.app-feedback-overlay');
-    if ( gone() ) return resolve();
-    const observer = new MutationObserver(() => {
-        if ( ! gone() ) return;
-        observer.disconnect();
-        resolve();
-    });
-    observer.observe(document.body, { childList: true });
-});
 
 /**
  * Shows the app feedback dialog for the framing page, as the signed-in user it
@@ -75,7 +64,8 @@ async function run () {
     let sent = false;
     try {
         sent = await UIWindowAppFeedback({ origin: config.hostOrigin, source: 'web' });
-        await overlayGone();
+        // After its success pane and exit.
+        await overlayGone(document, '.app-feedback-overlay');
     } catch (e) {
         console.error('feedback embed: dialog failed', e);
     }

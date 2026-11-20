@@ -26,6 +26,11 @@
  */
 
 import validator from 'validator';
+import type { EventClient } from '../clients/event/EventClient';
+import type {
+    EmailNotifyKind,
+    EmailNotifyValidateEvent,
+} from '../clients/event/types';
 
 type RuleName = 'dots_dont_matter' | 'remove_subaddressing';
 
@@ -196,4 +201,21 @@ export function isBlockedEmail(
     return blockedDomains.some((suffix) =>
         clean.endsWith(suffix.toLowerCase()),
     );
+}
+
+/** The addresses of `to` that no `email.notify.validate` listener declined. */
+export async function mayEmailNotify(
+    events: Pick<EventClient, 'emitAndWait'>,
+    kind: EmailNotifyKind,
+    to: string[],
+): Promise<Set<string>> {
+    const event: EmailNotifyValidateEvent = {
+        kind,
+        recipients: to.map((address) => ({ to: address, allow: true })),
+    };
+    // A listener that throws leaves `allow` as it was, so the email still goes.
+    if (to.length > 0) {
+        await events.emitAndWait('email.notify.validate', event, {});
+    }
+    return new Set(event.recipients.filter((r) => r.allow).map((r) => r.to));
 }

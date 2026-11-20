@@ -314,8 +314,8 @@ describe('OIDC account second-factor login', () => {
 
     it('preserves ordinary OIDC login for accounts without 2FA', async () => {
         await account(false);
-        const response = await callback('login', { return_to: '/desktop' });
-        expect(response.headers.get('location')).toBe(`${env.origin}/desktop`);
+        const response = await callback('login', { return_to: '/dashboard' });
+        expect(response.headers.get('location')).toBe(`${env.origin}/dashboard`);
         expect(
             response.headers.get('set-cookie')?.includes('puter_auth_token='),
         ).toBe(true);

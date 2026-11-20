@@ -30,8 +30,8 @@ export const meterPercent = (share) => (share < 100 ? Math.min(99, Math.round(sh
 
 /**
  * @typedef {Object} UsageBudget
- * @property {number} used - Allowance-charged spend, in the server's units.
- * @property {number} capacity - The monthly plan allowance.
+ * @property {number} used - Spend charged to it, in the server's units.
+ * @property {number} capacity - What the meter is out of: the monthly plan allowance, or the add-on credit bought.
  * @property {number} percent - `used` as a whole-number share of `capacity`.
  * @property {number} barPercent - The share clamped to 0-100, for a bar width.
  */
@@ -81,6 +81,28 @@ export const addonCreditsRemaining = (allowanceInfo) => {
     const purchased = nonNegative(addons.purchasedCredits);
     if ( ! (purchased > 0) ) return null;
     return Math.max(0, purchased - nonNegative(addons.consumedPurchaseCredits));
+};
+
+/**
+ * The add-on credit meter: what has been spent of all the add-on credit the
+ * account ever bought. Null when it has never had any, as there is no pool
+ * to meter.
+ *
+ * @param {Object | null | undefined} allowanceInfo
+ * @returns {UsageBudget | null}
+ */
+export const addonCreditsBudget = (allowanceInfo) => {
+    const left = addonCreditsRemaining(allowanceInfo);
+    if ( left === null ) return null;
+    const capacity = nonNegative(allowanceInfo.addons.purchasedCredits);
+    const used = capacity - left;
+    const share = (used / capacity) * 100;
+    return {
+        used,
+        capacity,
+        percent: meterPercent(share),
+        barPercent: Math.max(0, Math.min(100, share)),
+    };
 };
 
 /**

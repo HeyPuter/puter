@@ -62,10 +62,12 @@ export async function resolveNode(
 ): Promise<FSEntry | null> {
     if (ref.entry) return ref.entry;
 
+    // A uid/id lookup can return a legacy row with no path when its parent
+    // chain is broken. Nothing can authorize or address it, so it's a miss.
     const uuid = ref.uid ?? ref.uuid;
     if (isNonEmptyString(uuid)) {
         const entry = await fsEntryStore.getEntryByUuid(uuid);
-        if (entry) return entry;
+        if (entry?.path) return entry;
         return notFoundOrNull(
             options.required,
             `Entry not found: uuid=${uuid}`,
@@ -80,7 +82,7 @@ export async function resolveNode(
             });
         }
         const entry = await fsEntryStore.getEntryById(numericId);
-        if (entry) return entry;
+        if (entry?.path) return entry;
         return notFoundOrNull(
             options.required,
             `Entry not found: id=${numericId}`,
@@ -133,6 +135,19 @@ export function splitParentAndName(absolutePath: string): {
     return { parentPath: parentPath === '.' ? '/' : parentPath, name };
 }
 
+// The `path` column's width in characters; no stored entry has a longer path.
+export const MAX_PATH_LENGTH = 4096;
+
+/** Refuses a canonical absolute path longer than the `path` column holds. */
+export function assertPathLength(path: string): string {
+    if (path.length > MAX_PATH_LENGTH && [...path].length > MAX_PATH_LENGTH) {
+        throw new HttpError(400, 'Path is too long', {
+            legacyCode: 'bad_request',
+        });
+    }
+    return path;
+}
+
 export function assertNormalized(input: string): string {
     if (pathPosix.normalize(input) !== input) {
         throw new HttpError(400, 'Invalid path', {
@@ -157,7 +172,7 @@ export function normalizeAbsolutePath(path: string): string {
     if (normalized.length > 1 && normalized.endsWith('/')) {
         normalized = normalized.slice(0, -1);
     }
-    return normalized;
+    return assertPathLength(normalized);
 }
 
 /**

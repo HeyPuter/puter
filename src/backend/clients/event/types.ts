@@ -20,6 +20,8 @@ import type {
     Response as ExpressResponse,
 } from 'express';
 import { Actor } from '../../core';
+import type { EmailTemplateName } from '../email/templates';
+import type { SenderAuthOutcome } from '../../services/email/mailbox';
 import type { UsageInput } from '../../services/metering/types';
 import { FSEntry } from '../../stores/fs/FSEntry';
 
@@ -61,6 +63,16 @@ export type TeamBillingEvent = TeamBillingContext & {
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface IExtensionEventMap {}
 
+/** A custom domain as a site object from the hosting API lists it. */
+export type SiteCustomDomain = {
+    uuid: string;
+    hostname: string;
+    status: string;
+};
+
+/** Site name → the custom domains attached to it. */
+export type SiteCustomDomainsBySite = Record<string, SiteCustomDomain[]>;
+
 /**
  * What a KV mutation did to a key. `expire` is a lifetime change rather than a
  * value change, which is why it is not folded into `set`.
@@ -69,6 +81,9 @@ export type KvOp = 'set' | 'del' | 'expire';
 
 /** A flush empties a whole namespace, so it is never reported per key. */
 export type KvMutation = KvOp | 'flush';
+
+/** How an interactive sign-in proved the account. */
+export type SignInMethod = 'password' | 'otp' | 'recovery_code' | 'oidc';
 
 export type EventMap = {
     // ---- Server lifecycle ----
@@ -147,9 +162,9 @@ export type EventMap = {
     'app.new-icon': { app_uid: string; data_url: string };
     'app.opened': { app_uid: string; user_id: number; ts: number };
     /**
-     * A user removed an app: its grants and worker sessions are gone. With
-     * `deleteData`, the user asked for the app's data in their account to go
-     * too. Awaited by the emitter.
+     * A user removed an app: its grants and worker sessions are gone, and its
+     * workers in the account are taken down. With `deleteData`, the user asked
+     * for the app's data in their account to go too. Awaited by the emitter.
      */
     'app.uninstalled': {
         userId: number;
@@ -240,6 +255,8 @@ export type EventMap = {
         trail_id?: string;
         /** Device signal forwarded verbatim from the signup request body. */
         fingerprint?: string | null;
+        /** TLS fingerprint of the signup request, when a proxy supplies one. */
+        tls_fingerprint?: string | null;
         /**
          * Set by the abuse harness — require SMS phone verification
          * post-signup.
@@ -247,6 +264,12 @@ export type EventMap = {
         requires_phone_verification?: boolean;
         /** Set by the abuse harness — require card verification post-signup. */
         requires_card_verification?: boolean;
+        /**
+         * The email stream the confirmation message is sent on: lowercase
+         * letters, digits, `:`, `_` and `-`, up to 64 characters, starting with
+         * a letter or digit. Any other value is ignored.
+         */
+        email_stream?: string | null;
         [key: string]: unknown;
     };
     'puter.signup.success': {
@@ -292,12 +315,116 @@ export type EventMap = {
         requires_card_verification: boolean;
         accepted: boolean;
     };
+    /**
+     * A password sign-in attempt (`POST /login`), via `emitAndWait` before the
+     * account is looked up or the password checked, so a refusal looks the same
+     * for every account. A listener refuses with `allow = false`; one that
+     * throws counts as no opinion, and what it set is undone.
+     */
+    'puter.signin.attempt': {
+        /** The request; the password is gone from its body. */
+        req: unknown;
+        ip: string | null;
+        user_agent: string | null;
+        tls_fingerprint: string | null;
+        /** Device fingerprint the client sent, shape-checked. */
+        fingerprint: string | null;
+        /** The request body without its credential fields. */
+        data: Record<string, unknown>;
+        allow: boolean;
+        message: string | null;
+        code: string | null;
+        /** Shown to a refused user as the Request Code. */
+        trail_id: string | undefined;
+    };
+    /**
+     * Before the session of an interactive sign-in is minted (not signup), via
+     * `emitAndWait`. A listener refuses with `allow = false`, or asks for phone
+     * or card verification; a listener that throws counts as no opinion, and
+     * what it set is undone.
+     */
+    'puter.signin.validate': {
+        /** The request; a verified password or code is gone from its body. */
+        req: unknown;
+        /** The account row without credentials or single-use tokens. */
+        user: Record<string, unknown>;
+        method: SignInMethod;
+        ip: string | null;
+        user_agent: string | null;
+        tls_fingerprint: string | null;
+        /** Device fingerprint the client sent, shape-checked. */
+        fingerprint: string | null;
+        /** The request body without its credential fields. */
+        data: Record<string, unknown>;
+        /** Whole days since the account's last activity; null if unknown. */
+        dormant_days: number | null;
+        is_dormant: boolean;
+        known_device: boolean;
+        /** The request carries the signal for a credential known to have leaked. */
+        credential_exposed: boolean;
+        account: {
+            has_verified_phone: boolean;
+            has_verified_card: boolean;
+            otp_enabled: boolean;
+            oidc_linked: boolean;
+            email_confirmed: boolean;
+            is_org_seat: boolean;
+            is_temp: boolean;
+        };
+        allow: boolean;
+        message: string | null;
+        code: string | null;
+        requires_phone_verification: boolean;
+        requires_card_verification: boolean;
+        /** Shown to a refused user as the Request Code. */
+        trail_id: string | undefined;
+    };
+    /** After a sign-in's session exists, signups included. */
+    'puter.signin': {
+        user_id: number;
+        user_uuid: string;
+        username: string;
+        method: SignInMethod | 'signup';
+        ip: string | null;
+        user_agent: string | null;
+        tls_fingerprint: string | null;
+        fingerprint: string | null;
+        dormant_days: number | null;
+        is_dormant: boolean;
+        known_device: boolean;
+        session_uuid: string;
+    };
+    /** A sign-in's password is known to be exposed, once per source. */
+    'puter.signin.credential_exposed': {
+        user_id: number;
+        user_uuid: string;
+        username: string;
+        source: 'edge' | 'pwned_passwords';
+        /** Whether the owner was emailed for this sign-in. */
+        notified: boolean;
+    };
+    /** A request from a resolved actor carried request signals. */
+    'puter.request.flagged': {
+        signals: readonly string[];
+        user_id: number | null;
+        user_uuid: string | null;
+        username: string | null;
+        app_uid: string | null;
+        /** HTTP method. */
+        method: string;
+        /** The matched route pattern, else the path. */
+        route: string;
+        ip: string | null;
+        tls_fingerprint: string | null;
+    };
     'email.validate': {
         email: string;
         allow: boolean;
         message: string | null;
         [key: string]: unknown;
     };
+    /** Before notification emails; a listener clears `allow` per recipient. */
+    'email.notify.validate': EmailNotifyValidateEvent;
     // Inbound mail to a feedback address (`abuse@`, `fbl@`, ...), emitted via
     // `emitAndWait`. A listener that takes it sets `handled` and it reaches no
     // mailbox; otherwise it is routed like any other message.
@@ -308,6 +435,29 @@ export type EventMap = {
         /** The whole message, exactly as received. */
         raw: Buffer;
         handled: boolean;
+    };
+    // Inbound mail about to be filed in a mailbox, emitted via `emitAndWait`.
+    // A listener may refuse it, or record a sender check that is stored with
+    // the message as the `X-Puter-Sender-Auth` header. A failed listener is
+    // no opinion: the message is filed.
+    'email.ingress.validate': {
+        /** The envelope recipient. */
+        to: string;
+        /** The envelope sender (MAIL FROM), when the relay passed one. */
+        envelopeFrom: string | null;
+        /** The header block exactly as received, through its blank line. */
+        head: Buffer;
+        /** Size of the whole message in bytes. */
+        size: number;
+        /**
+         * The whole message as received. Holds it in memory, so call it only
+         * when the head says the body matters.
+         */
+        readMessage: () => Promise<Buffer>;
+        allow: boolean;
+        /** Why it was refused; the relay hands it back to the sender. */
+        message: string | null;
+        senderAuth: SenderAuthOutcome | null;
     };
     'user.save_account': {
         user_id: number;
@@ -398,9 +548,19 @@ export type EventMap = {
         user_uid: string;
         email?: string;
         setup_intent_id: string;
+        /**
+         * Set when only this card may verify: the listener refuses any other,
+         * and one whose details weren't entered for this confirmation.
+         */
+        required_fingerprint: string | null;
         enabled: boolean | null;
         verified: boolean;
         reason: string | null;
+        /**
+         * The card's details were entered for this confirmation, not reused
+         * from a saved card.
+         */
+        card_entered: boolean;
         fingerprint: string | null;
         funding: string | null;
         country: string | null;
@@ -456,6 +616,25 @@ export type EventMap = {
         allowance_used: number;
         month_usage_allowance: number;
     };
+    /**
+     * What an actor on a metered plan has left to spend, in microcents, each
+     * time it is worked out: when usage settles and when a credit gate re-reads
+     * it. Per request, so a listener returns before any I/O for an actor it has
+     * nothing to do for.
+     */
+    'metering.balance': {
+        userUuid: string;
+        remaining: number;
+        /** The plan the balance was worked out under. */
+        subscriptionId: string;
+    };
+    /**
+     * An actor is about to be refused for lack of credit. Emitted with
+     * `emitAndWait`: a listener that adds credit sets `refilled`, and the
+     * refused work is tried once more. Per refusal, so a listener returns
+     * before any I/O for an actor it has nothing to do for.
+     */
+    'metering.out-of-credits': { actor: Actor; refilled: boolean };
 
     // ---- Filesystem ----
     'fs.copy.node': {
@@ -736,6 +915,8 @@ export type EventMap = {
     'outer.permission.flatInvalidated': {
         entries: Array<{ holderUserId: number; permission: string }>;
     };
+    /** Links on these nodes were removed; read them from the primary. */
+    'outer.share.linksRevoked': { fsentryIds: number[]; uuids: string[] };
     /**
      * A user's subscription set changed, so every process must drop its cached
      * "does this user have any subscriptions" answer. Carries the counter the
@@ -826,6 +1007,13 @@ export type EventMap = {
     // listener that recognises the host sets `result.subdomain` to the site
     // it serves; an unclaimed host is answered with a 404.
     'site.resolveHost': { host: string; result: { subdomain: string | null } };
+    // Asked when site objects are returned by the hosting API. A listener
+    // that manages custom domains sets `result[subdomain]` to the hostnames
+    // attached to that site; a site it leaves out has none.
+    'site.customDomains': {
+        sites: Array<{ subdomain: string; userId: number }>;
+        result: SiteCustomDomainsBySite;
+    };
     // Asked before a hosted file is streamed. A listener that owns the site
     // sets `result.allowed = false` to withhold the entry; the visitor then
     // sees the same 404 as for a missing file.
@@ -849,6 +1037,8 @@ export type EventMap = {
     };
     /** `uuid` is the entry the thumbnail belongs to. */
     'thumbnail.created': { url: string; uuid: string };
+    /** A thumbnail `uuid`'s entry stopped pointing at; `url` is as stored. */
+    'thumbnail.discarded': { url: string; uuid: string };
     'thumbnail.upload.prepare': {
         items: { index: number; item_uid: string }[];
         uploadUrl?: string;
@@ -874,8 +1064,11 @@ export type EventMap = {
         session_uids: string[];
     };
 
-    /** One access token was revoked; only its own connections should drop. */
-    'auth.access-token.revoked': { token_uid: string };
+    /**
+     * One access token was revoked; only its own connections should drop.
+     * `outer.*` for the same reason as `outer.auth.sessions.revoked`.
+     */
+    'outer.auth.access-token.revoked': { token_uid: string };
 
     /** Same-cluster eviction for raw realtime WebSockets. */
     'pubsub.realtime.auth-revoked': {
@@ -973,6 +1166,21 @@ export type EventMap = {
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
+
+/** A union of `Names`, each of which has to be an email template. */
+type TemplateNames<Names extends EmailTemplateName> = Names;
+
+/** The emails that ask `email.notify.validate`, by template name. */
+export type EmailNotifyKind = TemplateNames<
+    'file_shared_with_you' | 'file_shared_invite' | 'app-user-feedback'
+>;
+
+/** Payload for `email.notify.validate`: one kind of mail, all its recipients. */
+export type EmailNotifyValidateEvent = {
+    kind: EmailNotifyKind;
+    /** `to` is the address as it will be sent; `allow` starts true. */
+    recipients: Array<{ to: string; allow: boolean }>;
+};
 
 /** Payload for `subscription.gate.<surface>` events. */
 export type SubscriptionGateEvent = {

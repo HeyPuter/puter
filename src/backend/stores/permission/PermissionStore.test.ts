@@ -23,7 +23,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { PermissionUtil } from '../../services/permission/permissionUtil.ts';
-import { setupTestServer } from '../../testUtil.ts';
+import { lagReadReplica, setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
 import { CACHE_TOMBSTONE_SUFFIX } from '../types.ts';
 import {
@@ -62,6 +62,29 @@ describe('PermissionStore', () => {
             { name, title: name, index_url: `https://${name}.example.com/` },
             { ownerUserId },
         );
+    };
+
+    /** Replica reads of `table` see `stale`; the primary stays real. */
+    const lagReplica = (
+        table: string,
+        stale: (sql: string) => Record<string, unknown>[],
+    ) => {
+        const db = server.clients.db;
+        const primaryRead = db.read.bind(db);
+        const pread = vi
+            .spyOn(db, 'pread')
+            .mockImplementation((sql, params) => primaryRead(sql, params));
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                String(sql).includes(table)
+                    ? stale(String(sql))
+                    : primaryRead(sql, params),
+            );
+        return () => {
+            read.mockRestore();
+            pread.mockRestore();
+        };
     };
 
     // -- Flat KV view --------------------------------------------------
@@ -119,6 +142,24 @@ describe('PermissionStore', () => {
             await vi.waitFor(async () =>
                 expect(await cachedRowSet(holder.id)).toHaveLength(3),
             );
+        });
+
+        it('reads the table when the cached row set is unusable', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const [perm] = await seedGrants(holder.id, issuer.id, 1);
+
+            // Truncated JSON, then JSON of the wrong shape.
+            for (const cached of ['[{"permission":', '{"rows":[]}']) {
+                await server.clients.redis.set(
+                    `perms:u2u:holder:${holder.id}`,
+                    cached,
+                );
+                const rows = await store.readLinkedUserUserPerms(holder.id, [
+                    perm,
+                ]);
+                expect(rows.map((row) => row.permission)).toEqual([perm]);
+            }
         });
 
         it('reads only the named permissions for a holder past the cache cap', async () => {
@@ -303,6 +344,163 @@ describe('PermissionStore', () => {
     });
 
     // -- user → app ----------------------------------------------------
+
+    describe('flat entries of a gone issuer', () => {
+        const GONE_ISSUER_ID = 2_000_000_000;
+
+        const flatEntry = async (
+            holderId: number,
+            permission: string,
+            issuerId: unknown,
+        ) => {
+            await store.setFlatUserPerm(holderId, permission, {
+                permission,
+                deleted: false,
+                issuer_user_id: issuerId,
+            } as never);
+            return { holderUserId: holderId, permission };
+        };
+
+        /** What the background delete removed, once its re-read settles. */
+        const watchBackground = () => {
+            const reads = vi.spyOn(store, 'getFlatUserPermsForRefs');
+            const deletes = vi.spyOn(store, 'delFlatUserPerms');
+            return {
+                // Its continuation runs before ours, so any delete is issued by then.
+                settled: async () => {
+                    await vi.waitFor(() => expect(reads).toHaveBeenCalled());
+                    await reads.mock.results[0]!.value;
+                },
+                deleted: () => deletes.mock.calls.flatMap(([refs]) => refs),
+                restore: () => {
+                    reads.mockRestore();
+                    deletes.mockRestore();
+                },
+            };
+        };
+
+        it('keeps an issuer a lagging replica has not seen yet', async () => {
+            const older = await makeUser();
+            const newer = await makeUser();
+            const holder = await makeUser();
+            const refs = [
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, older.id),
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, newer.id),
+            ];
+            for (const id of [older.id, newer.id]) {
+                await server.clients.redis.del(`users:id:${id}`);
+            }
+            const items = await store.getFlatUserPermsForRefs(refs);
+
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) => {
+                    const rows = await primaryRead(sql, params);
+                    return String(sql).startsWith(
+                        'SELECT * FROM `user` WHERE `id` IN',
+                    )
+                        ? rows.filter((row) => Number(row.id) !== newer.id)
+                        : rows;
+                });
+            let kept;
+            try {
+                ({ kept } = await store.withoutOrphanedFlatPerms(items));
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+
+            // Nothing was dropped, so nothing runs in the background.
+            expect(kept).toHaveLength(2);
+            expect(await store.getFlatUserPermsForRefs(refs)).toHaveLength(2);
+        });
+
+        it('leaves an entry a live issuer rewrote after it was read', async () => {
+            const live = await makeUser();
+            const holder = await makeUser();
+            const permission = `fs:${uuidv4()}:read`;
+            const ref = await flatEntry(holder.id, permission, GONE_ISSUER_ID);
+            const [read] = await store.getFlatUserPermsForRefs([ref]);
+            await flatEntry(holder.id, permission, live.id);
+
+            const background = watchBackground();
+            let kept;
+            try {
+                ({ kept } = await store.withoutOrphanedFlatPerms([read!]));
+                await background.settled();
+                expect(background.deleted()).toEqual([]);
+            } finally {
+                background.restore();
+            }
+
+            expect(kept).toEqual([]);
+            const [now] = await store.getFlatUserPermsForRefs([ref]);
+            expect(now?.value.issuer_user_id).toBe(live.id);
+        });
+
+        it('reads only the issuers the caller has not already read', async () => {
+            const known = await makeUser();
+            const other = await makeUser();
+            const holder = await makeUser();
+            const refs = [
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, known.id),
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, other.id),
+            ];
+            const items = await store.getFlatUserPermsForRefs(refs);
+            const knownUsers = await server.stores.user.getByIds([known.id]);
+
+            const getByIds = vi.spyOn(server.stores.user, 'getByIds');
+            let result;
+            try {
+                result = await store.withoutOrphanedFlatPerms(
+                    items,
+                    knownUsers,
+                );
+                expect(getByIds.mock.calls).toEqual([[[other.id]]]);
+            } finally {
+                getByIds.mockRestore();
+            }
+
+            expect(result.kept).toHaveLength(2);
+            expect(new Set(result.issuers.keys())).toEqual(
+                new Set([known.id, other.id]),
+            );
+        });
+
+        it('keeps an entry that names no usable issuer', async () => {
+            const holder = await makeUser();
+            const refs = [
+                await flatEntry(holder.id, `fs:${uuidv4()}:read`, 'legacy'),
+                await flatEntry(
+                    holder.id,
+                    `fs:${uuidv4()}:read`,
+                    GONE_ISSUER_ID,
+                ),
+            ];
+            const items = await store.getFlatUserPermsForRefs(refs);
+
+            const background = watchBackground();
+            let kept;
+            try {
+                ({ kept } = await store.withoutOrphanedFlatPerms(items));
+                await vi.waitFor(() =>
+                    expect(background.deleted()).toEqual([refs[1]]),
+                );
+            } finally {
+                background.restore();
+            }
+
+            expect(kept!.map(({ ref }) => ref)).toEqual([refs[0]]);
+            expect(await store.getFlatUserPermsForRefs(refs)).toEqual([
+                expect.objectContaining({ ref: refs[0] }),
+            ]);
+        });
+    });
 
     describe('user-to-app permissions', () => {
         it('does not cache a read that raced a revoke', async () => {
@@ -911,6 +1109,484 @@ describe('PermissionStore', () => {
             expect(await store.readUserGroupPerms(user.id, [])).toEqual([]);
         });
 
+        it('reads a grant whose `extra` is not JSON as having none', async () => {
+            const issuer = await makeUser();
+            const member = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            const permission = `fs:${uuidv4()}:read`;
+            await server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [issuer.id, groupId, permission, '{"note":'],
+            );
+
+            const rows = await store.readUserGroupPerms(member.id, [
+                permission,
+            ]);
+            expect(rows).toHaveLength(1);
+            expect(rows[0].extra).toEqual({});
+        });
+
+        it('resolves a group by uid, and nothing for an unknown one', async () => {
+            const owner = await makeUser();
+            const groupId = await seedGroup(owner.id);
+            const [group] = await server.clients.db.read(
+                'SELECT `uid` FROM `group` WHERE `id` = ?',
+                [groupId],
+            );
+
+            expect(await store.resolveGroupId(String(group.uid))).toBe(groupId);
+            expect(await store.resolveGroupId(uuidv4())).toBeNull();
+        });
+
+        it('lists the uuids of a group`s members, and none for an empty group', async () => {
+            const owner = await makeUser();
+            const members = [await makeUser(), await makeUser()];
+            const groupId = await seedGroup(owner.id);
+            const emptyGroupId = await seedGroup(owner.id);
+            for (const member of members) {
+                await server.clients.db.write(
+                    'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                    [member.id, groupId],
+                );
+            }
+            const uuids = await Promise.all(
+                members.map(
+                    async (member) =>
+                        (await server.stores.user.getById(member.id))!.uuid,
+                ),
+            );
+
+            expect((await store.listGroupMemberUuids(groupId)).sort()).toEqual(
+                [...uuids].sort(),
+            );
+            expect(await store.listGroupMemberUuids(emptyGroupId)).toEqual([]);
+        });
+
+        it('upserts a group grant, replacing `extra` on a repeat', async () => {
+            const issuer = await makeUser();
+            const member = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            const permission = `fs:${uuidv4()}:read`;
+
+            await store.upsertUserGroupPerm(groupId, issuer.id, permission, {
+                note: 'first',
+            });
+            await store.upsertUserGroupPerm(groupId, issuer.id, permission, {
+                note: 'second',
+            });
+
+            const rows = await store.readUserGroupPerms(member.id, [
+                permission,
+            ]);
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({
+                user_id: issuer.id,
+                group_id: groupId,
+                extra: { note: 'second' },
+            });
+        });
+
+        it('records a group audit row, with and without `extra`', async () => {
+            const issuer = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            const permission = `fs:${uuidv4()}:read`;
+
+            await store.auditUserGroupPerm({
+                group_id: groupId,
+                issuer_user_id: issuer.id,
+                permission,
+                action: 'grant',
+                reason: 'shared with the team',
+                extra: { appUid: 'app-1' },
+            });
+            await store.auditUserGroupPerm({
+                group_id: groupId,
+                issuer_user_id: issuer.id,
+                permission,
+                action: 'revoke',
+                reason: 'team disbanded',
+            });
+
+            const rows = await server.clients.db.read(
+                'SELECT `user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
+                    '`action`, `reason`, `extra` FROM `audit_user_to_group_permissions` ' +
+                    'WHERE `permission` = ? ORDER BY `id`',
+                [permission],
+            );
+            expect(
+                rows.map((row) => ({
+                    ...row,
+                    extra:
+                        typeof row.extra === 'string'
+                            ? JSON.parse(row.extra)
+                            : row.extra,
+                })),
+            ).toEqual([
+                {
+                    user_id: issuer.id,
+                    user_id_keep: issuer.id,
+                    group_id: groupId,
+                    group_id_keep: groupId,
+                    action: 'grant',
+                    reason: 'shared with the team',
+                    extra: { appUid: 'app-1' },
+                },
+                {
+                    user_id: issuer.id,
+                    user_id_keep: issuer.id,
+                    group_id: groupId,
+                    group_id_keep: groupId,
+                    action: 'revoke',
+                    reason: 'team disbanded',
+                    extra: null,
+                },
+            ]);
+        });
+
+        it('does not read a revoked grant back from a lagging replica', async () => {
+            const issuer = await makeUser();
+            const member = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            await seedGroupPerm(issuer.id, groupId, 'fs:lag:read');
+            const [stale] = await store.readUserGroupPerms(member.id, [
+                'fs:lag:read',
+            ]);
+            const [staleForHolder] = await store.readUserGroupPermsForHolders(
+                [member.id],
+                ['fs:lag:read'],
+            );
+
+            await store.deleteUserGroupPerm(groupId, issuer.id, 'fs:lag:read');
+
+            // The replica still has the row the primary just deleted.
+            const restore = lagReplica('user_to_group_permissions', (sql) =>
+                sql.includes('holder_user_id')
+                    ? [staleForHolder]
+                    : [{ ...stale, extra: '{}' }],
+            );
+            try {
+                expect(
+                    await store.readUserGroupPerms(member.id, ['fs:lag:read']),
+                ).toEqual([]);
+                expect(
+                    await store.readUserGroupPermsForHolders(
+                        [member.id],
+                        ['fs:lag:read'],
+                    ),
+                ).toEqual([]);
+            } finally {
+                restore();
+            }
+        });
+
+        it('does not read grants removed with their node back from a lagging replica', async () => {
+            const issuer = await makeUser();
+            const member = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            const node = uuidv4();
+            await seedGroupPerm(issuer.id, groupId, `fs:${node}:read`);
+            const [stale] = await store.readUserGroupPerms(member.id, [
+                `fs:${node}:read`,
+            ]);
+
+            await store.deleteUserGroupPermsByPermissionPrefixes([
+                `fs:${node}`,
+            ]);
+
+            const restore = lagReplica('user_to_group_permissions', () => [
+                { ...stale, extra: '{}' },
+            ]);
+            try {
+                expect(
+                    await store.readUserGroupPerms(member.id, [
+                        `fs:${node}:read`,
+                    ]),
+                ).toEqual([]);
+            } finally {
+                restore();
+            }
+        });
+
+        it('removes a grant the replica has not seen yet with its node, when asked to read the primary', async () => {
+            const issuer = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            const node = uuidv4();
+            await seedGroupPerm(issuer.id, groupId, `fs:${node}:read`);
+
+            const restore = lagReplica('user_to_group_permissions', () => []);
+            let unasked;
+            let removed;
+            try {
+                unasked = await store.deleteUserGroupPermsByPermissionPrefixes([
+                    `fs:${node}`,
+                ]);
+                removed = await store.deleteUserGroupPermsByPermissionPrefixes(
+                    [`fs:${node}`],
+                    { primary: true },
+                );
+            } finally {
+                restore();
+            }
+            // Unasked, the replica's answer stands and the primary is left alone.
+            expect(unasked?.rows).toEqual([]);
+            expect(removed?.rows).toEqual([
+                { group_id: groupId, permission: `fs:${node}:read` },
+            ]);
+            expect(
+                await store.queryIssuerGroupPermsByPrefix(
+                    issuer.id,
+                    groupId,
+                    `fs:${node}`,
+                ),
+            ).toEqual([]);
+        });
+
+        it('sends a former member to the primary once membership changes', async () => {
+            const issuer = await makeUser();
+            const member = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            await seedGroupPerm(issuer.id, groupId, 'fs:left:read');
+            const [stale] = await store.readUserGroupPerms(member.id, [
+                'fs:left:read',
+            ]);
+            await server.clients.db.write(
+                'DELETE FROM `jct_user_group` WHERE `user_id` = ? AND `group_id` = ?',
+                [member.id, groupId],
+            );
+
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await store.markGroupMembershipChanged([member.id]);
+                // Only tombstones go out; there is no cached value to drop.
+                const sent = emit.mock.calls
+                    .filter(([name]) => name === 'outer.cacheUpdate')
+                    .flatMap(
+                        ([, data]) => (data as { cacheKey: string[] }).cacheKey,
+                    );
+                expect(sent).toEqual([
+                    `perms:u2g:${member.id}${CACHE_TOMBSTONE_SUFFIX}`,
+                ]);
+            } finally {
+                emit.mockRestore();
+            }
+
+            const restore = lagReplica('user_to_group_permissions', () => [
+                { ...stale, extra: '{}' },
+            ]);
+            try {
+                expect(
+                    await store.readUserGroupPerms(member.id, ['fs:left:read']),
+                ).toEqual([]);
+            } finally {
+                restore();
+            }
+        });
+
+        const seedMember = async (issuerId: number, permission: string) => {
+            const member = await makeUser();
+            const groupId = await seedGroup(issuerId);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            await seedGroupPerm(issuerId, groupId, permission);
+            return { member, groupId };
+        };
+
+        const tombstoneSet = async (userId: number) =>
+            (await server.clients.redis.exists(
+                `perms:u2g:${userId}${CACHE_TOMBSTONE_SUFFIX}`,
+            )) > 0;
+
+        it('sends member reads to the primary before the grant is deleted', async () => {
+            const issuer = await makeUser();
+            const node = uuidv4();
+            const one = await seedMember(issuer.id, 'fs:order:read');
+            const many = await seedMember(issuer.id, `fs:${node}:read`);
+
+            const db = server.clients.db;
+            const primaryWrite = db.write.bind(db);
+            const seen: boolean[] = [];
+            const write = vi
+                .spyOn(db, 'write')
+                .mockImplementation(async (sql, params) => {
+                    if (String(sql).startsWith('DELETE FROM')) {
+                        seen.push(
+                            (await tombstoneSet(one.member.id)) ||
+                                (await tombstoneSet(many.member.id)),
+                        );
+                    }
+                    return primaryWrite(sql, params);
+                });
+            try {
+                await store.deleteUserGroupPerm(
+                    one.groupId,
+                    issuer.id,
+                    'fs:order:read',
+                );
+                await store.deleteUserGroupPermsByPermissionPrefixes([
+                    `fs:${node}`,
+                ]);
+            } finally {
+                write.mockRestore();
+            }
+            expect(seen).toEqual([true, true]);
+        });
+
+        it('leaves the grant in place when the member read fails', async () => {
+            const issuer = await makeUser();
+            const node = uuidv4();
+            const one = await seedMember(issuer.id, 'fs:retry:read');
+            const many = await seedMember(issuer.id, `fs:${node}:read`);
+
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation(async (sql, params) => {
+                    if (String(sql).includes('`jct_user_group` ug')) {
+                        throw new Error('primary unavailable');
+                    }
+                    return primaryRead(sql, params);
+                });
+            try {
+                await expect(
+                    store.deleteUserGroupPerm(
+                        one.groupId,
+                        issuer.id,
+                        'fs:retry:read',
+                    ),
+                ).rejects.toThrow('primary unavailable');
+                await expect(
+                    store.deleteUserGroupPermsByPermissionPrefixes([
+                        `fs:${node}`,
+                    ]),
+                ).rejects.toThrow('primary unavailable');
+            } finally {
+                pread.mockRestore();
+            }
+
+            // The retry still finds the grants and whose they were.
+            expect(
+                await store.deleteUserGroupPerm(
+                    one.groupId,
+                    issuer.id,
+                    'fs:retry:read',
+                ),
+            ).toEqual({
+                removed: true,
+                members: [{ id: one.member.id, uuid: expect.any(String) }],
+            });
+            expect(
+                await store.deleteUserGroupPermsByPermissionPrefixes([
+                    `fs:${node}`,
+                ]),
+            ).toEqual({
+                rows: [
+                    { group_id: many.groupId, permission: `fs:${node}:read` },
+                ],
+                members: [{ id: many.member.id, uuid: expect.any(String) }],
+            });
+        });
+
+        it('includes someone who joined while the grant was deleted', async () => {
+            const issuer = await makeUser();
+            const joiner = await makeUser();
+            const { member, groupId } = await seedMember(
+                issuer.id,
+                'fs:joined:read',
+            );
+
+            const db = server.clients.db;
+            const primaryWrite = db.write.bind(db);
+            const write = vi
+                .spyOn(db, 'write')
+                .mockImplementation(async (sql, params) => {
+                    if (String(sql).startsWith('DELETE FROM')) {
+                        await primaryWrite(
+                            'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                            [joiner.id, groupId],
+                        );
+                    }
+                    return primaryWrite(sql, params);
+                });
+            let result;
+            try {
+                result = await store.deleteUserGroupPerm(
+                    groupId,
+                    issuer.id,
+                    'fs:joined:read',
+                );
+            } finally {
+                write.mockRestore();
+            }
+            expect(result.removed).toBe(true);
+            expect(result.members.map((m) => m.id).sort()).toEqual(
+                [member.id, joiner.id].sort(),
+            );
+            expect(await tombstoneSet(joiner.id)).toBe(true);
+        });
+
+        it('still reports the removal when the second member read fails', async () => {
+            const issuer = await makeUser();
+            const { member, groupId } = await seedMember(
+                issuer.id,
+                'fs:reread:read',
+            );
+
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            let memberReads = 0;
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation(async (sql, params) => {
+                    if (
+                        String(sql).includes('`jct_user_group` ug') &&
+                        ++memberReads > 1
+                    ) {
+                        throw new Error('primary unavailable');
+                    }
+                    return primaryRead(sql, params);
+                });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                expect(
+                    await store.deleteUserGroupPerm(
+                        groupId,
+                        issuer.id,
+                        'fs:reread:read',
+                    ),
+                ).toEqual({
+                    removed: true,
+                    members: [{ id: member.id, uuid: expect.any(String) }],
+                });
+            } finally {
+                pread.mockRestore();
+                warn.mockRestore();
+            }
+        });
+
         it('reads many issuer/group pairs under many prefixes at once', async () => {
             const issuer = await makeUser();
             const rival = await makeUser();
@@ -1075,7 +1751,7 @@ describe('PermissionStore', () => {
     // -- access token permissions --------------------------------------
 
     describe('access token permissions', () => {
-        it('serves the grants cached, and every write through the store invalidates them', async () => {
+        it('serves the grants cached until the store deletes them', async () => {
             const tokenUid = `tok-${uuidv4()}`;
             const authorizer = { userId: null, appId: null };
             await store.insertAccessTokenPerms(tokenUid, authorizer, [
@@ -1085,8 +1761,7 @@ describe('PermissionStore', () => {
                 'driver:kv',
             ]);
 
-            // A row written behind the store is invisible until a store
-            // write lands.
+            // A row written behind the store is invisible while the list is cached.
             await server.clients.db.write(
                 'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
                 [tokenUid, 'driver:fs'],
@@ -1094,13 +1769,6 @@ describe('PermissionStore', () => {
             expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
                 'driver:kv',
             ]);
-
-            await store.insertAccessTokenPerms(tokenUid, authorizer, [
-                { permission: 'driver:ai', extra: { note: 1 } },
-            ]);
-            expect((await store.listAccessTokenPerms(tokenUid)).sort()).toEqual(
-                ['driver:ai', 'driver:fs', 'driver:kv'],
-            );
 
             await store.deleteAccessTokenPerms(tokenUid);
             expect(await store.listAccessTokenPerms(tokenUid)).toEqual([]);
@@ -1158,6 +1826,130 @@ describe('PermissionStore', () => {
             ).toBe(false);
             expect(await store.hasAnyAccessTokenPerm(tokenUid, [])).toBe(false);
         });
+
+        const TOKEN_PERM_QUERIES = /FROM `access_token_permissions`/;
+        const cachedTokenPerms = (tokenUid: string) =>
+            server.clients.redis.get(`perms:token:${tokenUid}`);
+
+        it("finds a new token's grants while the replica lags, and caches no empty list", async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            const replica = await lagReadReplica(server, TOKEN_PERM_QUERIES);
+            try {
+                await store.insertAccessTokenPerms(
+                    tokenUid,
+                    { userId: 7, appId: null },
+                    [{ permission: 'fs:abc:read' }],
+                );
+                expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                    'fs:abc:read',
+                ]);
+
+                await server.clients.redis.del(`perms:token:${tokenUid}`);
+                expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                    'fs:abc:read',
+                ]);
+                await vi.waitFor(async () =>
+                    expect(await cachedTokenPerms(tokenUid)).toBe(
+                        '["fs:abc:read"]',
+                    ),
+                );
+                expect(await store.getAccessTokenAuthorizerId(tokenUid)).toBe(
+                    7,
+                );
+            } finally {
+                replica.catchUp();
+            }
+        });
+
+        it('reads the primary only when the replica has no rows', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            await store.insertAccessTokenPerms(
+                tokenUid,
+                { userId: 7, appId: null },
+                [{ permission: 'fs:abc:read' }],
+            );
+            await server.clients.redis.del(`perms:token:${tokenUid}`);
+
+            const current = await lagReadReplica(server, TOKEN_PERM_QUERIES, {
+                mode: 'current',
+            });
+            try {
+                expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                    'fs:abc:read',
+                ]);
+                expect(await store.getAccessTokenAuthorizerId(tokenUid)).toBe(
+                    7,
+                );
+                expect(current.primaryReads()).toBe(0);
+            } finally {
+                current.catchUp();
+            }
+
+            const lagging = await lagReadReplica(server, TOKEN_PERM_QUERIES);
+            try {
+                expect(await store.getAccessTokenAuthorizerId(tokenUid)).toBe(
+                    7,
+                );
+                expect(lagging.primaryReads()).toBe(1);
+            } finally {
+                lagging.catchUp();
+            }
+        });
+
+        it('caches the grants it stores without reading them back', async () => {
+            const scoped = `tok-${uuidv4()}`;
+            const unscoped = `tok-${uuidv4()}`;
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                await store.insertAccessTokenPerms(
+                    scoped,
+                    { userId: 7, appId: null },
+                    [
+                        { permission: 'fs:abc:read' },
+                        { permission: 'fs:def:read' },
+                    ],
+                );
+                // A token with no stored grants, as a full-access one is.
+                await store.insertAccessTokenPerms(
+                    unscoped,
+                    { userId: 7, appId: null },
+                    [],
+                );
+                expect(pread).not.toHaveBeenCalled();
+            } finally {
+                pread.mockRestore();
+            }
+            expect(await cachedTokenPerms(scoped)).toBe(
+                '["fs:abc:read","fs:def:read"]',
+            );
+            expect(await cachedTokenPerms(unscoped)).toBe('[]');
+        });
+
+        it('caches nothing when the token is deleted while its grants are being cached', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            const db = server.clients.db;
+            const write = db.write.bind(db);
+            // The delete lands after the grants are stored, before they're cached.
+            const stored = vi
+                .spyOn(db, 'write')
+                .mockImplementationOnce(async (sql, params) => {
+                    const result = await write(sql, params);
+                    stored.mockRestore();
+                    await store.deleteAccessTokenPerms(tokenUid);
+                    return result;
+                });
+            try {
+                await store.insertAccessTokenPerms(
+                    tokenUid,
+                    { userId: 7, appId: null },
+                    [{ permission: 'fs:abc:read' }],
+                );
+            } finally {
+                stored.mockRestore();
+            }
+            expect(await cachedTokenPerms(tokenUid)).toBeNull();
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([]);
+        });
     });
 
     // -- cache generation + scan/check caches ----------------------------
@@ -1192,6 +1984,19 @@ describe('PermissionStore', () => {
             );
             expect(nextKey).not.toBe(key);
             expect(await store.getScanCache(nextKey)).toBeNull();
+        });
+
+        it('reads a scan cache that Redis fails to serve as a miss', async () => {
+            const get = vi
+                .spyOn(server.clients.redis, 'get')
+                .mockRejectedValueOnce(new Error('Command timed out'));
+            try {
+                await expect(
+                    store.getScanCache(`permission-scan:${uuidv4()}`),
+                ).resolves.toBeNull();
+            } finally {
+                get.mockRestore();
+            }
         });
 
         it('announces a bump so peer regions can bump their own counter', async () => {
@@ -1366,6 +2171,190 @@ describe('PermissionStore', () => {
                 0,
             );
         });
+
+        const generationKey = (actorUid: string) =>
+            PermissionUtil.join('permission-cachegen', actorUid);
+
+        it('reads generation zero while the counter cannot be read, without keeping it', async () => {
+            const actorUid = `actor-${uuidv4()}`;
+            await server.clients.redis.set(generationKey(actorUid), '4');
+
+            const get = vi
+                .spyOn(server.clients.redis, 'get')
+                .mockRejectedValue(new Error('redis unavailable'));
+            try {
+                expect(await store.getCacheGeneration(actorUid)).toBe(0);
+            } finally {
+                get.mockRestore();
+            }
+
+            expect(await store.getCacheGeneration(actorUid)).toBe(4);
+        });
+
+        it('reads a counter that is not a number as generation zero', async () => {
+            const actorUid = `actor-${uuidv4()}`;
+            await server.clients.redis.set(generationKey(actorUid), 'garbage');
+            expect(await store.getCacheGeneration(actorUid)).toBe(0);
+        });
+
+        it('re-reads the counter after a bump that failed', async () => {
+            const actorUid = `actor-${uuidv4()}`;
+            expect(await store.getCacheGeneration(actorUid)).toBe(0);
+            // Moved by another node; this one still holds its local zero.
+            await server.clients.redis.set(generationKey(actorUid), '7');
+            expect(await store.getCacheGeneration(actorUid)).toBe(0);
+
+            const pipeline = vi
+                .spyOn(server.clients.redis, 'pipeline')
+                .mockImplementation(() => {
+                    throw new Error('redis unavailable');
+                });
+            try {
+                await expect(
+                    store.bumpCacheGeneration(actorUid),
+                ).resolves.toBeUndefined();
+            } finally {
+                pipeline.mockRestore();
+            }
+
+            expect(await store.getCacheGeneration(actorUid)).toBe(7);
+        });
+
+        it('re-reads the counter after a bump that returned no value', async () => {
+            const actorUid = `actor-${uuidv4()}`;
+            expect(await store.getCacheGeneration(actorUid)).toBe(0);
+            await server.clients.redis.set(generationKey(actorUid), '7');
+
+            // What a pipeline answers when it was discarded before running.
+            const discarded = {
+                incr: () => discarded,
+                expire: () => discarded,
+                exec: async () => null,
+            };
+            const pipeline = vi
+                .spyOn(server.clients.redis, 'pipeline')
+                .mockReturnValue(discarded as never);
+            try {
+                await store.bumpCacheGeneration(actorUid);
+            } finally {
+                pipeline.mockRestore();
+            }
+
+            expect(await store.getCacheGeneration(actorUid)).toBe(7);
+        });
+
+        it('ignores remote events that name nothing usable', async () => {
+            const holder = await makeUser();
+            const actorUid = `actor-${uuidv4()}`;
+            await store.setFlatUserPerm(holder.id, 'fs:u:read', {
+                permission: 'fs:u:read',
+                deleted: false,
+            } as never);
+
+            const payloads: Array<[string, unknown]> = [
+                ['outer.permission.flatInvalidated', { entries: 'all' }],
+                [
+                    'outer.permission.flatInvalidated',
+                    {
+                        entries: [
+                            {
+                                holderUserId: String(holder.id),
+                                permission: 'fs:u:read',
+                            },
+                            { holderUserId: holder.id, permission: '' },
+                            null,
+                        ],
+                    },
+                ],
+                ['outer.permission.generationBumped', { actorUids: actorUid }],
+                ['outer.permission.generationBumped', { actorUids: ['', 7] }],
+            ];
+            for (const [key, data] of payloads) {
+                await server.clients.event.emitAndWait(
+                    key as never,
+                    data as never,
+                    { from_outside: true },
+                );
+            }
+
+            expect(
+                await store.getFlatUserPerms(holder.id, ['fs:u:read']),
+            ).toHaveLength(1);
+            expect(await store.getCacheGeneration(actorUid)).toBe(0);
+        });
+
+        it('keeps a flat entry whose remote delete failed, without failing the event', async () => {
+            const holder = await makeUser();
+            await store.setFlatUserPerm(holder.id, 'fs:u:read', {
+                permission: 'fs:u:read',
+                deleted: false,
+            } as never);
+
+            const failure = new Error('kv unavailable');
+            const batchDel = vi
+                .spyOn(server.stores.kv, 'batchDel')
+                .mockRejectedValue(failure);
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                await server.clients.event.emitAndWait(
+                    'outer.permission.flatInvalidated',
+                    {
+                        entries: [
+                            {
+                                holderUserId: holder.id,
+                                permission: 'fs:u:read',
+                            },
+                        ],
+                    },
+                    { from_outside: true },
+                );
+                expect(warn).toHaveBeenCalledWith(
+                    '[PermissionStore] failed to apply remote flat-perm deletes:',
+                    failure,
+                );
+            } finally {
+                batchDel.mockRestore();
+                warn.mockRestore();
+            }
+
+            expect(
+                await store.getFlatUserPerms(holder.id, ['fs:u:read']),
+            ).toHaveLength(1);
+        });
+
+        it('reads a scan cache entry that is not JSON as a miss', async () => {
+            const key = store.buildScanCacheKey(
+                `actor-${uuidv4()}`,
+                ['fs:1:read'],
+                0,
+            );
+            await server.clients.redis.set(key, '{"allowed":');
+            expect(await store.getScanCache(key)).toBeNull();
+        });
+
+        it('answers no check-cache hits when the cache cannot be read', async () => {
+            const actorUid = `actor-${uuidv4()}`;
+            await store.setMultiCheckCache(
+                actorUid,
+                [{ permission: 'a', granted: true }],
+                1,
+            );
+
+            const mget = vi
+                .spyOn(server.clients.redis, 'mget')
+                .mockRejectedValue(new Error('redis unavailable'));
+            try {
+                expect(
+                    await store.getMultiCheckCache(actorUid, ['a'], 1),
+                ).toEqual(new Map());
+            } finally {
+                mget.mockRestore();
+            }
+
+            expect(await store.getMultiCheckCache(actorUid, ['a'], 1)).toEqual(
+                new Map([['a', true]]),
+            );
+        });
     });
 
     // -- user → user ------------------------------------------------------
@@ -1471,6 +2460,41 @@ describe('PermissionStore', () => {
             expect(
                 await store.readLinkedUserUserPerms(holder.id, [keeper]),
             ).toHaveLength(1);
+        });
+
+        it('removes a grant the replica has not seen yet with its node, when asked to read the primary', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const node = uuidv4();
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                `fs:${node}:read`,
+                {},
+            );
+
+            const restore = lagReplica('user_to_user_permissions', () => []);
+            let unasked;
+            let removed;
+            try {
+                unasked = await store.deleteUserUserPermsByPermissionPrefixes([
+                    `fs:${node}`,
+                ]);
+                removed = await store.deleteUserUserPermsByPermissionPrefixes(
+                    [`fs:${node}`],
+                    { primary: true },
+                );
+            } finally {
+                restore();
+            }
+            // Unasked, the replica's answer stands and the primary is left alone.
+            expect(unasked).toEqual([]);
+            expect(removed).toHaveLength(1);
+            expect(
+                await store.readLinkedUserUserPermsFromPrimary(holder.id, [
+                    `fs:${node}:read`,
+                ]),
+            ).toEqual([]);
         });
 
         it('does not let a wildcard in the prefix widen the match', async () => {
@@ -1936,6 +2960,119 @@ describe('PermissionStore', () => {
         });
     });
 
+    describe('unusable cache entries and empty inputs', () => {
+        // Valid JSON, but not the list the reader expects.
+        const WRONG_SHAPE = '{"rows":[]}';
+
+        it('reads a token`s grants from the table past a cached value of the wrong shape', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
+                [tokenUid, 'driver:kv'],
+            );
+            await server.clients.redis.set(
+                `perms:token:${tokenUid}`,
+                WRONG_SHAPE,
+            );
+
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                'driver:kv',
+            ]);
+        });
+
+        it('reads user-to-app grants from the table past a cached value of the wrong shape', async () => {
+            const user = await makeUser();
+            const app = await makeApp(user.id);
+            // Written past the store: its upsert would mark the key deleted
+            // and the read would skip the cache altogether.
+            await server.clients.db.write(
+                'INSERT INTO `user_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [user.id, app.id, 'driver:kv', '{"granted":true}'],
+            );
+            await server.clients.redis.set(
+                `perms:u2a:${user.id}:${app.id}`,
+                WRONG_SHAPE,
+            );
+
+            const rows = await store.readUserAppPerms(user.id, app.id, [
+                'driver:kv',
+            ]);
+            expect(rows.map((r) => [r.permission, r.extra])).toEqual([
+                ['driver:kv', { granted: true }],
+            ]);
+        });
+
+        it('reads developer grants from the table past a cached value of the wrong shape', async () => {
+            const dev = await makeUser();
+            const app = await makeApp(dev.id);
+            await server.clients.db.write(
+                'INSERT INTO `dev_to_app_permissions` (`user_id`, `app_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [dev.id, app.id, 'dev:cached', '{"scope":"c"}'],
+            );
+            await server.clients.redis.set(`perms:d2a:${app.id}`, WRONG_SHAPE);
+
+            const rows = await store.readDevAppPerms(app.id, ['dev:cached']);
+            expect(rows.map((r) => [r.permission, r.extra])).toEqual([
+                ['dev:cached', { scope: 'c' }],
+            ]);
+        });
+
+        it('answers batched reads and deletes of nothing without a query', async () => {
+            const db = server.clients.db;
+            const spies = [
+                vi.spyOn(db, 'read'),
+                vi.spyOn(db, 'pread'),
+                vi.spyOn(db, 'write'),
+            ];
+            const pair = { issuerUserId: 1, groupId: 1 };
+            try {
+                expect(
+                    await store.readLinkedUserUserPermsFromPrimary(1, []),
+                ).toEqual([]);
+                expect(
+                    await store.readLinkedUserUserPermsForHolders([], ['p']),
+                ).toEqual([]);
+                expect(
+                    await store.readLinkedUserUserPermsForHolders([1], []),
+                ).toEqual([]);
+                expect(await store.getFlatUserPermsForRefs([])).toEqual([]);
+                expect(
+                    await store.readUserGroupPermsForHolders([], ['p']),
+                ).toEqual([]);
+                expect(
+                    await store.readUserGroupPermsForHolders([1], []),
+                ).toEqual([]);
+                expect(
+                    await store.queryIssuerGroupPermsByPrefixes([], ['p']),
+                ).toEqual([]);
+                expect(
+                    await store.queryIssuerGroupPermsByPrefixes([pair], []),
+                ).toEqual([]);
+                expect(
+                    await store.deleteUserGroupPermsByPermissionPrefixes([]),
+                ).toEqual({ rows: [], members: [] });
+                expect(
+                    await store.deleteUserUserPermsByPermissionPrefixes([]),
+                ).toEqual([]);
+                expect(
+                    await store.deleteUserUserPermSubtreeForHolder(1, 2, []),
+                ).toEqual([]);
+
+                // Other work on the server may query; none of it is ours.
+                const queries = spies.flatMap((spy) =>
+                    spy.mock.calls
+                        .map(([sql]) => String(sql))
+                        .filter((sql) =>
+                            /_permissions`|jct_user_group/u.test(sql),
+                        ),
+                );
+                expect(queries).toEqual([]);
+            } finally {
+                for (const spy of spies) spy.mockRestore();
+            }
+        });
+    });
+
     describe('the user-to-user audit trail', () => {
         const record = (
             issuerUserId: number,
@@ -2022,6 +3159,60 @@ describe('PermissionStore', () => {
             await expect(store.listUserUserAudit({})).rejects.toThrow(
                 /requires a filter/u,
             );
+        });
+
+        it('narrows to one holder, in the listing and the count', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const other = await makeUser();
+            const permission = `fs:${uuidv4()}:read`;
+
+            await record(issuer.id, holder.id, permission, 'grant');
+            await record(issuer.id, holder.id, permission, 'revoke');
+            await record(issuer.id, other.id, permission, 'grant');
+
+            const filter = { issuerUserId: issuer.id, holderUserId: holder.id };
+            const page = await store.listUserUserAudit(filter);
+            expect(page.items.map((r) => [r.holder_user_id, r.action])).toEqual(
+                [
+                    [holder.id, 'revoke'],
+                    [holder.id, 'grant'],
+                ],
+            );
+            expect(await store.countUserUserAudit(filter)).toBe(2);
+        });
+
+        it('reads a row whose `extra` is not JSON as having none', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const permission = `fs:${uuidv4()}:read`;
+            await server.clients.db.write(
+                'INSERT INTO `audit_user_to_user_permissions` (' +
+                    '`holder_user_id`, `holder_user_id_keep`, `issuer_user_id`, `issuer_user_id_keep`, ' +
+                    '`permission`, `extra`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    holder.id,
+                    holder.id,
+                    issuer.id,
+                    issuer.id,
+                    permission,
+                    '{"appUid":',
+                    'grant',
+                    'test',
+                ],
+            );
+
+            const page = await store.listUserUserAudit({
+                permissions: [permission],
+            });
+            expect(page.items).toHaveLength(1);
+            expect(page.items[0]).toMatchObject({
+                issuer_user_id: issuer.id,
+                holder_user_id: holder.id,
+                permission,
+                action: 'grant',
+                extra: null,
+            });
         });
 
         it('matches nothing for an empty permission list', async () => {

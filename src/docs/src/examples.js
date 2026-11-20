@@ -871,6 +871,12 @@ const examples = [
                 source: '/playground/examples/hosting-attach.html',
             },
             {
+                title: 'Remove a custom domain from a website',
+                description: 'Let the user remove a custom domain from a website with Puter.js hosting API. Run and experiment with this example directly in the playground.',
+                slug: 'hosting-detach',
+                source: '/playground/examples/hosting-detach.html',
+            },
+            {
                 title: 'Publish a portfolio page',
                 description: 'Publish a page built from form input as a public website with Puter.js hosting API. Run and modify this example directly in your browser.',
                 slug: 'hosting-publish-a-website',
@@ -969,6 +975,12 @@ const examples = [
                 description: 'Get app information with Puter.js apps API. Run and experiment with this example directly in the playground.',
                 slug: 'app-get',
                 source: '/playground/examples/app-get.html',
+            },
+            {
+                title: 'Get an app by its URL',
+                description: 'Look up the app at a website\'s origin with Puter.js apps API. Run and experiment with this example directly in the playground.',
+                slug: 'app-get-by-url',
+                source: '/playground/examples/app-get-by-url.html',
             },
         ],
     },

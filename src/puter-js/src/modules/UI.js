@@ -7,7 +7,36 @@ import { hasUserActivation } from '../lib/auth-popup.js';
 import { appIDOf } from '../lib/upgradePrompt.js';
 import { topUpUrl, upgradeUrl } from './UsageLimitDialog.js';
 import { checkPermissions } from './perms/lib/holds.js';
+import { PUSH_NOTIFICATIONS_PERMISSION } from './perms/lib/permissionStrings.js';
 
+
+/**
+ * How each custom domain dialog is reached: the desktop feature that marks
+ * its handler, the desktop message, and the GUI popup action and its reply.
+ *
+ * @typedef {{ method: string, feature: string, unsupported: string, ipcMsg: string, action: 'attach-custom-domain' | 'detach-custom-domain', replyMsg: string, title: string }} CustomDomainDialog
+ */
+/** @type {{ attach: CustomDomainDialog, detach: CustomDomainDialog }} */
+const CUSTOM_DOMAIN_DIALOGS = {
+    attach: {
+        method: 'attach',
+        feature: 'custom-domains',
+        unsupported: 'Custom domains are not available on this Puter desktop',
+        ipcMsg: 'attachCustomDomain',
+        action: 'attach-custom-domain',
+        replyMsg: 'customDomainAttached',
+        title: 'Connect a custom domain',
+    },
+    detach: {
+        method: 'detach',
+        feature: 'custom-domains-detach',
+        unsupported: 'Removing custom domains is not available on this Puter desktop',
+        ipcMsg: 'detachCustomDomain',
+        action: 'detach-custom-domain',
+        replyMsg: 'customDomainDetached',
+        title: 'Remove a custom domain',
+    },
+};
 
 /**
  * A button shown in an `alert()` dialog.
@@ -93,7 +122,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  * minimize, and maximize buttons.
  * @property {number} [height] Height of the window in pixels.
  * @property {boolean} [is_resizable] If `true`, the user can resize the window.
- * @property {boolean} [show_in_taskbar] If `true`, the window is represented in the taskbar.
+ * @property {boolean} [show_in_taskbar] Deprecated and ignored.
  * @property {string} [title] Title of the window.
  * @property {number} [width] Width of the window in pixels.
  */
@@ -110,13 +139,12 @@ import { checkPermissions } from './perms/lib/holds.js';
  * @property {FSItem[]} [items] `FSItem` objects to open with the launched app.
  * @property {string} [pseudonym] A pseudonym to launch the app under.
  * @property {boolean} [background] If `true`, the app starts with its window hidden, for an app
- * launched to do work rather than to be looked at. It still appears in the taskbar, so the user can
- * show it (or close it) at any time, and it can show itself with `puter.ui.showWindow()`.
+ * launched to do work rather than to be looked at. It can show itself with `puter.ui.showWindow()`.
  * @property {(connection: AppConnection) => void} [callback]
  */
 
 /**
- * Theme data delivered with the `themeChanged` event.
+ * Theme data of the `themeChanged` event, which is deprecated and never sent.
  *
  * @typedef {Object} ThemeData
  * @property {{
@@ -173,7 +201,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  * Options that configure `showColorPicker()`.
  *
  * @typedef {Object} ColorPickerOptions
- * @property {string} [defaultColor] The color initially selected when the picker opens.
+ * @property {string} [defaultColor] The color initially selected when the picker opens, as a hex string. Alpha in an 8-digit hex is ignored.
  */
 
 /**
@@ -538,11 +566,17 @@ export class UIModule extends EventListener {
     // The framed upgrade showing, which a call made while it's open joins.
     #upgradeFrame = null;
 
+    /** @type {Set<() => void>} */
+    #upgradeListeners = new Set();
+
     // The top-up showing, framed or about to open in a tab, which a call made meanwhile joins.
     #topUpFrame = null;
 
     // The framed email confirmation showing, which a call made while it's open joins.
     #emailConfirmationFrame = null;
+
+    // Whether the framed custom domain dialog is showing, or about to.
+    #customDomainFrameOpen = false;
 
     // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
@@ -1667,12 +1701,13 @@ export class UIModule extends EventListener {
     };
 
     /**
-     * Shows a color picker. Resolves to the chosen color. Accepts either a
-     * default color or an options object. `default` and `defaultValue` are
-     * legacy aliases for `defaultColor`.
+     * Shows a color picker. Resolves to the chosen color as a lowercase
+     * 6-digit hex string (`#rrggbb`), or `null` if the user cancels. Accepts
+     * either a default color or an options object. `default` and
+     * `defaultValue` are legacy aliases for `defaultColor`.
      *
      * @param {string | (ColorPickerOptions & { default?: string, defaultValue?: string })} [options]
-     * @returns {Promise<string>}
+     * @returns {Promise<string | null>}
      */
     showColorPicker (options) {
         if ( this.messageTarget ) {
@@ -1783,6 +1818,36 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * Shows the upgrade flow for a button on the page, with no refused call
+     * behind it. On a signed-in first-party page it shows as
+     * {@link requestUpgrade} does there. On any other website it opens on the
+     * dashboard in a new tab and the promise resolves `{ upgraded: false }`.
+     *
+     * @internal
+     * @returns {Promise<import('../lib/types.js').UpgradeResult>}
+     */
+    showUpgrade_ () {
+        if ( this.canShowUpgradeFrame_() ) return this.#showUpgradeFrame({});
+        return this.#openUpgradeTab(upgradeUrl({ appID: appIDOf(puter) })).then(() => ({ upgraded: false }));
+    }
+
+    /**
+     * Calls `listener` each time an upgrade shown in a frame over the page
+     * gives the page's user a plan, after their cached whoami reads
+     * `subscribed: true`.
+     *
+     * @internal
+     * @param {() => void} listener
+     * @returns {() => void} removes the listener
+     */
+    onUpgraded_ (listener) {
+        this.#upgradeListeners.add(listener);
+        return () => {
+            this.#upgradeListeners.delete(listener);
+        };
+    }
+
+    /**
      * Whether {@link requestUpgrade} shows the upgrade in a frame over this page.
      *
      * @internal
@@ -1836,8 +1901,17 @@ export class UIModule extends EventListener {
                     onMessage: () => {},
                 });
                 // The page's cached whoami still reads it as having no plan,
-                // which is what the user menu offers Add credits by.
-                if ( framed?.upgraded ) user.subscribed = true;
+                // which is what the user menu reads the plan from.
+                if ( framed?.upgraded ) {
+                    user.subscribed = true;
+                    for ( const listener of [...this.#upgradeListeners] ) {
+                        try {
+                            listener();
+                        } catch (e) {
+                            console.error(e);
+                        }
+                    }
+                }
                 if ( framed ) return framed;
                 await this.#openUpgradeTab(upgradeUrl({ reason, method, appID: appIDOf(puter) }));
                 return { upgraded: false };
@@ -1885,7 +1959,7 @@ export class UIModule extends EventListener {
                 onMessage: () => {},
             });
             if ( framed ) return framed;
-            await this.#openUpgradeTab(topUpUrl(puter.defaultGUIOrigin), 'This website wants to open the Puter top-up page.');
+            await this.#openUpgradeTab(topUpUrl(puter.defaultGUIOrigin, appIDOf(puter)), 'This website wants to open the Puter top-up page.');
             return { toppedUp: false };
         })();
         this.#topUpFrame = showing;
@@ -2242,6 +2316,8 @@ export class UIModule extends EventListener {
             || requested.some(p => typeof p !== 'string' || p === '') ) {
             return false;
         }
+        // A desktop that says so answers push itself: it tells a website's own grant apart.
+        if ( this.desktopAnswersPush_() && requested.includes(PUSH_NOTIFICATIONS_PERMISSION) ) return false;
         let expiry;
         try {
             const held = await Promise.race([
@@ -2269,7 +2345,9 @@ export class UIModule extends EventListener {
      * One prompt may cover several scopes: pass `permissions` instead of
      * `permission` and the user answers for the whole list at once.
      *
-     * Access already granted resolves `true` without prompting.
+     * Access already granted resolves `true` without prompting. The exception
+     * is `notifications:push` inside a Puter desktop that answers push requests
+     * itself: there, a grant held only from the app's own website is asked for.
      *
      * @param {{ permission?: string, permissions?: string[], create?: boolean | 'dir' | 'file' }} options
      *   `create`: for an `fs:` permission naming a path that doesn't exist,
@@ -2785,37 +2863,101 @@ export class UIModule extends EventListener {
      * @returns {Promise<import('./hosting/types.js').CustomDomain | null>}
      */
     async attachCustomDomain_ (subdomain) {
+        const result = await this.#customDomainDialog(CUSTOM_DOMAIN_DIALOGS.attach, subdomain);
+        return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
+    }
+
+    /**
+     * Backs `puter.hosting.detach()`: lets the user remove the custom domains
+     * of `subdomain` in a Puter dialog. The app learns which ones were removed.
+     *
+     * @internal
+     * @param {string} subdomain
+     * @returns {Promise<import('./hosting/types.js').CustomDomain[]>}
+     */
+    async detachCustomDomain_ (subdomain) {
+        const result = await this.#customDomainDialog(CUSTOM_DOMAIN_DIALOGS.detach, subdomain);
+        const domains = result?.domains;
+        return /** @type {import('./hosting/types.js').CustomDomain[]} */ (Array.isArray(domains) ? domains : []);
+    }
+
+    /**
+     * Shows a custom domain dialog wherever this page can: the desktop's, a
+     * frame over the page, or a popup. Resolves the GUI's reply, or null.
+     *
+     * @param {CustomDomainDialog} dialog
+     * @param {string} subdomain
+     * @returns {Promise<Record<string, unknown> | null>}
+     */
+    async #customDomainDialog (dialog, subdomain) {
         if ( this.env === 'app' ) {
             // An older desktop has no handler and would never reply; see
             // showFeedbackDialog.
-            if ( ! this.#guiOffers('custom-domains') ) {
-                throw new PuterJSError(
-                    'Custom domains are not available on this Puter desktop',
-                    'not_supported',
-                );
+            if ( ! this.#guiOffers(dialog.feature) ) {
+                throw new PuterJSError(dialog.unsupported, 'not_supported');
             }
-            const result = await this.#postMessageAsync('attachCustomDomain', { subdomain });
-            return result?.domain ?? null;
+            return await this.#postMessageAsync(dialog.ipcMsg, { subdomain });
         }
 
         if ( this.env !== 'web' ) {
             throw new PuterJSError(
-                'puter.hosting.attach() needs a browser page or a Puter app',
+                `puter.hosting.${dialog.method}() needs a browser page or a Puter app`,
                 'not_available',
             );
         }
-        const result = await this.#runGuiActionPopup({
-            action: 'attach-custom-domain',
+        // Not awaited where no frame can show, so the popup opens within the click.
+        if ( this.#canFrameForUser() ) {
+            const framed = await this.#showCustomDomainFrame(dialog, subdomain);
+            if ( framed ) return framed;
+        }
+        return await this.#runGuiActionPopup({
+            action: dialog.action,
             params: { subdomain },
-            replyMsg: 'customDomainAttached',
+            replyMsg: dialog.replyMsg,
             popupName: 'puter-custom-domain',
         });
-        return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
     }
 
-    /** Whether the host GUI lists this IPC dialog in `puter.gui_features` on the app iframe's URL (see launchApp.js); a GUI without the handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
+    /**
+     * The custom domain dialog in a frame over the page, for the page's
+     * signed-in user, or null when the popup has to host it. One at a time: a
+     * call while one is open resolves as if it was closed, as the desktop does.
+     *
+     * @param {CustomDomainDialog} dialog
+     * @param {string} subdomain
+     * @returns {Promise<Record<string, unknown> | null>}
+     */
+    async #showCustomDomainFrame (dialog, subdomain) {
+        if ( this.#customDomainFrameOpen ) return {};
+        this.#customDomainFrameOpen = true;
+        try {
+            const user = await this.#frameUser();
+            if ( ! user ) return null;
+            const msgId = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
+            return await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: dialog.action,
+                fragment: { user: user.uuid, subdomain, msg_id: msgId },
+                title: dialog.title,
+                closed: () => ({}),
+                onMessage: (data, finish) => {
+                    if ( data.msg !== dialog.replyMsg || data.original_msg_id !== msgId ) return;
+                    finish(data);
+                },
+            });
+        } finally {
+            this.#customDomainFrameOpen = false;
+        }
+    }
+
+    /** Whether the host GUI lists this feature in `puter.gui_features` on the app iframe's URL (see appLaunchUrl.js); a GUI without a dialog's handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
     #guiOffers (feature) {
         return this.#guiFeatures.includes(feature);
+    }
+
+    /** Whether the host desktop settles a held `notifications:push` itself; one that doesn't say so would prompt for it. @internal @returns {boolean} */
+    desktopAnswersPush_ () {
+        return this.env === 'app' && this.#guiOffers('push-permission');
     }
 
     /** Backs `puter.notifications.status()` inside the desktop: this browser's push state for this app, or null from a desktop that can't answer. @internal @returns {Promise<string | null>} */
@@ -3559,7 +3701,7 @@ export class UIModule extends EventListener {
      * replayed to the handler immediately with its most recent value.
      *
      * - `localeChanged` — on startup and when the user's locale changes.
-     * - `themeChanged` — on startup and when the desktop theme changes.
+     * - `themeChanged` — deprecated and never sent.
      * - `connection` — when another app asks to connect to this one.
      *
      * @param {string} eventName

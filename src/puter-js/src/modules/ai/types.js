@@ -35,6 +35,13 @@
  */
 
 /**
+ * A tool the model's provider runs itself, such as web search.
+ *
+ * @typedef {Object} BuiltInTool
+ * @property {'web_search'} type
+ */
+
+/**
  * One message in a chat conversation.
  *
  * @typedef {Object} ChatMessage
@@ -70,14 +77,19 @@
  * @property {number} [temperature] Sampling temperature between 0 and 2. Lower values are more focused
  * and deterministic, higher values more random. Defaults to the model's own default.
  * @property {number} [max_tokens]
- * @property {boolean} [vision]
+ * @property {boolean} [vision] Deprecated and ignored. Passing an image sets it automatically.
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
+ * @property {'fast' | 'standard'} [speed] Claude inference speed. Faster service may cost more.
+ * An explicit serviceSpeed takes precedence.
  * @property {ServiceSpeed} [serviceSpeed] Preferred service speed. Falls back to
  * fast, then standard when the requested speed is unavailable. Faster service may cost more.
  * @property {boolean} [fallback] Set to `false` to fail the request when the first provider tried
  * fails, instead of retrying it on another provider that serves the same model.
- * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
+ * @property {boolean} [refusalFallback] Claude only. Set to `false` to get a declined request's
+ * refusal as it is, instead of an answer from another Claude model.
+ * @property {(Tool | BuiltInTool)[]} [tools] Function definitions the model can call, or a built-in
+ * tool such as `{ type: 'web_search' }`. See Function Calling.
  * @property {boolean} [normalize] Response-format control for non-streaming results. `true` returns the
  * OpenAI-style shape regardless of provider or release date (`message.content` as a string,
  * `message.tool_calls`, a mapped `finish_reason`); `false` forces the provider's native shape. Left
@@ -158,8 +170,19 @@
  * @property {'fast' | 'standard'} [speed]
  * @property {ServiceSpeed} [serviceSpeed]
  * @property {string} [serviceTier]
+ * @property {string} [fallbackModel] The model that produced the response, when a declined request
+ * ran again on a model other than the requested one (Claude).
  * @property {Array<{ type: string, model?: string, inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWrite5mTokens?: number, cacheWrite30mTokens?: number, cacheWrite1hTokens?: number, cacheWrite12hTokens?: number }>} [iterations]
  * Per-pass breakdown when the upstream ran several passes (compaction, an advisor sub-call).
+ */
+
+/**
+ * A handoff of a declined request from one model to another.
+ *
+ * @typedef {Object} RefusalFallback
+ * @property {{ model: string }} from The model that declined.
+ * @property {{ model: string }} to The model that took over.
+ * @property {{ type: string, category: string | null }} trigger Why `from` declined.
  */
 
 /**
@@ -183,6 +206,8 @@
  * @property {string | null} [stopSequence] The stop sequence that ended generation, when one did.
  * @property {Record<string, unknown> | null} [stopDetails] Extra detail on why generation stopped
  * (e.g. a refusal classification). Provider-specific.
+ * @property {RefusalFallback[]} [refusalFallbacks] One entry per switch, in order, when a declined
+ * request ran again on another model (Claude).
  * @property {Record<string, number>} [usage] Token counts under provider-specific keys, plus `cost`:
  * what the request was charged, in microcents ($0.01 = 1,000,000).
  * @property {UsageDetails} [usageDetails] Provider-neutral usage breakdown — prefer this over `usage`
@@ -196,7 +221,8 @@
  * @typedef {Object} ChatResponseChunk
  * @property {string} type The kind of chunk: `"text"`, `"reasoning"`, `"reasoning_start"`,
  * `"reasoning_detail"`, `"image"`, `"tool_use"`, `"tool_use_start"`, `"tool_input_delta"`,
- * `"server_tool"`, `"safeguard_results"`, `"compaction"`, `"extra_content"`, `"usage"`, or `"error"`.
+ * `"server_tool"`, `"safeguard_results"`, `"refusal_fallback"`, `"compaction"`, `"extra_content"`,
+ * `"usage"`, or `"error"`.
  * @property {string} [text] Text delta. Present on `"text"` chunks.
  * @property {string} [reasoning] Reasoning/thinking delta. Present on `"reasoning"` chunks.
  * @property {string} [format] Reasoning artifact format (currently only `"anthropic"`). Present on
@@ -219,6 +245,12 @@
  * @property {unknown[]} [results] Dangerous-tool-use classifier verdicts, keyed by the `tool_use` id
  * they judged. Present on `"safeguard_results"` chunks — Claude only, and only when the upstream
  * actually sent them.
+ * @property {{ model: string }} [from] The model that declined. Present on `"refusal_fallback"`
+ * chunks.
+ * @property {{ model: string }} [to] The model the request runs again on. Present on
+ * `"refusal_fallback"` chunks.
+ * @property {{ type: string, category: string | null }} [trigger] Why `from` declined. Present on
+ * `"refusal_fallback"` chunks.
  * @property {string} [encrypted_content] Opaque/encrypted compaction summary. Present on
  * `"compaction"` chunks — the same shape regardless of which provider served the request. Resend it in
  * `messages` on the next turn in place of the summarized history.

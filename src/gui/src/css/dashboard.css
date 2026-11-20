@@ -3352,8 +3352,7 @@ p.myapps-add-error {
 }
 
 /* -- Share modal --
-   Responsive, from-scratch replacement for UIWindowShare in the Dashboard:
-   a centered card on desktop, a bottom sheet on mobile. Mirrors the item
+   A centered card on desktop, a bottom sheet on mobile. Mirrors the item
    properties modal's shell so the two read as one system. */
 .share-modal-overlay {
     position: fixed;
@@ -3714,9 +3713,8 @@ select.share-modal-row-mode:disabled {
     font-size: 16px;
 }
 
-/* Recipient suggestions. The structure lives in style.css, shared with the
-   desktop share dialog; only the palette is restated here so the list picks
-   up the dashboard's tokens in both themes. */
+/* Recipient suggestions. The structure lives in style.css; only the palette
+   is set here so the list picks up the dashboard's tokens in both themes. */
 .share-modal {
     --share-suggest-bg: var(--dashboard-card-background);
     --share-suggest-border: var(--dashboard-border);
@@ -6198,6 +6196,10 @@ body.myapps-reordering .myapps-tile {
     object-fit: contain;
 }
 
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-icon img.row-thumb {
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18));
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon svg {
     width: 64px;
     height: 64px;
@@ -8586,6 +8588,8 @@ body.myapps-reordering .myapps-tile {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    /* A text glyph such as a checkmark: a button doesn't inherit the text color. */
+    color: var(--dashboard-text, #444);
 }
 
 .context-menu-modal-dialog .context-menu-item-icon img {
@@ -8745,13 +8749,6 @@ body.myapps-reordering .myapps-tile {
 
 .submenu-arrow {
     margin-left: auto;
-}
-
-/* Dashboard mode runs fullpage (which normally hides the minimize button
-   because there's no taskbar to restore from), but here a minimized app can
-   be brought back from its Apps-tab tile — so keep the button available. */
-body.dashboard-mode .window-minimize-btn {
-    display: inline;
 }
 
 /* Fullpage mode sizes .window-body-app to 100% because fullpage windows have
@@ -10861,6 +10858,416 @@ body.dashboard-mode .notifications-close-all {
     line-height: 1.45;
 }
 
+/* Blocked people: a switch, a field to block someone, and who is blocked. */
+.dashboard-blocked-dialog .dashboard-form-switch-field {
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+
+.dashboard-blocked-add-row {
+    display: flex;
+    gap: 8px;
+}
+
+.dashboard-blocked-add-row .dashboard-dialog-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.dashboard-blocked-add-row .dashboard-dialog-btn {
+    flex-shrink: 0;
+    width: auto;
+}
+
+.dashboard-blocked-add-btn:disabled,
+.dashboard-blocked-unblock:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.dashboard-blocked-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid var(--dashboard-border);
+    font-size: 14px;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-blocked-row:first-child {
+    border-top: none;
+}
+
+.dashboard-blocked-who {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-blocked-row .dashboard-dialog-btn {
+    flex-shrink: 0;
+    width: auto;
+}
+
+.dashboard-blocked-empty {
+    margin: 0;
+    font-size: 13px;
+    color: var(--dashboard-text-muted);
+}
+
+/* Two-factor setup: confirm identity, scan, save recovery codes, verify. */
+.dashboard-dialog.dashboard-tfa-dialog {
+    width: min(480px, 100%);
+}
+
+.dashboard-tfa-dialog [hidden] {
+    display: none;
+}
+
+.tfa-setup {
+    color: var(--dashboard-text-primary);
+}
+
+.tfa-progress {
+    display: flex;
+    align-items: center;
+}
+
+.tfa-progress-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.tfa-progress-dot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    box-sizing: border-box;
+    border: 2px solid var(--dashboard-border);
+    border-radius: 50%;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+
+.tfa-progress-dot svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 3;
+}
+
+.tfa-progress-dot.active {
+    border-color: var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
+    color: #fff;
+}
+
+.tfa-progress-dot.done {
+    border-color: var(--dashboard-success-border);
+    background: var(--dashboard-success-border);
+    color: #fff;
+}
+
+.tfa-progress-label {
+    max-width: 80px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.3;
+    text-align: center;
+    color: var(--dashboard-text-muted);
+    transition: color 0.25s ease;
+}
+
+.tfa-progress-label.active {
+    color: var(--dashboard-text-primary);
+}
+
+.tfa-progress-line {
+    position: relative;
+    flex: 1;
+    min-width: 20px;
+    height: 2px;
+    margin: 0 8px 22px;
+    background: var(--dashboard-border);
+}
+
+.tfa-progress-line-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0%;
+    height: 100%;
+    background: var(--dashboard-success-border);
+    transition: width 0.4s ease;
+}
+
+.tfa-screen {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.tfa-instruction {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--dashboard-text-secondary);
+}
+
+.tfa-qr-area {
+    display: flex;
+    justify-content: center;
+}
+
+/* A QR code only scans dark on light, whatever the theme. */
+.tfa-qr-area .qr-code {
+    width: auto;
+    padding: 12px;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.tfa-qr-area .qr-code img {
+    display: block;
+    width: 180px;
+    height: 180px;
+    margin: 0;
+    cursor: zoom-in;
+}
+
+.tfa-qr-area.tfa-qr-large .qr-code img {
+    width: min(340px, 100%);
+    height: auto;
+    aspect-ratio: 1;
+    cursor: zoom-out;
+}
+
+.tfa-secret-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.tfa-secret-key {
+    min-width: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    letter-spacing: 1.5px;
+    overflow-wrap: anywhere;
+}
+
+.tfa-secret-row .dashboard-dialog-btn {
+    flex-shrink: 0;
+}
+
+.tfa-codes-card {
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    background: var(--dashboard-input-background);
+    overflow: hidden;
+}
+
+.tfa-codes-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 4px 0;
+}
+
+.tfa-code-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: var(--dashboard-text-primary);
+}
+
+.tfa-code-item-idx {
+    min-width: 16px;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0;
+    color: var(--dashboard-text-muted);
+}
+
+.tfa-codes-actions {
+    display: flex;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.tfa-codes-actions button {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 10px;
+    border: none;
+    background: none;
+    color: var(--select-text);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.tfa-codes-actions button svg {
+    width: 14px;
+    height: 14px;
+}
+
+.tfa-codes-actions button + button {
+    border-left: 1px solid var(--dashboard-border);
+}
+
+.tfa-codes-actions button.copied {
+    color: var(--dashboard-success-text);
+}
+
+@media (hover: hover) {
+    .tfa-codes-actions button:hover {
+        background: var(--dashboard-hover);
+    }
+}
+
+.tfa-codes-actions button:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 3px var(--select-ring);
+}
+
+.tfa-confirmations {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tfa-confirm-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.tfa-confirm-item input[type='checkbox'] {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin: 2px 0 0;
+    accent-color: var(--dashboard-button-primary);
+    cursor: pointer;
+}
+
+/* margin and text-shadow undo style.css's global `label` rule. */
+.tfa-confirm-item label {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--dashboard-text-secondary);
+    text-shadow: none;
+    cursor: pointer;
+}
+
+.tfa-action:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.dashboard-tfa-dialog .login-2fa-code-inputs .dashboard-dialog-input,
+.dashboard-tfa-dialog .login-2fa-code-inputs .dashboard-dialog-input:focus {
+    width: 46px;
+    height: 54px;
+    padding: 0;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.dashboard-tfa-dialog .login-2fa-code-inputs .login-2fa-wrong {
+    border-color: var(--dashboard-danger-text);
+    animation: auth-shake 0.4s ease;
+}
+
+.tfa-code-status {
+    text-align: center;
+}
+
+.tfa-success-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    margin: 8px auto 0;
+    border-radius: 50%;
+    background: var(--dashboard-success-background);
+    color: var(--dashboard-success-text);
+}
+
+.tfa-success-icon svg {
+    width: 32px;
+    height: 32px;
+}
+
+.tfa-success-title {
+    font-size: 20px;
+    font-weight: 700;
+    text-align: center;
+    color: var(--dashboard-text-primary);
+}
+
+.tfa-success-text {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.6;
+    text-align: center;
+    color: var(--dashboard-text-secondary);
+}
+
+@media (max-width: 380px) {
+    .dashboard-tfa-dialog .login-2fa-code-inputs .dashboard-dialog-input,
+    .dashboard-tfa-dialog .login-2fa-code-inputs .dashboard-dialog-input:focus {
+        width: 40px;
+        height: 48px;
+        font-size: 20px;
+    }
+
+    .tfa-codes-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tfa-progress-label {
+        font-size: 10px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-tfa-dialog .login-2fa-code-inputs .login-2fa-wrong {
+        animation: none;
+    }
+}
+
 /* A value to copy: the API token, a published address. */
 .dashboard-copy-row {
     display: flex;
@@ -11648,12 +12055,6 @@ body.dashboard-mode .notifications-close-all {
 
 .auth-turnstile:has(.cf-turnstile:empty) {
     display: none;
-}
-
-.cf-turnstile.captcha-completed {
-    border: 2px solid #4caf50;
-    border-radius: 4px;
-    padding: 2px;
 }
 
 /* Account picker */

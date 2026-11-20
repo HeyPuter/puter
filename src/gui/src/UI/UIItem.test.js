@@ -27,11 +27,8 @@ vi.mock('./UIPopover.js', () => ({ default: vi.fn() }));
 vi.mock('./UIWindowEmailConfirmationRequired.js', () => ({ default: vi.fn() }));
 vi.mock('./UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('./UIAlert.js', () => ({ default: vi.fn() }));
-vi.mock('./UIWindowPublishWorker.js', () => ({ default: vi.fn() }));
-vi.mock('./UIWindowShare.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/launchApp.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openItem.js', () => ({ default: vi.fn() }));
-vi.mock('../helpers/publishAsWebsite.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openWithAI.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/refreshItemContainer.js', () => ({ default: vi.fn() }));
 
@@ -68,10 +65,14 @@ Object.assign(window, {
 
 const { default: UIItem } = await import('./UIItem.js');
 const { default: UIContextMenu } = await import('./UIContextMenu.js');
+const { default: UIAlert } = await import('./UIAlert.js');
+const { unshareAnswering, allRefused, goneRefused } =
+    await import('../../tests/fixtures/sdkUnshare.js');
 const { default: refresh_item_container } =
     await import('../helpers/refreshItemContainer.js');
+const { default: launch_app } = await import('../helpers/launchApp.js');
 
-const menuLabels = async (options) => {
+const menuItems = async (options) => {
     document.body.innerHTML =
         '<div class="window"><div class="item-container"></div></div>';
     await UIItem({
@@ -90,8 +91,11 @@ const menuLabels = async (options) => {
     UIContextMenu.mockClear();
     $('.item').trigger('contextmenu');
     await vi.waitFor(() => expect(UIContextMenu).toHaveBeenCalled());
-    return UIContextMenu.mock.calls[0][0].items.map((item) => item?.html);
+    return UIContextMenu.mock.calls[0][0].items;
 };
+
+const menuLabels = async (options) =>
+    (await menuItems(options)).map((item) => item?.html);
 
 const removeFromShared = async (options) => {
     await menuLabels(options);
@@ -112,6 +116,7 @@ describe('UIItem Remove from Shared', () => {
         };
         globalThis.puter = window.puter;
         refresh_item_container.mockClear();
+        UIAlert.mockClear();
     });
 
     it('is offered on an item shared with the user directly', async () => {
@@ -122,6 +127,29 @@ describe('UIItem Remove from Shared', () => {
         const labels = await menuLabels({ is_team_share: true });
         expect($('.item').attr('data-is_team_share')).toBe('1');
         expect(labels).not.toContain('share_remove_from_shared');
+    });
+
+    it('keeps the item and shows the error when leaving is refused', async () => {
+        puter.fs.unshare = unshareAnswering(allRefused);
+        const items = await menuItems({});
+        await items
+            .find((item) => item?.html === 'share_remove_from_shared')
+            .onClick();
+
+        expect(UIAlert).toHaveBeenCalledWith({
+            message: 'Held through a team',
+        });
+        expect($('.item').length).toBe(1);
+    });
+
+    it('keeps the item and shows why when the unshare resolves with the pair refused', async () => {
+        puter.fs.unshare = unshareAnswering(goneRefused);
+        await removeFromShared({});
+
+        expect(UIAlert).toHaveBeenCalledWith({
+            message: 'Subject does not exist',
+        });
+        expect($('.item').length).toBe(1);
     });
 
     it('takes the item away once the user has left it', async () => {
@@ -137,5 +165,108 @@ describe('UIItem Remove from Shared', () => {
         expect($('.item')).toHaveLength(1);
         expect(refresh_item_container).toHaveBeenCalledTimes(1);
         expect(refresh_item_container.mock.calls[0][0][0]).toBe($('.item-container')[0]);
+    });
+});
+
+describe('UIItem Share', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on an item the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/Photos',
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('share_ellipsis');
+    });
+});
+
+describe('UIItem Publish as Worker', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on a .js file the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/worker.js',
+            name: 'worker.js',
+            is_dir: false,
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('publish_as_serverless_worker');
+    });
+});
+
+describe('UIItem Publish as Website', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on a folder the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/Site',
+            name: 'Site',
+            is_dir: true,
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('publish_as_website');
+        expect(labels).toContain('deploy_as_app');
+    });
+});
+
+describe('UIItem Open With', () => {
+    const editor = { name: 'editor', title: 'Editor', uuid: 'app-editor' };
+    const code = { name: 'code', title: 'Code', uuid: 'app-code' };
+
+    const openWithItems = async () => {
+        const items = await menuItems({
+            uid: 'f-1',
+            path: '/alice/notes.txt',
+            name: 'notes.txt',
+            is_dir: false,
+            shared_with_me: false,
+            suggested_apps: [editor, code],
+        });
+        return items.find((item) => item?.html === 'open_with').items;
+    };
+
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+        window.user_preferences = { 'default_apps.txt': code.uuid };
+        window.mutate_user_preferences = vi.fn();
+        launch_app.mockClear();
+        UIAlert.mockClear();
+    });
+
+    it('lists the default app first', async () => {
+        const items = await openWithItems();
+        expect(items.slice(0, 2).map((item) => item.html)).toEqual(['Code', 'Editor']);
+    });
+
+    it('opens another app without asking to make it the default', async () => {
+        await (await openWithItems()).find((item) => item.html === 'Editor').onClick();
+        expect(UIAlert).not.toHaveBeenCalled();
+        expect(window.mutate_user_preferences).not.toHaveBeenCalled();
+        expect(launch_app).toHaveBeenCalledWith({
+            name: 'editor',
+            file_path: '/alice/notes.txt',
+            window_title: 'notes.txt',
+            file_uid: 'f-1',
+            trigger: 'open_with',
+        });
     });
 });

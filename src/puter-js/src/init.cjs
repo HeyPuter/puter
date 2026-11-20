@@ -34,6 +34,8 @@ const init = (authToken) => {
         }
     });
     goodContext.globalThis = goodContext;
+    // Node's built-in WebSocket can't be unref'd, so its open socket would keep the process alive.
+    goodContext.WebSocket = require('ws');
     const code = readFileSync(resolveBundle(), 'utf8');
     const context = vm.createContext(goodContext);
     vm.runInNewContext(code, context);

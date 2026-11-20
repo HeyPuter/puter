@@ -167,6 +167,50 @@ describe('AbstractDatabaseClient — replica-aware reads', () => {
         expect(client.reads).toEqual(['SELECT 1']);
         expect(client.preads).toEqual([]);
     });
+
+    describe('tryHardReadAll', () => {
+        const reads = [{ query: 'SELECT 1' }, { query: 'SELECT 2' }];
+
+        it('keeps replica rows without reading the primary', async () => {
+            const client = new FixtureDatabaseClient([{ id: 1 }], [{ id: 2 }]);
+            expect(await client.tryHardReadAll(reads)).toEqual([
+                [{ id: 1 }],
+                [{ id: 1 }],
+            ]);
+            expect(client.preads).toEqual([]);
+        });
+
+        it.each([[], new Error('replica unavailable')])(
+            'reads every query on the primary when the replica has none',
+            async (replica) => {
+                const client = new FixtureDatabaseClient(replica, [{ id: 2 }]);
+                expect(await client.tryHardReadAll(reads)).toEqual([
+                    [{ id: 2 }],
+                    [{ id: 2 }],
+                ]);
+                expect(client.preads).toEqual(['SELECT 1', 'SELECT 2']);
+            },
+        );
+
+        it('refuses a batch with an array parameter before any read', async () => {
+            const client = new FixtureDatabaseClient([{ id: 1 }], [{ id: 2 }]);
+            await expect(
+                client.tryHardReadAll([
+                    { query: 'SELECT 1', params: ['a'] },
+                    { query: 'SELECT 2', params: [['a', 'b']] },
+                ]),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(client.reads).toEqual([]);
+            expect(client.preads).toEqual([]);
+        });
+
+        it('issues one read per query when there is no replica', async () => {
+            const client = new FixtureDatabaseClient([], [{ id: 2 }], false);
+            expect(await client.tryHardReadAll(reads)).toEqual([[], []]);
+            expect(client.reads).toEqual(['SELECT 1', 'SELECT 2']);
+            expect(client.preads).toEqual([]);
+        });
+    });
 });
 
 describe('AbstractDatabaseClient — SQL generation', () => {

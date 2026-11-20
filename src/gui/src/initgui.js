@@ -20,13 +20,11 @@
 import UIDashboard from './UI/Dashboard/UIDashboard.js';
 import TabApps from './UI/Dashboard/TabApps.js';
 import UIAlert from './UI/UIAlert.js';
-import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
 import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
-import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowPasswordChangeRequired from './UI/UIWindowPasswordChangeRequired.js';
@@ -35,7 +33,7 @@ import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequi
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import UIAuthLogin from './UI/Auth/UIAuthLogin.js';
 import UIAuth2FA from './UI/Auth/UIAuth2FA.js';
-import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
+import { authErrorDisplayMessage, takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
@@ -47,7 +45,9 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
+import { overlayGone } from './helpers/overlayGone.js';
 import {
+    canShowCustomDomainFrame,
     canShowEmailConfirmationFrame,
     canShowTopUpFrame,
     canShowUpgradeFrame,
@@ -64,26 +64,34 @@ import {
 } from './helpers/popupFrame.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
+import fetchUrlAsFile from './helpers/fetchUrlAsFile.js';
+import createSavePickerAnswer, { signSavedFile } from './helpers/savePickerAnswer.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
 import {
     authmeRequestUrl,
     authmeReturnUrl,
+    forwardedDestination,
     fullTokenAllowed,
     isDeliverableRedirect,
+    isGuiRedirect,
     shouldUseRemoteAuthme,
     urlTokenParam,
     wantsFullToken,
 } from './util/authmeGrant.js';
 import init_device_signals from './helpers/deviceSignals.js';
-import { appHoldsPermissions, holdsPermissions } from './helpers/holdsPermissions.js';
+import { holdsPermissions } from './helpers/holdsPermissions.js';
+import { askPushPermission } from './helpers/askPushPermission.js';
+import { appHoldsForPuter, pushGrantOf } from './helpers/pushApps.js';
 import { PUSH_PERMISSION, withEnableDeadline } from './helpers/pushClient.js';
 import { startPushWorker } from './helpers/pushWorker.js';
 import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
+import { signInTokenForOpener } from './helpers/firstPartySession.js';
 import { readSignupBonusCode } from './helpers/signupBonusCode.js';
+import { guiTokenBootStep, pageRenderedForThisLoad, sameTokenClaims } from './helpers/guiToken.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
@@ -100,10 +108,8 @@ import { DebugService } from './services/DebugService.js';
 import { ExecService } from './services/ExecService.js';
 import { PictureInPictureService } from './services/PictureInPictureService.js';
 import { IPCService } from './services/IPCService.js';
-import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import { LocaleService } from './services/LocaleService.js';
 import { ProcessService } from './services/ProcessService.js';
-import { ThemeService } from './services/ThemeService.js';
 // Curried: takes `{ window }` and returns the path mapper. Import under a
 // factory name so a bare `privacy_aware_path(path)` call in this module can't
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
@@ -119,6 +125,7 @@ import {
     runsUserAppTokenExchange,
 } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
+import { bootsDashboard } from './helpers/bootsDashboard.js';
 
 /**
  * A share email names the account it went to. When another account is open,
@@ -133,6 +140,7 @@ const follow_share_recipient = async (action) => {
         params: window.url_query_params,
         action,
         embedded: window.embedded_in_popup || window.is_embedded,
+        desktop: !window.is_dashboard_mode,
         current_user: window.user,
         logged_in_users: window.logged_in_users,
     });
@@ -202,6 +210,10 @@ const postAuthActions = async (action) => {
             await UIAlert({ message: i18n('authme_bad_redirect_url') });
             return;
         }
+        if ( redirectURL && isGuiRedirect(redirectURL, [window.location.origin, window.gui_origin]) ) {
+            await UIAlert({ message: i18n('authme_gui_redirect_url') });
+            return;
+        }
         // A full account session is only ever *offered* when the caller names
         // it. Without `token_type=session` this flow can hand over nothing but
         // the restricted API token, so an ordinary AuthMe link can't be
@@ -221,9 +233,14 @@ const postAuthActions = async (action) => {
             );
         }
         if ( redirectURL ) {
+            const forwards_to = forwardedDestination(
+                redirectURL,
+                window.gui_params?.authmeRelayOrigins,
+            );
             const approved = await UIWindowAuthMe({
                 redirect_url: redirectURL,
                 full_token: wants_full_token,
+                forwards_to,
             });
             if ( approved ) {
                 // Default: a named, revocable full-API-access token rather
@@ -237,13 +254,20 @@ const postAuthActions = async (action) => {
                 // get a session — the password is still only ever typed here.
                 let host = '';
                 try { host = new URL(redirectURL).host; } catch ( e ) { /* ignore */ }
+                // Destination first: the label is cut to a fixed length.
+                const named = forwards_to && host
+                    ? i18n('token_label_forwarded', {
+                        destination: forwards_to,
+                        relay: host,
+                    })
+                    : host;
                 let token;
                 try {
                     token = wants_full_token
                         ? await create_gui_token()
                         : await create_access_token({
-                            label: host
-                                ? `${i18n('token_label_external_app')} (${host})`
+                            label: named
+                                ? `${i18n('token_label_external_app')} (${named})`
                                 : i18n('token_label_external_app'),
                         });
                 } catch ( e ) {
@@ -270,15 +294,7 @@ const postAuthActions = async (action) => {
     // Load desktop, only if we're not embedded in a popup and not on the dashboard page
     // -------------------------------------------------------------------------------------
     if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
-        if ( window.is_fullpage_mode ) {
-            // In fullpage mode, skip loading desktop items and background
-            UIDesktop({});
-        } else {
-            await window.get_auto_arrange_data();
-            puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
-                UIDesktop({ desktop_fsentry: desktop_fsentry });
-            });
-        }
+        UIDesktop();
     }
     // -------------------------------------------------------------------------------------
     // Dashboard mode
@@ -531,7 +547,7 @@ const postAuthActions = async (action) => {
                     window.opener?.postMessage({
                         msg: 'puter.token',
                         success: true,
-                        token: data.token,
+                        token: await signInTokenForOpener(origin, data.token),
                         app_uid: data.app_uid,
                         username: window.user.username,
                         msg_id: msg_id,
@@ -685,6 +701,115 @@ const postAuthActions = async (action) => {
                 }
                 window.removeEventListener('message', onFileData);
 
+                const answer = createSavePickerAnswer({
+                    cancelled: () => tell_opener_cancelled('fileSaveCancelled'),
+                });
+
+                // Saves and answers the opener, or returns unanswered when the
+                // picker stays open for another try.
+                const save_file = async (target_path, parent_uuid) => {
+                    let file_to_upload;
+                    if ( event.data.url ) {
+                        try {
+                            file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path), {
+                                signal: answer.signal,
+                            });
+                        } catch ( err ) {
+                            // Closing the picker stops the download and answers.
+                            if ( answer.answered ) return;
+                            await UIAlert({
+                                message: i18n(err.code ?? 'url_save_failed', [], false),
+                                parent_uuid,
+                            });
+                            answer.cancel();
+                            return;
+                        }
+                    } else {
+                        file_to_upload = new File([event.data.content], path.basename(target_path));
+                    }
+
+                    let overwrite = false;
+                    let res;
+                    while ( ! res ) {
+                        try {
+                            res = await answer.write(() => puter.fs.write(
+                                target_path,
+                                file_to_upload,
+                                {
+                                    dedupeName: false,
+                                    overwrite: overwrite,
+                                },
+                            ));
+                            // Answered already: closed before the write, or it failed after.
+                            if ( ! res ) return;
+                        }
+                        catch ( err ) {
+                            if ( err.code !== 'item_with_same_name_exists' ) {
+                                console.log(err);
+                                await UIAlert({
+                                    message: err.message ?? 'Upload failed.',
+                                    parent_uuid,
+                                });
+                                return;
+                            }
+                            // Escape closes the alert without an answer,
+                            // which counts as Cancel, so the picker isn't
+                            // left behind its busy mask.
+                            let alert_closed;
+                            const alert_dismissed = new Promise((resolve) => {
+                                alert_closed = () => resolve('cancel');
+                            });
+                            const alert_resp = await Promise.race([UIAlert({
+                                message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                                buttons: [
+                                    {
+                                        label: i18n('replace'),
+                                        value: 'replace',
+                                        type: 'primary',
+                                    },
+                                    {
+                                        label: i18n('cancel'),
+                                        value: 'cancel',
+                                    },
+                                ],
+                                parent_uuid,
+                                window_options: { on_close: alert_closed },
+                            }), alert_dismissed]);
+                            if ( alert_resp !== 'replace' ) return;
+                            overwrite = true;
+                        }
+                    }
+
+                    let file_signature;
+                    try {
+                        file_signature = (await signSavedFile(app_uid, res.uid)).items;
+                    } catch ( err ) {
+                        console.error(err);
+                        await UIAlert({
+                            message: i18n('save_file_not_returned', [], false),
+                            parent_uuid,
+                        });
+                        answer.cancel();
+                        return;
+                    }
+                    if ( ! answer.saved() ) return;
+                    window.deliverPopupTokenToOpener?.();
+                    window.opener?.postMessage({
+                        msg: 'fileSaved',
+                        original_msg_id: msg_id,
+                        filename: res.name,
+                        saved_file: {
+                            name: file_signature.fsentry_name,
+                            readURL: file_signature.read_url,
+                            writeURL: file_signature.write_url,
+                            metadataURL: file_signature.metadata_url,
+                            type: file_signature.type,
+                            uid: file_signature.uid,
+                            path: window.privacy_aware_path(res.path),
+                        },
+                    }, window.openerOrigin);
+                };
+
                 // Open dialog
                 UIWindow({
                     allowed_file_types: allowed_file_types,
@@ -704,113 +829,35 @@ const postAuthActions = async (action) => {
                     iframe_msg_uid: msg_id,
                     center: true,
                     initiating_app_uuid: app_uid,
-                    onDialogCancel: () => tell_opener_cancelled('fileSaveCancelled'),
-                    on_close: () => tell_opener_cancelled('fileSaveCancelled'),
+                    onDialogCancel: () => answer.cancel(),
+                    on_close: () => answer.close(),
                     onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
+                        if ( ! answer.startSave() ) return;
                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
-                        let busy_init_ts = Date.now();
-
-                        let overwrite = false;
-                        let file_to_upload = new File([event.data.content], path.basename(target_path));
-                        let item_with_same_name_already_exists = true;
-                        while ( item_with_same_name_already_exists ) {
-                            // overwrite?
-                            if ( overwrite )
-                            {
-                                item_with_same_name_already_exists = false;
+                        const parent_uuid = $(el_filedialog_window).attr('data-element_uuid');
+                        try {
+                            await save_file(target_path, parent_uuid);
+                        } catch ( err ) {
+                            console.error(err);
+                            if ( ! answer.answered ) {
+                                await UIAlert({
+                                    message: err?.message ?? i18n('error_unknown_cause'),
+                                    parent_uuid,
+                                });
+                                answer.cancel();
                             }
-                            // upload
-                            try {
-                                const res = await puter.fs.write(
-                                    target_path,
-                                    file_to_upload,
-                                    {
-                                        dedupeName: false,
-                                        overwrite: overwrite,
-                                    },
-                                );
-
-                                let file_signature = await puter.fs.sign(app_uid, { uid: res.uid, action: 'write' });
-                                file_signature = file_signature.items;
-
-                                item_with_same_name_already_exists = false;
-                                window.deliverPopupTokenToOpener?.();
-                                window.opener.postMessage({
-                                    msg: 'fileSaved',
-                                    original_msg_id: msg_id,
-                                    filename: res.name,
-                                    saved_file: {
-                                        name: file_signature.fsentry_name,
-                                        readURL: file_signature.read_url,
-                                        writeURL: file_signature.write_url,
-                                        metadataURL: file_signature.metadata_url,
-                                        type: file_signature.type,
-                                        uid: file_signature.uid,
-                                        path: window.privacy_aware_path(res.path),
-                                    },
-                                }, window.openerOrigin);
-
-                                window.close();
-                                window.open('', '_self').close();
-                            }
-                            catch ( err ) {
-                                // item with same name exists
-                                if ( err.code === 'item_with_same_name_exists' ) {
-                                    // Escape closes the alert without an answer,
-                                    // which counts as Cancel, so the picker isn't
-                                    // left behind its busy mask.
-                                    let alert_closed;
-                                    const alert_dismissed = new Promise((resolve) => {
-                                        alert_closed = () => resolve('cancel');
-                                    });
-                                    const alert_resp = await Promise.race([UIAlert({
-                                        message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                                        buttons: [
-                                            {
-                                                label: i18n('replace'),
-                                                value: 'replace',
-                                                type: 'primary',
-                                            },
-                                            {
-                                                label: i18n('cancel'),
-                                                value: 'cancel',
-                                            },
-                                        ],
-                                        parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
-                                        window_options: { on_close: alert_closed },
-                                    }), alert_dismissed]);
-                                    if ( alert_resp === 'replace' ) {
-                                        overwrite = true;
-                                    } else {
-                                        // enable parent window
-                                        $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
-                                        return;
-                                    }
-                                }
-                                else {
-                                    console.log(err);
-                                    // show error
-                                    await UIAlert({
-                                        message: err.message ?? 'Upload failed.',
-                                        parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
-                                    });
-                                    // enable parent window
-                                    $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
-                                    return;
-                                }
-                            }
+                        } finally {
+                            answer.endSave();
                         }
 
-                        // done
-                        let busy_duration = (Date.now() - busy_init_ts);
-                        if ( busy_duration >= window.busy_indicator_hide_delay ) {
-                            $(el_filedialog_window).close();
-                        } else {
-                            setTimeout(() => {
-                                // close this dialog
-                                $(el_filedialog_window).close();
-                            }, Math.abs(window.busy_indicator_hide_delay - busy_duration));
+                        if ( ! answer.answered ) {
+                            // enable parent window
+                            $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
+                            return;
                         }
+                        window.close();
+                        window.open('', '_self').close();
+                        $(el_filedialog_window).close();
                     },
                 });
             });
@@ -871,7 +918,9 @@ const postAuthActions = async (action) => {
             }
             // A signed-out opener holds no token to settle this for itself, so
             // ask here, as the app, with the token the exchange just minted.
-            const already_held = await holdsPermissions(permissions, user_app_token);
+            const already_held = await appHoldsForPuter(permissions, window.host_app_uid, {
+                holds: (wanted) => holdsPermissions(wanted, user_app_token),
+            });
             // The requesting app is identified by its origin, and only the
             // server turns that origin into a grant target. No uid is sent
             // from here: a uid from the query string is chosen by whoever
@@ -941,9 +990,14 @@ const postAuthActions = async (action) => {
             }
             // The dialog says this site wants to send pushes, so only a site whose app may.
             const app_uid = await window.getAppUIDFromOrigin(origin);
-            if ( app_uid && await appHoldsPermissions([PUSH_PERMISSION], app_uid) ) {
+            const grant = app_uid ? await pushGrantOf(app_uid) : 'none';
+            if ( grant === 'puter' ) {
                 startPushWorker();
                 state = await UIEnablePushDialog({ origin });
+            } else if ( grant === 'website' ) {
+                // Its site's own Web Push grant doesn't reach Puter, so Puter's prompt asks first.
+                startPushWorker();
+                state = await askPushPermission({ origin });
             }
         } catch (e) {
             console.error('enable-push action failed', e);
@@ -1052,12 +1106,17 @@ const postAuthActions = async (action) => {
 
     // -------------------------------------------------------------------------------------
     // Action: top-up — the deployment's top-up dialog for the first-party page framing it,
-    // which hears whether the user bought credit once the dialog closes.
+    // which hears whether the user bought credit once the dialog closes. The app it credits
+    // is the one the framing page's origin resolves to.
     // -------------------------------------------------------------------------------------
     if ( action === 'top-up' && window.embedded_in_frame ) {
         let toppedUp;
         try {
-            toppedUp = await showFramedTopUp(window, window.tell_popup_frame);
+            toppedUp = await showFramedTopUp(
+                window,
+                window.host_app_uid ? { appUid: window.host_app_uid } : {},
+                window.tell_popup_frame,
+            );
         } catch (e) {
             // A dialog that failed to open leaves the page to open the top-up in a tab.
             console.error('top-up action failed', e);
@@ -1088,9 +1147,12 @@ const postAuthActions = async (action) => {
 
     // -------------------------------------------------------------------------------------
     // Action: attach-custom-domain — puter.hosting.attach() on a website. Hosts the custom
-    // domain dialog for `subdomain` and posts the chosen domain back to the opener.
+    // domain dialog for `subdomain` and posts the chosen domain back to the opener, or to
+    // the first-party page framing it. detach-custom-domain, behind puter.hosting.detach(),
+    // hosts it in its remove-only mode and posts back the domains removed.
     // -------------------------------------------------------------------------------------
-    if ( action === 'attach-custom-domain' ) {
+    if ( action === 'attach-custom-domain' || action === 'detach-custom-domain' ) {
+        const detaching = action === 'detach-custom-domain';
         const msg_id = window.url_query_params.get('msg_id');
         const subdomain = window.url_query_params.get('subdomain');
         // Browser-attested only: the domain goes to this origin and nowhere
@@ -1100,10 +1162,10 @@ const postAuthActions = async (action) => {
         try {
             target_origin = origin ? new URL(origin).origin : null;
         } catch (e) {
-            console.error('attach-custom-domain: unusable origin', origin);
+            console.error(`${action}: unusable origin`, origin);
         }
 
-        let domain = null;
+        let answer = detaching ? [] : null;
         try {
             if ( ! target_origin ) {
                 throw new Error('no opener origin; not prompting');
@@ -1111,13 +1173,19 @@ const postAuthActions = async (action) => {
             if ( ! subdomain ) {
                 throw new Error('no subdomain');
             }
-            domain = await UIWindowAttachCustomDomain({
+            // A frame covers its page, which shows around the floating dialog.
+            const dialog = UIWindowAttachCustomDomain({
                 subdomain,
                 requester: target_origin,
-                fullpage: window.embedded_in_popup === true,
+                fullpage: window.embedded_in_popup === true && !window.embedded_in_frame,
+                mode: detaching ? 'detach' : 'attach',
             });
+            if ( window.embedded_in_frame ) window.tell_popup_frame('ready');
+            answer = await dialog;
+            // The answer removes the frame, so the dialog's exit plays first.
+            if ( window.embedded_in_frame ) await overlayGone(document, '.custom-domain-overlay');
         } catch (e) {
-            console.error('attach-custom-domain action failed', e);
+            console.error(`${action} action failed`, e);
         }
 
         // Without an attested origin there is no safe place to send a domain;
@@ -1125,13 +1193,11 @@ const postAuthActions = async (action) => {
         if ( target_origin ) {
             const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
             try {
-                messageTarget?.postMessage({
-                    msg: 'customDomainAttached',
-                    domain,
-                    original_msg_id: msg_id,
-                }, target_origin);
+                messageTarget?.postMessage(detaching
+                    ? { msg: 'customDomainDetached', domains: answer, original_msg_id: msg_id }
+                    : { msg: 'customDomainAttached', domain: answer, original_msg_id: msg_id }, target_origin);
             } catch (e) {
-                console.error('attach-custom-domain: could not answer the requester', e);
+                console.error(`${action}: could not answer the requester`, e);
             }
         }
 
@@ -1159,8 +1225,6 @@ const launch_services = async function (options) {
         services_m_[name] = instance;
     };
 
-    globalThis.def(UIComponentWindow, 'ui.UIComponentWindow');
-
     // === Hooks for Service Scripts from Backend ===
     const service_script_deferred = { services: [], on_ready: [] };
     const service_script_api = {
@@ -1170,7 +1234,6 @@ const launch_services = async function (options) {
         // so this hack makes that possible.
         def: globalThis.def,
         use: globalThis.use,
-        // use: name => ({ UIWindow, UIComponentWindow })[name],
     };
     globalThis.service_script_api_promise.resolve(service_script_api);
 
@@ -1181,11 +1244,9 @@ const launch_services = async function (options) {
     register('app-push', new AppPushService());
     register('debug', new DebugService());
     register('broadcast', new BroadcastService());
-    register('theme', new ThemeService());
     register('process', new ProcessService());
     register('locale', new LocaleService());
     register('anti-csrf', new AntiCSRFService());
-    register('__launch-on-init', new LaunchOnInitService());
 
     // === Service-Script Services ===
     for (const [name, script] of service_script_deferred.services) {
@@ -1251,17 +1312,13 @@ if (jQuery) {
 
 // are we in dashboard mode?
 // The dashboard is the default interface at the root path; `/dashboard` is kept as an
-// alias, and `/desktop` loads the desktop instead. Direct app landings (`/app/<name>`)
+// alias. Direct app landings (`/app/<name>`)
 // open in the dashboard too: the app comes up maximized in-page with the dashboard
 // route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
-// To land the same app on the desktop instead, prefix the path:
-// `/desktop/app/<name>` doesn't match the dashboard paths below, so it falls
-// through to the desktop.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
-// (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
-// fullpage mode (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
+// (`?embedded_in_popup=`) and iframe embeds. A share link (`?shared=`,
 // from an email) lands in the dashboard: Files, on Shared, with the items it names
-// picked out; `/desktop?shared=` opens the item on the desktop instead. App metadata
+// picked out; the desktop ignores it. App metadata
 // like fullpage_on_landing does NOT opt a landing out of the dashboard; it only
 // affects boots that still go through the desktop flow.
 {
@@ -1280,16 +1337,11 @@ if (jQuery) {
     };
     // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
     const in_iframe = window.location !== window.parent.location;
-    const needs_desktop_at_root =
-        window.embedded_in_popup ||
-        in_iframe ||
-        search_params.has('puter.fullpage') ||
-        search_params.has('app') ||
-        search_params.has('download');
-    const is_dashboard_alias =
-        pathname === '/dashboard' || pathname === '/dashboard/';
-    const is_app_landing = /^\/app\/[^/]+\/?$/.test(pathname);
-    if (is_dashboard_alias || ((pathname === '/' || is_app_landing) && !needs_desktop_at_root)) {
+    if (bootsDashboard({
+        pathname,
+        inIframe: in_iframe,
+        embeddedInPopup: !!window.embedded_in_popup,
+    })) {
         window.is_dashboard_mode = true;
         window.dashboard_initial_route = parseDashboardRoute();
         // A share link outranks the hash: Files, on Shared, with what it names
@@ -1335,31 +1387,6 @@ function parseDashboardRoute() {
 
 // Make parseDashboardRoute available globally for hashchange handler
 window.parseDashboardRoute = parseDashboardRoute;
-
-/**
- * Display text for an auth error redirect (`?auth_error=1&message=<code>`).
- * The backend sends a fixed set of codes — never free text — plus, for a
- * blocked signup, a `request_code` the user can quote to support. Codes map
- * to translated messages here; anything unrecognized (including text crafted
- * directly into the URL) gets the generic message rather than being shown.
- */
-function authErrorDisplayMessage() {
-    const code = window.url_query_params.get('message');
-    const requestCode = window.url_query_params.get('request_code');
-    if (code === 'signup_blocked') {
-        const contact = requestCode
-            ? i18n('contact_support_with_code', { id: requestCode }, false)
-            : i18n('contact_support', [], false);
-        return `${i18n('signup_blocked_message', [], false)} ${contact}`;
-    }
-    if (code === 'account_suspended') {
-        return i18n('account_suspended_message', [], false);
-    }
-    if (code === 'bonus_code_invalid') {
-        return i18n('signup_bonus_code_invalid_retry', [], false);
-    }
-    return i18n('auth_error_generic', [], false);
-}
 
 /**
  * Settles the shell's server-rendered anonymous markup — the marketing
@@ -1521,14 +1548,22 @@ window.showTurnstileChallenge = function (options) {
     });
 };
 
+// A gate window can clear another (a fallback card clears the phone gate, a
+// replaced email asks for a phone first), so the gate after it reads the
+// account again.
+const refreshWhoami = async (whoami) => {
+    try {
+        const fresh = await puter.os.user();
+        if (fresh) Object.assign(whoami, fresh);
+    } catch (_) {
+        // The next gate works from what it has.
+    }
+};
+
 window.initgui = async function (options) {
     const oidcChallenge = takeOidcLoginChallenge();
     const url = new URL(window.location).href;
     window.url = url;
-    // Route segments with a leading `/desktop` dropped, so the route checks
-    // downstream (app landings, actions) never have to know about the prefix:
-    // `/desktop/app/<name>` opens the app on the desktop the same way
-    // `/app/<name>` opens it in the dashboard.
     const url_paths = parse_url_paths(window.location.pathname);
     window.url_paths = url_paths;
 
@@ -1674,10 +1709,12 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Determine if we are in full-page mode
-    // i.e. https://puter.com/app/<app_name>/?puter.fullpage=true
+    // Determine if we are in full-page mode. The dashboard always shows apps full
+    // page; a desktop boot (embeds, popups) can ask with ?puter.fullpage=true.
     //--------------------------------------------------------------------------------------
-    if (
+    if (window.is_dashboard_mode) {
+        window.is_fullpage_mode = true;
+    } else if (
         window.url_query_params.has('puter.fullpage') &&
         (window.url_query_params.get('puter.fullpage') === 'false' ||
             window.url_query_params.get('puter.fullpage') === '0')
@@ -1688,54 +1725,76 @@ window.initgui = async function (options) {
         (window.url_query_params.get('puter.fullpage') === 'true' ||
             window.url_query_params.get('puter.fullpage') === '1')
     ) {
-        // In fullpage mode, we want to hide the taskbar for better UX
-        window.taskbar_height = 0;
-
         // Puter is in fullpage mode.
-        window.is_fullpage_mode = true;
-    } else if (window.is_dashboard_mode) {
         window.is_fullpage_mode = true;
     }
 
     // Launch services before any UI is rendered
     await launch_services(options);
 
-    // If no token in storage but we have a session cookie (e.g. after OIDC redirect), fetch GUI token
-    try {
-        const r = await fetch(`${window.gui_origin}/get-gui-token`, {
-            credentials: 'include',
-        });
-        if (r.ok) {
-            const { token } = await r.json();
-            window.auth_token = token;
-            // Write the current key; drop any value under the retired one.
-            localStorage.setItem(
-                window.AUTH_TOKEN_KEY_V2 || 'auth_token_v2',
-                token,
-            );
-            try {
-                localStorage.removeItem(
-                    window.AUTH_TOKEN_KEY_RETIRED || 'auth_token',
-                );
-            } catch (e) {
-                /* ignore */
-            }
-            if (typeof puter !== 'undefined')
-                puter.setAuthToken(token, window.api_origin);
-            const tokenChanged = token !== window.auth_token;
-            if (tokenChanged) {
-                // This will update the list of logged in users and set the current one
+    // The session cookie decides the account (an OIDC sign-in sets only the
+    // cookie), so a stored token for any other session is replaced by one for
+    // the cookie's session.
+    const boot_token = puter.authToken;
+    let fs_cache_reset = false;
+    // A token for the stored token's own session differs from it only in when
+    // it was signed, so the stored one stays: nothing for other tabs or the
+    // SDK's connections to pick up.
+    const keep_stored_token = () => {
+        // A cookie boot still starts without the persisted FS cache, which
+        // can predate changes a disconnected socket never heard about.
+        puter._cache.flushall();
+        // Entries still loading from IndexedDB would land after the flush.
+        if (puter._cache.isInitialized === false) {
+            (async () => {
                 try {
-                    const whoami = await puter.os.user({
-                        query: 'icon_size=64',
-                    });
-                    if (whoami) await window.update_auth_data(token, whoami);
+                    await puter._cache.waitForInitialization();
+                    puter._cache.flushall();
                 } catch (e) {
-                    console.error(
-                        'get-gui-token follow-up whoami/update_auth_data',
-                        e,
-                    );
+                    console.error('fs cache flush', e);
                 }
+            })();
+        }
+        fs_cache_reset = true;
+    };
+    let gui_token_step = 'fetch';
+    try {
+        gui_token_step = await guiTokenBootStep({
+            params: window.gui_params,
+            storedToken: window.auth_token,
+            sameOrigin: window.gui_origin === window.location.origin,
+            renderedForThisLoad: pageRenderedForThisLoad(),
+        });
+    } catch (e) {
+        console.error('gui token boot step', e);
+    }
+    if (gui_token_step === 'same-session') keep_stored_token();
+    try {
+        const r = gui_token_step === 'fetch'
+            ? await fetch(`${window.gui_origin}/get-gui-token`, {
+                credentials: 'include',
+            })
+            : null;
+        if (r?.ok) {
+            const { token } = await r.json();
+            if (sameTokenClaims(token, window.auth_token)) {
+                keep_stored_token();
+            } else {
+                window.auth_token = token;
+                // Write the current key; drop any value under the retired one.
+                localStorage.setItem(
+                    window.AUTH_TOKEN_KEY_V2 || 'auth_token_v2',
+                    token,
+                );
+                try {
+                    localStorage.removeItem(
+                        window.AUTH_TOKEN_KEY_RETIRED || 'auth_token',
+                    );
+                } catch (e) {
+                    /* ignore */
+                }
+                if (typeof puter !== 'undefined')
+                    puter.setAuthToken(token, window.api_origin);
             }
         }
     } catch (e) {
@@ -1850,7 +1909,7 @@ window.initgui = async function (options) {
             let session_user = null;
             if (host_user && window.is_auth()) {
                 try {
-                    session = await puter.os.user({ query: 'icon_size=64' });
+                    session = await puter.os.user();
                     session_user = String(session?.uuid ?? '').toLowerCase();
                 } catch (e) {
                     session_user = null;
@@ -1861,7 +1920,8 @@ window.initgui = async function (options) {
                 session_user !== host_user ||
                 (action === 'upgrade' && !canShowUpgradeFrame(window, session)) ||
                 (action === 'top-up' && !canShowTopUpFrame(window, session)) ||
-                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session))
+                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session)) ||
+                ((action === 'attach-custom-domain' || action === 'detach-custom-domain') && !canShowCustomDomainFrame(session))
             ) {
                 window.tell_popup_frame('unavailable');
                 return;
@@ -1929,9 +1989,7 @@ window.initgui = async function (options) {
             // Ensure current user is in logged_in_users (e.g. after OIDC redirect we have token but no user in list)
             let currentUserUuid = window.user?.uuid ?? null;
             try {
-                const whoami_popup = await puter.os.user({
-                    query: 'icon_size=64',
-                });
+                const whoami_popup = await puter.os.user();
                 currentUserUuid = whoami_popup?.uuid ?? currentUserUuid;
                 await window.update_auth_data(
                     whoami_popup.token || window.auth_token,
@@ -2018,24 +2076,11 @@ window.initgui = async function (options) {
             });
             if (app_info?.metadata?.fullpage_on_landing) {
                 window.is_fullpage_mode = true;
-                window.taskbar_height = 0;
                 window.app_launched_from_url = app_info;
             }
         } catch (e) {
             // App metadata fetch failed; will retry later in UIDesktop
         }
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Desktop background (early)
-    // Set before action=login/signup so the signed-in dialog has the desktop behind it.
-    // Skipped for the full-page form, which it would only flash behind before covering.
-    // -------------------------------------------------------------------------------------
-    const authActionIsPage =
-        action === 'password-recovery' ||
-        (!window.is_auth() && (action === 'login' || action === 'signup'));
-    if (!window.is_fullpage_mode && !window.embedded_in_popup && !authActionIsPage) {
-        window.refresh_desktop_background();
     }
 
     //--------------------------------------------------------------------------------------
@@ -2051,17 +2096,11 @@ window.initgui = async function (options) {
         });
     }
     //--------------------------------------------------------------------------------------
-    // Action: Change Username
-    //--------------------------------------------------------------------------------------
-    else if (action === 'change-username') {
-        await UIWindowChangeUsername();
-    }
-    //--------------------------------------------------------------------------------------
     // Action: Login
     //--------------------------------------------------------------------------------------
     else if (action === 'login') {
         const opts = window.url_query_params.has('auth_error')
-            ? { authError: authErrorDisplayMessage() }
+            ? { authError: authErrorDisplayMessage(window.url_query_params) }
             : {};
         if (!window.is_auth()) {
             opts.page = true;
@@ -2079,7 +2118,7 @@ window.initgui = async function (options) {
     //--------------------------------------------------------------------------------------
     else if (action === 'signup') {
         const opts = window.url_query_params.has('auth_error')
-            ? { authError: authErrorDisplayMessage() }
+            ? { authError: authErrorDisplayMessage(window.url_query_params) }
             : {};
         if (!window.is_auth()) {
             opts.page = true;
@@ -2160,7 +2199,7 @@ window.initgui = async function (options) {
         puter.setAuthToken(query_param_auth_token);
 
         try {
-            whoami = await puter.os.user({ query: 'icon_size=64' });
+            whoami = await puter.os.user();
         } catch (e) {
             if (e.status === 401) {
                 window.logout();
@@ -2206,11 +2245,14 @@ window.initgui = async function (options) {
                             show_close_button: false,
                             stay_on_top: true,
                             has_head: false,
+                            // The URL's account isn't this browser's session yet.
+                            change_address: false,
                             window_options: {
                                 is_draggable: false,
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             const phoneGate = async () => {
@@ -2229,11 +2271,13 @@ window.initgui = async function (options) {
                             // send window, and no send can report it any more).
                             card_fallback_available:
                                 whoami.card_fallback_available,
+                            phone_on_file: whoami.phone_on_file,
                             window_options: {
                                 is_draggable: false,
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                     card_gate_cleared_by_fallback = is_verified === 'card';
                 }
             };
@@ -2253,6 +2297,7 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             if (whoami.email_gate_last) {
@@ -2296,8 +2341,8 @@ window.initgui = async function (options) {
                 sessionStorage.removeItem('puter.authme_redirect_attempted');
             } catch (e) { /* sessionStorage unavailable */ }
         }
-        // remove the token from URL, keeping the current path (e.g. `/` or
-        // `/desktop`) and hash (dashboard tab links like /#usage).
+        // remove the token from URL, keeping the current path and hash
+        // (dashboard tab links like /#usage).
         //
         // `replaceState`, not `pushState`: pushing leaves the token-bearing URL
         // as the previous history entry, so Back returns to a URL containing a
@@ -2386,6 +2431,9 @@ window.initgui = async function (options) {
             }
         }
 
+        // The next account to sign in here confirms this browser for pushes itself.
+        await puter.notifications?._forgetPushReceipt?.();
+
         // logout
         try {
             const resp = await fetch(`${window.gui_origin}/get-anticsrf-token`);
@@ -2435,13 +2483,9 @@ window.initgui = async function (options) {
         $('.context-menu').remove();
         // remove desktop
         $('.desktop').remove();
-        // remove taskbar
-        $('.taskbar').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
-        // go back to the interface the user was in: dashboard users to the root
-        // dashboard, desktop users to /desktop
-        window.location.replace(window.is_dashboard_mode ? '/' : '/desktop');
+        window.location.replace('/');
     });
 
     $(document).ajaxError(async function (event, jqxhr) {
@@ -2464,6 +2508,12 @@ window.initgui = async function (options) {
     // Authed
     // -------------------------------------------------------------------------------------
     if (window.is_auth()) {
+        // An FS cache this boot hasn't reset or re-keyed may predate changes
+        // made since; it is checked before anything renders from it.
+        const fs_cache_check =
+            fs_cache_reset || puter.authToken !== boot_token
+                ? null
+                : puter.fs.checkCacheAndPurge();
         // A sign-in popup whose user kept the account it opened with, and whose
         // exchange just proved the session, already has this user's data.
         if (
@@ -2483,7 +2533,7 @@ window.initgui = async function (options) {
         // try to get user data using /whoami, only if that data is missing
         if (!whoami) {
             try {
-                whoami = await puter.os.user({ query: 'icon_size=64' });
+                whoami = await puter.os.user();
             } catch (e) {
                 if (e.status === 401) {
                     bad_session_logout();
@@ -2525,6 +2575,7 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             const phoneGate = async () => {
@@ -2544,12 +2595,14 @@ window.initgui = async function (options) {
                             // send window, and no send can report it any more).
                             card_fallback_available:
                                 whoami.card_fallback_available,
+                            phone_on_file: whoami.phone_on_file,
                             window_options: {
                                 is_draggable: false,
                                 cover_page: window.is_embedded,
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                     card_gate_cleared_by_fallback = is_verified === 'card';
                 }
             };
@@ -2571,6 +2624,7 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             if (whoami.email_gate_last) {
@@ -2604,6 +2658,7 @@ window.initgui = async function (options) {
                 whoami,
             );
 
+            await fs_cache_check;
             await postAuthActions(action);
             // ----------------------------------------------------------
             // Get user's sites
@@ -2611,25 +2666,16 @@ window.initgui = async function (options) {
             window.update_sites_cache();
         }
     }
-    // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
-    // real account even on a first visit — never a temp user. So does a share
-    // link: a share only ever reaches a real account, so a temporary one could
-    // never see what it points at.
+    // App landing pages (`/app/<name>`) require a real account even on a first
+    // visit — never a temp user. So does a share link on the dashboard: a share
+    // only ever reaches a real account, so a temporary one could never see what
+    // it points at.
     const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
-    const is_share_link = window.url_query_params.has('shared');
+    const is_share_link = !!window.is_dashboard_mode && window.url_query_params.has('shared');
     const needsSignIn =
         !window.is_auth() &&
         (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link);
 
-    // -------------------------------------------------------------------------------------
-    // Desktop Background
-    // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
-    // because it's not visible anyway and it's a waste of bandwidth. Same behind the sign-in page.
-    // -------------------------------------------------------------------------------------
-    const showsSignInPage = needsSignIn && window.logged_in_users.length === 0;
-    if (!window.is_fullpage_mode && !window.embedded_in_popup && !showsSignInPage) {
-        window.refresh_desktop_background();
-    }
     // -------------------------------------------------------------------------------------
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
@@ -2683,12 +2729,6 @@ window.initgui = async function (options) {
         const needs_action = action === 'authme' || action === 'copyauth';
         const reload_on_success = needs_action;
         if (window.logged_in_users.length > 0) {
-            // dashboard mode skips the wallpaper (fullpage), but the account
-            // picker is a dialog, not a page — restore the wallpaper so it
-            // isn't on a blank page
-            if (window.is_dashboard_mode) {
-                window.refresh_desktop_background();
-            }
             await UIAuthAccountPicker({
                 redirect_url: needs_action ? window.location.href : undefined,
             });
@@ -2836,7 +2876,10 @@ window.initgui = async function (options) {
                                                     msg: 'puter.token',
                                                     success: true,
                                                     msg_id: msg_id,
-                                                    token: data.token,
+                                                    token: await signInTokenForOpener(
+                                                        window.openerOrigin,
+                                                        data.token,
+                                                    ),
                                                     username: window.user.username,
                                                     app_uid: data.app_uid,
                                                 },
@@ -2923,7 +2966,10 @@ window.initgui = async function (options) {
                                                     msg: 'puter.token',
                                                     success: true,
                                                     msg_id: msg_id,
-                                                    token: data.token,
+                                                    token: await signInTokenForOpener(
+                                                        window.openerOrigin,
+                                                        data.token,
+                                                    ),
                                                     username: window.user.username,
                                                     app_uid: data.app_uid,
                                                 },
@@ -3029,7 +3075,6 @@ window.initgui = async function (options) {
                 });
                 if (app_info?.metadata?.fullpage_on_landing) {
                     window.is_fullpage_mode = true;
-                    window.taskbar_height = 0;
                     window.app_launched_from_url = app_info;
                 }
             } catch (e) {
@@ -3078,10 +3123,6 @@ window.initgui = async function (options) {
 
         // click on anything will close all popovers, but there are some exceptions
         if (
-            !$(e.target).hasClass('start-app') &&
-            !$(e.target).hasClass('launch-search') &&
-            !$(e.target).hasClass('launch-search-clear') &&
-            $(e.target).closest('.start-app').length === 0 &&
             !isMobile.phone &&
             !isMobile.tablet &&
             !$(e.target).hasClass('popover') &&
@@ -3091,9 +3132,6 @@ window.initgui = async function (options) {
                 $('.popover').remove();
             });
         }
-
-        // Close all tooltips
-        $('.ui-tooltip').remove();
 
         // rename items whose names were being edited
         if (!$(e.target).hasClass('item-name-editor')) {
@@ -3129,21 +3167,6 @@ window.initgui = async function (options) {
     // Window Activation
     //--------------------------------------------------------
     $(document).on('mousedown', function (e) {
-        // if taskbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('taskbar') ||
-            $(e.target).closest('.taskbar').length > 0
-        ) {
-            return;
-        }
-        // if toolbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('toolbar') ||
-            $(e.target).closest('.toolbar').length > 0
-        ) {
-            return;
-        }
-
         // if close or minimize button clicked, drop the event
         if (
             document
@@ -3227,16 +3250,6 @@ $(document).on('click', '.generic-close-window-button', function (e) {
     $(this).closest('.window').close();
 });
 
-$(document).on('click', function (e) {
-    if (
-        !$(e.target).hasClass('window-search') &&
-        $(e.target).closest('.window-search').length === 0 &&
-        !$(e.target).is('.toolbar-btn.search-btn')
-    ) {
-        $('.window-search').close();
-    }
-});
-
 // Re-calculate desktop height and width on window resize and re-position the login and signup windows
 $(window).on('resize', function () {
     // If host env is popup, don't continue because the popup window has its own resize requirements.
@@ -3246,8 +3259,7 @@ $(window).on('resize', function () {
 
     const ratio = window.desktop_width / window.innerWidth;
 
-    window.desktop_height =
-        window.innerHeight - window.toolbar_height - window.taskbar_height;
+    window.desktop_height = window.innerHeight;
     window.desktop_width = window.innerWidth;
 
     // Re-center the login window

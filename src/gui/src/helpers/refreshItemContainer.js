@@ -23,6 +23,7 @@ import item_icon from './itemIcon.js';
 import list_all_shared from './listAllShared.js';
 import parse_item_metadata from './parseItemMetadata.js';
 import { remember_shared_roots } from './sharedAccess.js';
+import { getFolderView } from './folderViewPrefs.js';
 
 const refresh_item_container = function (el_item_container, options) {
     // start a transaction
@@ -105,9 +106,6 @@ const refresh_item_container = function (el_item_container, options) {
             // the class is how a deleted folder's windows are found, and a window opened by path starts without it
             $(el_window).removeClass(`window-${$(el_window).attr('data-uid')}`).addClass(`window-${fsentry.id}`);
             $(el_window).attr('data-uid', fsentry.id);
-            $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
-            $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
-            $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
             // data-name
             $(el_window).attr('data-name', fsentry.name);
             // data-path
@@ -115,17 +113,27 @@ const refresh_item_container = function (el_item_container, options) {
             $(el_window).find('.window-navbar-path-input').val(container_path);
             $(el_window).find('.window-navbar-path-input').attr('data-path', container_path);
         }
-        $(el_item_container).attr('data-sort_by', fsentry.sort_by ?? 'name');
-        $(el_item_container).attr('data-sort_order', fsentry.sort_order ?? 'asc');
-        // update layout
-        if ( el_window && el_window.length > 0 )
-        {
-            window.update_window_layout(el_window, fsentry.layout);
-        }
-        //
-        if ( fsentry.layout === 'details' ) {
-            window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
-        }
+        return getFolderView(fsentry).then(view => {
+            if ( ! is_current() ) {
+                return;
+            }
+            // Items may already be in, placed by the sort the container had before.
+            const resort = $(el_item_container).attr('data-sort_by') !== view.sort_by
+                || $(el_item_container).attr('data-sort_order') !== view.sort_order;
+            $(el_item_container).attr('data-sort_by', view.sort_by);
+            $(el_item_container).attr('data-sort_order', view.sort_order);
+            if ( el_window && el_window.length > 0 ) {
+                $(el_window).attr('data-sort_by', view.sort_by);
+                $(el_window).attr('data-sort_order', view.sort_order);
+                window.update_window_layout(el_window, view.layout);
+                if ( view.layout === 'details' ) {
+                    window.update_details_layout_sort_visuals(el_window, view.sort_by, view.sort_order);
+                }
+            }
+            if ( resort ) {
+                window.sort_items(el_item_container, view.sort_by, view.sort_order);
+            }
+        });
     }).catch(() => {
         // The listing request below reports the failure to the user.
     });
@@ -246,7 +254,6 @@ const refresh_item_container = function (el_item_container, options) {
                     if ( item_path !== window.trash_path && item_path !== window.appdata_path ) {
                     // if this is trash, get original name from item metadata
                         fsentry.name = metadata.original_name ?? fsentry.name;
-                        const position = window.desktop_item_positions[fsentry.uid] ?? undefined;
                         UIItem({
                             appendTo: el_item_container,
                             uid: fsentry.uid,
@@ -269,7 +276,6 @@ const refresh_item_container = function (el_item_container, options) {
                             suggested_apps: fsentry.suggested_apps,
                             disabled: is_disabled,
                             visible: visible,
-                            position: position,
                             shared_with_me: fsentry.shared_with_me,
                             share_mode: fsentry.share_mode,
                             shared_by: fsentry.shared_by,
@@ -281,31 +287,6 @@ const refresh_item_container = function (el_item_container, options) {
                     }
                 }
 
-                // if this is desktop, add Trash
-                if ( $(el_item_container).hasClass('desktop') ) {
-                    try {
-                        const trash = await puter.fs.stat({ path: window.trash_path, consistency: options.consistency ?? 'eventual' });
-                        if ( ! is_current() ) {
-                            return;
-                        }
-                        UIItem({
-                            appendTo: el_item_container,
-                            uid: trash.id,
-                            immutable: trash.immutable,
-                            path: window.trash_path,
-                            icon: { image: (trash.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']), type: 'icon' },
-                            name: trash.name,
-                            is_dir: trash.is_dir,
-                            sort_by: trash.sort_by,
-                            type: trash.type,
-                            is_trash: true,
-                            sortable: false,
-                        });
-                        window.sort_items(el_item_container, $(el_item_container).attr('data-sort_by'), $(el_item_container).attr('data-sort_order'));
-                    } catch (e) {
-                    // Ignored
-                    }
-                }
                 // sort items
                 window.sort_items(
                     el_item_container,

@@ -51,10 +51,10 @@ const visiblePane = () => $('.custom-domain-pane').filter((_, el) => el.style.di
 const pressEscape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
 /** Opens the dialog and waits for the list to load. */
-const open = async (items = [pendingDomain()]) => {
+const open = async (items = [pendingDomain()], options = {}) => {
     globalThis.fetch = serve(items);
     let result = 'open';
-    UIWindowAttachCustomDomain({ subdomain: 'mysite' }).then((r) => {
+    UIWindowAttachCustomDomain({ subdomain: 'mysite', ...options }).then((r) => {
         result = r;
     });
     await flush();
@@ -253,5 +253,125 @@ describe('UIWindowAttachCustomDomain', () => {
         await flush();
         expect(row.isConnected).toBe(true);
         expect(row.hasAttribute('inert')).toBe(true);
+    });
+
+    describe('the answer to the caller', () => {
+        /** Moves `item` here; the API answers with it serving this site. */
+        const moveHere = async (item) => {
+            globalThis.fetch = vi.fn(async (url, opts = {}) => {
+                const path = String(url).split('/custom-domains')[1];
+                const method = opts.method ?? 'GET';
+                if ( method === 'GET' && ! path ) return json(200, { items: [item] });
+                if ( method === 'PATCH' ) return json(200, { ...item, site: 'mysite' });
+                if ( method === 'GET' ) return json(200, { ...item, site: 'mysite' });
+                return json(200, {});
+            });
+        };
+
+        it('names the site a moved domain served before', async () => {
+            const item = pendingDomain({ site: 'oldsite' });
+            const { result } = await open([item]);
+            await moveHere(item);
+            $('.custom-domain-row .custom-domain-use').trigger('click');
+            $('.custom-domain-row .custom-domain-confirm-go').trigger('click');
+            await flush();
+            await flush();
+            $('.custom-domain-done').trigger('click');
+            await flush();
+
+            expect(result()).toMatchObject({ uuid: 'd1', site: 'mysite', previousSite: 'oldsite' });
+        });
+
+        it('keeps the previous site through a status check', async () => {
+            const item = pendingDomain({ site: 'oldsite' });
+            const { result } = await open([item]);
+            await moveHere(item);
+            $('.custom-domain-row .custom-domain-use').trigger('click');
+            $('.custom-domain-row .custom-domain-confirm-go').trigger('click');
+            await flush();
+            await flush();
+            $('.custom-domain-check').trigger('click');
+            await flush();
+            await flush();
+            $('.custom-domain-done').trigger('click');
+            await flush();
+
+            expect(result()).toMatchObject({ uuid: 'd1', previousSite: 'oldsite' });
+        });
+
+        it('names no previous site for a domain already serving this site', async () => {
+            const { result } = await open();
+            $('.custom-domain-row .custom-domain-use').trigger('click');
+            $('.custom-domain-done').trigger('click');
+            await flush();
+
+            expect(result()).toMatchObject({ uuid: 'd1' });
+            expect(result()).not.toHaveProperty('previousSite');
+        });
+    });
+
+    describe('removing a domain from the site', () => {
+        const detach = (items) => open(items, { mode: 'detach' });
+
+        it("lists only this site's domains, with no way to move or add one", async () => {
+            await detach([
+                pendingDomain(),
+                pendingDomain({ uuid: 'd2', hostname: 'b.example.com', site: 'other' }),
+            ]);
+            const hosts = $('.custom-domain-row-host').toArray().map((el) => el.textContent);
+            expect(hosts).toEqual(['www.example.com']);
+            expect($('.custom-domain-use').length).toBe(0);
+            expect($('.custom-domain-to-add').length).toBe(0);
+        });
+
+        it('answers with the domains removed', async () => {
+            const { result } = await detach([
+                pendingDomain(),
+                pendingDomain({ uuid: 'd2', hostname: 'b.example.com' }),
+            ]);
+            const row = document.querySelector('.custom-domain-row');
+            $(row).find('.custom-domain-remove').trigger('click');
+            $(row).find('.custom-domain-confirm-go').trigger('click');
+            await flush();
+            await flush();
+
+            expect(globalThis.fetch).toHaveBeenCalledWith(
+                'https://api.puter.test/custom-domains/d1',
+                expect.objectContaining({ method: 'DELETE' }),
+            );
+            $('[data-pane="list"] .custom-domain-close').trigger('click');
+            await flush();
+            expect(result()).toEqual([pendingDomain()]);
+        });
+
+        it('answers with none when the user closes it without removing', async () => {
+            const { result } = await detach([pendingDomain()]);
+            pressEscape();
+            await flush();
+            expect(result()).toEqual([]);
+            expect(globalThis.fetch).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ method: 'DELETE' }),
+            );
+        });
+
+        it('says so when the site has no domains', async () => {
+            await detach([pendingDomain({ site: 'other' })]);
+            expect($('.custom-domain-empty').get(0).style.display).not.toBe('none');
+            expect($('.custom-domain-empty .custom-domain-state-title').text()).toBe('custom_domain_detach_none');
+        });
+
+        it('moves focus to Done once the last domain is removed', async () => {
+            vi.useFakeTimers({ toFake: ['setTimeout'] });
+            const ready = detach([pendingDomain()]);
+            await vi.runAllTimersAsync();
+            await ready;
+            const row = document.querySelector('.custom-domain-row');
+            $(row).find('.custom-domain-remove').trigger('click');
+            $(row).find('.custom-domain-confirm-go').trigger('click');
+            await vi.runAllTimersAsync();
+
+            expect(document.activeElement).toBe($('[data-pane="list"] .custom-domain-close').get(0));
+        });
     });
 });

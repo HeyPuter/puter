@@ -16,6 +16,7 @@ Check your diff against these sections of AGENTS.md:
 - [Working rules of thumb](AGENTS.md#working-rules-of-thumb): run it end to end, test new behavior and bug fixes, understand every line you commit (AI assistance is fine), leave touched files a bit better, and publish limit changes.
 - [Reuse and abstraction](AGENTS.md#reuse-and-abstraction) and [hot paths](AGENTS.md#hot-paths).
 - [Security & privacy](AGENTS.md#security--privacy): expose nothing the caller doesn't need.
+- [Changelog](AGENTS.md#changelog): add an entry for anything a developer building on puter.js would notice.
 
 ## Opening a PR
 

@@ -37,7 +37,7 @@ beforeAll(async () => {
 /** Every picker this test mounted, so none outlives its case. */
 let mounted = [];
 
-/** Renders the markup both dialogs share and attaches a picker to it. */
+/** Renders a recipient row and attaches a picker to it. */
 const mount = ({ focus_first = false, ...opts } = {}) => {
     document.body.innerHTML = `
         <div class="host">
@@ -47,7 +47,7 @@ const mount = ({ focus_first = false, ...opts } = {}) => {
             </div>
         </div>`;
     const $input = $('.recipient');
-    // Both dialogs focus the field before the picker is wired onto it.
+    // The share modal focuses the field before the picker is wired onto it.
     if ( focus_first ) $input.get(0).focus();
     const picker = shareRecipientPicker({
         $input,
@@ -111,7 +111,7 @@ describe('wiring onto the field', () => {
 describe('opening the list', () => {
     it('stays shut until the field is actually used', async () => {
         const { $input } = mount();
-        // Both dialogs focus this field as they open; that must not unfurl a
+        // The share modal focuses this field as it opens; that must not unfurl a
         // list over everything else before the user has looked at the dialog.
         $input.trigger('focus');
         await settle();

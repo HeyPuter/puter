@@ -32,6 +32,7 @@ import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
+import type { FSEntry } from '../../stores/fs/FSEntry';
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 
 describe('ShareService', () => {
@@ -1270,9 +1271,13 @@ describe('ShareService', () => {
                 expect(listByFsentry).not.toHaveBeenCalled();
                 expect(getEntriesByIds).not.toHaveBeenCalled();
                 const prefixes = [`fs:${file.uuid}`, `manage:fs:${file.uuid}`];
-                expect(revokeUserGrants).toHaveBeenCalledWith(prefixes);
-                expect(revokeGroupGrants).toHaveBeenCalledWith(prefixes);
-                expect(deleteRows).toHaveBeenCalledWith([file.id]);
+                expect(revokeUserGrants).toHaveBeenCalledWith(prefixes, {
+                    primary: true,
+                });
+                expect(revokeGroupGrants).toHaveBeenCalledWith(prefixes, {
+                    primary: true,
+                });
+                expect(deleteRows).toHaveBeenCalledWith([file.id], [file.uuid]);
                 // Grants go before the rows that record them.
                 expect(
                     revokeUserGrants.mock.invocationCallOrder[0]!,
@@ -1440,37 +1445,6 @@ describe('ShareService', () => {
             runWithContext({ actor }, () =>
                 server.services.share.listSharedByMe(actor, opts),
             );
-
-        it('still finds a row written before the owner was recorded', async () => {
-            const owner = await makeUser();
-            const delegate = await makeUser();
-            const third = await makeUser();
-            const file = await makeFile(owner.user);
-
-            await share(owner.actor, {
-                uid: file.uuid,
-                recipient: { email: delegate.email },
-                mode: 'manage',
-            });
-            await share(delegate.actor, {
-                uid: file.uuid,
-                recipient: { email: third.email },
-                mode: 'read',
-            });
-
-            // What a writer that predates the column leaves behind.
-            await server.clients.db.write(
-                'UPDATE `share` SET `entry_owner_user_id` = NULL',
-            );
-
-            const listed = await listSharedByMe(owner.actor, {
-                includeTotal: true,
-            });
-            expect(listed.items.map((r) => r.holder?.username)).toContain(
-                third.user.username,
-            );
-            expect(listed.total).toBeGreaterThanOrEqual(2);
-        });
 
         it("includes a delegate's share on an item the caller owns", async () => {
             const owner = await makeUser();
@@ -4277,6 +4251,39 @@ describe('ShareService', () => {
             expect(audiences.flat()).toContain(recipient.user.id);
         });
 
+        it("tells the former owner's recipients when the new owner shares nothing", async () => {
+            const from = await makeUser();
+            const to = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(from.user);
+            const after = `/${to.user.username}/${file.name}`;
+
+            await share(from.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const audiences = await captureAudiences(
+                'outer.gui.item.removed',
+                file.uuid,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: { ...file, path: after, userId: to.user.id },
+                            fromPath: file.path,
+                            toPath: after,
+                            fromUserId: from.user.id,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            expect(audiences.flat()).toContain(recipient.user.id);
+        });
+
         it('still reports a move within the shared folder as a move', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
@@ -6150,6 +6157,361 @@ describe('ShareService', () => {
             }
             expect(askedCalls).toBe(1);
             expect(reachingCalls).toBe(0);
+        });
+
+        it('does not read ancestors for an owner with nothing shared', async () => {
+            const owner = await makeUser();
+            const { file } = await makeDirWithFile(owner.user);
+            const ancestors = vi.spyOn(server.stores.fsEntry, 'getAncestors');
+            let calls = -1;
+            try {
+                await server.clients.event.emitAndWait(
+                    'fs.write.file',
+                    { node: file },
+                    {},
+                );
+                await settle();
+                calls = ancestors.mock.calls.length;
+            } finally {
+                ancestors.mockRestore();
+            }
+            expect(calls).toBe(0);
+        });
+
+        describe('an entry stamped with another owner in a shared folder', () => {
+            /** A file under `dir` whose row names `stamped` as its owner. */
+            const makeStampedFile = async (
+                dir: { id: number; uuid: string; path: string },
+                stamped: { id: number },
+            ) => {
+                const uuid = uuidv4();
+                const name = `stamped-${uuid.slice(0, 8)}.txt`;
+                const path = `${dir.path}/${name}`;
+                await server.clients.db.write(
+                    'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        uuid,
+                        name,
+                        path,
+                        stamped.id,
+                        server.clients.db.booleanValue(false),
+                        Math.floor(Date.now() / 1000),
+                        dir.id,
+                        dir.uuid,
+                    ],
+                );
+                const entry = await server.stores.fsEntry.getEntryByPath(path);
+                if (!entry) throw new Error('fsentry not created');
+                return entry;
+            };
+
+            const setup = async () => {
+                const owner = await makeUser();
+                const stamped = await makeUser();
+                const recipient = await makeUser();
+                const { dir } = await makeDirWithFile(owner.user);
+                await share(owner.actor, {
+                    uid: dir.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+                const file = await makeStampedFile(dir, stamped.user);
+                return { recipient, file };
+            };
+
+            const heard = async (
+                event:
+                    | 'outer.gui.item.updated'
+                    | 'outer.gui.item.renamed'
+                    | 'outer.gui.item.removed',
+                uuid: string,
+                userId: number,
+                fn: () => Promise<unknown>,
+            ) => {
+                let seen = false;
+                const listener = (_key: string, data: unknown) => {
+                    const payload = data as {
+                        user_id_list?: number[];
+                        response?: { uuid?: string };
+                    };
+                    if (
+                        payload.response?.uuid === uuid &&
+                        payload.user_id_list?.includes(userId)
+                    )
+                        seen = true;
+                };
+                server.clients.event.on(event, listener);
+                try {
+                    await fn();
+                    for (let i = 0; i < 20 && !seen; i++) await settle();
+                } finally {
+                    server.clients.event.off(event, listener);
+                }
+                return seen;
+            };
+
+            it('skips the share lookup when no owner on the chain shares', async () => {
+                const owner = await makeUser();
+                const stamped = await makeUser();
+                const { dir } = await makeDirWithFile(owner.user);
+                const file = await makeStampedFile(dir, stamped.user);
+                const reaching = vi.spyOn(server.stores.share, 'listReaching');
+                let calls = -1;
+                try {
+                    await server.clients.event.emitAndWait(
+                        'fs.write.file',
+                        { node: file },
+                        {},
+                    );
+                    await settle();
+                    calls = reaching.mock.calls.length;
+                } finally {
+                    reaching.mockRestore();
+                }
+                expect(calls).toBe(0);
+            });
+
+            it('still tells the folder recipient about a write', async () => {
+                const { recipient, file } = await setup();
+                expect(
+                    await heard(
+                        'outer.gui.item.updated',
+                        file.uuid,
+                        recipient.user.id,
+                        () =>
+                            server.clients.event.emitAndWait(
+                                'fs.write.file',
+                                { node: file },
+                                {},
+                            ),
+                    ),
+                ).toBe(true);
+            });
+
+            it('still tells the folder recipient about a rename', async () => {
+                const { recipient, file } = await setup();
+                const renamed = `${file.path}.renamed`;
+                expect(
+                    await heard(
+                        'outer.gui.item.renamed',
+                        file.uuid,
+                        recipient.user.id,
+                        () =>
+                            server.clients.event.emitAndWait(
+                                'fs.rename',
+                                {
+                                    node: {
+                                        ...file,
+                                        path: renamed,
+                                        name: `${file.name}.renamed`,
+                                    },
+                                    old_path: file.path,
+                                },
+                                {},
+                            ),
+                    ),
+                ).toBe(true);
+            });
+
+            it('still tells the folder recipient about a delete', async () => {
+                const { recipient, file } = await setup();
+                expect(
+                    await heard(
+                        'outer.gui.item.removed',
+                        file.uuid,
+                        recipient.user.id,
+                        () =>
+                            server.clients.event.emitAndWait(
+                                'fs.remove.node',
+                                { node: file, entry: file, target: file },
+                                {},
+                            ),
+                    ),
+                ).toBe(true);
+            });
+        });
+
+        it("looks from a hand-over's destination, new owner's cache warm", async () => {
+            const from = await makeUser();
+            const to = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(from.user);
+            await share(from.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            // Caches "nothing shared" for the new owner.
+            await server.services.fs.touch(to.user.id, {
+                path: `/${to.user.username}/warm.txt`,
+            });
+            await settle();
+
+            // What FSService.move writes before it emits the event.
+            const toHome = await server.stores.fsEntry.getRootEntryForUser(
+                to.user.id,
+            );
+            const after = `/${to.user.username}/${file.name}`;
+            await server.stores.fsEntry.updateEntry(file.uuid, {
+                path: after,
+                userId: to.user.id,
+                parentId: toHome!.id,
+                parentUid: toHome!.uuid,
+            });
+            await server.stores.share.reassignEntryOwnerUnder(
+                to.user.id,
+                after,
+            );
+            const moved = await server.stores.fsEntry.getEntryByPath(after);
+
+            const ancestors = vi.spyOn(server.stores.fsEntry, 'getAncestors');
+            let calls = -1;
+            try {
+                await server.clients.event.emitAndWait(
+                    'fs.move.node',
+                    {
+                        node: moved!,
+                        fromPath: file.path,
+                        toPath: after,
+                        fromUserId: from.user.id,
+                    },
+                    {},
+                );
+                await settle();
+                calls = ancestors.mock.calls.filter(
+                    ([path]) => path === `/${to.user.username}`,
+                ).length;
+            } finally {
+                ancestors.mockRestore();
+            }
+            // The share's revoke runs alongside, so no event is promised.
+            expect(calls).toBeGreaterThan(0);
+        });
+
+        describe("when the path may not be the owner's own home", () => {
+            /** Whether a write of `node` read the ancestors above it. */
+            const readsAncestors = async (node: FSEntry) => {
+                const ancestors = vi.spyOn(
+                    server.stores.fsEntry,
+                    'getAncestors',
+                );
+                const parent = node.path.slice(0, node.path.lastIndexOf('/'));
+                let calls = -1;
+                try {
+                    await server.clients.event.emitAndWait(
+                        'fs.write.file',
+                        { node },
+                        {},
+                    );
+                    await settle();
+                    calls = ancestors.mock.calls.filter(
+                        ([path]) => path === parent,
+                    ).length;
+                } finally {
+                    ancestors.mockRestore();
+                }
+                return calls > 0;
+            };
+
+            it('reads ancestors for an owner with no account', async () => {
+                const owner = await makeUser();
+                const file = await makeFile(owner.user);
+                expect(
+                    await readsAncestors({ ...file, userId: 2_000_000_000 }),
+                ).toBe(true);
+            });
+
+            it('reads ancestors when the home differs only in case', async () => {
+                const owner = await makeUser();
+                const file = await makeFile(owner.user);
+                const upper = `/${owner.user.username.toUpperCase()}/${file.name}`;
+                expect(await readsAncestors({ ...file, path: upper })).toBe(
+                    true,
+                );
+            });
+
+            it('reads ancestors under the new name after a rename', async () => {
+                const owner = await makeUser();
+                const file = await makeFile(owner.user);
+                // Caches the old name.
+                expect(await readsAncestors(file)).toBe(false);
+                const renamed = `${owner.user.username}r`;
+                await server.stores.user.update(owner.user.id, {
+                    username: renamed,
+                });
+                const moved = { ...file, path: `/${renamed}/${file.name}` };
+                expect(await readsAncestors(moved)).toBe(true);
+            });
+
+            it('looks an unknown owner up once, misses included', async () => {
+                const owner = await makeUser();
+                const file = await makeFile(owner.user);
+                const ghost = 2_000_000_001;
+                const lookups = vi.spyOn(server.stores.user, 'getById');
+                let calls = -1;
+                try {
+                    for (let round = 0; round < 2; round++) {
+                        await Promise.all(
+                            Array.from({ length: 3 }, () =>
+                                server.clients.event.emitAndWait(
+                                    'fs.write.file',
+                                    { node: { ...file, userId: ghost } },
+                                    {},
+                                ),
+                            ),
+                        );
+                        await settle();
+                    }
+                    calls = lookups.mock.calls.filter(
+                        ([id]) => id === ghost,
+                    ).length;
+                } finally {
+                    lookups.mockRestore();
+                }
+                expect(calls).toBe(1);
+            });
+        });
+
+        it('still reaches a nested entry under a shared folder', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            const nested = await server.services.fs.touch(owner.user.id, {
+                path: `${dir.path}/a/b/deep.txt`,
+                createMissingParents: true,
+            });
+            await settle();
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as {
+                    user_id_list?: number[];
+                    response?: { uuid?: string };
+                };
+                if (
+                    payload.response?.uuid === nested.uuid &&
+                    payload.user_id_list?.includes(recipient.user.id)
+                )
+                    seen.push(data);
+            };
+            server.clients.event.on('outer.gui.item.updated', listener);
+            try {
+                await server.clients.event.emitAndWait(
+                    'fs.write.file',
+                    { node: nested },
+                    {},
+                );
+                for (let i = 0; i < 50 && seen.length === 0; i++)
+                    await settle();
+            } finally {
+                server.clients.event.off('outer.gui.item.updated', listener);
+            }
+            expect(seen).toHaveLength(1);
         });
 
         it('fans out on the next write once something is shared', async () => {

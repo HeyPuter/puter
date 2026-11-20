@@ -24,7 +24,6 @@ import br from './br.js';
 import cs from './cs.js';
 import da from './da.js';
 import de from './de.js';
-import emoji from './emoji.js';
 import en from './en.js';
 import es from './es.js';
 import fa from './fa.js';
@@ -68,7 +67,6 @@ export default {
     cs,
     da,
     de,
-    emoji,
     en,
     es,
     fa,

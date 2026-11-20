@@ -325,6 +325,24 @@ describe('PostgresDatabaseClient', () => {
         ).resolves.toEqual([{ created_at: 3 }]);
     });
 
+    it('refuses an array or object parameter with a 400', async () => {
+        const pool = new RecordingPool();
+        const client = new PostgresDatabaseClient(postgresConfig(), () => pool);
+        await client.onServerStart();
+        const before = pool.calls.length;
+        const query = 'SELECT `name` FROM `apps` WHERE `uid` = ?';
+
+        for (const value of [['a', 'b'], { uid: 'a' }]) {
+            await expect(client.read(query, [value])).rejects.toMatchObject({
+                statusCode: 400,
+            });
+            await expect(client.write(query, [value])).rejects.toMatchObject({
+                statusCode: 400,
+            });
+        }
+        expect(pool.calls.length).toBe(before);
+    });
+
     it('runs batch writes in order and commits', async () => {
         const conn = new RecordingPoolClient();
         const client = new PostgresDatabaseClient(

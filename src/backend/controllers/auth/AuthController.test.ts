@@ -30,11 +30,13 @@
 
 import { installSeatStub } from '../../testFixtures/seatStub.js';
 import bcrypt from 'bcrypt';
+import { inspect } from 'node:util';
 import jwt from 'jsonwebtoken';
 import { TOTP } from 'otpauth';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
+import { RedisClient } from '../../clients/redis/RedisClient.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -58,7 +60,9 @@ import {
     FULL_API_ACCESS,
     NOTIFICATIONS_PUSH_PERMISSION,
 } from '../../services/permission/consts.js';
+import { startSilentRedis } from '../../testFixtures/silentRedis.js';
 import { setupTestServer } from '../../testUtil.js';
+import type { IConfig } from '../../types.js';
 import { resetCardVerificationStatusCache } from '../../util/cardFallback.js';
 import { FS_READ_LIMIT } from '../fs/limits.js';
 
@@ -110,6 +114,8 @@ type CardConfirmOverride = (data: {
     enabled: boolean | null;
     verified: boolean;
     reason: string | null;
+    fingerprint?: string | null;
+    card_entered?: boolean;
 }) => void;
 let cardSetupOverride: CardSetupOverride | null = null;
 let cardConfirmOverride: CardConfirmOverride | null = null;
@@ -202,6 +208,8 @@ interface MockRes {
     clearCookie(name: string): MockRes;
     send(text: string): MockRes;
     end(): MockRes;
+    /** Work deferred past the response never runs here. */
+    once(event: string, listener: () => void): MockRes;
 }
 
 const makeRes = (): MockRes => {
@@ -238,6 +246,9 @@ const makeRes = (): MockRes => {
         end() {
             this.ended = true;
             this.headersSent = true;
+            return this;
+        },
+        once() {
             return this;
         },
     };
@@ -719,6 +730,36 @@ describe('AuthController.handleSignup', () => {
             ),
         );
         expect(audit.ip_fwd).toBe(forged);
+    });
+
+    it('records the request TLS fingerprint on the validate hook and the user row', async () => {
+        const username = `s_${uniq()}`;
+        const tlsFingerprint = 't13d1516h2_8daaf6152771_02713d6af862';
+        let seenTlsFingerprint: unknown;
+
+        await withSignupValidateOverride(
+            (event) => {
+                seenTlsFingerprint = (event as { tls_fingerprint?: unknown })
+                    .tls_fingerprint;
+            },
+            async () => {
+                await controller.handleSignup(
+                    {
+                        ...makeReq({
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        }),
+                        tlsFingerprint,
+                    },
+                    makeRes(),
+                );
+            },
+        );
+
+        expect(seenTlsFingerprint).toBe(tlsFingerprint);
+        const persisted = await server.stores.user.getByUsername(username);
+        expect(persisted!.signup_tls_fingerprint).toBe(tlsFingerprint);
     });
 
     it('forces phone verification on every signup when always_require_phone_verification is set', async () => {
@@ -1416,7 +1457,7 @@ describe('AuthController.handleLogin', () => {
             is_user_token: true,
         });
         expect(body.user.directories).toBeTypeOf('object');
-        expect(Array.isArray(body.user.taskbar_items)).toBe(true);
+        expect(body.user).not.toHaveProperty('taskbar_items');
     });
 
     // A deleted row still answering from cache reaches the session INSERT.
@@ -4765,14 +4806,24 @@ describe('AuthController.handleSendConfirmEmail', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('rotates the email_confirm_code and returns {} on success', async () => {
+    it('rotates the email_confirm_code and reports the send', async () => {
         const { user, actor } = await makeUserAndActor();
         const before = await server.stores.user.getById(user.id, {
             force: true,
         });
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue({ messageId: 'm' } as never);
         const res = makeRes();
-        await controller.handleSendConfirmEmail(makeReq({}, { actor }), res);
-        expect(res.body).toEqual({});
+        try {
+            await controller.handleSendConfirmEmail(
+                makeReq({}, { actor }),
+                res,
+            );
+        } finally {
+            send.mockRestore();
+        }
+        expect(res.body).toEqual({ sent: true });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -4782,7 +4833,7 @@ describe('AuthController.handleSendConfirmEmail', () => {
 
     // The resend is the recovery path for a lost code, so it must not fail
     // silently either.
-    it('alarms — and still returns {} — when the resend send throws', async () => {
+    it('alarms, and still answers 200 with sent: false, when the resend send throws', async () => {
         const { actor } = await makeUserAndActor();
         const alarm = vi
             .spyOn(server.clients.alarm, 'create')
@@ -4797,7 +4848,8 @@ describe('AuthController.handleSendConfirmEmail', () => {
                 res,
             );
             // Not the caller's fault; still a 200.
-            expect(res.body).toEqual({});
+            expect(res.statusCode).toBe(200);
+            expect(res.body).toEqual({ sent: false });
 
             const raised = alarm.mock.calls.find(
                 (c) => c[0] === 'auth:confirmation-email-send-failed:resend',
@@ -6154,7 +6206,6 @@ describe('AuthController SMS → card fallback', () => {
         const { user, actor } = await makeUserAndActor({
             requires_card_verification: 1,
             requires_phone_verification: 1,
-            phone: '+14155550123',
         });
         await openFallback(user.id);
         await withFallbackConfig({ enabled: true }, async () => {
@@ -6267,7 +6318,6 @@ describe('AuthController SMS → card fallback', () => {
         const { user, actor } = await makeUserAndActor({
             requires_card_verification: 1,
             requires_phone_verification: 1,
-            phone: '+14155550123',
         });
         await openFallback(user.id);
         await withFallbackConfig({ enabled: true }, async () => {
@@ -6298,7 +6348,6 @@ describe('AuthController SMS → card fallback', () => {
     it('clears the phone gate via card even when card was not required', async () => {
         const { user, actor } = await makeUserAndActor({
             requires_phone_verification: 1,
-            phone: '+14155550123',
         });
         await openFallback(user.id);
         await withFallbackConfig({ enabled: true }, async () => {
@@ -6320,6 +6369,326 @@ describe('AuthController SMS → card fallback', () => {
             force: true,
         });
         expect(after!.requires_phone_verification).toBe(false);
+    });
+});
+
+describe('AuthController phone on file', () => {
+    const ON_FILE = '+14155550123';
+    const stubPrelude = (over: Record<string, unknown> = {}) => ({
+        isConfigured: () => true,
+        isCountrySupported: () => true,
+        defaultCountry: 'US',
+        createVerification: vi.fn(async () => ({ status: 'success' })),
+        checkVerification: vi.fn(async () => ({ status: 'success' })),
+        ...over,
+    });
+    const withPrelude = async (
+        prelude: unknown,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { prelude: unknown } };
+        const real = ctrl.clients.prelude;
+        ctrl.clients.prelude = prelude;
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.prelude = real;
+        }
+    };
+    const withFallbackConfig = async (
+        value: unknown,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const cfg = (controller as { config: Record<string, unknown> }).config;
+        const prev = cfg.phone_verification_card_fallback;
+        cfg.phone_verification_card_fallback = value;
+        try {
+            await fn();
+        } finally {
+            cfg.phone_verification_card_fallback = prev;
+        }
+    };
+    const onFileAccount = (extra: Record<string, unknown> = {}) =>
+        makeUserAndActor({
+            phone: ON_FILE,
+            requires_phone_verification: 1,
+            ...extra,
+        });
+    const confirmCard = async (
+        actor: Actor,
+        fingerprint: string,
+        entered = true,
+    ): Promise<MockRes> => {
+        const res = makeRes();
+        await withCardConfirmOverride(
+            (data) => {
+                data.enabled = true;
+                data.verified = true;
+                data.fingerprint = fingerprint;
+                data.card_entered = entered;
+            },
+            () =>
+                controller.handleCardVerificationConfirm(
+                    makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                    res,
+                ),
+        );
+        return res;
+    };
+
+    it('sends the code to the number on file, whatever number the request names', async () => {
+        const { user, actor } = await onFileAccount();
+        const prelude = stubPrelude();
+        await withPrelude(prelude, async () => {
+            await controller.handleSendConfirmPhone(
+                makeReq({ phone: '+14155550999' }, { actor }),
+                makeRes(),
+            );
+        });
+        expect(prelude.createVerification).toHaveBeenCalledWith(
+            ON_FILE,
+            expect.anything(),
+        );
+        const { res: staged } = await server.stores.kv.get({
+            key: `phone-verify-pending:${user.id}`,
+        });
+        expect(staged).toBe(ON_FILE);
+    });
+
+    it('confirms only against the number on file', async () => {
+        const { user, actor } = await onFileAccount();
+        // A number staged before the step was set doesn't count.
+        await server.stores.kv.set({
+            key: `phone-verify-pending:${user.id}`,
+            value: '+14155550999',
+        });
+        const prelude = stubPrelude();
+        await withPrelude(prelude, async () => {
+            const res = makeRes();
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor }),
+                res,
+            );
+            expect(res.body).toMatchObject({ phone_verified: true });
+        });
+        expect(prelude.checkVerification).toHaveBeenCalledWith(
+            ON_FILE,
+            '123456',
+        );
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after).toMatchObject({
+            phone: ON_FILE,
+            requires_phone_verification: false,
+        });
+    });
+
+    it('opens the card fallback for a lost number without sending anything', async () => {
+        const { user, actor } = await onFileAccount({
+            card_fingerprint: 'fp_on_file',
+        });
+        const prelude = stubPrelude();
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(prelude, async () => {
+                const res = makeRes();
+                await controller.handleSendConfirmPhone(
+                    makeReq({ lostNumber: true }, { actor }),
+                    res,
+                );
+                expect(res.body).toEqual({ card_fallback_available: true });
+            });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
+        const { res: flag } = await server.stores.kv.get({
+            key: `card-fallback-open:${user.id}`,
+        });
+        expect(flag).toBe(true);
+    });
+
+    it('points a lost number at support when the account has no card on file', async () => {
+        const { actor } = await onFileAccount();
+        const prelude = stubPrelude();
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(prelude, async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ lostNumber: true }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 409,
+                    code: 'phone_on_file_unavailable',
+                });
+            });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
+    });
+
+    it('clears the step only with the card already on file', async () => {
+        const { user, actor } = await onFileAccount({
+            card_fingerprint: 'fp_on_file',
+        });
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await controller.handleSendConfirmPhone(
+                    makeReq({ lostNumber: true }, { actor }),
+                    makeRes(),
+                );
+            });
+            // Another card, and the right card reused without being entered.
+            for (const [fingerprint, entered] of [
+                ['fp_other', true],
+                ['fp_on_file', false],
+            ] as const) {
+                expect(
+                    (await confirmCard(actor, fingerprint, entered)).body,
+                ).toEqual({
+                    card_verified: false,
+                    reason: 'card_not_on_file',
+                });
+            }
+            expect(
+                (await server.stores.user.getById(user.id, { force: true }))!
+                    .requires_phone_verification,
+            ).toBe(true);
+            expect((await confirmCard(actor, 'fp_on_file')).body).toMatchObject(
+                { card_verified: true, phone_verified: true },
+            );
+        });
+        // The number counts as proven for the next hour.
+        expect(
+            (
+                await server.stores.kv.get({
+                    key: `phone-on-file-proven:${user.id}`,
+                })
+            ).res,
+        ).toBe(ON_FILE);
+        expect(
+            (await server.stores.user.getById(user.id, { force: true }))!
+                .requires_phone_verification,
+        ).toBe(false);
+    });
+
+    it('marks the number proven only when it is the one on file', async () => {
+        const proven = async (id: number) =>
+            (await server.stores.kv.get({ key: `phone-on-file-proven:${id}` }))
+                .res ?? null;
+
+        const onFile = await onFileAccount();
+        await withPrelude(stubPrelude(), async () => {
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor: onFile.actor }),
+                makeRes(),
+            );
+        });
+        expect(await proven(onFile.user.id)).toBe(ON_FILE);
+
+        // A number entered for the first time proves nothing about the past.
+        const fresh = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await server.stores.kv.set({
+            key: `phone-verify-pending:${fresh.user.id}`,
+            value: ON_FILE,
+        });
+        await withPrelude(stubPrelude(), async () => {
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor: fresh.actor }),
+                makeRes(),
+            );
+        });
+        expect(await proven(fresh.user.id)).toBeNull();
+    });
+
+    it('lets no new card through while a number on file waits, whatever the gate order', async () => {
+        // Card-first order reaches the card check without the fallback.
+        const { user, actor } = await onFileAccount({
+            requires_card_verification: 1,
+        });
+        await server.stores.user.updateMetadata(user.id, {
+            emailGateLast: true,
+        });
+        expect((await confirmCard(actor, 'fp_new')).body).toEqual({
+            card_verified: false,
+            reason: 'card_not_on_file',
+        });
+        expect(
+            (await server.stores.user.getById(user.id, { force: true }))!
+                .requires_card_verification,
+        ).toBe(true);
+    });
+
+    it('offers no card for a number on file from a fallback opened earlier', async () => {
+        const { user, actor } = await onFileAccount();
+        await server.stores.kv.set({
+            key: `card-fallback-open:${user.id}`,
+            value: true,
+        });
+        await withFallbackConfig({ enabled: true }, async () => {
+            await expect(
+                controller.handleCardVerificationSetup(
+                    makeReq({}, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 409 });
+        });
+    });
+
+    it('sends at most two codes a day to a number on file', async () => {
+        const { actor } = await onFileAccount();
+        const prelude = stubPrelude();
+        await withPrelude(prelude, async () => {
+            for (let i = 0; i < 2; i++) {
+                await controller.handleSendConfirmPhone(
+                    makeReq({}, { actor }),
+                    makeRes(),
+                );
+            }
+            await expect(
+                controller.handleSendConfirmPhone(makeReq({}, { actor }), makeRes()),
+            ).rejects.toMatchObject({
+                statusCode: 429,
+                code: 'phone_on_file_send_limit',
+            });
+        });
+        expect(prelude.createVerification).toHaveBeenCalledTimes(2);
+    });
+
+    it('points a lost number at support when there is no card fallback', async () => {
+        const { actor } = await onFileAccount();
+        const prelude = stubPrelude();
+        await withFallbackConfig({ enabled: false }, async () => {
+            await withPrelude(prelude, async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ lostNumber: true }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 409,
+                    code: 'phone_on_file_unavailable',
+                });
+            });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
+    });
+
+    it('lets an account with no number on file name one', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        const prelude = stubPrelude();
+        await withPrelude(prelude, async () => {
+            await controller.handleSendConfirmPhone(
+                makeReq({ phone: '+14155550999', lostNumber: true }, { actor }),
+                makeRes(),
+            );
+        });
+        expect(prelude.createVerification).toHaveBeenCalledWith(
+            '+14155550999',
+            expect.anything(),
+        );
     });
 });
 
@@ -6476,13 +6845,20 @@ describe('AuthController.handleConfirmEmail', () => {
                 email_confirmed: false,
             },
         } as Actor;
+        // Mailed, so the code is current and the address check is what refuses.
+        await server.services.signup.sendConfirmationEmail(claimant, 'resend', {
+            code: '123456',
+        });
 
         await expect(
             controller.handleConfirmEmail(
                 makeReq({ code: '123456' }, { actor }),
                 makeRes(),
             ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'email_already_in_use',
+        });
 
         const untouched = await server.stores.user.getById(owner.id, {
             force: true,
@@ -6654,6 +7030,17 @@ describe('AuthController password recovery', () => {
         await expect(
             controller.handleSendPassRecoveryEmail(makeReq({}), makeRes()),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('send-pass-recovery-email: 400 for a username that is not a string', async () => {
+        for (const username of [['a', 'b'], { username: 1 }, 7]) {
+            await expect(
+                controller.handleSendPassRecoveryEmail(
+                    makeReq({ username }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
     });
 
     it('send-pass-recovery-email: returns the generic message even for an unknown username (no leak)', async () => {
@@ -7343,7 +7730,7 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change-email: 400 on missing/invalid email and on a confirmed-account collision', async () => {
-        const { actor } = await makeUserAndActor();
+        const { actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
         await expect(
             controller.handleChangeEmail(makeReq({}, { actor }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -7388,7 +7775,7 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change-email: stages the new email + token on success', async () => {
-        const { user, actor } = await makeUserAndActor();
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
         const newEmail = `ch_${uniq()}@test.local`;
         const res = makeRes();
         await controller.handleChangeEmail(
@@ -7449,7 +7836,7 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change_email/confirm: completes the swap when the token matches the staged row', async () => {
-        const { user, actor } = await makeUserAndActor();
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
         const newEmail = `chc_${uniq()}@test.local`;
         await controller.handleChangeEmail(
             makeReq({ new_email: newEmail }, { actor }),
@@ -7517,6 +7904,46 @@ describe('AuthController.handleSaveAccount', () => {
             } as Actor,
         };
     };
+
+    it('sends the confirmation code on the account confirmation stream', async () => {
+        const { user, actor } = await makeTempActor();
+        await server.stores.user.updateMetadata(user.id, {
+            emailStream: 'review',
+        });
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue(null);
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        try {
+            const username = `s_${uniq()}`;
+            await controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username,
+                        email: `${username}@test.local`,
+                        password: 'correct-horse-battery',
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                `${username}@test.local`,
+                'email_verification_code',
+                expect.anything(),
+                { stream: 'review' },
+            );
+            // The dropped send is reported under its own stage.
+            expect(alarm.mock.calls.map((c) => c[0])).toEqual([
+                'auth:confirmation-email-send-failed:save-account',
+            ]);
+        } finally {
+            send.mockRestore();
+            alarm.mockRestore();
+        }
+    });
 
     it('rejects non-temp accounts with 400', async () => {
         const { actor } = await makeUserAndActor();
@@ -8293,11 +8720,10 @@ describe('AuthController session endpoints', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('revoke-session: 403 when revoking someone else’s session', async () => {
+    it('revoke-session: 404 when revoking someone else’s session', async () => {
         const { user: u1 } = await makeUserAndActor();
         const { actor: a2 } = await makeUserAndActor();
-        // Create a real session for u1 so the lookup succeeds, then attempt
-        // to revoke it as a2 — must 403.
+        // A real session of u1, revoked as a2: answers as a missing one.
         const sessionRes = await server.services.auth.createSessionToken(
             u1,
             {},
@@ -8310,7 +8736,7 @@ describe('AuthController session endpoints', () => {
                 ),
                 makeRes(),
             ),
-        ).rejects.toMatchObject({ statusCode: 403 });
+        ).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('rename-session: 400 when uuid param is missing', async () => {
@@ -8458,6 +8884,22 @@ describe('AuthController dev-app permission flows', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('revoke-dev-app: 400 on a parameter of the wrong type', async () => {
+        const { actor } = await makeUserAndActor();
+        for (const body of [
+            { app_uid: 'app-x', permission: ['fs:read'] },
+            { app_uid: { uid: 'app-x' }, permission: 'fs:read' },
+            { app_uid: 'app-x', permission: 'fs:read', meta: 'note' },
+        ]) {
+            await expect(
+                controller.handleRevokeDevApp(
+                    makeReq(body, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
     });
 
     it('grant/revoke-dev-app: an unregistered `origin` cannot be redirected onto an app squatting its synthetic uid', async () => {
@@ -9510,14 +9952,18 @@ describe('AuthController.handleSignup additional branches', () => {
                 },
                 async () => {
                     const username = `cefail_${uniq()}`;
+                    const res = makeRes();
                     await controller.handleSignup(
                         makeReq({
                             username,
                             email: `${username}@test.local`,
                             password: 'correct-horse-battery',
                         }),
-                        makeRes(),
+                        res,
                     );
+                    expect(res.body).toMatchObject({
+                        confirmation_email_sent: false,
+                    });
                 },
             );
 
@@ -9530,11 +9976,98 @@ describe('AuthController.handleSignup additional branches', () => {
             // No phone/card gate outstanding: stuck on the email alone.
             expect(fields.sole_gate).toBe(true);
             expect(fields.email_domain).toBe('test.local');
-            expect(raised![3]).toBe('warning');
-            expect(raised![4]).toEqual({ dedup: true });
+            expect(raised![3]).toBe('info');
+            expect(raised![4]).toEqual({ dedup: true, channel: 'email' });
         } finally {
             alarm.mockRestore();
         }
+    });
+});
+
+describe('AuthController.handleSignup confirmation email outcome', () => {
+    const signupWithSend = async (send: () => Promise<unknown>) => {
+        const spy = vi
+            .spyOn(server.clients.email, 'send')
+            .mockImplementation(send as never);
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = makeRes();
+        const username = `ceo_${uniq()}`;
+        let alarms: string[] = [];
+        try {
+            await withSignupValidateOverride(
+                (event) => {
+                    event.requires_email_confirmation = true;
+                },
+                () =>
+                    controller.handleSignup(
+                        makeReq({
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        }),
+                        res,
+                    ),
+            );
+            alarms = alarm.mock.calls.map((c) => String(c[0]));
+        } finally {
+            spy.mockRestore();
+            alarm.mockRestore();
+        }
+        return {
+            body: res.body as {
+                proceed: boolean;
+                confirmation_email_sent?: boolean;
+                user: { requires_email_confirmation: boolean };
+            },
+            alarms,
+        };
+    };
+
+    it('reports a send that throws and still completes the signup', async () => {
+        const { body, alarms } = await signupWithSend(async () => {
+            throw new Error('refused');
+        });
+        expect(body.proceed).toBe(true);
+        expect(body.confirmation_email_sent).toBe(false);
+        expect(body.user.requires_email_confirmation).toBeTruthy();
+        expect(alarms).toContain('auth:confirmation-email-send-failed:signup');
+    });
+
+    it('reports a send the transport accepted', async () => {
+        const { body } = await signupWithSend(async () => ({ messageId: 'm' }));
+        expect(body.confirmation_email_sent).toBe(true);
+    });
+
+    it('keeps the confirmation stream out of the returned user details', async () => {
+        const res = makeRes();
+        const username = `ces_${uniq()}`;
+        await withSignupValidateOverride(
+            (event) => {
+                (event as Record<string, unknown>).email_stream = 'review';
+            },
+            () =>
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `${username}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    res,
+                ),
+        );
+        const stored = await server.stores.user.getByUsername(username);
+        expect(stored!.metadata?.emailStream).toBe('review');
+        const details = (res.body as { user: { metadata?: object } }).user;
+        expect(details.metadata ?? {}).not.toHaveProperty('emailStream');
+    });
+
+    it('leaves the field out when no confirmation email is due', async () => {
+        const res = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), res);
+        expect(res.body).toMatchObject({ proceed: true });
+        expect(res.body).not.toHaveProperty('confirmation_email_sent');
     });
 });
 
@@ -9733,8 +10266,8 @@ describe('AuthController user-protected mutations: additional branches', () => {
     it('change-email: 400 when an unconfirmed-but-password-holding account already owns the email', async () => {
         // Other user: password set, email NOT confirmed → still blocks
         // (existing.password !== null branch).
-        const { user: other } = await makeUserAndActor();
-        const { actor } = await makeUserAndActor();
+        const { user: other } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
+        const { actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
         await expect(
             controller.handleChangeEmail(
                 makeReq({ new_email: other.email! }, { actor }),
@@ -10080,6 +10613,77 @@ describe('AuthController.handleRevokeSession additional branches', () => {
         );
         const body = res.body as { sessions: unknown[] };
         expect(Array.isArray(body.sessions)).toBe(true);
+    });
+
+    const expiredSessionOf = async (user: { id: number }) => {
+        const row = await server.stores.session.create(user.id, {
+            expires_at: Math.floor(Date.now() / 1000) - 1,
+        });
+        return row.uuid as string;
+    };
+
+    it('revokes an expired session the caller owns', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const uuid = await expiredSessionOf(user);
+        const res = makeRes();
+        await controller.handleRevokeSession(makeReq({ uuid }, { actor }), res);
+
+        const body = res.body as { sessions: Array<{ uuid: string }> };
+        expect(body.sessions.map((s) => s.uuid)).not.toContain(uuid);
+        const rows = await server.clients.db.read(
+            'SELECT `revoked_at` FROM `sessions` WHERE `uuid` = ?',
+            [uuid],
+        );
+        expect(rows[0].revoked_at).not.toBeNull();
+    });
+
+    it('revoking an expired session ends its live child token', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const parent = await expiredSessionOf(user);
+        const child = await server.stores.session.getOrCreateGodmodeToken(
+            user.id,
+            {
+                parentSessionUid: parent,
+                appUid: `app-${uuidv4()}`,
+                expiresAt: Math.floor(Date.now() / 1000) + 3600,
+                maxAgeSeconds: 3600,
+                label: 'Godmode app',
+                auth_id: user.uuid,
+            },
+        );
+        const childUuid = child!.row.uuid as string;
+        expect(await server.stores.session.getByUuid(childUuid)).toBeTruthy();
+
+        await controller.handleRevokeSession(
+            makeReq({ uuid: parent }, { actor }),
+            makeRes(),
+        );
+
+        expect(await server.stores.session.getByUuid(childUuid)).toBeNull();
+    });
+
+    it('answers 404 for an expired session of another user', async () => {
+        const { user: owner } = await makeUserAndActor();
+        const { actor } = await makeUserAndActor();
+        const uuid = await expiredSessionOf(owner);
+        await expect(
+            controller.handleRevokeSession(
+                makeReq({ uuid }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('answers 404 for a session that is already revoked', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const row = await server.stores.session.create(user.id);
+        await server.stores.session.removeByUuid(row.uuid);
+        await expect(
+            controller.handleRevokeSession(
+                makeReq({ uuid: row.uuid }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('refuses to revoke the caller’s OWN current session row (400)', async () => {
@@ -10562,10 +11166,10 @@ describe('AuthController.loginWait audience binding', () => {
         // party holding the session id is somewhere else entirely.
         const token = await mintAppToken(actor, OPENER);
 
-        const { res, outcome } = await waitWithRelay(
-            uuidv4(),
-            { origin: 'https://evil.test' },
-            token,
+        const session = uuidv4();
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: 'https://evil.test' }],
+            { during: () => setToken(session, token) },
         );
         // Same 408 the empty path returns — a mismatched caller must not be
         // able to tell "nothing arrived" from "something arrived for someone
@@ -10641,10 +11245,10 @@ describe('AuthController.loginWait audience binding', () => {
         );
         const guiToken = (loginRes.body as { token: string }).token;
 
-        const { res, outcome } = await waitWithRelay(
-            uuidv4(),
-            { origin: OPENER },
-            guiToken,
+        const session = uuidv4();
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            { during: () => setToken(session, guiToken) },
         );
         expect(outcome).toMatchObject({ statusCode: 408 });
         expect(res.body).toBeUndefined();
@@ -10659,13 +11263,444 @@ describe('AuthController.loginWait audience binding', () => {
             { keyid: 'v2' },
         );
 
-        const { res, outcome } = await waitWithRelay(
-            uuidv4(),
-            { origin: OPENER },
-            forged,
+        const session = uuidv4();
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            { during: () => setToken(session, forged) },
         );
         expect(outcome).toMatchObject({ statusCode: 408 });
         expect(res.body).toBeUndefined();
+    });
+
+    /** Post a token to `/login/set` with no wait running. */
+    const setToken = (session: string, token: string) =>
+        controller.loginSet(makeReq({ session, auth_token: token }), makeRes());
+
+    /**
+     * Run waits on fake timers so the 10 s window passes without real waiting.
+     * `during` runs once every wait has subscribed; `now` pins the clock.
+     */
+    const runWaits = async (
+        calls: Array<{ session: string; origin: string; clientGone?: boolean }>,
+        opts: { now?: number; during?: () => Promise<unknown> } = {},
+    ) => {
+        const subscribed = vi.spyOn(eventClient, 'on');
+        vi.useFakeTimers({
+            toFake:
+                opts.now === undefined
+                    ? ['setTimeout']
+                    : ['setTimeout', 'Date'],
+        });
+        if (opts.now !== undefined) vi.setSystemTime(opts.now);
+        const tick = () => new Promise((r) => setImmediate(r));
+        try {
+            let pending = calls.length;
+            const runs = calls.map(({ session, origin, clientGone }) => {
+                const res = makeRes();
+                const req = makeReq({ session }, { headers: { origin } });
+                if (clientGone) {
+                    Object.assign(req.socket, { destroyed: true });
+                }
+                const outcome = controller
+                    .loginWait(req, res)
+                    .then(
+                        () => 'ok' as const,
+                        (e: unknown) => e,
+                    )
+                    .finally(() => {
+                        pending--;
+                    });
+                return { res, outcome };
+            });
+            const allSubscribed = () =>
+                calls.every(({ session }) =>
+                    subscribed.mock.calls.some(
+                        ([key]) => key === `pubsub.login.${session}`,
+                    ),
+                );
+            for (let i = 0; i < 200 && pending > 0 && !allSubscribed(); i++) {
+                await tick();
+            }
+            for (let i = 0; i < 20; i++) await tick();
+            await opts.during?.();
+            for (let i = 0; i < 200 && pending > 0; i++) {
+                await tick();
+                await vi.advanceTimersByTimeAsync(1000);
+            }
+            return await Promise.all(
+                runs.map(async ({ res, outcome }) => ({
+                    res,
+                    outcome: await outcome,
+                })),
+            );
+        } finally {
+            vi.useRealTimers();
+            subscribed.mockRestore();
+        }
+    };
+
+    const waitAlone = async (session: string, origin: string, now?: number) =>
+        (await runWaits([{ session, origin }], { now }))[0];
+
+    it('relays a token from set to a wait within one timeout when Redis never answers', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+
+        const silent = await startSilentRedis(true);
+        const quiet = ['log', 'warn', 'error'].map((level) =>
+            vi.spyOn(console, level as 'log').mockImplementation(() => {}),
+        );
+        const stalled = new RedisClient({
+            redis: {
+                startupNodes: [{ host: '127.0.0.1', port: silent.port }],
+                tls: false,
+                commandTimeoutMs: 1000,
+            },
+        } as unknown as IConfig);
+        await new Promise<void>((r) => stalled.once('ready', () => r()));
+        const clients = server.clients as { redis: RedisClient };
+        const real = clients.redis;
+        clients.redis = stalled;
+        try {
+            const started = Date.now();
+            const { res, outcome } = await waitWithRelay(
+                uuidv4(),
+                { origin: OPENER },
+                token,
+            );
+            const elapsed = Date.now() - started;
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+            // One timeout, not one per call: two calls would take 2000 ms.
+            expect(elapsed).toBeLessThan(1800);
+        } finally {
+            clients.redis = real;
+            stalled.disconnect();
+            await silent.close();
+            for (const spy of quiet) spy.mockRestore();
+        }
+    }, 30_000);
+
+    it('delivers a token set before the wait subscribes', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('delivers a token set between one wait timing out and the next', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const first = await waitAlone(session, OPENER);
+        expect(first.outcome).toMatchObject({ statusCode: 408 });
+
+        await setToken(session, token);
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('hands a token out only once', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        expect((await waitAlone(session, OPENER)).outcome).toBe('ok');
+
+        const again = await waitAlone(session, OPENER);
+        expect(again.outcome).toMatchObject({ statusCode: 408 });
+        expect(again.res.body).toBeUndefined();
+    });
+
+    it('withholds a stored token from a mismatched Origin and keeps it for the matching one', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        const other = await waitAlone(session, 'https://other.test');
+        expect(other.outcome).toMatchObject({ statusCode: 408 });
+        expect(other.res.body).toBeUndefined();
+
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('drops a stored token after a couple of minutes', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const early = uuidv4();
+        const late = uuidv4();
+        await setToken(early, token);
+        await setToken(late, token);
+
+        const start = Date.now();
+        expect((await waitAlone(early, OPENER, start + 110_000)).outcome).toBe(
+            'ok',
+        );
+        const expired = await waitAlone(late, OPENER, start + 121_000);
+        expect(expired.outcome).toMatchObject({ statusCode: 408 });
+    });
+
+    it('keeps waiting past a stored token for another app and delivers the real one', async () => {
+        const { actor } = await makeUserAndActor();
+        const otherToken = await mintAppToken(actor, 'https://other.test');
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, otherToken);
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            {
+                during: () => setToken(session, token),
+            },
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('still relays to a subscribed wait when storing the token fails', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+        const failingSet = vi
+            .spyOn(server.clients.redis, 'set')
+            .mockRejectedValueOnce(new Error('unavailable'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            let setRes: MockRes | undefined;
+            const [{ res, outcome }] = await runWaits(
+                [{ session, origin: OPENER }],
+                {
+                    during: async () => {
+                        setRes = makeRes();
+                        await controller.loginSet(
+                            makeReq({ session, auth_token: token }),
+                            setRes,
+                        );
+                    },
+                },
+            );
+            expect(setRes?.body).toEqual({ success: true });
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        } finally {
+            failingSet.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
+    it('removes the stored copy once a subscribed wait takes the token', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const { outcome } = await waitWithRelay(
+            session,
+            { origin: OPENER },
+            token,
+        );
+        expect(outcome).toBe('ok');
+
+        const later = await waitAlone(session, OPENER);
+        expect(later.outcome).toMatchObject({ statusCode: 408 });
+    });
+
+    it('hands a stored token to only one of two concurrent waits', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        const results = await runWaits([
+            { session, origin: OPENER },
+            { session, origin: OPENER },
+        ]);
+        const outcomes = results.map((r) => r.outcome);
+        expect(outcomes.filter((o) => o === 'ok')).toHaveLength(1);
+        expect(outcomes.filter((o) => o !== 'ok')).toEqual([
+            expect.objectContaining({ statusCode: 408 }),
+        ]);
+    });
+
+    it('relays a token to every wait already subscribed', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const results = await runWaits(
+            [
+                { session, origin: OPENER },
+                { session, origin: OPENER },
+            ],
+            { during: () => setToken(session, token) },
+        );
+        expect(results.map((r) => r.outcome)).toEqual(['ok', 'ok']);
+        for (const { res } of results) {
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        }
+    });
+
+    it('keeps the stored copy when the subscribed wait has lost its client', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await runWaits([{ session, origin: OPENER, clientGone: true }], {
+            during: () => setToken(session, token),
+        });
+
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('still relays to a subscribed wait when the stored copy cannot be read or removed', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+        const failingGet = vi
+            .spyOn(server.clients.redis, 'get')
+            .mockRejectedValue(new Error('unavailable'));
+        const failingEval = vi
+            .spyOn(server.clients.redis, 'eval')
+            .mockRejectedValue(new Error('unavailable'));
+        try {
+            const [{ res, outcome }] = await runWaits(
+                [{ session, origin: OPENER }],
+                { during: () => setToken(session, token) },
+            );
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        } finally {
+            failingGet.mockRestore();
+            failingEval.mockRestore();
+        }
+    });
+
+    it('answers a subscribed wait when a second token is set right after the first', async () => {
+        const { actor } = await makeUserAndActor();
+        const first = await mintAppToken(actor, OPENER);
+        // A later `iat` makes the second token differ from the first.
+        await new Promise((r) => setTimeout(r, 1100));
+        const second = await mintAppToken(actor, OPENER);
+        expect(second).not.toBe(first);
+        const session = uuidv4();
+
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            {
+                during: async () => {
+                    await setToken(session, first);
+                    await setToken(session, second);
+                },
+            },
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(first);
+    });
+
+    it('keeps a subscribed wait listening past a token for another app', async () => {
+        const { actor } = await makeUserAndActor();
+        const otherToken = await mintAppToken(actor, 'https://other.test');
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            {
+                during: async () => {
+                    await setToken(session, otherToken);
+                    await setToken(session, token);
+                },
+            },
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it("keeps a stored token when a later set carries another app's token or an unsigned one", async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const otherToken = await mintAppToken(actor, 'https://other.test');
+        const session = uuidv4();
+
+        await setToken(session, token);
+        await setToken(session, otherToken);
+        await setToken(session, 'x'.repeat(100_000));
+
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('stores only a token this server signed for an app', async () => {
+        const { actor } = await makeUserAndActor();
+        const real = await mintAppToken(actor, OPENER);
+        const forged = jwt.sign(
+            jwt.decode(real) as object,
+            'not-the-server-secret',
+            { keyid: 'v2' },
+        );
+        const set = vi.spyOn(server.clients.redis, 'set');
+        try {
+            const session = uuidv4();
+            await setToken(session, forged);
+            await setToken(session, 'x'.repeat(100_000));
+            expect(set).not.toHaveBeenCalled();
+
+            await setToken(session, real);
+            expect(set).toHaveBeenCalledTimes(1);
+        } finally {
+            set.mockRestore();
+        }
+    });
+
+    it('leaves the token out of the warning when storing it fails', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+        const failure = Object.assign(new Error('ERR unavailable'), {
+            command: { name: 'set', args: [session, token, 'EX', '120'] },
+        });
+        const failingSet = vi
+            .spyOn(server.clients.redis, 'set')
+            .mockRejectedValueOnce(failure);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const res = makeRes();
+            await controller.loginSet(
+                makeReq({ session, auth_token: token }),
+                res,
+            );
+            expect(res.body).toEqual({ success: true });
+            expect(warn).toHaveBeenCalled();
+            const logged = warn.mock.calls
+                .flat()
+                .map((arg) => inspect(arg, { depth: 10 }))
+                .join(' ');
+            expect(logged).not.toContain(token);
+        } finally {
+            failingSet.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
+    it('answers 400 when auth_token is not a string', async () => {
+        await expect(
+            controller.loginSet(
+                makeReq({ session: uuidv4(), auth_token: { nested: true } }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
     });
 });
 
@@ -11021,5 +12056,102 @@ describe('AuthController — a seat address nobody confirmed', () => {
         );
         expect(await emailOf(tempRow!.id)).toBe(seat.email);
         expect(await emailOf(seat.id)).toBeNull();
+    });
+});
+
+describe('AuthController account mail streams', () => {
+    const spySend = () =>
+        vi.spyOn(server.clients.email, 'send').mockResolvedValue(null);
+
+    it('sends password recovery on the auth stream', async () => {
+        const { user } = await makeUserAndActor();
+        const send = spySend();
+        try {
+            await controller.handleSendPassRecoveryEmail(
+                makeReq({ email: user.email! }),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'email_password_recovery',
+                expect.anything(),
+                { stream: 'auth' },
+            );
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('sends the password change notice on the auth stream', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const req = makeReq({ new_pass: 'a-fresh-password-456' }, { actor });
+        (req as unknown as { userProtected: unknown }).userProtected = { user };
+        const send = spySend();
+        try {
+            await controller.handleChangePassword(req, makeRes());
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'password_change_notification',
+                expect.anything(),
+                { stream: 'auth' },
+            );
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('sends both change-email messages on the auth stream', async () => {
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
+        const newEmail = `cs_${uniq()}@test.local`;
+        const send = spySend();
+        const sendRaw = vi
+            .spyOn(server.clients.email, 'sendRaw')
+            .mockResolvedValue(null);
+        try {
+            await controller.handleChangeEmail(
+                makeReq({ new_email: newEmail }, { actor }),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                newEmail,
+                'email_verification_link',
+                expect.anything(),
+                { stream: 'auth' },
+            );
+            expect(sendRaw).toHaveBeenCalledWith(
+                expect.objectContaining({ to: user.email, stream: 'auth' }),
+            );
+        } finally {
+            send.mockRestore();
+            sendRaw.mockRestore();
+        }
+    });
+
+    it('sends the 2FA enable and disable notices on the auth stream', async () => {
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
+        const send = spySend();
+        try {
+            const { secret } = await setup2fa(actor);
+            await enable2fa(actor, { code: liveTotp(user.username, secret) });
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'enabled_2fa',
+                { username: user.username },
+                { stream: 'auth' },
+            );
+
+            await controller.handleDisable2fa(
+                makeReq({ code: liveTotp(user.username, secret) }, { actor }),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'disabled_2fa',
+                { username: user.username },
+                { stream: 'auth' },
+            );
+        } finally {
+            send.mockRestore();
+        }
     });
 });

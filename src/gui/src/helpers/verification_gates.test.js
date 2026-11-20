@@ -14,8 +14,11 @@ vi.mock('../UI/UIWindowCardVerificationRequired.js', () => ({
 const {
     is_verification_gate_error,
     openVerificationGateWindow,
+    runVerificationGates,
     with_verification_gate,
 } = await import('./verification_gates.js');
+const { default: emailGate } = await import('../UI/UIWindowEmailConfirmationRequired.js');
+const { default: cardGate } = await import('../UI/UIWindowCardVerificationRequired.js');
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -91,7 +94,16 @@ describe('openVerificationGateWindow with factors', () => {
         expect(options.show_close_button).toBeUndefined();
         expect(options.logout_in_footer).toBeUndefined();
         expect(options.card_alternative).toBe(false);
-        expect(window.refresh_user_data).not.toHaveBeenCalled();
+        // Read once before opening; nothing after backing out.
+        expect(window.refresh_user_data).toHaveBeenCalledTimes(1);
+    });
+
+    test('reads the account before opening, so the window sees a gate set mid-session', async () => {
+        const order = [];
+        window.refresh_user_data = vi.fn(async () => order.push('refresh'));
+        phoneGate.mockImplementationOnce(async () => order.push('window') && false);
+        await openVerificationGateWindow('phone_verification_required');
+        expect(order).toEqual(['refresh', 'window']);
     });
 
     test('offers the card alongside when the server accepts either', async () => {
@@ -151,5 +163,65 @@ describe('with_verification_gate', () => {
         await expect(with_verification_gate(fn)).rejects.toBe(gate_error);
         expect(fn).toHaveBeenCalledTimes(2);
         expect(phoneGate).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('runVerificationGates', () => {
+    const track = () => {
+        const order = [];
+        emailGate.mockImplementation(async () => order.push('email') > 0);
+        phoneGate.mockImplementation(async () => order.push('phone') > 0);
+        cardGate.mockImplementation(async () => order.push('card') > 0);
+        return order;
+    };
+    const all = { requires_phone_verification: true, requires_card_verification: true };
+
+    test('runs email, phone, then card', async () => {
+        const order = track();
+        await expect(runVerificationGates(all, true, false, false)).resolves.toBe(true);
+        expect(order).toEqual(['email', 'phone', 'card']);
+    });
+
+    test('runs the email last for an account that clears it last', async () => {
+        const order = track();
+        await runVerificationGates({ ...all, email_gate_last: true }, true, false, false);
+        expect(order).toEqual(['card', 'phone', 'email']);
+    });
+
+    test('skips the email when not asked, and the card when the phone fallback cleared it', async () => {
+        const order = track();
+        phoneGate.mockImplementationOnce(async () => order.push('phone') && 'card');
+        await runVerificationGates({ ...all, card_fallback_available: true }, false, false, false);
+        expect(order).toEqual(['phone']);
+        expect(phoneGate.mock.calls[0][0].card_fallback_available).toBe(true);
+    });
+
+    test('reopens the phone window until it is cleared', async () => {
+        phoneGate.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+        await runVerificationGates({ requires_phone_verification: true }, false, false, true);
+        expect(phoneGate).toHaveBeenCalledTimes(2);
+        expect(phoneGate.mock.calls[0][0].window_options).toEqual({ cover_page: true, has_head: false });
+    });
+
+    test('skips a gate the one before it cleared, reading the account again in between', async () => {
+        const order = track();
+        globalThis.puter = { os: { user: vi.fn(async () => ({ requires_phone_verification: false })) } };
+        try {
+            await runVerificationGates({ requires_phone_verification: true, phone_on_file: '42' }, true, false, false);
+        } finally {
+            delete globalThis.puter;
+        }
+        expect(order).toEqual(['email']);
+    });
+
+    test('tells the phone window which number is on file', async () => {
+        track();
+        await runVerificationGates({ requires_phone_verification: true, phone_on_file: '42' }, false, false, false);
+        expect(phoneGate.mock.calls[0][0].phone_on_file).toBe('42');
+    });
+
+    test('reports an email the user did not confirm', async () => {
+        emailGate.mockResolvedValue(false);
+        await expect(runVerificationGates({}, true, false, false)).resolves.toBe(false);
     });
 });

@@ -24,11 +24,7 @@ import { computeNetworkFingerprint } from '../../core/http/middleware/rateLimit.
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { PEER_COSTS } from './costs.js';
-import {
-    readClaimedGrantIdentifier,
-    signGuestGrant,
-    verifyGuestGrant,
-} from './guestGrant.js';
+import { signGuestGrant, verifyGuestGrant } from './guestGrant.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -191,19 +187,30 @@ export class PeerController extends PuterController {
                 // guests share one bucket and no host can be relayed for by
                 // more guests per minute than this — the only ceiling on guest
                 // spend we can apply before the bytes are already spent.
-                // A grant that doesn't parse can't name a bucket, so those
-                // requests fall back to the caller's own network.
+                // The limiter counts a request when it admits it, so only a
+                // grant that would redeem names a host; otherwise anyone
+                // holding the host's identifier could drain the bucket and
+                // lock out every real guest. Anything else - forged, expired,
+                // malformed, or no secret configured - is charged to the
+                // caller's own network.
                 rateLimit: {
                     scope: 'peer-guest-turn',
                     limit: 60,
                     window: 60_000,
                     key: (req: Request) => {
-                        const claimed = readClaimedGrantIdentifier(
-                            (req.body as { grant?: unknown } | undefined)
-                                ?.grant,
-                        );
-                        return claimed
-                            ? `host:${claimed}`
+                        const secret =
+                            this.config.peers?.guest_turn?.grant_secret;
+                        const verified = secret
+                            ? verifyGuestGrant({
+                                  grant: (
+                                      req.body as
+                                          { grant?: unknown } | undefined
+                                  )?.grant,
+                                  secret,
+                              })
+                            : null;
+                        return verified?.status === 'ok'
+                            ? `host:${verified.customIdentifier}`
                             : `net:${computeNetworkFingerprint(req)}`;
                     },
                 },

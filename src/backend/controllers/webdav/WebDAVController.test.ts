@@ -1365,6 +1365,7 @@ describe('WebDAVController verbs', () => {
                 callback();
             },
         });
+        sink.on('error', () => {});
         sink.on('finish', () => {
             captured.ended = true;
         });

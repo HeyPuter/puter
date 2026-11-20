@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import copyElementText from '../helpers/copyElementText.js';
 import { isPlausibleHostname, normalizeHostnameInput } from '../helpers/customDomainHostname.js';
 import {
     customDomainErrorText,
@@ -53,23 +54,28 @@ const ICON_X = svg('<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2
  * "Connect a custom domain to this site" modal, behind
  * `puter.hosting.attach()`. The user picks one of their domains (moving it
  * from another site if need be) or adds one; the caller learns only the
- * domain that ends up chosen.
+ * domain that ends up chosen. With `mode: 'detach'`, behind
+ * `puter.hosting.detach()`, it lists only this site's domains and the user
+ * can only remove them.
  *
  * Built on the app feedback modal's shell (`.app-feedback-*`). Talks to the
  * `/custom-domains` API with the GUI's own session: the requesting app never
  * holds a token that can manage domains.
  *
- * @param {{ subdomain: string, requester?: string, fullpage?: boolean }} options
+ * @param {{ subdomain: string, requester?: string, fullpage?: boolean, mode?: 'attach'|'detach' }} options
  *   `requester` is the app title or opener origin shown to the user, as the
  *   GUI resolved it. `fullpage` fills the viewport instead of floating over
  *   it, for a popup window that exists only to host this dialog.
- * @returns {Promise<object|null>} The chosen domain as the API returns it, or
- *   null when the user closes the dialog first. Never rejects.
+ * @returns {Promise<object|null|object[]>} Attaching: the chosen domain as the
+ *   API returns it, with `previousSite` when it was moved here from another
+ *   site, or null when the user closes the dialog first. Detaching: the
+ *   domains the user removed, possibly none. Never rejects.
  */
 async function UIWindowAttachCustomDomain (options) {
     options = options ?? {};
     const subdomain = String(options.subdomain ?? '');
     const site_host = `${subdomain}.${window.hosting_domain}`;
+    const detaching = options.mode === 'detach';
 
     return new Promise((resolve) => {
         const modal_id = `custom-domain-${++attach_modal_seq}`;
@@ -79,6 +85,17 @@ async function UIWindowAttachCustomDomain (options) {
         // A domain added in this dialog is the answer even if the user then
         // closes it: it exists, and is billed, either way.
         let chosen = null;
+        // The domain moved here in this dialog, and the site it served before.
+        let moved = null;
+        // Detaching: every domain removed in this dialog.
+        const removed = [];
+        const answer = () => {
+            if ( detaching ) return removed;
+            if ( chosen && moved?.uuid === chosen.uuid ) {
+                return { ...chosen, previousSite: moved.site };
+            }
+            return chosen;
+        };
 
         const titleId = `${modal_id}-title`;
         const closeLabel = html_encode(i18n('close'));
@@ -88,8 +105,8 @@ async function UIWindowAttachCustomDomain (options) {
                     <div class="app-feedback-head custom-domain-head">
                         <div class="custom-domain-head-icon">${ICON_GLOBE}</div>
                         <div class="custom-domain-head-text">
-                            <h2 class="app-feedback-title" id="${titleId}">${i18n('custom_domain_title')}</h2>
-                            <p class="custom-domain-intro">${i18n('custom_domain_intro', [site_host])}</p>
+                            <h2 class="app-feedback-title" id="${titleId}">${i18n(detaching ? 'custom_domain_detach_title' : 'custom_domain_title')}</h2>
+                            <p class="custom-domain-intro">${i18n(detaching ? 'custom_domain_detach_intro' : 'custom_domain_intro', [site_host])}</p>
                             ${options.requester ? `<p class="custom-domain-requester">${i18n('custom_domain_requested_by', [options.requester])}</p>` : ''}
                         </div>
                         <button type="button" class="app-feedback-x" aria-label="${closeLabel}" title="${closeLabel}">${ICON_X}</button>
@@ -113,14 +130,16 @@ async function UIWindowAttachCustomDomain (options) {
                             <ul class="custom-domain-list"></ul>
                             <div class="custom-domain-state custom-domain-empty" style="display:none;">
                                 <div class="custom-domain-state-icon">${ICON_GLOBE}</div>
-                                <p class="custom-domain-state-title">${i18n('custom_domain_none_yet')}</p>
-                                <p class="custom-domain-state-text">${i18n('custom_domain_empty_hint')}</p>
-                                <button type="button" class="app-feedback-btn app-feedback-btn-primary custom-domain-to-add custom-domain-empty-add">${ICON_PLUS}<span>${i18n('custom_domain_add_new')}</span></button>
+                                <p class="custom-domain-state-title">${i18n(detaching ? 'custom_domain_detach_none' : 'custom_domain_none_yet')}</p>
+                                ${detaching ? '' : `<p class="custom-domain-state-text">${i18n('custom_domain_empty_hint')}</p>
+                                <button type="button" class="app-feedback-btn app-feedback-btn-primary custom-domain-to-add custom-domain-empty-add">${ICON_PLUS}<span>${i18n('custom_domain_add_new')}</span></button>`}
                             </div>
                             <p class="app-feedback-error" role="alert" style="display:none;"></p>
                             <div class="app-feedback-actions">
-                                <button type="button" class="app-feedback-btn custom-domain-close">${i18n('cancel')}</button>
-                                <button type="button" class="app-feedback-btn app-feedback-btn-primary custom-domain-to-add custom-domain-list-add">${ICON_PLUS}<span>${i18n('custom_domain_add_new')}</span></button>
+                                ${detaching
+        ? `<button type="button" class="app-feedback-btn app-feedback-btn-primary custom-domain-close">${i18n('done')}</button>`
+        : `<button type="button" class="app-feedback-btn custom-domain-close">${i18n('cancel')}</button>
+                                <button type="button" class="app-feedback-btn app-feedback-btn-primary custom-domain-to-add custom-domain-list-add">${ICON_PLUS}<span>${i18n('custom_domain_add_new')}</span></button>`}
                             </div>
                         </div>
 
@@ -188,7 +207,7 @@ async function UIWindowAttachCustomDomain (options) {
             $(document).off(`keydown.${modal_id}`);
             $overlay.removeClass('app-feedback-open');
             setTimeout(() => $overlay.remove(), 160);
-            resolve(chosen);
+            resolve(answer());
         };
 
         let currentPane = 'loading';
@@ -263,32 +282,10 @@ async function UIWindowAttachCustomDomain (options) {
             if ( ! busy ) close();
         });
 
-        /**
-         * True once `el`'s text is on the clipboard. Without clipboard access
-         * (an insecure origin has no `navigator.clipboard` at all), the text
-         * is selected for the legacy copy and stays selected to copy by hand.
-         */
-        const copyText = async (el) => {
-            try {
-                await navigator.clipboard.writeText(el.textContent);
-                return true;
-            } catch {
-                const range = document.createRange();
-                range.selectNodeContents(el);
-                const selection = window.getSelection();
-                selection.removeAllRanges();
-                selection.addRange(range);
-                try {
-                    return document.execCommand('copy');
-                } catch {
-                    return false;
-                }
-            }
-        };
         // Copy buttons flip to a check for a moment once the value is copied.
         $overlay.on('click', '.custom-domain-copy', async function () {
             const $btn = $(this);
-            if ( ! await copyText($btn.siblings('code').get(0)) ) return;
+            if ( ! await copyElementText($btn.siblings('code').get(0)) ) return;
             clearTimeout($btn.data('reset'));
             $btn.addClass('is-copied').attr('aria-label', text('copied')).attr('title', text('copied'));
             $btn.data('reset', setTimeout(() => {
@@ -360,7 +357,7 @@ async function UIWindowAttachCustomDomain (options) {
         // in the empty state where the eye lands instead of the footer.
         const toggleEmpty = () => {
             $overlay.find('.custom-domain-empty').toggle(listed.length === 0);
-            $overlay.find('.custom-domain-list-add').toggle(listed.length > 0);
+            $overlay.find('.custom-domain-list-add').toggle(listed.length > 0 && ! detaching);
         };
 
         // One row asks for confirmation at a time; asking on another puts the
@@ -388,10 +385,10 @@ async function UIWindowAttachCustomDomain (options) {
         };
 
         const renderList = (items) => {
-            listed = items;
+            listed = detaching ? items.filter((i) => i.site === subdomain) : items;
             const $list = $overlay.find('.custom-domain-list').empty();
             toggleEmpty();
-            for ( const item of items ) {
+            for ( const item of listed ) {
                 const status = statusOf(item);
                 const $row = $(`
                     <li class="custom-domain-row">
@@ -421,7 +418,8 @@ async function UIWindowAttachCustomDomain (options) {
                     'aria-label': text('custom_domain_remove_named', [item.hostname]),
                     title: text('custom_domain_remove'),
                 });
-                $row.find('.custom-domain-use').on('click', () => use(item, $row));
+                if ( detaching ) $row.find('.custom-domain-use').remove();
+                else $row.find('.custom-domain-use').on('click', () => use(item, $row));
                 $row.find('.custom-domain-remove').on('click', () => {
                     if ( ! busy ) confirmOn($row, 'remove', text('custom_domain_remove_confirm'));
                 });
@@ -459,6 +457,7 @@ async function UIWindowAttachCustomDomain (options) {
                     showError('list', customDomainErrorText(res));
                     return;
                 }
+                moved = { uuid: item.uuid, site: item.site };
                 settleOn(res.data);
             } catch ( e ) {
                 console.error('custom-domain: move failed', e);
@@ -495,6 +494,7 @@ async function UIWindowAttachCustomDomain (options) {
         const remove = async (item, $row, $btn) => {
             if ( busy ) return;
             if ( ! await deleteDomain(item, 'list', $btn) ) return;
+            if ( detaching ) removed.push(item);
             listed = listed.filter((i) => i.uuid !== item.uuid);
             // Focus moves to the next row, else the previous one, else to
             // adding a domain once the empty state shows.
@@ -508,7 +508,10 @@ async function UIWindowAttachCustomDomain (options) {
                 $row.remove();
                 toggleEmpty();
                 if ( hadFocus && focusLost() ) {
-                    focusOn($overlay.find(listed.length ? '.custom-domain-list-add' : '.custom-domain-empty-add').get(0));
+                    const next = detaching
+                        ? '[data-pane="list"] .custom-domain-close'
+                        : (listed.length ? '.custom-domain-list-add' : '.custom-domain-empty-add');
+                    focusOn($overlay.find(next).get(0));
                 }
             }, 180);
         };
@@ -700,7 +703,7 @@ async function UIWindowAttachCustomDomain (options) {
                 }
                 renderList(res.data?.items ?? []);
                 const price = formatCustomDomainPrice(res.data?.pricing);
-                if ( price ) {
+                if ( price && ! detaching ) {
                     $overlay.find('.custom-domain-price').text(text('custom_domain_price_note', [price])).show();
                 }
                 showPane('list');

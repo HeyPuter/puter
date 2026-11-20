@@ -103,6 +103,43 @@ export const navigateAfterSignIn = (url) => {
 };
 
 /**
+ * The device fingerprint a signup or sign-in sends for abuse prevention.
+ * Never rejects; null when unavailable or not ready within the getter's timeout.
+ *
+ * @returns {Promise<string | null>}
+ */
+export const deviceFingerprint = async () => {
+    try {
+        return (await window.getDeviceFingerprint?.()) ?? null;
+    } catch {
+        return null;
+    }
+};
+
+// Refusals the GUI words itself; any other code shows the server's message.
+const REFUSAL_KEYS = new Map([
+    ['login_locked', 'login_locked_message'],
+    ['captcha_required', 'captcha_required'],
+    ['captcha_failed', 'captcha_failed'],
+    ['signin_blocked', 'signin_blocked_message'],
+]);
+
+/**
+ * The text for a sign-in refusal the GUI knows, with the request code to
+ * quote to support when there is one; null for any other refusal.
+ *
+ * @param {{ code?: unknown, errorCode?: unknown, request_code?: unknown } | null | undefined} json
+ * @returns {string | null}
+ */
+export const authRefusalText = (json) => {
+    const key = REFUSAL_KEYS.get(json?.errorCode) ?? REFUSAL_KEYS.get(json?.code);
+    if ( ! key ) return null;
+    const text = i18n(key, [], false);
+    const request_code = typeof json.request_code === 'string' ? json.request_code : '';
+    return request_code ? `${text} ${i18n('contact_support_with_code', { id: request_code }, false)}` : text;
+};
+
+/**
  * Hands the session cookie back to the account this page is signed in as.
  * A sign-in the server completes after the user dismissed the card has
  * already moved the cookie to the other account, and the endpoints that
@@ -131,6 +168,8 @@ export const keepCurrentSession = () => {
  *   once that control is enabled again.
  * @property {() => boolean} isBusy
  * @property {() => void} close Takes the card down without settling.
+ * @property {() => void} hide Takes the card off the screen but keeps the flow
+ *   open, so another sign-in prompt joins it until it settles.
  * @property {(value: unknown) => void} settle
  * @property {(value: unknown) => void} finish `close`, then `settle`.
  * @property {() => boolean} isClosed
@@ -336,6 +375,9 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
             teardown();
             closeOverlay();
         },
+        hide () {
+            $overlay.hide();
+        },
         settle (value) {
             if ( settled ) return;
             settled = true;
@@ -424,15 +466,14 @@ export const authHeadHtml = (flow, title, { openerNotice = true } = {}) => {
 };
 
 /**
- * On a cover page, the logo is a way out: desktop users stay on the desktop,
- * everyone else goes to the root dashboard.
+ * On a cover page, the logo is a way out, to the root dashboard.
  *
  * @param {AuthFlow} flow
  * @returns {string} Empty where the logo leads nowhere.
  */
 const logoHref = (flow) => {
     if ( ! flow.page || window.embedded_in_popup ) return '';
-    return window.location.pathname === '/desktop' ? '/desktop' : '/';
+    return '/';
 };
 
 /**

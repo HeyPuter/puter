@@ -29,13 +29,20 @@ export const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
 // this before posting a message an older GUI has no handler for: such a
 // message is never replied to, and a reply timeout can't stand in for the
 // check because legitimate replies only arrive when the user closes the dialog.
-const GUI_FEATURES = 'feedback-dialog,enable-push,custom-domains,push-status,disable-push';
+// `push-permission`: `requestPermission` settles a held push grant itself.
+const GUI_FEATURES = 'feedback-dialog,enable-push,custom-domains,custom-domains-detach,push-status,disable-push,push-permission';
 
 /**
  * Where an app was launched from, sent to the app as `utm_campaign` so its
  * analytics can tell the GUI's launch surfaces apart.
  *
  * @typedef {'desktop' | 'dashboard' | 'app_browser_embed'} LaunchSurface
+ */
+
+/**
+ * What the user did to open the app, sent to the app as `utm_content`.
+ *
+ * @typedef {'app_icon' | 'file_open' | 'open_with' | 'file_drop'} LaunchTrigger
  */
 
 /**
@@ -58,6 +65,10 @@ export const appLaunchUrl = ({ app, name = app.name, appInstanceID, guiOrigin, a
     } else {
         url = new URL(app.index_url);
     }
+    // The `puter.*` params describe the launch, so only the desktop sets them.
+    for ( const key of [...url.searchParams.keys()] ) {
+        if ( key.startsWith('puter.') ) url.searchParams.delete(key);
+    }
     url.searchParams.append('puter.app_instance_id', appInstanceID);
     url.searchParams.append('puter.app.id', app.uuid ?? app.uid);
     url.searchParams.append('puter.app.name', app.name);
@@ -77,8 +88,10 @@ export const appLaunchUrl = ({ app, name = app.name, appInstanceID, guiOrigin, a
  * @param {string} options.locale
  * @param {unknown} [options.args]
  * @param {LaunchSurface} options.surface
+ * @param {LaunchTrigger} [options.trigger]
+ * @param {string} [options.source] - the site that sent the user, `puter.com` unless another page did
  */
-export const appendLaunchContext = (url, { appDomain, pageUrl, apiOrigin, params, locale, args, surface }) => {
+export const appendLaunchContext = (url, { appDomain, pageUrl, apiOrigin, params, locale, args, surface, trigger, source = 'puter.com' }) => {
     url.searchParams.append('puter.domain', appDomain);
 
     const page = new URL(pageUrl);
@@ -96,7 +109,8 @@ export const appendLaunchContext = (url, { appDomain, pageUrl, apiOrigin, params
     url.searchParams.append('puter.locale', locale);
     url.searchParams.append('puter.gui_features', GUI_FEATURES);
     url.searchParams.append('puter.args', JSON.stringify(args ?? {}));
-    url.searchParams.append('utm_source', 'puter.com');
+    url.searchParams.append('utm_source', source);
     url.searchParams.append('utm_medium', 'referral');
     url.searchParams.append('utm_campaign', surface);
+    if ( trigger ) url.searchParams.append('utm_content', trigger);
 };

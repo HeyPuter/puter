@@ -7,7 +7,6 @@ globalThis.use = globalThis.use ?? (() => ({}));
 globalThis.$ = globalThis.jQuery = jQuery;
 
 const { stub } = vi.hoisted(() => ({ stub: () => ({ default: () => {} }) }));
-vi.mock('./helpers/download.js', stub);
 vi.mock('./helpers/itemIcon.js', stub);
 vi.mock('./helpers/socialLink.js', stub);
 vi.mock('./helpers/updateMousePosition.js', stub);
@@ -18,7 +17,6 @@ vi.mock('./UI/UIPopover.js', stub);
 vi.mock('./UI/UIPrompt.js', stub);
 vi.mock('./UI/UIWindow.js', stub);
 vi.mock('./UI/UIWindowAppFeedback.js', stub);
-vi.mock('./UI/UIWindowColorPicker.js', stub);
 vi.mock('./UI/UIWindowEmailConfirmationRequired.js', stub);
 vi.mock('./UI/UIWindowFontPicker.js', stub);
 vi.mock('./UI/UIPermissionDialog.js', stub);

@@ -20,14 +20,40 @@
 import path from '../lib/path.js';
 import { get_app_by_uid } from './getAppByUid.js';
 
-/** The `user_preferences` key holding the "always open with" app for a file's extension. */
-const default_app_key = (file_path) => `default_apps${path.extname(file_path).toLowerCase()}`;
+/**
+ * The `user_preferences` key holding the "always open with" app for a file's
+ * extension, or null for a file without one: the saved preferences are listed
+ * back by the `default_apps.*` pattern, which a bare `default_apps` misses.
+ * A name that only ends in a dot (`notes.`) has no extension either.
+ */
+export const default_app_key = (file_path) => {
+    const extension = path.extname(file_path ?? '').toLowerCase();
+    return extension.length > 1 ? `default_apps${extension}` : null;
+};
 
 /**
  * Whether a stored "always open with" value names `app`. New values are the
  * app's uid; older ones are its name.
  */
 export const is_default_app = (pref, app) => !!pref && !!app && (pref === app.uuid || pref === app.name);
+
+/**
+ * The index of the app a double-click opens this file with: the suggested app
+ * the user chose for its type, else the first suggestion.
+ */
+export const default_app_index = (file_path, suggested_apps) => {
+    const key = default_app_key(file_path);
+    const pref = key ? window.user_preferences?.[key] : undefined;
+    const index = suggested_apps.findIndex(app => is_default_app(pref, app));
+    return index === -1 ? 0 : index;
+};
+
+/** Saves `app` as the one to always open files of this file's type with. */
+export const set_default_app = (file_path, app) => {
+    const key = default_app_key(file_path);
+    if ( !key || !app?.uuid ) return;
+    window.mutate_user_preferences({ [key]: app.uuid });
+};
 
 /**
  * The app the user chose to always open this file's type with, or null. Pass
@@ -41,7 +67,8 @@ export const is_default_app = (pref, app) => !!pref && !!app && (pref === app.uu
  * also brings the launch gates `puter.apps.get` applies.
  */
 export const resolve_default_app = async ({ uid, path: file_path }) => {
-    const pref = window.user_preferences?.[default_app_key(file_path)];
+    const key = default_app_key(file_path);
+    const pref = key ? window.user_preferences?.[key] : undefined;
     if ( ! pref ) return null;
     let match;
     try {

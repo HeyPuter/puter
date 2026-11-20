@@ -1,24 +1,32 @@
 import { driverCallEnvelope } from '../../../lib/networkUtils.js';
 
 // Keys the Puter GUI reads at boot. The first `get()` of any of them triggers
-// a single batched driver call fetching all of them, so the desktop doesn't
-// issue a dozen round-trips while it initializes.
-const GUI_CACHE_KEYS = [
-    'has_set_default_app_user_permissions',
-    'window_sidebar_width',
-    'sidebar_items',
-    'menubar_style',
-    'user_preferences.auto_arrange_desktop',
+// a single batched driver call fetching the ones the booted interface reads, so
+// the GUI doesn't issue a round-trip per key while it initializes.
+const SHARED_BOOT_KEYS = [
     'user_preferences.show_hidden_files',
     'user_preferences.language',
-    'user_preferences.clock_visible',
-    'toolbar_auto_hide_enabled',
-    'has_seen_welcome_window',
-    'desktop_item_positions',
-    'desktop_icons_hidden',
-    'taskbar_position',
-    'has_seen_toolbar_animation',
 ];
+const DESKTOP_BOOT_KEYS = [
+    ...SHARED_BOOT_KEYS,
+    'window_sidebar_width',
+    'sidebar_items',
+];
+// The dashboard's Files and Apps tabs.
+const DASHBOARD_BOOT_KEYS = [
+    ...SHARED_BOOT_KEYS,
+    'view_mode',
+    'sort_column',
+    'sort_direction',
+    'column_widths',
+    'dashboard_apps_order',
+    'dashboard_removed_apps',
+    'dashboard_app_groups',
+];
+const GUI_CACHE_KEYS = [...new Set([...DESKTOP_BOOT_KEYS, ...DASHBOARD_BOOT_KEYS])];
+
+// The GUI sets `is_dashboard_mode` before its first read.
+const bootKeys = () => (globalThis.is_dashboard_mode === true ? DASHBOARD_BOOT_KEYS : DESKTOP_BOOT_KEYS);
 
 // How long the resolved batch keeps serving reads before the cache disables
 // itself and gets fall through to the network again.
@@ -57,16 +65,19 @@ export class GuiBootCache {
         }
         this.batch = createDeferred();
         this.init = createDeferred();
+        /** @type {string | null | undefined} The token the batch was requested under. */
+        this.fetchedWith = null;
         (async () => {
             await this.init.promise;
             this.init = null;
+            const keys = bootKeys();
             let values;
             try {
                 values = await driverCallEnvelope({
                     puter,
                     iface: 'puter-kvstore',
                     method: 'get',
-                    args: { key: GUI_CACHE_KEYS },
+                    args: { key: keys },
                 });
             } catch {
                 values = null;
@@ -84,9 +95,10 @@ export class GuiBootCache {
                 scheduleExpiry();
                 return;
             }
+            /** @type {Record<string, unknown>} */
             const byKey = {};
-            for ( let i = 0; i < GUI_CACHE_KEYS.length; i++ ) {
-                byKey[GUI_CACHE_KEYS[i]] = values.result[i];
+            for ( let i = 0; i < keys.length; i++ ) {
+                byKey[keys[i]] = values.result[i];
             }
             this.batch.resolve(byKey);
             scheduleExpiry();
@@ -120,15 +132,22 @@ export class GuiBootCache {
     /**
      * @param {string} key
      * @returns {Promise<{ hit: true, value: unknown } | { hit: false }>}
-     *   `hit: false` when the batch failed, came back malformed, or the key
-     *   was written meanwhile — the caller should fall through to its own
-     *   driver call.
+     *   `hit: false` when the batch failed, came back malformed, left the key
+     *   out, the key was written meanwhile, or the auth token changed since the
+     *   batch was requested — the caller should fall through to its own driver
+     *   call.
      */
     async lookup (key) {
-        this.init && this.init.resolve();
+        if ( this.init ) {
+            this.fetchedWith = this.puter.authToken;
+            this.init.resolve();
+        }
         const cache = await this.batch.promise;
         // Written while this read waited: the batch may predate the write.
-        if ( cache === null || this.written.has(key) ) return { hit: false };
+        // A key the other interface reads was never fetched.
+        if ( cache === null || this.written.has(key) || !Object.hasOwn(cache, key) ) return { hit: false };
+        // Another account's values after a sign-in switch.
+        if ( this.puter.authToken !== this.fetchedWith ) return { hit: false };
         // `null`, not `undefined`, to match a normal miss from `kv.get()`.
         return { hit: true, value: cache[key] ?? null };
     }

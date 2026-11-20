@@ -24,7 +24,6 @@ import {
     checkRateLimit,
     sweepMemoryWindows,
 } from '../../core/http/middleware/rateLimit.js';
-import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
 import type { IConfig } from '../../types';
 import type { PuterServer } from '../../server';
 import { installSeatStub } from '../../testFixtures/seatStub';
@@ -33,6 +32,7 @@ import {
     createTestUser,
     setupTestServer,
     type TestUserCredentials,
+    withAiCostFactorHook,
 } from '../../testUtil';
 import { kv } from '../../util/kvSingleton';
 import {
@@ -844,8 +844,8 @@ describe('OpenAIRealtimeRelayService relay', () => {
             'realtime_unreported_response',
             expect.any(String),
             expect.objectContaining({ inFlight: 1 }),
-            'warning',
-            { dedup: true },
+            'info',
+            { dedup: true, channel: 'ai_providers' },
         );
     });
 
@@ -881,6 +881,33 @@ describe('OpenAIRealtimeRelayService relay', () => {
         await vi.waitFor(async () =>
             expect(await metering.getOutstandingHolds(actor)).toBe(0),
         );
+    });
+
+    it('holds each response for the conversation the last one reported', async () => {
+        const talker = await createTestUser(server, {
+            username: 'realtime-context',
+            password: 'realtime-context-password',
+        });
+        const row = await server.stores.user.getByUsername(talker.username);
+        const actor = { user: row } as never;
+        const metering = server.services.metering;
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${talker.token}`,
+        );
+        await c.waitFor('session.created');
+        // The upstream's reply reports 7 input and 3 output tokens.
+        c.ws.send(JSON.stringify({ type: 'response.create' }));
+        await c.waitFor('response.done');
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(
+                MINI_HOLD + 10 * 1000,
+            ),
+        );
+        c.ws.close();
     });
 
     const mcpTool = {
@@ -2352,6 +2379,35 @@ describe('OpenAIRealtimeRelayService relay', () => {
         b.ws.send(JSON.stringify({ type: 'still.valid' }));
         await b.waitForEcho('still.valid');
         b.ws.close();
+    });
+
+    it('evicts an access token revoked on another node', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row! });
+        const token = await server.services.auth.createAccessToken(actor, [
+            [FULL_API_ACCESS],
+        ]);
+        const { token_uid } = server.services.token.verify<{
+            token_uid: string;
+        }>('auth', token);
+        const c = open(`${relayUrl}?auth_token=${token}`);
+        await c.waitFor('session.created');
+
+        // As a peer cluster delivers it, after a malformed payload it ignores.
+        server.clients.event.emit(
+            'outer.auth.access-token.revoked',
+            { token_uid: 42 } as never,
+            { from_outside: true },
+        );
+        server.clients.event.emit(
+            'outer.auth.access-token.revoked',
+            { token_uid },
+            { from_outside: true },
+        );
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        await c.closed;
     });
 
     it('closes with a retryable error after a sustained verification outage', async () => {

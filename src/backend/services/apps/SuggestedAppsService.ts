@@ -160,7 +160,7 @@ function suggestionsForExtension(ext: string): {
         return { names: ['editor', 'code'], isFallback: false };
     }
     if (IMAGE_EXTS.has(lower)) {
-        return { names: ['viewer', 'draw'], isFallback: false };
+        return { names: ['viewer'], isFallback: false };
     }
     if (lower === 'pdf') return { names: ['pdf'], isFallback: false };
     if (MEDIA_EXTS.has(lower)) return { names: ['player'], isFallback: false };

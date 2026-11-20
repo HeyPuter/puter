@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildSlackMessage, createSlackAlertHandler } from './slack';
+import {
+    buildSlackMessage,
+    createSlackAlertHandler,
+    resolveSlackChannel,
+} from './slack';
 import type { AlertPayload } from './types';
 
 const alert = (over: Partial<AlertPayload> = {}): AlertPayload => ({
@@ -72,6 +76,12 @@ describe('buildSlackMessage', () => {
         expect(msg.attachments[0].fields.length).toBe(12);
         expect(msg.attachments[0].fields[0].value).toHaveLength(400);
         expect(msg.attachments[0].fields[0].value.endsWith('…')).toBe(true);
+    });
+
+    it('says when the alarm is calling someone', () => {
+        const msg = buildSlackMessage(alert({ callGroup: 'billing' }));
+        expect(msg.text).toContain('calling `billing`');
+        expect(buildSlackMessage(alert()).text).not.toContain('calling');
     });
 
     it('omits channel and username when unset', () => {
@@ -202,5 +212,117 @@ describe('createSlackAlertHandler', () => {
         // The newcomer is still throttled.
         await handler(alert({ id: 'newcomer' }));
         expect(fetchMock).toHaveBeenCalledTimes(5002);
+    });
+});
+
+describe('resolveSlackChannel', () => {
+    const conf = {
+        channel: '#alerts-oncall',
+        channels: { billing: '#alerts-billing', empty: '' },
+    };
+
+    it('maps a listed key to its channel', () => {
+        expect(resolveSlackChannel(conf, 'billing')).toBe('#alerts-billing');
+    });
+
+    it('falls back to the default channel', () => {
+        expect(resolveSlackChannel(conf, undefined)).toBe('#alerts-oncall');
+        expect(resolveSlackChannel(conf, 'unlisted')).toBe('#alerts-oncall');
+        expect(resolveSlackChannel(conf, 'empty')).toBe('#alerts-oncall');
+        expect(resolveSlackChannel(conf, 'constructor')).toBe('#alerts-oncall');
+    });
+});
+
+describe('createSlackAlertHandler with a bot token', () => {
+    let fetchMock: ReturnType<typeof vi.fn>;
+    const apiResponse = (body: Record<string, unknown>) => ({
+        ok: true,
+        status: 200,
+        json: async () => body,
+    });
+
+    beforeEach(() => {
+        fetchMock = vi.fn(async (url: string) =>
+            url.includes('chat.getPermalink')
+                ? apiResponse({
+                      ok: true,
+                      permalink: 'https://team.slack.com/archives/C1/p12',
+                  })
+                : apiResponse({ ok: true, channel: 'C1', ts: '1.2' }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    const conf = {
+        botToken: 'xoxb-test',
+        channel: '#alerts-oncall',
+        channels: { billing: '#alerts-billing' },
+    };
+
+    it('posts to the channel the key maps to', async () => {
+        const handler = createSlackAlertHandler(conf);
+        const delivery = await handler(alert({ channel: 'billing' }));
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [url, init] = fetchMock.mock.calls[0];
+        expect(url).toBe('https://slack.com/api/chat.postMessage');
+        expect(init.headers.Authorization).toBe('Bearer xoxb-test');
+        expect(JSON.parse(init.body).channel).toBe('#alerts-billing');
+        expect(delivery).toEqual({});
+    });
+
+    it('links the message of an alarm that calls', async () => {
+        const handler = createSlackAlertHandler(conf);
+        const delivery = await handler(alert({ callGroup: 'billing' }));
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        const [url, init] = fetchMock.mock.calls[1];
+        expect(url).toBe(
+            'https://slack.com/api/chat.getPermalink?channel=C1&message_ts=1.2',
+        );
+        expect(init.headers.Authorization).toBe('Bearer xoxb-test');
+        expect(delivery).toEqual({
+            url: 'https://team.slack.com/archives/C1/p12',
+        });
+    });
+
+    it('keeps the post when only the permalink lookup fails', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        fetchMock
+            .mockResolvedValueOnce(
+                apiResponse({ ok: true, channel: 'C1', ts: '1.2' }),
+            )
+            .mockResolvedValueOnce(
+                apiResponse({ ok: false, error: 'ratelimited' }),
+            );
+        const handler = createSlackAlertHandler({
+            ...conf,
+            repeatThrottleMs: 60_000,
+        });
+
+        expect(await handler(alert({ callGroup: 'billing' }))).toEqual({});
+        // Still throttled: the message went out, so a repeat doesn't repost.
+        await handler(alert({ callGroup: 'billing' }));
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        warn.mockRestore();
+    });
+
+    it('treats an ok:false answer as a failed post', async () => {
+        fetchMock.mockResolvedValueOnce(
+            apiResponse({ ok: false, error: 'channel_not_found' }),
+        );
+        const handler = createSlackAlertHandler({
+            ...conf,
+            repeatThrottleMs: 60_000,
+        });
+
+        await expect(handler(alert())).rejects.toThrow('channel_not_found');
+        // The failure released the throttle slot.
+        await handler(alert());
+        expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 });

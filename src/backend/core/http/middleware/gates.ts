@@ -26,6 +26,7 @@ import {
     type SubscriptionMetering,
     type SubscriptionRequirement,
 } from '../../../services/metering/enforcement.js';
+import type { EventClient } from '../../../clients/event/EventClient';
 import type { IConfig } from '../../../types';
 import {
     isCardVerificationEnabled,
@@ -50,7 +51,7 @@ import { assertVerifiedEmail } from '../verifiedEmail';
 // Make sure the `Express.Request.actor` augmentation is in scope.
 import '../expressAugmentation';
 
-const rejectAuth = (req: Request): HttpError => {
+const rejectAuth = (req: Request): unknown => {
     if (req.requiresReauth) {
         return new HttpError(401, 'Re-authentication required', {
             legacyCode: 'reauth_required',
@@ -71,6 +72,9 @@ const rejectAuth = (req: Request): HttpError => {
             legacyCode: 'token_auth_failed',
         });
     }
+    // The token couldn't be checked, so a 401 would wrongly tell the client
+    // to discard it; the error handler answers (503 for a database outage).
+    if (req.tokenAuthError !== undefined) return req.tokenAuthError;
     return new HttpError(401, 'Missing authentication token', {
         legacyCode: 'token_missing',
     });
@@ -539,10 +543,12 @@ export const requireSubscriptionGate = (
  * Reject an authenticated caller with nothing left of their budget
  * (`requireCredits`). Anonymous callers pass: signed-URL routes authorize on
  * the URL, with no account to charge. Answered from the metering service's
- * per-actor cache, so it normally costs a map lookup.
+ * per-actor cache, so it normally costs a map lookup. A caller that is out of
+ * budget still passes when an `events` listener tops it up.
  */
 export const requireCreditsGate = (
     metering: CreditMetering | undefined,
     config: IConfig,
+    events?: Pick<EventClient, 'emitAndWait'>,
 ): RequestHandler =>
-    gate((req) => assertActorHasCredits(metering, req.actor, config));
+    gate((req) => assertActorHasCredits(metering, req.actor, config, events));

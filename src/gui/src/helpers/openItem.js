@@ -73,7 +73,7 @@ const runOpen = async function (options) {
     //----------------------------------------------------------------
     const app_name = $(el_item).attr('data-app');
     if ( app_name ) {
-        launch_app({ name: app_name, newTab: take_tab() });
+        launch_app({ name: app_name, newTab: take_tab(), trigger: 'app_icon' });
         return;
     }
 
@@ -86,7 +86,7 @@ const runOpen = async function (options) {
             const text = typeof content === 'string' ? content : await content.text();
             const data = JSON.parse(text);
             if ( data.app ) {
-                launch_app({ name: data.app, newTab: take_tab() });
+                launch_app({ name: data.app, newTab: take_tab(), trigger: 'app_icon' });
                 return;
             }
         } catch (e) {
@@ -276,9 +276,9 @@ Please try recreating the link.`);
         }
     }
     //----------------------------------------------------------------
-    // Dashboard: is this file already open in an app window? In
-    // dashboard mode there is no taskbar — the file's row is where a
-    // user goes looking for a window they minimized — so restore that
+    // Dashboard: is this file already open in an app window? The
+    // file's row is where a user goes looking for a window they
+    // minimized, so restore that
     // window (edits intact) instead of minting a second instance.
     //----------------------------------------------------------------
     // The user's own windows only: a file opened in an instance another app
@@ -308,6 +308,7 @@ Please try recreating the link.`);
             name: associated_app_name,
             maximized: options.maximized ?? window.is_dashboard_mode,
             newTab: take_tab(),
+            trigger: 'app_icon',
         });
     }
     //----------------------------------------------------------------
@@ -323,7 +324,7 @@ Please try recreating the link.`);
             app: 'explorer',
             top: options.maximized ? 0 : undefined,
             left: options.maximized ? 0 : undefined,
-            height: options.maximized ? `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)` : undefined,
+            height: options.maximized ? 'calc(100% - 1px)' : undefined,
             width: options.maximized ? '100%' : undefined,
         });
     }
@@ -361,6 +362,7 @@ Please try recreating the link.`);
                 maximized: options.maximized ?? window.is_dashboard_mode,
                 file_uid: file_uid,
                 newTab: take_tab(),
+                trigger: 'file_open',
             });
             if ( target_file_uid ) launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
             return;
@@ -446,6 +448,7 @@ Please try recreating the link.`);
                 maximized: options.maximized ?? window.is_dashboard_mode,
                 file_signature: open_item_meta.signature,
                 newTab: take_tab(),
+                trigger: 'file_open',
             });
             if ( target_file_uid ) launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
         }

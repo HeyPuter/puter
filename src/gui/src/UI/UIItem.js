@@ -18,22 +18,17 @@
  */
 
 import UIWindowItemProperties from './UIWindowItemProperties.js';
-import ensureConfirmedEmail from '../helpers/ensureConfirmedEmail.js';
 import UIPopover from './UIPopover.js';
 import UIContextMenu from './UIContextMenu.js';
 import UIAlert from './UIAlert.js';
-import UIWindowPublishWorker from './UIWindowPublishWorker.js';
-import UIWindowShare from './UIWindowShare.js';
 import path from '../lib/path.js';
 import truncate_filename from '../helpers/truncateFilename.js';
 import launch_app from '../helpers/launchApp.js';
 import open_item from '../helpers/openItem.js';
-import publish_as_website from '../helpers/publishAsWebsite.js';
-import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
-import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
-import { is_default_app } from '../helpers/defaultApp.js';
+import { can_rename, can_restructure, invalidate_shared_roots } from '../helpers/sharedAccess.js';
+import build_open_with_items from '../helpers/openWithItems.js';
 import openWithAI from '../helpers/openWithAI.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
 
@@ -239,17 +234,6 @@ async function UIItem (options) {
         window.update_explorer_footer_item_count(el_window);
     }
 
-    // manual positioning
-    if ( !window.is_auto_arrange_enabled &&
-        options.position &&
-        // item is on the desktop (must be desktop itself and not a window, hence the '.desktop' class check)
-        $(el_item).closest('.item-container.desktop').attr('data-path') === window.desktop_path
-    ) {
-        el_item.style.position = 'absolute';
-        el_item.style.left = `${options.position.left }px`;
-        el_item.style.top = `${options.position.top }px`;
-    }
-
     // --------------------------------------------------------
     // Dragster
     // allow dragging of local files on this window, if it's is_dir
@@ -329,14 +313,13 @@ async function UIItem (options) {
             last_window_dragged_over = null;
 
             window.an_item_is_being_dragged = true;
-            $('.toolbar').css('pointer-events', 'none');
         },
         drag: function (event, ui) {
             // Constrain item within desktop bounds
             const minLeft = -50;
             const maxLeft = window.desktop_width - 50;
-            const minTop = window.toolbar_height;
-            const maxTop = window.desktop_height + window.toolbar_height;
+            const minTop = 0;
+            const maxTop = window.desktop_height;
 
             // Apply constraints to ui.position
             ui.position.left = Math.max(minLeft, Math.min(maxLeft, ui.position.left));
@@ -415,21 +398,6 @@ async function UIItem (options) {
             }
         },
         stop: function (event, ui) {
-            // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
-            // the desktop itself, not a window showing the Desktop folder
-            if ( $(el_item).closest('.item-container').hasClass('desktop') &&
-                !window.is_auto_arrange_enabled && $(el_item).attr('data-path') !== window.trash_path && !ui.helper.data('dropped') &&
-                // Item must be dropped on the Desktop and not on the taskbar
-                window.mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15 ) {
-
-                el_item.style.position = 'absolute';
-                el_item.style.left = `${ui.position.left }px`;
-                el_item.style.top = `${ui.position.top }px`;
-                $('.ui-draggable-dragging').remove();
-                window.desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
-                window.save_desktop_item_positions();
-            }
-
             $('.item-selected-clone').remove();
             $('.draggable-count-badge').remove();
             // re-enable all droppable UIItems that are not a dir
@@ -442,7 +410,6 @@ async function UIItem (options) {
             clearTimeout(longer_hover_timeout);
             last_window_dragged_over = null;
             window.an_item_is_being_dragged = false;
-            $('.toolbar').css('pointer-events', 'auto');
         },
     });
 
@@ -512,6 +479,7 @@ async function UIItem (options) {
                         window_title: item.name,
                         file_uid: item.uid,
                         file_signature: item,
+                        trigger: 'file_drop',
                     });
                 }
 
@@ -553,11 +521,6 @@ async function UIItem (options) {
                 else if ( options.is_dir ) {
                     // a selected folder can be the drop target of its own selection; it stays where it is
                     const items_to_drop = items_to_move.filter(item => $(item).attr('data-uid') !== $(el_item).attr('data-uid'));
-                    if ( $(el_item).closest('.item-container').attr('data-path') === window.desktop_path ) {
-                        // the items leaving the desktop lose their saved positions, not the folder they land in
-                        items_to_drop.forEach(item => delete window.desktop_item_positions[$(item).attr('data-uid')]);
-                        window.save_desktop_item_positions();
-                    }
                     window.move_items(items_to_drop, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
                 }
             }
@@ -1099,11 +1062,6 @@ async function UIItem (options) {
             // Someone else's, however we got here — including items reached by
             // opening a shared folder, which carry no share markers.
             const is_not_mine = !is_owned_by_me($(el_item).attr('data-path'));
-            // `manage` inherits downwards, so a file inside a folder you manage
-            // counts too — the row itself only carries a mode at a shared root.
-            const can_manage_share =
-                $(el_item).attr('data-share_mode') === 'manage'
-                || (await shared_mode_for($(el_item).attr('data-path'))) === 'manage';
             // Moving and deleting go by the holding folder, not by the item.
             const may_restructure = !is_not_mine
                 || await can_restructure($(el_item).attr('data-path'));
@@ -1152,7 +1110,6 @@ async function UIItem (options) {
             // Open With
             // -------------------------------------------
             if ( !is_trashed && !is_trash && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
-                let items = [];
                 if ( !options.suggested_apps || options.suggested_apps.length === 0 ) {
                     // try to find suitable apps
                     const suitable_apps = await window.suggest_apps_for_fsentry({
@@ -1164,65 +1121,9 @@ async function UIItem (options) {
                     }
                 }
 
-                if ( options.suggested_apps && options.suggested_apps.length > 0 ) {
-                    for ( let index = 0; index < options.suggested_apps.length; index++ ) {
-                        const suggested_app = options.suggested_apps[index];
-                        if ( ! suggested_app ) {
-                            console.warn('suggested_app is null', options.suggested_apps, index);
-                            continue;
-                        }
-                        items.push({
-                            html: html_encode(suggested_app.title),
-                            icon: `<img src="${html_encode(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
-                            onClick: async function () {
-                                var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
-                                if (
-                                    ! is_default_app(window.user_preferences[`default_apps${extension}`], suggested_app)
-                                    &&
-                                    (
-                                        (!window.user_preferences[`default_apps${extension}`] && index > 0)
-                                        ||
-                                        (window.user_preferences[`default_apps${extension}`])
-                                    )
-                                ) {
-                                    const alert_resp = await UIAlert({
-                                        message: `${i18n('change_always_open_with')} ${ html_encode(suggested_app.title) }?`,
-                                        body_icon: suggested_app.icon,
-                                        buttons: [
-                                            {
-                                                label: i18n('yes'),
-                                                type: 'primary',
-                                                value: 'yes',
-                                            },
-                                            {
-                                                label: i18n('no'),
-                                            },
-                                        ],
-                                    });
-                                    if ( (alert_resp) === 'yes' ) {
-                                        window.user_preferences[`default_apps${ extension}`] = suggested_app.uuid;
-                                        window.mutate_user_preferences(window.user_preferences);
-                                    }
-                                }
-                                launch_app({
-                                    name: suggested_app.name,
-                                    file_path: $(el_item).attr('data-path'),
-                                    window_title: $(el_item).attr('data-name'),
-                                    file_uid: $(el_item).attr('data-uid'),
-                                });
-                            },
-                        });
-                    }
-                } else {
-                    items.push({
-                        html: i18n('no_suitable_apps_found'),
-                        disabled: true,
-                    });
-                }
-                // add all suitable apps
                 menu_items.push({
                     html: i18n('open_with'),
-                    items: items,
+                    items: build_open_with_items(el_item, options.suggested_apps),
                 });
 
                 // -------------------------------------------
@@ -1251,36 +1152,6 @@ async function UIItem (options) {
                 {
                     menu_items.push('-');
                 }
-            }
-            // -------------------------------------------
-            // Publish As Website
-            // -------------------------------------------
-            if ( !is_trashed && !is_trash && options.is_dir ) {
-                menu_items.push({
-                    html: i18n('publish_as_website'),
-                    disabled: !options.is_dir,
-                    onClick: async function () {
-                        await publish_as_website({
-                            uid: options.uid,
-                            name: $(el_item).attr('data-name'),
-                            path: $(el_item).attr('data-path'),
-                        });
-                    },
-                });
-
-            }
-            //-------------------------------------------
-            // Publish as Worker
-            // -------------------------------------------
-            // The backend refuses deploys from a file someone else owns.
-            if ( !is_trashed && !is_trash && !is_not_mine && !options.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
-                menu_items.push({
-                    html: i18n('publish_as_serverless_worker'),
-                    onClick: async function () {
-                        if ( ! await ensureConfirmedEmail(i18n('save_account_to_publish')) ) return;
-                        UIWindowPublishWorker(options.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
-                    },
-                });
             }
             // -------------------------------------------
             // Deploy As App
@@ -1315,20 +1186,6 @@ async function UIItem (options) {
                 });
             }
             // -------------------------------------------
-            // Share
-            // -------------------------------------------
-            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
-                menu_items.push({
-                    html: i18n('share_ellipsis'),
-                    onClick: async function () {
-                        UIWindowShare({
-                            path: $(el_item).attr('data-path'),
-                            name: $(el_item).attr('data-name'),
-                        });
-                    },
-                });
-            }
-            // -------------------------------------------
             // Download
             // -------------------------------------------
             if ( !is_trash && !is_trashed && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
@@ -1343,48 +1200,6 @@ async function UIItem (options) {
                         else
                         {
                             window.trigger_download([$(el_item).attr('data-path')]);
-                        }
-                    },
-                });
-            }
-            // -------------------------------------------
-            // Set as Wallpaper
-            // -------------------------------------------
-            const mime_type = mime.getType($(el_item).attr('data-name')) ??
-                'application/octet-stream';
-            if ( !is_trashed && !is_trash && !options.is_dir && mime_type.startsWith('image/') ) {
-                menu_items.push({
-                    html: i18n('set_as_background'),
-                    onClick: async function () {
-                        const read_url = await puter.fs.sign(undefined, { uid: $(el_item).attr('data-uid'), action: 'read' });
-                        window.set_desktop_background({
-                            url: read_url.items.read_url,
-                            fit: window.desktop_bg_fit,
-                        });
-                        try {
-                            $.ajax({
-                                url: `${window.api_origin }/set-desktop-bg`,
-                                type: 'POST',
-                                data: JSON.stringify({
-                                    url: window.desktop_bg_url,
-                                    color: window.desktop_bg_color,
-                                    fit: window.desktop_bg_fit,
-                                }),
-                                async: true,
-                                contentType: 'application/json',
-                                headers: {
-                                    'Authorization': `Bearer ${window.auth_token}`,
-                                },
-                                statusCode: {
-                                    401: function (xhr) {
-                        window.handle401(xhr);
-                    },
-                                },
-                            });
-                            $(el_window).close();
-                            resolve(true);
-                        } catch ( err ) {
-                            // Ignore
                         }
                     },
                 });
@@ -1546,10 +1361,11 @@ async function UIItem (options) {
                     html: i18n('share_remove_from_shared'),
                     onClick: async function () {
                         try {
-                            await puter.fs.unshare(
+                            const left = await puter.fs.unshare(
                                 $(el_item).attr('data-path'),
                                 window.user.username,
                             );
+                            if ( left?.failed?.length ) throw left.failed[0];
                             // Or mode lookups keep answering for a share we
                             // just walked away from.
                             invalidate_shared_roots();
@@ -1634,7 +1450,7 @@ async function UIItem (options) {
                     left = left > (window.innerWidth - window_width) ? (window.innerWidth - window_width) : left;
 
                     let top = $(el_item).position().top + $(el_item).height();
-                    top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
+                    top = top > (window.innerHeight - window_height) ? (window.innerHeight - window_height) : top;
 
                     UIWindowItemProperties(
                         $(el_item).attr('data-name'),
@@ -1651,7 +1467,7 @@ async function UIItem (options) {
 
         // Create ContextMenu
         UIContextMenu({
-            parent_element: ($(options.appendTo).hasClass('desktop') ? undefined : options.appendTo),
+            parent_element: options.appendTo,
             position: menu_position,
             items: menu_items,
         });

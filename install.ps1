@@ -190,6 +190,13 @@ S3_BUCKET=puter-local
         providers = [ordered]@{
             ollama = [ordered]@{ enabled = $false }
         }
+        # Off because a self-hosted install has no paid plans: every account
+        # is on the free policy, so the plan gates would 402 the surfaces that
+        # declare one (the OpenAI/Anthropic-compatible AI endpoints) for
+        # everybody. Same as install.sh.
+        meteringEnforcement = [ordered]@{
+            subscriptions = $false
+        }
         trust_proxy = 1
     }
     $configJson = $config | ConvertTo-Json -Depth 10

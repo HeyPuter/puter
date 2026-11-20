@@ -288,6 +288,22 @@ describe('requireAuthGate', () => {
         });
         expectHttpError(got, 401, 'reauth_required');
     });
+
+    it('passes on the error when the token could not be checked', () => {
+        const lookupError = Object.assign(new Error('down'), {
+            code: 'dbBatchFailed',
+        });
+        const got = runGate(requireAuthGate(), { tokenAuthError: lookupError });
+        expect(got).toBe(lookupError);
+    });
+
+    it('still answers token_auth_failed when a check found the token invalid', () => {
+        const got = runGate(requireAuthGate(), {
+            tokenAuthFailed: true,
+            tokenAuthError: new Error('down'),
+        });
+        expectHttpError(got, 401, 'token_auth_failed');
+    });
 });
 
 // ── requireUserActorGate ────────────────────────────────────────────
@@ -328,6 +344,14 @@ describe('requireUserActorGate', () => {
         // it anyway rather than dereferencing undefined.
         const got = runGate(requireUserActorGate(), {});
         expectHttpError(got, 401, 'token_missing');
+    });
+
+    it('passes on the error when the token could not be checked', () => {
+        const lookupError = new Error('down');
+        const got = runGate(requireUserActorGate(), {
+            tokenAuthError: lookupError,
+        });
+        expect(got).toBe(lookupError);
     });
 
     it('rejects a FULL-ACCESS access token too — account routes stay closed', () => {

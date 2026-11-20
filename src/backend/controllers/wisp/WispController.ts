@@ -151,11 +151,12 @@ export class WispController extends PuterController {
 
     /**
      * The session a relay token lives no longer than. An access token's is its
-     * own session row; the actor doesn't carry it.
+     * own session row.
      */
     async #sessionUidFor(actor: Actor): Promise<string | undefined> {
         if (actor.session?.uid) return actor.session.uid;
         if (!actor.accessToken) return undefined;
+        if (actor.accessToken.sessionUid) return actor.accessToken.sessionUid;
         const row = await this.stores.session.findActiveByAccessTokenUid(
             actor.accessToken.uid,
         );

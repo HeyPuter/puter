@@ -46,6 +46,9 @@
     "test:puterjs:node": "npm run test:puterjs -- src/puter-js/tests/api/runners/node.test.ts",
     "test:puterjs:browser": "npm run test:puterjs -- src/puter-js/tests/api/runners/browser.test.ts",
     "test:puterjs:workerd": "npm run test:puterjs -- src/puter-js/tests/api/runners/workerd.test.ts",
+    "bench": "npm run setupExtensions && npm run build:workerLib && node ./tools/bench.mjs run",
+    "bench:compare": "npm run setupExtensions && npm run build:workerLib && node ./tools/bench.mjs against",
+    "check": "node ./tools/check.mjs",
     "test:puterjs:coverage": "npm run build:workerLib:coverage && npm run setupExtensions && rm -rf src/puter-js/coverage && PUTER_COVERAGE=1 vitest run --config src/puter-js/tests/api/vitest.config.ts && node ./tools/puterjsCoverageReport.mjs",
     "build:workerLib:coverage": "cd src/puter-js && npm run build:coverage && cd ../worker && npm run build",
     "start:gui": "nodemon --exec \"node dev-server.js\" ",
@@ -76,7 +79,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1028.0",
     "dedent": "^1.5.3",
     "javascript-time-ago": "^2.5.11",
-    "libphonenumber-js": "1.13.15",
+    "libphonenumber-js": "1.13.16",
     "miniflare": "^4.20260617.1",
     "open": "^10.1.0",
     "sharp": "^0.35.5"

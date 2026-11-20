@@ -19,6 +19,7 @@
 
 // The page's side of `/sw.js`: routed taps, and updates once push is on.
 
+import { SUBSCRIPTION_CHANGED_MESSAGE } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import {
     dispatchPushTap,
     normalizePushTap,
@@ -27,6 +28,7 @@ import {
 } from './notificationTap.js';
 import { clear_query_param } from './parseSharedPath.js';
 import { getPushClient, registerPushClient } from './pushClient.js';
+import { syncBrowserPush } from './pushSync.js';
 import { webPushClient } from './webPushClient.js';
 
 export const WORKER_URL = '/sw.js';
@@ -46,8 +48,7 @@ export const pushWorkerEnabled = (params, nav) => (
 let started = false;
 
 /**
- * @param {{ params?: Object, nav?: Navigator, query?: URLSearchParams,
- *     clearParam?: (name: string) => void, framed?: boolean }} [env]
+ * @param {{ params?: Object, nav?: Navigator, query?: URLSearchParams, clearParam?: (name: string) => void, framed?: boolean, resync?: () => unknown }} [env] `resync` runs when the worker replaced the subscription
  * @returns {Promise<void>}
  */
 export const startPushWorker = async ({
@@ -56,6 +57,7 @@ export const startPushWorker = async ({
     query = globalThis.url_query_params,
     clearParam = clear_query_param,
     framed = globalThis.top !== globalThis.self,
+    resync = () => syncBrowserPush({ fresh: true }),
 } = {}) => {
     if ( started || framed ) return;
     started = true;
@@ -72,6 +74,10 @@ export const startPushWorker = async ({
         registerPushClient(webPushClient());
     }
     nav.serviceWorker.addEventListener('message', (event) => {
+        if ( event.data?.type === SUBSCRIPTION_CHANGED_MESSAGE ) {
+            void resync();
+            return;
+        }
         if ( event.data?.type !== WORKER_CLICK_MESSAGE || ! normalizePushTap(event.data.notification) ) return;
         event.source?.postMessage?.({ type: WORKER_CLICK_ACK_MESSAGE, id: event.data.id });
         dispatchPushTap(event.data.notification);

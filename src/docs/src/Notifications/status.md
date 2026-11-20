@@ -8,7 +8,7 @@ Checks your app's push subscription in this browser.
 
 It never prompts, so call it on page load to decide whether to show your own "Turn on notifications" button, which calls [`enable()`](/Notifications/enable/).
 
-On a website, it's `'on'` when the user turned pushes on in this browser with [`enable()`](/Notifications/enable/), this browser still holds the subscription, and Puter hasn't reported it removed or revoked. It's `'off'` after the user removes this browser in Puter's settings or turns your app off there. Pushes start once Puter confirms the browser, usually within seconds of [`enable()`](/Notifications/enable/) resolving. Inside the Puter desktop, it's `'on'` when pushes are on in this browser and the user allowed pushes from your app.
+On a website, it's `'on'` when the user turned pushes on in this browser with [`enable()`](/Notifications/enable/), this browser still holds the subscription, and Puter hasn't reported it removed or revoked. It's `'off'` after the user removes this browser in Puter's settings or turns your app off there. Pushes start once Puter confirms the browser, usually within seconds of [`enable()`](/Notifications/enable/) resolving. Inside the Puter desktop, it's `'on'` when pushes are on in this browser and the user allowed pushes from your app in Puter's prompt. Pushes allowed only through [`enable()`](/Notifications/enable/) on your website reach only your website, so they don't count.
 
 ## Syntax
 ```js

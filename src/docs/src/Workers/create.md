@@ -23,7 +23,7 @@ puter.workers.create(workerName, filePath, options)
 <div class="info">Workers cannot be larger than <strong>10MB</strong>.</div>
 
 #### `workerName` (String)(Required)
-The name for the worker. It can contain letters, numbers, hyphens, and underscores.
+The name for the worker. It can contain letters, numbers, hyphens, and underscores, and can be up to 50 characters long. A longer name is rejected with `400 bad_request`.
 
 #### `filePath` (String)(Required)
 The path to a JavaScript file in your Puter account that contains your [router](/Workers/router/) code.
@@ -48,6 +48,8 @@ A `Promise` that resolves to a [`WorkerDeployment`](/Objects/workerdeployment) o
 
 On failure, throws an `Error` with the reason.
 
+With the default sandbox, if another user already owns the `sandbox-<workerName>` app, the call rejects with `{ message, code: 'sandbox_not_owned' }`. To deploy anyway, choose another worker name or pass `{ sandbox: false }`.
+
 ## Worker identity and shared state
 
 Every worker runs as some app, and that identity decides which [`puter.kv`](/KV/) namespace and which `AppData` directory the worker reaches. Two workers running as the same app read and write **the same** KV keys and the same files.
@@ -71,6 +73,8 @@ Two identities are in play inside a worker, and only the first is affected by th
 The app a worker runs as also owns what the worker sends. Notifications and pushes the worker sends with [`puter.notifications.notify()`](/Notifications/notify/) come from that app, so a sandboxed worker sends them as its `sandbox-<workerName>` app. To send them as your app, bind the worker to it with `appName`. The [`WorkerDeployment`](/Objects/workerdeployment) this call resolves to, and the [`WorkerInfo`](/Objects/workerinfo) that [`puter.workers.list()`](/Workers/list/) and [`puter.workers.get()`](/Workers/get/) return, name that app in `app_uid` and `app_name`.
 
 Changing a worker's binding does not migrate its data. A worker redeployed with a different `sandbox` setting or `appName` starts against a different namespace, and anything it wrote under the old identity stays where it was.
+
+When a user removes your app from their account, the workers your app deployed there are deleted, including workers bound to apps your app created in that account. A worker bound to an app the user owns is kept.
 
 ## Updating a worker
 

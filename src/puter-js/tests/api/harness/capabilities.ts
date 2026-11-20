@@ -7,8 +7,9 @@
  * without silently losing sight of what wasn't covered.
  *
  * Env var names follow the backend AI integration tests
- * (`PUTER_TEST_AI_<PROVIDER>_API_KEY`, see drivers/integrationTestUtil.ts)
- * so one set of secrets drives both test layers.
+ * (`PUTER_TEST_AI_<PROVIDER>_API_KEY`, see
+ * drivers/ai/shared/integrationTestUtil.ts) so one set of secrets drives both
+ * test layers.
  *
  * Node-side only: imported by the runners, never bundled into suites.
  * Suites can read the resulting tags from `t.env.capabilities`.
