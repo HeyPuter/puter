@@ -2005,6 +2005,87 @@ describe('Gemini audio metering', () => {
     });
 
     it.each(['gemini-2.5-flash', 'gemini-2.5-flash-lite'])(
+        'sends earlier audio and video with a text follow-up for %s',
+        async (model) => {
+            generateContent.mockResolvedValueOnce(textResponse('OK'));
+            await complete({
+                model,
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'input_audio',
+                                input_audio: {
+                                    data: 'YXVkaW8=',
+                                    format: 'mp3',
+                                },
+                            },
+                            {
+                                type: 'video_url',
+                                video_url: {
+                                    url: 'data:video/mp4;base64,dmlkZW8=',
+                                },
+                            },
+                        ],
+                    },
+                    { role: 'assistant', content: 'Noted' },
+                    { role: 'user', content: 'What was the code?' },
+                ],
+            });
+            expect(openAICreate).not.toHaveBeenCalled();
+            expect(generateContent.mock.calls[0]![0].contents).toEqual([
+                {
+                    role: 'user',
+                    parts: [
+                        {
+                            inlineData: {
+                                mimeType: 'audio/mpeg',
+                                data: 'YXVkaW8=',
+                            },
+                        },
+                        {
+                            inlineData: {
+                                mimeType: 'video/mp4',
+                                data: 'dmlkZW8=',
+                            },
+                        },
+                    ],
+                },
+                { role: 'model', parts: [{ text: 'Noted' }] },
+                { role: 'user', parts: [{ text: 'What was the code?' }] },
+            ]);
+        },
+    );
+
+    it('rejects a remote video URL sent with audio before calling Google', async () => {
+        await expect(
+            complete({
+                model: 'gemini-2.5-flash',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'input_audio',
+                                input_audio: { data: 'YXVkaW8=', format: 'mp3' },
+                            },
+                            {
+                                type: 'video_url',
+                                video_url: { url: 'https://example.test/a.mp4' },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Video input sent with audio must be a video data URL',
+        });
+        expect(generateContent).not.toHaveBeenCalled();
+    });
+
+    it.each(['gemini-2.5-flash', 'gemini-2.5-flash-lite'])(
         'splits audio input for %s',
         async (model) => {
             generateContent.mockResolvedValueOnce(

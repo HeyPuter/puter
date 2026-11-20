@@ -49,6 +49,7 @@ type ChatContentPart =
           type?: string;
           text?: string;
           image_url?: { url?: string };
+          video_url?: { url?: string };
           input_audio?: { data?: string; format?: string };
       };
 
@@ -127,7 +128,8 @@ const textOf = (content: ChatContent): string => {
         .join('');
 };
 
-const contentParts = (content: ChatContent, allowAudio: boolean): Part[] => {
+/** `audioVideo` is set for the models whose audio and video come here. */
+const contentParts = (content: ChatContent, audioVideo: boolean): Part[] => {
     if (typeof content === 'string') return content ? [{ text: content }] : [];
     if (!Array.isArray(content)) return [];
     const parts: Part[] = [];
@@ -138,7 +140,7 @@ const contentParts = (content: ChatContent, allowAudio: boolean): Part[] => {
             if (typeof part.text === 'string' && part.text) {
                 parts.push({ text: part.text });
             }
-        } else if (part.type === 'input_audio' && allowAudio) {
+        } else if (part.type === 'input_audio' && audioVideo) {
             const audio = part.input_audio;
             if (
                 typeof audio?.data !== 'string' ||
@@ -158,6 +160,19 @@ const contentParts = (content: ChatContent, allowAudio: boolean): Part[] => {
                         audio.format === 'mp3' ? 'audio/mpeg' : 'audio/wav',
                     data: audio.data,
                 },
+            });
+        } else if (part.type === 'video_url' && audioVideo) {
+            // Google doesn't fetch a remote video URL, so only inline data.
+            const uri = parseDataUri(part.video_url?.url ?? '');
+            if (!uri?.base64 || !uri.mimeType.startsWith('video/')) {
+                throw new HttpError(
+                    400,
+                    'Video input sent with audio must be a video data URL',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            parts.push({
+                inlineData: { mimeType: uri.mimeType, data: uri.data },
             });
         } else if (part.type === 'image_url') {
             // http(s) images were already inlined as data URLs.
@@ -182,7 +197,7 @@ const contentParts = (content: ChatContent, allowAudio: boolean): Part[] => {
 
 const toGeminiContents = (
     messages: ChatMessage[],
-    allowAudio: boolean,
+    audioVideo: boolean,
 ): { contents: Content[]; systemInstruction?: Content } => {
     const system: Part[] = [];
     const contents: Content[] = [];
@@ -196,9 +211,9 @@ const toGeminiContents = (
 
     for (const message of messages) {
         if (message.role === 'system' || message.role === 'developer') {
-            system.push(...contentParts(message.content, allowAudio));
+            system.push(...contentParts(message.content, audioVideo));
         } else if (message.role === 'assistant') {
-            const parts = contentParts(message.content, allowAudio);
+            const parts = contentParts(message.content, audioVideo);
             for (const call of message.tool_calls ?? []) {
                 if (call.id) toolNames.set(call.id, call.function.name);
                 const signature = call.extra_content?.google?.thought_signature;
@@ -231,7 +246,7 @@ const toGeminiContents = (
                 },
             ]);
         } else {
-            push('user', contentParts(message.content, allowAudio));
+            push('user', contentParts(message.content, audioVideo));
         }
     }
 
