@@ -385,6 +385,32 @@ describe('GUI upload thumbnail scheduling', () => {
         expect(defaultGenerator).not.toHaveBeenCalled();
     });
 
+    it('scales one book cover at a time, and skips the books still queued at the deadline', async () => {
+        let scaling = 0;
+        let most = 0;
+        const finish = [];
+        const defaultGenerator = vi.fn(() => new Promise((resolve) => {
+            most = Math.max(most, ++scaling);
+            finish.push(() => {
+                scaling--;
+                resolve(thumbnail);
+            });
+        }));
+        const generate = createUploadThumbnailGenerator();
+        const results = Promise.all(['a', 'b', 'c', 'd'].map(name =>
+            generate(new File([createEpub({ cover: psdPreviewJpeg() })], `${name}.epub`), { defaultGenerator })));
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        // The third cover is still being scaled when the deadline passes.
+        await vi.advanceTimersByTimeAsync(OFFICE_BATCH_TIMEOUT_MS);
+        expect(await results).toEqual([thumbnail, thumbnail, undefined, undefined]);
+        expect(most).toBe(1);
+        expect(defaultGenerator).toHaveBeenCalledTimes(3);
+    });
+
     it('reads spreadsheets and Word documents in one queue, under one deadline', async () => {
         vi.stubGlobal('OffscreenCanvas', createRecordingCanvas().Canvas);
         const defaultGenerator = vi.fn(async () => thumbnail);

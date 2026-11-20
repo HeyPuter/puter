@@ -163,7 +163,9 @@ that picture to the image generator as it is stored:
 Nothing is rendered, so the thumbnail is the editor's own. What kind of image it
 is comes from its own first bytes. A file with none of these, such as a template
 or a text file with the name a Keynote file has, retains its normal icon. These
-files go through the same queue as Office documents.
+files go through the same queue as Office documents, and each picture is scaled
+before the next file is opened, since a book's cover can be large and a library
+is many books.
 
 ## HEIC
 

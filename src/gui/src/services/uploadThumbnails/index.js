@@ -224,8 +224,12 @@ export const createUploadThumbnailGenerator = () => {
                 } else if ( PRESENTATION_TYPE.test(file.type) || PRESENTATION_NAME.test(name) ) {
                     image = await queueOffice(signal => readPptxPreview(file, signal), context?.signal);
                 } else if ( isPreviewPackage(name, file.type) ) {
-                    // These carry a picture of themselves, made by the editor that saved them.
-                    image = await queueOffice(signal => readEmbeddedPreview(file, signal), context?.signal);
+                    // These carry a picture of themselves, made by the editor that saved them. A book's cover can be
+                    // large, and a library is many books, so one picture is scaled before the next file is opened.
+                    return await queueOffice(async (signal) => {
+                        const picture = await readEmbeddedPreview(file, signal);
+                        return picture ? imageGenerator(picture) : undefined;
+                    }, context?.signal);
                 } else if ( HEIF_TYPE.test(file.type) || HEIF_NAME.test(name) ) {
                     // Safari decodes these itself. The image generator goes by a file's type, and not every browser
                     // gives these one.
