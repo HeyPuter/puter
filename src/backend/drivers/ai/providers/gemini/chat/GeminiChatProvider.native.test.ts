@@ -862,6 +862,48 @@ describe('gemini-4-argon output cap', () => {
                 } as ICompleteArguments),
             );
 
+        it.each([
+            ['2026-11-30T23:59:59.999Z', 3_500_000],
+            ['2026-12-01T00:00:00.000Z', 1_400_000],
+        ] as const)(
+            'prices the Gemini provider default at %s',
+            async (iso, grounding) => {
+                vi.setSystemTime(new Date(iso));
+                openAICreate.mockResolvedValueOnce({
+                    choices: [
+                        {
+                            message: {
+                                role: 'assistant',
+                                content: 'OK',
+                                extra_content: {
+                                    grounding_metadata: {
+                                        web_search_queries: ['query'],
+                                    },
+                                },
+                            },
+                            finish_reason: 'stop',
+                        },
+                    ],
+                    usage: {
+                        prompt_tokens: 10,
+                        completion_tokens: 2,
+                        total_tokens: 12,
+                    },
+                });
+                await viaDriver({
+                    provider: 'gemini',
+                    model: undefined,
+                    max_tokens: 5,
+                });
+                expect(openAICreate.mock.calls[0]![0].model).toBe('gemini-2.5-flash');
+                expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                    prompt_tokens: 300,
+                    completion_tokens: 500,
+                    grounding_requests: grounding,
+                });
+            },
+        );
+
         // The two-token prompt costs less than one output token.
         const heldOutputTokens = () =>
             Math.floor(
@@ -1800,6 +1842,50 @@ describe('Gemini 4 Neon', () => {
 });
 
 describe('Gemini audio metering', () => {
+    it.each([
+        ['gemini-2.5-flash', '2026-11-30T23:59:59.999Z', 100, 10],
+        ['gemini-2.5-flash', '2026-12-01T00:00:00.000Z', 30, 3],
+        ['gemini-2.5-flash-lite', '2026-11-30T23:59:59.999Z', 30, 3],
+        ['gemini-2.5-flash-lite', '2026-12-01T00:00:00.000Z', 30, 3],
+    ] as const)(
+        'prices audio for %s at %s',
+        async (model, iso, audio, cachedAudio) => {
+            generateContent.mockResolvedValueOnce(
+                textResponse('OK', {
+                    promptTokenCount: 110,
+                    candidatesTokenCount: 2,
+                    cachedContentTokenCount: 50,
+                    promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 100 }],
+                    cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 50 }],
+                }),
+            );
+            await complete(
+                {
+                    model,
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'input_audio',
+                                    input_audio: {
+                                        data: 'YXVkaW8=',
+                                        format: 'mp3',
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+                new Date(iso),
+            );
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                audio_tokens: 50 * audio,
+                cached_audio_tokens: 50 * cachedAudio,
+            });
+        },
+    );
+
     it('meters audio input from streaming metadata', async () => {
         generateContentStream.mockResolvedValueOnce(
             asAsyncIterable([

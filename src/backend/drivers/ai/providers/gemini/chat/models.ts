@@ -81,6 +81,17 @@ const FLASH_COSTS: ModelCost = {
     grounding_requests: 1_400_000,
 };
 
+const FLASH_LITE_COSTS: ModelCost = {
+    tokens: 1_000_000,
+    prompt_tokens: 30,
+    completion_tokens: 250,
+    thinking_tokens: 250,
+    cached_tokens: 3,
+    grounding_requests: 1_400_000,
+};
+
+const LEGACY_REDIRECT_START = '2026-12-01T00:00:00.000Z';
+
 const GEMINI_4_COSTS: ModelCost = {
     tokens: 1_000_000,
     prompt_tokens: 400,
@@ -267,14 +278,7 @@ export const GEMINI_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         serviceSpeedRates: { fast: 1.8 },
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 30,
-            completion_tokens: 250,
-            thinking_tokens: 250,
-            cached_tokens: 3,
-            grounding_requests: 1_400_000,
-        },
+        costs: FLASH_LITE_COSTS,
     },
     {
         puterId: 'google:google/gemini-3.6-flash',
@@ -426,6 +430,16 @@ export const GEMINI_MODELS: IChatModel[] = [
             // Gemini 2.x grounding is $35 / 1,000 requests
             grounding_requests: 3_500_000,
         },
+        pricingOverrides: [
+            {
+                startsAt: LEGACY_REDIRECT_START,
+                costs: {
+                    ...FLASH_LITE_COSTS,
+                    audio_tokens: FLASH_LITE_COSTS.prompt_tokens,
+                    cached_audio_tokens: FLASH_LITE_COSTS.cached_tokens,
+                },
+            },
+        ],
         max_tokens: 65536,
     },
     {
@@ -495,6 +509,10 @@ export const GEMINI_MODELS: IChatModel[] = [
                     thinking_tokens: 1500,
                     cached_tokens: 25,
                 },
+            },
+            {
+                startsAt: LEGACY_REDIRECT_START,
+                costs: FLASH_COSTS,
             },
         ],
         max_tokens: 65_536,

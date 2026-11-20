@@ -613,6 +613,90 @@ describe('GeminiChatProvider pricing tiers', () => {
         });
     });
 
+    it.each([
+        [undefined, '2026-11-30T23:59:59.999Z', 30, 250, 3, 3_500_000],
+        [undefined, '2026-12-01T00:00:00.000Z', 30, 250, 3, 1_400_000],
+        ['gemini-2.5-flash', '2026-12-01T00:00:00.000Z', 30, 250, 3, 1_400_000],
+        [
+            'google/gemini-2.5-flash',
+            '2026-12-01T00:00:00.000Z',
+            30,
+            250,
+            3,
+            1_400_000,
+        ],
+        ['gemini-2.5-pro', '2026-11-30T23:59:59.999Z', 250, 1500, 25, 3_500_000],
+        ['gemini-2.5-pro', '2026-12-01T00:00:00.000Z', 150, 750, 15, 1_400_000],
+        [
+            'google/gemini-2.5-pro',
+            '2026-12-01T00:00:00.000Z',
+            150,
+            750,
+            15,
+            1_400_000,
+        ],
+        ['gemini-2.5-flash-lite', '2026-12-01T00:00:00.000Z', 10, 40, 1, 3_500_000],
+    ] as const)(
+        'settles legacy route %s at %s including grounding',
+        async (model, iso, input, output, cached, grounding) => {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: {
+                            role: 'assistant',
+                            content: 'OK',
+                            extra_content: {
+                                grounding_metadata: {
+                                    web_search_queries: ['query'],
+                                },
+                            },
+                        },
+                        finish_reason: 'stop',
+                    },
+                ],
+                usage: {
+                    prompt_tokens: 200_001,
+                    completion_tokens: 5,
+                    completion_tokens_details: { reasoning_tokens: 2 },
+                    prompt_tokens_details: { cached_tokens: 10 },
+                },
+            });
+            await withTestActor(() =>
+                provider.complete(
+                    { model: model ?? provider.getDefaultModel(), messages: [{ role: 'user', content: 'Search' }] },
+                    undefined,
+                    new Date(iso),
+                ),
+            );
+            expect(createMock.mock.calls[0]![0].model).toBe(
+                model?.replace('google/', '') ?? 'gemini-2.5-flash',
+            );
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                prompt_tokens: 199_991 * input,
+                completion_tokens: 3 * output,
+                thinking_tokens: 2 * output,
+                cached_tokens: 10 * cached,
+                grounding_requests: grounding,
+            });
+            const entry = (await provider.models()).find(entry => entry.id === (model?.replace('google/', '') ?? provider.getDefaultModel()))!;
+            expect(costsForRequest(entry, 200_001, new Date(iso))).toMatchObject({
+                prompt_tokens: input,
+                completion_tokens: output,
+                cached_tokens: cached,
+                grounding_requests: grounding,
+            });
+            if (new Date(iso) >= new Date('2026-12-01T00:00:00.000Z')) {
+                expect(listedCosts(entry, new Date(iso))).toMatchObject({
+                    prompt_tokens: input,
+                    completion_tokens: output,
+                    cached_tokens: cached,
+                    grounding_requests: grounding,
+                });
+            }
+        },
+    );
+
     it('prices gemini-2.5-pro at its list rates on both sides of 200,000 tokens', () => {
         const entry = GEMINI_MODELS.find((m) => m.id === 'gemini-2.5-pro')!;
         const now = new Date('2026-10-14T12:00:00Z');
