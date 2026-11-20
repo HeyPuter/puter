@@ -18,7 +18,7 @@
  */
 
 // Most models go through Google's OpenAI-compatible endpoint with the openai
-// SDK; only GEMINI_NATIVE_MODELS use the native generateContent API.
+// SDK; native models and separately priced audio use generateContent.
 import {
     type GenerateContentResponseUsageMetadata,
     GoogleGenAI,
@@ -32,6 +32,7 @@ import type {
     PuterMessage,
     UsageDetails,
 } from '../../../interfaces/chat/types.js';
+import { requiredInputModalities } from '../../../interfaces/chat/utils/mediaParts.js';
 import { toolChoiceToWire } from '../../../protocols/openaiCompatible/openaiParams.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
@@ -42,7 +43,11 @@ import {
 } from '../../../protocols/openaiCompatible/OpenAICompatProvider.js';
 import { usesGoogleGeminiEndpoint } from '../geminiRest.js';
 import { geminiNativeClient } from './geminiNative.js';
-import { GEMINI_MODELS, GEMINI_NATIVE_MODELS } from './models.js';
+import {
+    GEMINI_AUDIO_MODELS,
+    GEMINI_MODELS,
+    GEMINI_NATIVE_MODELS,
+} from './models.js';
 
 type GroundingContent = { grounding_metadata?: unknown };
 
@@ -83,8 +88,23 @@ export class GeminiChatProvider extends OpenAICompatProvider {
                         const { model, service_tier } = params as {
                             model: string;
                             service_tier?: string;
+                            messages?: PuterMessage[];
                         };
+                        const audioRequest =
+                            GEMINI_AUDIO_MODELS.has(model) &&
+                            requiredInputModalities(
+                                (params as { messages?: PuterMessage[] })
+                                    .messages,
+                            ).includes('audio');
+                        if (audioRequest && !native) {
+                            throw new HttpError(
+                                400,
+                                'Audio input requires the native Gemini endpoint',
+                                { legacyCode: 'bad_request' },
+                            );
+                        }
                         if (
+                            !audioRequest &&
                             !GEMINI_NATIVE_MODELS.has(model) &&
                             (service_tier === undefined || !native)
                         ) {
@@ -196,8 +216,8 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         ) {
             return nativeMeteredUsage(
                 source.usage as unknown as
-                    | GenerateContentResponseUsageMetadata
-                    | undefined,
+                    GenerateContentResponseUsageMetadata | undefined,
+                model.costs.audio_tokens !== undefined,
             );
         }
         // Non-stream grounding metadata lives in choices[0].message; a stream
@@ -207,20 +227,28 @@ export class GeminiChatProvider extends OpenAICompatProvider {
             | Array<{ message?: { extra_content?: GroundingContent } }>
             | undefined;
         const extraContent = source.extra_content as
-            | GroundingContent
-            | undefined;
+            GroundingContent | undefined;
 
         const cached_tokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
-        // Thinking tokens are a subset of completion_tokens billed at a different rate
+        // Explicit reasoning counts are included in completions; otherwise Google
+        // reports thoughts only in the total, separate from visible output.
         const thinking_tokens =
-            usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+            usage?.completion_tokens_details?.reasoning_tokens ??
+            Math.max(
+                0,
+                (count(usage?.total_tokens) ?? 0) -
+                    (usage?.prompt_tokens ?? 0) -
+                    (usage?.completion_tokens ?? 0),
+            );
 
         return {
             usage: {
                 prompt_tokens: (usage?.prompt_tokens ?? 0) - cached_tokens,
                 completion_tokens: Math.max(
                     0,
-                    (usage?.completion_tokens ?? 0) - thinking_tokens,
+                    (usage?.completion_tokens ?? 0) -
+                        (usage?.completion_tokens_details?.reasoning_tokens ??
+                            0),
                 ),
                 cached_tokens,
                 thinking_tokens,
@@ -245,6 +273,7 @@ const count = (value: number | undefined): number | undefined =>
  */
 const nativeMeteredUsage = (
     metadata: GenerateContentResponseUsageMetadata | undefined,
+    splitAudio: boolean,
 ): { usage: Record<string, number>; usageDetails?: UsageDetails } => {
     const prompt = count(metadata?.promptTokenCount);
     const candidates = count(metadata?.candidatesTokenCount);
@@ -261,13 +290,41 @@ const nativeMeteredUsage = (
     ) {
         return { usage: {} };
     }
+    const audioTokens = splitAudio
+        ? (metadata?.promptTokensDetails ?? [])
+              .filter((detail) => detail.modality === 'AUDIO')
+              .reduce(
+                  (total, detail) => total + (count(detail.tokenCount) ?? 0),
+                  0,
+              )
+        : 0;
+    const cachedAudioTokens = splitAudio
+        ? (metadata?.cacheTokensDetails ?? [])
+              .filter((detail) => detail.modality === 'AUDIO')
+              .reduce(
+                  (total, detail) => total + (count(detail.tokenCount) ?? 0),
+                  0,
+              )
+        : 0;
     const inputTokens = Math.max(0, (prompt ?? 0) - cached);
     return {
         usage: {
-            prompt_tokens: inputTokens,
+            prompt_tokens: Math.max(
+                0,
+                inputTokens - Math.max(0, audioTokens - cachedAudioTokens),
+            ),
+            ...(splitAudio
+                ? {
+                      audio_tokens: Math.max(
+                          0,
+                          audioTokens - cachedAudioTokens,
+                      ),
+                      cached_audio_tokens: cachedAudioTokens,
+                  }
+                : {}),
             completion_tokens: candidates ?? 0,
             thinking_tokens: thoughts ?? 0,
-            cached_tokens: cached,
+            cached_tokens: Math.max(0, cached - cachedAudioTokens),
             ...(toolUse ? { tool_use_prompt_tokens: toolUse } : {}),
         },
         usageDetails: {

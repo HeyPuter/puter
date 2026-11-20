@@ -877,6 +877,53 @@ describe('GeminiChatProvider.complete thinking token metering', () => {
         });
     });
 
+    it.each([false, true])(
+        'bills thoughts reported only in total_tokens, stream=%s',
+        async (stream) => {
+            const { provider } = makeProvider();
+            const usage = {
+                prompt_tokens: 100,
+                completion_tokens: 2,
+                total_tokens: 3070,
+            };
+            const choice = {
+                message: { content: '18', role: 'assistant' },
+                delta: { content: '18' },
+                finish_reason: 'stop',
+            };
+            createMock.mockResolvedValueOnce(
+                stream
+                    ? (async function* () {
+                          yield { choices: [choice], usage };
+                      })()
+                    : { choices: [choice], usage },
+            );
+            const result = await withTestActor(() =>
+                provider.complete({
+                    model: 'gemini-2.5-flash',
+                    messages: [{ role: 'user', content: 'think hard' }],
+                    stream,
+                }),
+            );
+            if (stream) {
+                await (
+                    result as {
+                        init_chat_stream: (options: {
+                            chatStream: unknown;
+                        }) => Promise<void>;
+                    }
+                ).init_chat_stream({
+                    chatStream: makeCapturingChatStream().chatStream,
+                });
+            }
+            expect(recordSpy.mock.calls[0]![0]).toMatchObject({
+                prompt_tokens: 100,
+                completion_tokens: 2,
+                thinking_tokens: 2968,
+            });
+        },
+    );
+
     it('sets thinking_tokens to 0 when completion_tokens_details is absent', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce({

@@ -782,7 +782,7 @@ export class ChatCompletionDriver extends PuterDriver {
             args.tool_choice = toolChoiceFromWire(args.tool_choice, 'chat');
         }
 
-        // A clear 400 for image/video parts the catalog says the model cannot
+        // A clear 400 for media parts the catalog says the model cannot
         // read, before the credit hold and the round trip. Entries that declare
         // no modalities (reseller catalogs) are not judged.
         for (const modality of requiredInputModalities(args.messages)) {

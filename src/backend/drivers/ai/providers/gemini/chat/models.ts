@@ -416,6 +416,8 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
+            audio_tokens: 100,
+            cached_audio_tokens: 10,
             // Output is $2.50/M; thinking tokens bill at the same output rate
             completion_tokens: 250,
             thinking_tokens: 250,
@@ -447,6 +449,8 @@ export const GEMINI_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 10,
+            audio_tokens: 30,
+            cached_audio_tokens: 3,
             completion_tokens: 40,
             thinking_tokens: 40,
             cached_tokens: 1,
@@ -638,3 +642,9 @@ export const GEMINI_MODELS: IChatModel[] = [
         max_tokens: 8_192,
     },
 ];
+
+export const GEMINI_AUDIO_MODELS = new Set(
+    GEMINI_MODELS.filter((model) => model.costs.audio_tokens !== undefined).map(
+        (model) => model.id,
+    ),
+);

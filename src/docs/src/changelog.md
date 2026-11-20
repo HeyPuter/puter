@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 20, 2026
+
+- Changed [`puter.ai.chat()`](/AI/chat/) to reject audio parts with `bad_request` when the model does not support audio input.
+
 ## November 18, 2026
 
 - Changed removing an app from a Puter account to also delete the workers that app deployed there with [`puter.workers.create()`](/Workers/create/). A worker bound to an app the user owns is kept.

@@ -157,6 +157,41 @@ describe('ChatCompletionDriver media canonicalisation', () => {
 });
 
 describe('ChatCompletionDriver input modality gate', () => {
+    it('returns 400 for an audio part when the catalog entry declares text-only input', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce(
+            fakeCatalog({ input: ['text'], output: ['text'] }),
+        );
+        const driver = await makeDriver();
+        const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+
+        let caught: unknown;
+        try {
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'fake',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: 'describe' },
+                                { type: 'input_audio', input_audio: { data: 'YXVkaW8=', format: 'mp3' } },
+                            ],
+                        },
+                    ],
+                }),
+            );
+        } catch (e) {
+            caught = e;
+        }
+
+        expect(caught).toMatchObject({
+            statusCode: 400,
+            message: 'Model fake does not support audio input',
+        });
+        // Refused before any provider round trip.
+        expect(completeSpy).not.toHaveBeenCalled();
+    });
+
     it('returns 400 for an image part when the catalog entry declares text-only input', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce(
             fakeCatalog({ input: ['text'], output: ['text'] }),

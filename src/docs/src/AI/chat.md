@@ -483,7 +483,7 @@ You can find the implementation in our [prompt caching example](/playground/ai-c
 
 ### Gemini models
 
-Gemini models use regular token prices, including during provider launch promotions.
+Gemini models use regular token prices, including during provider launch promotions. Thinking tokens are charged at the output token rate. For Gemini 2.5 Flash and Gemini 2.5 Flash-Lite, audio input is charged at the audio token rate.
 
 Fast service uses Priority inference on supported text and image requests. Other media use standard service to preserve input handling.
 

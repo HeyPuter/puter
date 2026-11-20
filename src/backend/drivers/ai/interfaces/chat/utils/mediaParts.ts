@@ -33,7 +33,7 @@ import type { IChatModel } from '../types.js';
  * `puter_path` parts are left alone; the driver resolves them per attempt.
  */
 
-export type MediaModality = 'image' | 'video';
+export type MediaModality = 'image' | 'video' | 'audio';
 
 type Part = Record<string, unknown>;
 
@@ -200,6 +200,11 @@ export const requiredInputModalities = (
                 part.video_url !== undefined
             ) {
                 found.add('video');
+            } else if (
+                part.type === 'input_audio' ||
+                part.input_audio !== undefined
+            ) {
+                found.add('audio');
             }
         }
     }

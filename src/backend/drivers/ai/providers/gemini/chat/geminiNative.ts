@@ -41,9 +41,16 @@ import { promoteStopForToolCalls } from '../../../interfaces/chat/utils/stopReas
 import { UpstreamDeadlineError } from '../../../../util/upstreamErrors.js';
 import type { ChatCompletionsClient } from '../../../protocols/openaiCompatible/OpenAICompatProvider.js';
 
+import { GEMINI_AUDIO_MODELS } from './models.js';
+
 type ChatContentPart =
     | string
-    | { type?: string; text?: string; image_url?: { url?: string } };
+    | {
+          type?: string;
+          text?: string;
+          image_url?: { url?: string };
+          input_audio?: { data?: string; format?: string };
+      };
 
 type ChatContent = string | ChatContentPart[] | null | undefined;
 
@@ -120,7 +127,7 @@ const textOf = (content: ChatContent): string => {
         .join('');
 };
 
-const contentParts = (content: ChatContent): Part[] => {
+const contentParts = (content: ChatContent, allowAudio: boolean): Part[] => {
     if (typeof content === 'string') return content ? [{ text: content }] : [];
     if (!Array.isArray(content)) return [];
     const parts: Part[] = [];
@@ -131,6 +138,27 @@ const contentParts = (content: ChatContent): Part[] => {
             if (typeof part.text === 'string' && part.text) {
                 parts.push({ text: part.text });
             }
+        } else if (part.type === 'input_audio' && allowAudio) {
+            const audio = part.input_audio;
+            if (
+                typeof audio?.data !== 'string' ||
+                !audio.data ||
+                typeof audio.format !== 'string' ||
+                !['wav', 'mp3'].includes(audio.format)
+            ) {
+                throw new HttpError(
+                    400,
+                    'Audio input requires data and a wav or mp3 format',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            parts.push({
+                inlineData: {
+                    mimeType:
+                        audio.format === 'mp3' ? 'audio/mpeg' : 'audio/wav',
+                    data: audio.data,
+                },
+            });
         } else if (part.type === 'image_url') {
             // http(s) images were already inlined as data URLs.
             const uri = parseDataUri(part.image_url?.url ?? '');
@@ -140,7 +168,7 @@ const contentParts = (content: ChatContent): Part[] => {
                     : unsupportedMediaTextPart('image could not be loaded'),
             );
         } else {
-            // Audio and file parts have no mapping here; dropping them would
+            // Unsupported parts have no mapping here; dropping them would
             // send Google a different prompt than the caller wrote.
             throw new HttpError(
                 400,
@@ -154,6 +182,7 @@ const contentParts = (content: ChatContent): Part[] => {
 
 const toGeminiContents = (
     messages: ChatMessage[],
+    allowAudio: boolean,
 ): { contents: Content[]; systemInstruction?: Content } => {
     const system: Part[] = [];
     const contents: Content[] = [];
@@ -167,9 +196,9 @@ const toGeminiContents = (
 
     for (const message of messages) {
         if (message.role === 'system' || message.role === 'developer') {
-            system.push(...contentParts(message.content));
+            system.push(...contentParts(message.content, allowAudio));
         } else if (message.role === 'assistant') {
-            const parts = contentParts(message.content);
+            const parts = contentParts(message.content, allowAudio);
             for (const call of message.tool_calls ?? []) {
                 if (call.id) toolNames.set(call.id, call.function.name);
                 const signature = call.extra_content?.google?.thought_signature;
@@ -202,7 +231,7 @@ const toGeminiContents = (
                 },
             ]);
         } else {
-            push('user', contentParts(message.content));
+            push('user', contentParts(message.content, allowAudio));
         }
     }
 
@@ -233,7 +262,10 @@ const toGenerateContentRequest = (
     params: ChatParams,
     signal: AbortSignal | undefined,
 ) => {
-    const { contents, systemInstruction } = toGeminiContents(params.messages);
+    const { contents, systemInstruction } = toGeminiContents(
+        params.messages,
+        GEMINI_AUDIO_MODELS.has(params.model),
+    );
     if (!contents.length) {
         throw new HttpError(
             400,
