@@ -257,6 +257,21 @@ describe('<puter-user-menu>', () => {
         expect(appsOpen(el)).toBe(false);
     });
 
+    it('opens the upgrade once for a double-click', async () => {
+        const sdk = fakePuter({ token: 'app-token', user: USER });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount({ 'show-upgrade': '' });
+        const button = part(el, '.upgrade-button');
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
+        expect(sdk.ui.showUpgrade_).toHaveBeenCalledTimes(1);
+
+        // Enter or Space, and a later single click, each open it.
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+        expect(sdk.ui.showUpgrade_).toHaveBeenCalledTimes(3);
+    });
+
     it.each([
         ['signed out', {}],
         ['on a temporary account', { token: 'temp-token', user: TEMP }],

@@ -573,7 +573,10 @@ class PuterUserMenu extends PuterWebComponent {
             for ( const panel of this.$$('.panel') ) panel.setAttribute('popover', 'manual');
         }
         this._applyLabels();
-        this.$('.upgrade-button').addEventListener('click', () => this._upgrade());
+        this.$('.upgrade-button').addEventListener('click', (event) => {
+            // A double-click's second click would open a second dashboard tab.
+            if ( event.detail <= 1 ) this._upgrade();
+        });
         this.$('.apps-button').addEventListener('click', () => {
             if ( this.$('.apps-panel').hidden ) this._openApps();
             else this._closePanels();
