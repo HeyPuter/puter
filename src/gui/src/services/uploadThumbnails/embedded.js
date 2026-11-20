@@ -39,16 +39,16 @@ const entryNameOf = (folder, path) => {
  * which one is the cover: by a property on the file in EPUB 3, by a `cover` entry in the metadata in EPUB 2.
  *
  * @param {(name: string) => Promise<string | undefined>} textOf Reads a part of the archive as text.
- * @returns {Promise<string | undefined>} The cover's entry name.
+ * @returns {Promise<string[]>} The entry names that may be the cover, the likeliest first.
  */
-const findEpubCover = async (textOf) => {
+const findEpubCovers = async (textOf) => {
     let packageName;
     for ( const [, closing, tag, source] of (await textOf('META-INF/container.xml'))?.matchAll(TOKEN) ?? [] ) {
         const path = !closing && tag?.endsWith('rootfile') && attributesOf(source)['full-path'];
         if ( path ) packageName ??= decodeEntities(path);
     }
     const document = packageName && await textOf(packageName);
-    if ( ! document ) return undefined;
+    if ( ! document ) return [];
     const images = [];
     let named;
     for ( const [, closing, tag, source] of document.matchAll(TOKEN) ) {
@@ -59,11 +59,14 @@ const findEpubCover = async (textOf) => {
         if ( name === 'meta' && attributes.name === 'cover' ) named ??= attributes.content;
         else if ( name === 'item' && attributes['media-type']?.startsWith('image/') && attributes.href ) images.push(attributes);
     }
+    // A book can declare its cover both ways, and one of them can be a picture that isn't usable here, such as an SVG.
     // A book that says neither usually still calls its cover one.
-    const cover = images.find(image => image.properties?.split(/\s+/).includes('cover-image')) ??
-        images.find(image => named !== undefined && image.id === named) ??
-        images.find(image => /cover/i.test(`${image.id} ${image.href}`));
-    return cover && entryNameOf(packageName.slice(0, Math.max(0, packageName.lastIndexOf('/'))), decodeEntities(cover.href));
+    const folder = packageName.slice(0, Math.max(0, packageName.lastIndexOf('/')));
+    return [...new Set([
+        images.find(image => image.properties?.split(/\s+/).includes('cover-image')),
+        images.find(image => named !== undefined && image.id === named),
+        images.find(image => /cover/i.test(`${image.id} ${image.href}`)),
+    ].filter(Boolean).map(image => entryNameOf(folder, decodeEntities(image.href))))];
 };
 
 /**
@@ -96,11 +99,10 @@ export const readEmbeddedPreview = async (file, signal) => {
     };
 
     // The container is what makes an archive an EPUB, whatever the file is called.
-    if ( entries.has('META-INF/container.xml') ) {
-        const cover = await findEpubCover(async name => (await contentOf(entries.get(name), OFFICE_XML_MAX_BYTES))?.text());
-        return cover && !signal?.aborted ? imageOf(cover) : undefined;
-    }
-    for ( const name of PREVIEW_ENTRIES ) {
+    const names = entries.has('META-INF/container.xml')
+        ? await findEpubCovers(async name => (await contentOf(entries.get(name), OFFICE_XML_MAX_BYTES))?.text())
+        : PREVIEW_ENTRIES;
+    for ( const name of names ) {
         if ( signal?.aborted ) return undefined;
         const image = await imageOf(name);
         if ( image ) return image;

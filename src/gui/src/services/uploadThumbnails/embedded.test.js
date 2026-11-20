@@ -139,6 +139,21 @@ describe('readEmbeddedPreview for an EPUB', () => {
         }, { stored: ['mimetype'] }), jpeg, 'image/jpeg', 'book.epub');
     });
 
+    it('moves on to the cover a book declares the other way when the first one is not a usable picture', async () => {
+        const book = (properties, metadata) => createZip({
+            'META-INF/container.xml': '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>',
+            'content.opf': `<package><metadata><meta name="cover" content="art"/></metadata><manifest>
+                <item id="vector" href="title.svg" media-type="image/svg+xml" properties="cover-image"/>
+                <item id="art" href="front.jpg" media-type="image/jpeg"/></manifest></package>`,
+            'title.svg': properties,
+            'front.jpg': metadata,
+        });
+        await expectPreview(book('<svg xmlns="http://www.w3.org/2000/svg"/>', jpeg), jpeg, 'image/jpeg', 'book.epub');
+        // A cover over the pixel limit, then one within it.
+        const side = Math.sqrt(EMBEDDED_PREVIEW_MAX_PIXELS);
+        await expectPreview(book(new Uint8Array([...pngHeader(side + 1, side), 1, 2, 3, 4]), jpeg), jpeg, 'image/jpeg', 'book.epub');
+    });
+
     it('goes by the book\'s own cover, not by a preview entry it happens to hold', async () => {
         await expectPreview(createEpub({ cover: jpeg, extra: { 'preview.jpg': other, 'Thumbnails/thumbnail.png': other } }), jpeg, 'image/jpeg');
     });

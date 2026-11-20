@@ -158,7 +158,9 @@ that picture to the image generator as it is stored:
 - An EPUB has a cover. Its container names the package document, which says
   which of the book's files is the cover: by a property on the file in EPUB 3,
   by a `cover` entry in the metadata in EPUB 2. A book that says neither usually
-  still calls its cover one, which is the last thing tried.
+  still calls its cover one, which is the last thing tried. Each is tried in
+  turn until one is a picture within the budgets, since a book can declare an
+  SVG cover one way and a JPEG the other.
 
 Nothing is rendered, so the thumbnail is the editor's own. What kind of image it
 is, and how many pixels it has, comes from its own first bytes, and a picture
