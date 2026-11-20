@@ -125,7 +125,7 @@ if ($writeConfig) {
 HTTP_PORT=$PuterPort
 # HTTPS_PORT=443     # uncomment after enabling TLS in caddy/Caddyfile
 #                    # (see "Step 3 — TLS" in doc/self-hosting.md)
-
+    
 MARIADB_ROOT_PASSWORD=$mariadbRootPw
 MARIADB_DATABASE=puter
 MARIADB_USER=puter
