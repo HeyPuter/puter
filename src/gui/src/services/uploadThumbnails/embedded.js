@@ -1,6 +1,6 @@
 import { EMBEDDED_PREVIEW_MAX_BYTES, EMBEDDED_PREVIEW_MAX_PIXELS, OFFICE_XML_MAX_BYTES } from './config.js';
 import { imageTypeOf, pixelSizeOf } from './images.js';
-import { TOKEN, attributesOf } from './ooxml.js';
+import { TOKEN, attributesOf, decodeEntities } from './ooxml.js';
 import { openArchive } from './zip.js';
 
 // Where the editors of these formats keep a picture of the document, the one to use first. Each is the editor's own
@@ -44,7 +44,8 @@ const entryNameOf = (folder, path) => {
 const findEpubCover = async (textOf) => {
     let packageName;
     for ( const [, closing, tag, source] of (await textOf('META-INF/container.xml'))?.matchAll(TOKEN) ?? [] ) {
-        if ( !closing && tag?.endsWith('rootfile') ) packageName ??= attributesOf(source)['full-path'];
+        const path = !closing && tag?.endsWith('rootfile') && attributesOf(source)['full-path'];
+        if ( path ) packageName ??= decodeEntities(path);
     }
     const document = packageName && await textOf(packageName);
     if ( ! document ) return undefined;
@@ -62,7 +63,7 @@ const findEpubCover = async (textOf) => {
     const cover = images.find(image => image.properties?.split(/\s+/).includes('cover-image')) ??
         images.find(image => named !== undefined && image.id === named) ??
         images.find(image => /cover/i.test(`${image.id} ${image.href}`));
-    return cover && entryNameOf(packageName.slice(0, Math.max(0, packageName.lastIndexOf('/'))), cover.href);
+    return cover && entryNameOf(packageName.slice(0, Math.max(0, packageName.lastIndexOf('/'))), decodeEntities(cover.href));
 };
 
 /**

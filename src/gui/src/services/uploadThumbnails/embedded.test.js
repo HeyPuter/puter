@@ -122,6 +122,16 @@ describe('readEmbeddedPreview for an EPUB', () => {
         await expectPreview(createEpub({ cover: png, declare: 'meta' }), png, 'image/png');
     });
 
+    it('reads the paths in the container and the package document as XML, with their entities', async () => {
+        await expectPreview(createZip({
+            mimetype: 'application/epub+zip',
+            'META-INF/container.xml': '<container><rootfiles><rootfile full-path="Q&amp;A/content.opf"/></rootfiles></container>',
+            'Q&A/content.opf': '<package><manifest><item id="c" href="images/Tom%20&amp;%20Jerry&#x27;s.jpg" ' +
+                'media-type="image/jpeg" properties="cover-image"/></manifest></package>',
+            "Q&A/images/Tom & Jerry's.jpg": jpeg,
+        }, { stored: ['mimetype'] }), jpeg, 'image/jpeg', 'book.epub');
+    });
+
     it('goes by the book\'s own cover, not by a preview entry it happens to hold', async () => {
         await expectPreview(createEpub({ cover: jpeg, extra: { 'preview.jpg': other, 'Thumbnails/thumbnail.png': other } }), jpeg, 'image/jpeg');
     });
