@@ -27,6 +27,7 @@
 import PuterWebComponent from '../PuterWebComponent.js';
 import { defaultFontFamily } from '../PuterDefaultStyles.js';
 import { canFrameGuiEmbed } from '../../lib/guiEmbed.js';
+import { canTopUp, isSeat } from '../../lib/topUp.js';
 
 const APPS_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">${
     [5, 12, 19].flatMap(y => [5, 12, 19].map(x => `<circle cx="${x}" cy="${y}" r="2"/>`)).join('')
@@ -58,9 +59,6 @@ const MENU_LINKS = [
 
 // Sits under Usage, and shows only for an account with a plan.
 const ADD_CREDITS_ITEM = '<button type="button" class="menu-item add-credits" role="menuitem" hidden></button>';
-
-/** A seat's plan is its team's, and so are paying for its usage and changing the plan. */
-const isSeat = user => typeof user?.team?.uid === 'string' && user.team.uid !== '';
 
 // Gap between a panel and the viewport edge, and between its caret and corners.
 const EDGE = 8;
@@ -658,7 +656,7 @@ class PuterUserMenu extends PuterWebComponent {
         const user = cached?.uuid && cached.uuid === this.#user?.uuid ? cached : this.#user;
         const subscribed = user?.subscribed === true;
         const seat = isSeat(user);
-        this.$('.add-credits').hidden = !subscribed || seat;
+        this.$('.add-credits').hidden = !canTopUp(user);
         const upgrade = this.$('.upgrade-button');
         upgrade.hidden = !this.#ready || seat || this.hasAttribute('hide-upgrade');
         upgrade.textContent = this._label(subscribed ? 'manage-plan-label' : 'upgrade-label');
