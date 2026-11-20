@@ -62,6 +62,8 @@ import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import type { CardFallbackDeps } from '../../util/cardFallback.js';
 import {
     CARD_FALLBACK_OPEN_TTL_SECONDS,
+    PHONE_ON_FILE_SEND_WINDOW_MS,
+    PHONE_ON_FILE_SENDS_PER_DAY,
     SEND_PHONE_RATE_LIMIT,
     SEND_PHONE_RATE_WINDOW_MS,
     cardFallbackAfterAttempts,
@@ -1443,6 +1445,8 @@ export class AuthController extends PuterController {
      */
     private async recordPhoneAttemptForFallback(user: {
         id: number;
+        phone?: string | null;
+        card_fingerprint?: string | null;
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         const attempts = await this.bumpPhoneAttempts(user.id);
@@ -1456,9 +1460,13 @@ export class AuthController extends PuterController {
      */
     private async openCardFallback(user: {
         id: number;
+        phone?: string | null;
+        card_fingerprint?: string | null;
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         if (!user.requires_phone_verification) return false;
+        // A number on file can only be stood in for by the card on file.
+        if (isPhoneOnFileStep(user) && !user.card_fingerprint) return false;
         const deps = this.cardFallbackDeps();
         if (!(await isCardFallbackEnabled(this.config, deps))) return false;
         try {
@@ -1602,6 +1610,28 @@ export class AuthController extends PuterController {
                 },
                 { legacyCode: 'phone_country_not_supported' as never },
             );
+
+        // Codes to a number on file are sent without the owner typing it, so
+        // the account gets few of them.
+        if (
+            onFile &&
+            !(await checkRateLimit(
+                `phone-on-file-send:${user.id}`,
+                PHONE_ON_FILE_SENDS_PER_DAY,
+                PHONE_ON_FILE_SEND_WINDOW_MS,
+            ))
+        ) {
+            const fallback = await this.openCardFallback(user);
+            throw new HttpError(
+                429,
+                'Too many codes were sent to this number today. Try again tomorrow.',
+                {
+                    legacyCode: 'too_many_requests',
+                    code: 'phone_on_file_send_limit',
+                    fields: fallback ? { card_fallback_available: true } : {},
+                },
+            );
+        }
 
         // Counted before the abuse / Prelude checks so a blocked attempt still
         // counts toward the fallback threshold.
@@ -2136,6 +2166,16 @@ export class AuthController extends PuterController {
 
         if (confirmEvent.verified !== true) {
             res.json({ card_verified: false, reason: confirmEvent.reason });
+            return;
+        }
+        // A number on file is stood in for only by the card already on file.
+        if (
+            fallbackEligible &&
+            isPhoneOnFileStep(user) &&
+            (!user.card_fingerprint ||
+                confirmEvent.fingerprint !== user.card_fingerprint)
+        ) {
+            res.json({ card_verified: false, reason: 'card_not_on_file' });
             return;
         }
 

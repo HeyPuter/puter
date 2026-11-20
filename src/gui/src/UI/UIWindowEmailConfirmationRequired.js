@@ -96,7 +96,7 @@ function UIWindowEmailConfirmationRequired (options) {
         // Off where the window opens before this browser's session cookie is
         // the gated account's: the change authenticates with that cookie.
         if ( options.change_address !== false ) {
-            h += ' &bull; ';
+            h += '<span class="send-conf-email-sep"> &bull; </span>';
             h += `<span class="change-conf-email">${i18n('email_confirm_change_address')}</span>`;
         }
         if ( options.logout_in_footer ) {
@@ -277,7 +277,7 @@ function UIWindowEmailConfirmationRequired (options) {
             $changeForm.hide();
             $changeSent.hide();
             $codeForm.show();
-            $(el_window).find('.send-conf-email').show();
+            $(el_window).find('.send-conf-email, .send-conf-email-sep').show();
             $(el_window).find('.change-conf-email').text(i18n('email_confirm_change_address', [], false));
             $(el_window).find('.digit-input').first().focus();
         };
@@ -287,7 +287,7 @@ function UIWindowEmailConfirmationRequired (options) {
                 return;
             }
             $codeForm.hide();
-            $(el_window).find('.send-conf-email').hide();
+            $(el_window).find('.send-conf-email, .send-conf-email-sep').hide();
             $changeForm.find('.email-change-error').hide();
             $changeForm.show();
             $(this).text(i18n('back', [], false));

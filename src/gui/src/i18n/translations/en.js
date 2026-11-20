@@ -402,6 +402,7 @@ const en = {
         phone_card_fallback_unavailable: "Card verification isn't available right now. Please try your phone number again, or email support@puter.com and we'll help you finish setting up your account.",
         phone_on_file_subtitle: "We'll text a code to the phone number on your account ending in {{digits}}.",
         phone_lost_number: 'I no longer have this number',
+        card_not_on_file: 'Use the card that is already on your account. If you no longer have it, email support@puter.com.',
         pictures: 'Pictures',
         plural_suffix: 's',
         preparing: 'Preparing...',
