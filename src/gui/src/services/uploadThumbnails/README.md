@@ -3,13 +3,15 @@
 Create one `createUploadThumbnailGenerator()` callback per GUI upload. The SDK
 passes a built-in image generator and preparation cancellation signal as the
 callback's second argument. Files that are not PDFs, Illustrator files, PSDs,
-Office documents, videos, HEIC photos, audio files, source code, JSON, CSV or
-Markdown delegate to that image generator; when the running SDK predates the callback
-context (it then passes only the file), the GUI's bundled copy of the SDK image
-generator is used instead, so image thumbnails do not depend on deploy order.
+Office documents, packaged documents, videos, HEIC photos, audio files, source
+code, JSON, CSV or Markdown delegate to that image generator; when the running SDK
+predates the callback context (it then passes only the file), the GUI's bundled
+copy of the SDK image generator is used instead, so image thumbnails do not depend
+on deploy order.
 
-A thumbnail of a PDF, a Word document, a spreadsheet, a presentation, a source
-file, a JSON or CSV file, or a Markdown file is a picture of a page.
+A thumbnail of a PDF, a Word document, a spreadsheet, a presentation, an iWork
+file, an OpenDocument file, a source file, a JSON or CSV file, or a Markdown file
+is a picture of a page.
 The Files tab shows it in the grid views and shows the file's type icon in list
 rows, where a page would be a blank square. `kinds.js` holds the names that make
 a file a document, for the generator and for the icon helper alike.
@@ -140,6 +142,34 @@ retain their normal icon. A page's image may be up to 16 megapixels, which
 covers a 300 dpi scan and a 12 megapixel photo; PDF.js scales it down to the
 canvas budget to draw it. Decoding one that large takes a few hundred megabytes
 for well under a second, inside the disposable worker. Empty first pages also retain their normal icon. Browsers lacking the required APIs also skip previews.
+
+## Packaged documents
+
+Some formats are archives that carry a picture of the document, made by the
+editor that saved it. `embedded.js` lists the archive with `zip.js` and hands
+that picture to the image generator as it is stored:
+
+- Pages, Numbers and Keynote keep `preview.jpg`, about 1000 pixels across, and a
+  smaller `preview-web.jpg`. Files from before 2013 keep
+  `QuickLook/Thumbnail.jpg`.
+- OpenDocument text, spreadsheets and presentations keep
+  `Thumbnails/thumbnail.png`.
+- Sketch keeps `previews/preview.png`.
+- An EPUB has a cover. Its container names the package document, which says
+  which of the book's files is the cover: by a property on the file in EPUB 3,
+  by a `cover` entry in the metadata in EPUB 2. A book that says neither usually
+  still calls its cover one, which is the last thing tried. Each is tried in
+  turn until one is a picture within the budgets, since a book can declare an
+  SVG cover one way and a JPEG the other.
+
+Nothing is rendered, so the thumbnail is the editor's own. What kind of image it
+is, and how many pixels it has, comes from its own first bytes, and a picture
+over 16 megapixels is passed over for the next one the file holds, since it
+would be decoded at full size. A file with none of these, such as a template
+or a text file with the name a Keynote file has, retains its normal icon. These
+files go through the same queue as Office documents, and each picture is scaled
+before the next file is opened, since a book's cover can be large and a library
+is many books.
 
 ## HEIC
 

@@ -9,12 +9,12 @@ import {
     TOKEN,
     attributesOf,
     decodeEntities,
-    openArchive,
     readPicture,
     readRelationships,
     readStoredThumbnail,
     readThemeColors,
 } from './ooxml.js';
+import { openArchive } from './zip.js';
 import { drawParagraph } from './page.js';
 
 const EMUS_PER_POINT = 12700;

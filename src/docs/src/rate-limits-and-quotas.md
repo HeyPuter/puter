@@ -402,6 +402,15 @@ The Puter desktop makes a Word document, spreadsheet, or presentation upload thu
 | Text drawn from a cell | 256 characters |
 | Output | First page, sheet, or slide, at most 128 × 128 pixels, aspect ratio preserved |
 
+The Puter desktop makes an upload thumbnail for a Pages, Numbers, Keynote, OpenDocument, or Sketch file from the preview stored in it, and for an EPUB from its cover, within these budgets. A file with no stored preview, or one over a budget, keeps its file icon. These files are read in the same queue as Word documents, spreadsheets, and presentations, under the same preparation limit.
+
+| Stored preview thumbnail | Limit |
+| --- | --- |
+| Data read from the file to find its entries | 4 MiB |
+| Stored preview or cover | 8 MiB and 16,777,216 pixels |
+| XML read from each of an EPUB's container and package document, after decompression | 1 MiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
 The Puter desktop makes a HEIC or HEIF photo upload thumbnail with the browser's own decoder where it has one, as Safari does. In other browsers the desktop reads the photo's stored thumbnail, or else the photo itself, and decodes it with the device's HEVC video decoder, within these budgets. A photo over a budget, or one on a device with no HEVC decoder, keeps its file icon.
 
 | HEIC thumbnail | Limit |

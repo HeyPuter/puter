@@ -8,6 +8,12 @@ export const WORD_NAME = /\.do[ct][xm]?$/i;
 export const SPREADSHEET_NAME = /\.xl[st][xm]$/i;
 // Presentations, slide shows and templates, with or without macros.
 export const PRESENTATION_NAME = /\.p(pt|ps|ot)[xm]$/i;
+// Pages, Numbers and Keynote files, and OpenDocument text, spreadsheets and presentations. Each carries a picture of
+// its first page, sheet or slide.
+export const IWORK_NAME = /\.(pages|numbers|key)$/i;
+export const OPEN_DOCUMENT_NAME = /\.od[tsp]$/i;
+// A Sketch file carries a picture of its artwork and an EPUB its cover, so neither of those is a page.
+export const ARTWORK_PACKAGE_NAME = /\.(sketch|epub)$/i;
 export const PSD_NAME = /\.ps[db]$/i;
 export const HEIF_NAME = /\.(heic|heif|hif)$/i;
 export const AUDIO_NAME = /\.(mp3|m4a|m4b|flac)$/i;
@@ -21,6 +27,8 @@ export const PSD_TYPE = 'image/vnd.adobe.photoshop';
 export const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
 export const SPREADSHEET_TYPE = /^application\/vnd\.(ms-excel\.(sheet|template)\.|openxmlformats-officedocument\.spreadsheetml\.)/;
 export const PRESENTATION_TYPE = /^application\/vnd\.(ms-powerpoint\.|openxmlformats-officedocument\.presentationml\.)/;
+// Pages, Numbers and Keynote under either of the names their types go by, OpenDocument files and EPUBs.
+export const PACKAGE_TYPE = /^application\/(vnd\.apple\.(pages|numbers|keynote)|x-iwork-|vnd\.oasis\.opendocument\.(text|spreadsheet|presentation)$|epub\+zip$)/;
 export const HEIF_TYPE = /^image\/hei[cf]$/;
 export const AUDIO_TYPE = /^audio\/(mpeg|mp3|mp4|m4a|x-m4a|flac|x-flac)$/;
 // The containers browsers play. Other `video/` types are left alone: a `.ts` source file is reported as one.
@@ -47,8 +55,20 @@ export const DECODABLE_IMAGE_NAME = /\.(png|jpe?g|jfif|gif|webp|bmp|avif)$/i;
  * @returns {boolean}
  */
 export const isPageDocument = (name = '') =>
-    [PDF_NAME, WORD_NAME, SPREADSHEET_NAME, PRESENTATION_NAME, CSV_NAME, MARKDOWN_NAME, ...Object.values(CODE_NAMES)]
-        .some(pattern => pattern.test(name));
+    [
+        PDF_NAME, WORD_NAME, SPREADSHEET_NAME, PRESENTATION_NAME, IWORK_NAME, OPEN_DOCUMENT_NAME, CSV_NAME, MARKDOWN_NAME,
+        ...Object.values(CODE_NAMES),
+    ].some(pattern => pattern.test(name));
+
+/**
+ * Whether a file is one of the packages that carry a picture of themselves, made by the editor that saved them.
+ *
+ * @param {string} [name]
+ * @param {string} [type]
+ * @returns {boolean}
+ */
+export const isPreviewPackage = (name = '', type = '') => PACKAGE_TYPE.test(type) ||
+    [IWORK_NAME, OPEN_DOCUMENT_NAME, ARTWORK_PACKAGE_NAME].some(pattern => pattern.test(name));
 
 /**
  * The language of a source file the generator draws.
@@ -87,6 +107,7 @@ export const canMakeThumbnail = (name = '', type = '') =>
     WORD_TYPE.test(type) || WORD_NAME.test(name) ||
     SPREADSHEET_TYPE.test(type) || SPREADSHEET_NAME.test(name) ||
     PRESENTATION_TYPE.test(type) || PRESENTATION_NAME.test(name) ||
+    isPreviewPackage(name, type) ||
     HEIF_TYPE.test(type) || HEIF_NAME.test(name) ||
     AUDIO_TYPE.test(type) || AUDIO_NAME.test(name) ||
     VIDEO_TYPE.test(type) || VIDEO_NAME.test(name) ||

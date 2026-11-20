@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFlac, createM4a, createMp3, flacPicture, id3Picture } from '../../../tests/fixtures/audio.js';
 import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
-import { createDocx } from '../../../tests/fixtures/docx.js';
+import { createDocx, createZip } from '../../../tests/fixtures/docx.js';
 import { createHeif } from '../../../tests/fixtures/heif.js';
+import { createEpub } from '../../../tests/fixtures/packages.js';
 import { createPptx } from '../../../tests/fixtures/pptx.js';
 import { createPsd, psdPreviewJpeg, psdResource } from '../../../tests/fixtures/psd.js';
 import { createXlsx } from '../../../tests/fixtures/xlsx.js';
@@ -350,6 +351,63 @@ describe('GUI upload thumbnail scheduling', () => {
         const defaultGenerator = vi.fn(async () => undefined);
         expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBeUndefined();
         expect(drawn.text).toEqual([]);
+    });
+
+    it.each([
+        new File([createZip({ 'Index/Document.iwa': 'x', 'preview.jpg': psdPreviewJpeg() })], 'letter.pages'),
+        new File([createZip({ 'Index/Document.iwa': 'x', 'preview.jpg': psdPreviewJpeg() })], 'Budget.NUMBERS'),
+        new File([createZip({ 'Index/Document.iwa': 'x', 'preview.jpg': psdPreviewJpeg() })], 'deck.key'),
+        new File([createZip({ 'Index/Document.iwa': 'x', 'preview.jpg': psdPreviewJpeg() })], 'deck', { type: 'application/vnd.apple.keynote' }),
+        new File([createZip({ 'content.xml': '<x/>', 'Thumbnails/thumbnail.png': psdPreviewJpeg() })], 'letter.odt'),
+        new File([createZip({ 'content.xml': '<x/>', 'Thumbnails/thumbnail.png': psdPreviewJpeg() })], 'budget.ods'),
+        new File([createZip({ 'content.xml': '<x/>', 'Thumbnails/thumbnail.png': psdPreviewJpeg() })], 'deck.odp'),
+        new File([createZip({ 'content.xml': '<x/>', 'Thumbnails/thumbnail.png': psdPreviewJpeg() })], 'letter', { type: 'application/vnd.oasis.opendocument.text' }),
+        new File([createZip({ 'document.json': '{}', 'previews/preview.png': psdPreviewJpeg() })], 'app.sketch'),
+        new File([createEpub({ cover: psdPreviewJpeg() })], 'book.epub'),
+        new File([createEpub({ cover: psdPreviewJpeg() })], 'book', { type: 'application/epub+zip' }),
+    ])('hands the image generator the picture a packaged document carries of itself', async (file) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        const [image] = defaultGenerator.mock.calls[0];
+        expect(image.type).toBe('image/jpeg');
+        expect(new Uint8Array(await image.arrayBuffer())).toEqual(psdPreviewJpeg());
+        expect(workers).toHaveLength(0);
+    });
+
+    it.each([
+        // A private key has the name a Keynote file has.
+        ['a text file named like a Keynote file', new File(['-----BEGIN PRIVATE KEY-----\nMIIEvQ\n-----END PRIVATE KEY-----\n'], 'server.key')],
+        ['a packaged document with no picture of itself', new File([createZip({ 'Index/Document.iwa': 'x' })], 'letter.pages')],
+    ])('skips %s', async (_label, file) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBeUndefined();
+        expect(defaultGenerator).not.toHaveBeenCalled();
+    });
+
+    it('scales one book cover at a time, and skips the books still queued at the deadline', async () => {
+        let scaling = 0;
+        let most = 0;
+        const finish = [];
+        const defaultGenerator = vi.fn(() => new Promise((resolve) => {
+            most = Math.max(most, ++scaling);
+            finish.push(() => {
+                scaling--;
+                resolve(thumbnail);
+            });
+        }));
+        const generate = createUploadThumbnailGenerator();
+        const results = Promise.all(['a', 'b', 'c', 'd'].map(name =>
+            generate(new File([createEpub({ cover: psdPreviewJpeg() })], `${name}.epub`), { defaultGenerator })));
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        finish.shift()();
+        await vi.waitFor(() => expect(finish).toHaveLength(1));
+        // The third cover is still being scaled when the deadline passes.
+        await vi.advanceTimersByTimeAsync(OFFICE_BATCH_TIMEOUT_MS);
+        expect(await results).toEqual([thumbnail, thumbnail, undefined, undefined]);
+        expect(most).toBe(1);
+        expect(defaultGenerator).toHaveBeenCalledTimes(3);
     });
 
     it('reads spreadsheets and Word documents in one queue, under one deadline', async () => {

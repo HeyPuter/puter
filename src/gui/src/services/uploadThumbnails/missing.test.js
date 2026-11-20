@@ -126,6 +126,10 @@ describe('wantsThumbnail', () => {
         ['a CSV file in a grid', { name: 'table.csv', type: 'text/csv' }, place, true],
         ['a CSV file in a list row', { name: 'table.csv', type: 'text/csv' }, { ...place, listRow: true }, false],
         ['a CSV file typed as an Excel workbook', { name: 'table.csv', type: 'application/vnd.ms-excel' }, place, true],
+        ['a Pages document in a grid', { name: 'letter.pages', type: '' }, place, true],
+        ['an OpenDocument spreadsheet in a list row', { name: 'budget.ods', type: 'application/vnd.oasis.opendocument.spreadsheet' }, { ...place, listRow: true }, false],
+        ['a Sketch file in a list row', { name: 'app.sketch', type: '' }, { ...place, listRow: true }, true],
+        ['an EPUB known only by its type', { name: 'book', type: 'application/epub+zip' }, place, true],
         ['an old Excel workbook', { name: 'book.xls', type: 'application/vnd.ms-excel' }, place, false],
         ['a CSV file over the size cap', { name: 'export.csv', type: '', size: MISSING_THUMBNAIL_MAX_FILE_BYTES + 1 }, place, true],
         // Only the start of a text file is read, so its size is no reason to leave it.
