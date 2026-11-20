@@ -2320,6 +2320,15 @@ export class ChatCompletionDriver extends PuterDriver {
             if (!catalog) return;
 
             for (const entry of catalog) {
+                // A gateway's list can carry an entry with no usable id; one
+                // such entry must not cost every provider its place in the map.
+                if (
+                    typeof entry?.id !== 'string' ||
+                    (entry.puterId !== undefined &&
+                        typeof entry.puterId !== 'string')
+                ) {
+                    continue;
+                }
                 // Catalogs are module-level constants shared by every driver
                 // instance, so they are read and never written: normalizing
                 // the id or appending puterId in place would accumulate across
@@ -2347,7 +2356,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 const aliases = puterId
                     ? [
                           ...new Set([
-                              ...(entry.aliases ?? []),
+                              ...(Array.isArray(entry.aliases)
+                                  ? entry.aliases.filter(
+                                        (alias) => typeof alias === 'string',
+                                    )
+                                  : []),
                               ...(entry.puterId ? [entry.puterId] : []),
                               puterId,
                           ]),
