@@ -360,6 +360,8 @@ export type EventMap = {
         dormant_days: number | null;
         is_dormant: boolean;
         known_device: boolean;
+        /** The request carries the signal for a credential known to have leaked. */
+        credential_exposed: boolean;
         account: {
             has_verified_phone: boolean;
             has_verified_card: boolean;
@@ -546,9 +548,19 @@ export type EventMap = {
         user_uid: string;
         email?: string;
         setup_intent_id: string;
+        /**
+         * Set when only this card may verify: the listener refuses any other,
+         * and one whose details weren't entered for this confirmation.
+         */
+        required_fingerprint: string | null;
         enabled: boolean | null;
         verified: boolean;
         reason: string | null;
+        /**
+         * The card's details were entered for this confirmation, not reused
+         * from a saved card.
+         */
+        card_entered: boolean;
         fingerprint: string | null;
         funding: string | null;
         country: string | null;
@@ -1279,10 +1291,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1293,7 +1306,10 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    'received' | 'unreceived' | 'no-socket' | 'remote-only';
+    | 'received'
+    | 'unreceived'
+    | 'no-socket'
+    | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

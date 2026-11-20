@@ -104,6 +104,23 @@ describe('buildUserDetails', () => {
         expect(details).not.toHaveProperty('taskbar_items');
     });
 
+    it('names the last digits of a number the account has to prove again', async () => {
+        const user = await makeUser();
+        expect(
+            (await buildUserDetails(user, deps(), { isUser: true }))
+                .phone_on_file,
+        ).toBeNull();
+        const gated = { ...user, requires_phone_verification: true };
+        expect(
+            (await buildUserDetails(gated, deps(), { isUser: true }))
+                .phone_on_file,
+        ).toBe('00');
+        expect(
+            (await buildUserDetails(gated, deps(), { isUser: false }))
+                .phone_on_file,
+        ).toBeNull();
+    });
+
     it('leaves the desktop-only parts out for an app actor', async () => {
         const user = await makeUser();
         const details = await buildUserDetails(user, deps(), {

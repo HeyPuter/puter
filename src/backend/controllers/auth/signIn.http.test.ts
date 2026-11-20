@@ -233,6 +233,7 @@ describe('sign-in pipeline', () => {
                 dormant_days: 0,
                 is_dormant: false,
                 known_device: false,
+                credential_exposed: false,
                 account: {
                     has_verified_phone: false,
                     has_verified_card: false,
@@ -766,6 +767,46 @@ describe('sign-in pipeline', () => {
             ).toBe(true);
         });
 
+        it('record the number on file once, at the first dormant sign-in', async () => {
+            captureEmail();
+            const withPhone = await account({
+                confirmed: false,
+                inactiveDays: 200,
+            });
+            await env.server.stores.user.update(withPhone.user.id, {
+                phone: '+14155550123',
+            });
+            await login(withPhone.username);
+            expect(
+                (await reread(withPhone.user.id))?.metadata
+                    ?.phoneAtDormantSignIn,
+            ).toBe('+14155550123');
+
+            // A number that shows up later never replaces the record.
+            const without = await account({
+                confirmed: false,
+                inactiveDays: 200,
+            });
+            await login(without.username);
+            expect(
+                (await reread(without.user.id))?.metadata?.phoneAtDormantSignIn,
+            ).toBeNull();
+            await env.server.stores.user.update(without.user.id, {
+                phone: '+14155550199',
+            });
+            await login(without.username);
+            expect(
+                (await reread(without.user.id))?.metadata?.phoneAtDormantSignIn,
+            ).toBeNull();
+
+            // A confirmed dormant account records nothing.
+            const confirmedAccount = await account({ inactiveDays: 200 });
+            await login(confirmedAccount.username);
+            expect(
+                (await reread(confirmedAccount.user.id))?.metadata,
+            ).not.toHaveProperty('phoneAtDormantSignIn');
+        });
+
         it('can confirm the address but not change it while gated', async () => {
             captureEmail();
             const { username, user } = await account({
@@ -784,10 +825,20 @@ describe('sign-in pipeline', () => {
                 });
 
             expect((await call(env.apiOrigin, '/whoami')).status).toBe(200);
-            const change = await call(
-                env.origin,
-                '/user-protected/change-email',
-                { new_email: `elsewhere-${username}@example.com`, password },
+            // With nothing else verified, only the emailed code clears it.
+            const change = await fetch(
+                new URL('/user-protected/change-email', env.origin),
+                {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        cookie: `puter_auth_token=${String(body.token)}`,
+                    },
+                    body: JSON.stringify({
+                        new_email: `elsewhere-${username}@example.com`,
+                        password,
+                    }),
+                },
             );
             expect(change.status).toBe(403);
             expect(((await change.json()) as { code?: string }).code).toBe(
@@ -1114,6 +1165,20 @@ describe('sign-in pipeline', () => {
             sent.filter(
                 (m) => m.template === 'credential_exposure_notification',
             );
+
+        it('tells validate listeners before the session is minted', async () => {
+            const { username, user } = await account();
+            const seen: boolean[] = [];
+            listen('puter.signin.validate', (event) => {
+                if (event.user.uuid === user.uuid)
+                    seen.push(event.credential_exposed);
+            });
+            await login(username, {
+                headers: { [EXPOSED_HEADER]: SIGNAL_SECRET },
+            });
+            await login(username);
+            expect(seen).toEqual([true, false]);
+        });
 
         it('records, alarms and emails once per password after the password verifies', async () => {
             captureEmail();
