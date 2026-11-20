@@ -1360,6 +1360,66 @@ describe('gemini-4-argon tool calls', () => {
         });
     });
 
+    it.each([
+        ['no function', { id: 'call_1', type: 'function', function: null }],
+        ['an entry that is not a call', true],
+    ])('rejects a replayed tool call with %s', async (_label, call) => {
+        await expect(
+            complete({
+                messages: [
+                    { role: 'user', content: 'Weather in Paris?' },
+                    { role: 'assistant', content: 'x', tool_calls: [call] },
+                ] as never,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'A tool call needs a function name',
+        });
+        expect(generateContent).not.toHaveBeenCalled();
+    });
+
+    it('treats a tool call id that is not text as one Google did not issue', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await complete({
+            messages: [
+                { role: 'user', content: 'Weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: { nested: true },
+                            type: 'function',
+                            function: { name: 'get_weather', arguments: '{}' },
+                        },
+                    ],
+                },
+            ] as never,
+        });
+        expect(requestOf().contents[1]).toEqual({
+            role: 'model',
+            parts: [{ functionCall: { name: 'get_weather', args: {} } }],
+        });
+    });
+
+    it('reads an image URL that is not text as an image that could not be loaded', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await complete({
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'image_url',
+                            image_url: { url: { toString: 'x' } },
+                        },
+                    ],
+                },
+            ] as never,
+        });
+        expect(generateContent).toHaveBeenCalledTimes(1);
+    });
+
     it('rejects a tool result with no matching call', async () => {
         await expect(
             complete({
@@ -2058,32 +2118,140 @@ describe('Gemini audio metering', () => {
         },
     );
 
-    it('rejects a remote video URL sent with audio before calling Google', async () => {
-        await expect(
-            complete({
+    const AUDIO_USAGE = {
+        promptTokenCount: 4424,
+        candidatesTokenCount: 1,
+        promptTokensDetails: [
+            { modality: 'TEXT', tokenCount: 11 },
+            { modality: 'VIDEO', tokenCount: 3945 },
+            { modality: 'AUDIO', tokenCount: 468 },
+        ],
+    };
+
+    it.each([
+        [
+            'a video part',
+            { type: 'video_url', video_url: { url: 'data:video/mp4;base64,dmlkZW8=' } },
+            'video/mp4',
+        ],
+        [
+            'video in an image part',
+            { type: 'image_url', image_url: { url: 'data:video/mp4;base64,dmlkZW8=' } },
+            'video/mp4',
+        ],
+        [
+            'audio in an image part',
+            { type: 'image_url', image_url: { url: 'data:audio/wav;base64,dmlkZW8=' } },
+            'audio/wav',
+        ],
+    ])(
+        'meters the audio tokens of %s at the audio rate',
+        async (_label, part, mimeType) => {
+            generateContent.mockResolvedValueOnce(
+                textResponse('Dog', AUDIO_USAGE),
+            );
+            await complete({
+                model: 'gemini-2.5-flash-lite',
+                messages: [{ role: 'user', content: [part] }],
+            });
+            expect(openAICreate).not.toHaveBeenCalled();
+            expect(
+                generateContent.mock.calls[0]![0].contents[0].parts,
+            ).toEqual([{ inlineData: { mimeType, data: 'dmlkZW8=' } }]);
+            const [usage, , , costs] = recordSpy.mock.calls[0]!;
+            expect(usage).toMatchObject({
+                prompt_tokens: 3956,
+                audio_tokens: 468,
+            });
+            expect(costs.audio_tokens).toBe(468 * 30);
+        },
+    );
+
+    it('sends audio inlined from a Puter file natively', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await complete({
+            model: 'gemini-2.5-flash',
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'input_audio',
+                            input_audio: {
+                                data: 'data:audio/mpeg;base64,YXVkaW8=',
+                                format: 'mpeg',
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(generateContent.mock.calls[0]![0].contents[0].parts).toEqual([
+            { inlineData: { mimeType: 'audio/mpeg', data: 'YXVkaW8=' } },
+        ]);
+    });
+
+    it('keeps video without audio on a compatibility-only proxy', async () => {
+        openAICreate.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'Dog' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 1 },
+        });
+        await withTestActor(() =>
+            makeProvider({
+                apiKey: 'test-key',
+                apiBaseUrl: 'https://proxy.test/v1',
+            }).complete({
                 model: 'gemini-2.5-flash',
                 messages: [
                     {
                         role: 'user',
                         content: [
                             {
-                                type: 'input_audio',
-                                input_audio: { data: 'YXVkaW8=', format: 'mp3' },
-                            },
-                            {
                                 type: 'video_url',
-                                video_url: { url: 'https://example.test/a.mp4' },
+                                video_url: {
+                                    url: 'data:video/mp4;base64,dmlkZW8=',
+                                },
                             },
                         ],
                     },
                 ],
             }),
-        ).rejects.toMatchObject({
-            statusCode: 400,
-            message: 'Video input sent with audio must be a video data URL',
-        });
-        expect(generateContent).not.toHaveBeenCalled();
+        );
+        expect(openAICreate).toHaveBeenCalledTimes(1);
     });
+
+    it.each(['audio/wav', 'video/mp4'])(
+        'rejects %s in an image part on a model that reads only images',
+        async (mimeType) => {
+            await expect(
+                complete({
+                    model: 'gemini-3-flash-preview',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'image_url',
+                                    image_url: {
+                                        url: `data:${mimeType};base64,AAAA`,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: `${mimeType.split('/')[0]} content is not supported by this model`,
+            });
+            expect(generateContent).not.toHaveBeenCalled();
+        },
+    );
 
     it.each(['gemini-2.5-flash', 'gemini-2.5-flash-lite'])(
         'splits audio input for %s',

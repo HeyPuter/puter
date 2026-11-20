@@ -24,7 +24,14 @@ vi.mock('../../../../util/secureHttp.js', () => ({
 }));
 
 import { secureFetch } from '../../../../util/secureHttp.js';
-import { inlineHttpImageUrls, MAX_IMAGE_BYTES, MAX_INLINE_IMAGES } from './inlineImages.js';
+import {
+    inlineHttpImageUrls,
+    inlineHttpVideoUrls,
+    MAX_IMAGE_BYTES,
+    MAX_INLINE_IMAGES,
+    MAX_INLINE_VIDEOS,
+    MAX_VIDEO_BYTES,
+} from './inlineImages.js';
 
 const mockedSecureFetch = vi.mocked(secureFetch);
 
@@ -326,5 +333,118 @@ describe('remote image bounds', () => {
             expect(cancel).toHaveBeenCalledOnce();
             expect(pull).not.toHaveBeenCalled();
         }
+    });
+});
+
+describe('inlineHttpVideoUrls', () => {
+    afterEach(() => {
+        mockedSecureFetch.mockReset();
+    });
+
+    const videoMessages = (...urls: string[]) => [
+        {
+            role: 'user',
+            content: urls.map((url) => ({
+                type: 'video_url',
+                video_url: { url },
+            })) as Array<Record<string, unknown>>,
+        },
+    ];
+
+    it('rewrites an http(s) video URL to a base64 data URL', async () => {
+        const body = Buffer.from('video-bytes');
+        mockedSecureFetch.mockResolvedValueOnce(
+            buildResponse(body, { contentType: 'video/mp4' }),
+        );
+        const messages = videoMessages('https://example.com/a.mp4');
+
+        await inlineHttpVideoUrls(messages);
+
+        expect(messages[0]!.content[0]).toEqual({
+            type: 'video_url',
+            video_url: {
+                url: `data:video/mp4;base64,${body.toString('base64')}`,
+            },
+        });
+    });
+
+    it('takes the type from the extension when the host declares none', async () => {
+        mockedSecureFetch.mockResolvedValueOnce(
+            buildResponse(Buffer.from('v'), {
+                contentType: 'application/octet-stream',
+            }),
+        );
+        const messages = videoMessages('https://example.com/clip.MOV?sig=1');
+
+        await inlineHttpVideoUrls(messages);
+
+        expect(
+            (messages[0]!.content[0]!.video_url as { url: string }).url,
+        ).toMatch(/^data:video\/quicktime;base64,/);
+    });
+
+    it('replaces a URL that is not a video with a text error', async () => {
+        mockedSecureFetch.mockResolvedValueOnce(
+            buildResponse(Buffer.from('<html>'), { contentType: 'text/html' }),
+        );
+        const messages = videoMessages('https://example.com/page');
+
+        await inlineHttpVideoUrls(messages);
+
+        expect(messages[0]!.content[0]).toEqual({
+            type: 'text',
+            text: '{error: expected a video, got text/html; the user did not write this message}',
+        });
+    });
+
+    it('replaces a video over the size cap with a text error', async () => {
+        mockedSecureFetch.mockResolvedValueOnce(
+            buildResponse(Buffer.from('v'), {
+                contentType: 'video/mp4',
+                contentLength: String(MAX_VIDEO_BYTES + 1),
+            }),
+        );
+        const messages = videoMessages('https://example.com/big.mp4');
+
+        await inlineHttpVideoUrls(messages);
+
+        expect(messages[0]!.content[0]).toEqual({
+            type: 'text',
+            text: `{error: video exceeds maximum of ${MAX_VIDEO_BYTES} bytes; the user did not write this message}`,
+        });
+    });
+
+    it('hides why a fetch failed', async () => {
+        mockedSecureFetch.mockRejectedValueOnce(new Error('ECONNREFUSED 10.0.0.1'));
+        const messages = videoMessages('https://example.com/a.mp4');
+
+        await inlineHttpVideoUrls(messages);
+
+        expect(messages[0]!.content[0]!.text).toBe(
+            '{error: failed to fetch video; the user did not write this message}',
+        );
+    });
+
+    it('fetches at most the capped number of videos and leaves data URLs alone', async () => {
+        mockedSecureFetch.mockImplementation(async () =>
+            buildResponse(Buffer.from('v'), { contentType: 'video/webm' }),
+        );
+        const urls = Array.from(
+            { length: MAX_INLINE_VIDEOS + 1 },
+            (_, i) => `https://example.com/${i}.webm`,
+        );
+        const messages = videoMessages('data:video/mp4;base64,AAAA', ...urls);
+
+        await inlineHttpVideoUrls(messages);
+
+        expect(mockedSecureFetch).toHaveBeenCalledTimes(MAX_INLINE_VIDEOS);
+        expect(messages[0]!.content[0]).toEqual({
+            type: 'video_url',
+            video_url: { url: 'data:video/mp4;base64,AAAA' },
+        });
+        expect(messages[0]!.content.at(-1)).toEqual({
+            type: 'text',
+            text: `{error: maximum of ${MAX_INLINE_VIDEOS} remote videos per request; the user did not write this message}`,
+        });
     });
 });

@@ -73,10 +73,11 @@ A chat completion counts as a concurrent request until the model finishes it, ev
 | Audio for `speech2speech()`                    | 25 MiB           |
 | Audio for `speech2txt()`, Gemini               | 10 MiB           |
 | Image inlined in a chat message                | 5 MB             |
+| Video URL in a chat message, Gemini models     | 20 MB            |
 | File attached to a chat message, Claude models | 30 MB            |
 | File attached to a chat message, OpenAI models | 5 MB             |
 
-An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
+An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. A chat request to a Gemini model can include up to 4 video URLs. A video URL over a limit, or one that doesn't finish downloading within 30 seconds, isn't sent to the model, and the model is told the video couldn't be loaded. OCR input limits are under [OCR](#ocr).
 
 The standard chat timeout is 10 minutes for a response to start, or to finish if it isn't streamed. Stream durations depend on the provider. Native Gemini applies the 10-minute timeout to the whole response, including streaming. Groq uses 60 seconds to start a response. Mistral streams have no timeout of their own. If the caller disconnects, a stream that's still running gets 10 more minutes to finish, and is then stopped. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
 

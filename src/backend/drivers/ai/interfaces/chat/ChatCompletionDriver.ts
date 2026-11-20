@@ -218,6 +218,26 @@ const fundsRefusal = (heldByInFlight: boolean): HttpError =>
           )
         : insufficientCreditsError();
 
+/**
+ * A clear 400 for media parts the catalog says the model cannot read. Entries
+ * that declare no modalities (reseller catalogs) are not judged.
+ */
+const assertInputModalities = (
+    model: IChatModel,
+    messages: ICompleteArguments['messages'] | undefined,
+): void => {
+    if (!Array.isArray(model.modalities?.input)) return;
+    for (const modality of requiredInputModalities(messages)) {
+        if (!modelSupportsModality(model, modality)) {
+            throw new HttpError(
+                400,
+                `Model ${model.id} does not support ${modality} input`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+    }
+};
+
 const positiveOrInfinity = (n: unknown): number =>
     typeof n === 'number' && Number.isFinite(n) && n > 0
         ? n
@@ -782,21 +802,8 @@ export class ChatCompletionDriver extends PuterDriver {
             args.tool_choice = toolChoiceFromWire(args.tool_choice, 'chat');
         }
 
-        // A clear 400 for media parts the catalog says the model cannot
-        // read, before the credit hold and the round trip. Entries that declare
-        // no modalities (reseller catalogs) are not judged.
-        for (const modality of requiredInputModalities(args.messages)) {
-            if (
-                Array.isArray(model.modalities?.input) &&
-                !modelSupportsModality(model, modality)
-            ) {
-                throw new HttpError(
-                    400,
-                    `Model ${model.id} does not support ${modality} input`,
-                    { legacyCode: 'bad_request' },
-                );
-            }
-        }
+        // Before the credit hold and the round trip.
+        assertInputModalities(model, args.messages);
 
         // Both estimated once, before any attempt: providers rewrite
         // `args.messages` in place (tool_use blocks move out of `content`), so
@@ -1027,6 +1034,7 @@ export class ChatCompletionDriver extends PuterDriver {
                         attemptProvider,
                         requestArgs,
                         actor,
+                        attemptModel,
                     );
                 }
                 abortSignal?.throwIfAborted();
@@ -2478,6 +2486,7 @@ export class ChatCompletionDriver extends PuterDriver {
         provider: IChatProvider,
         args: ICompleteArguments,
         actor: Actor | undefined,
+        model: IChatModel,
     ): Promise<void> {
         if (provider.resolvesPuterPaths) return;
         if (!messagesHavePuterPaths(args.messages)) return;
@@ -2487,6 +2496,8 @@ export class ChatCompletionDriver extends PuterDriver {
             this.services.fs,
             actor,
         );
+        // What a Puter file holds is only known once it's read.
+        assertInputModalities(model, args.messages);
     }
 
     #findFallback(modelId: string, tried: Set<string>): IChatModel | null {

@@ -181,6 +181,12 @@ export const normalizeMediaParts = <T extends { content?: unknown }>(
     return messages;
 };
 
+/** What a `data:` URL holds when it's audio or video, whatever part carries it. */
+const dataUrlModality = (value: unknown): MediaModality | undefined => {
+    const kind = /^data:(audio|video)\//i.exec(mediaUrlOf(value) ?? '')?.[1];
+    return kind?.toLowerCase() as MediaModality | undefined;
+};
+
 /**
  * Input modalities the messages need beyond text. `puter_path` parts are not
  * counted: what they point at is unknown until an attempt resolves them.
@@ -194,12 +200,12 @@ export const requiredInputModalities = (
         for (const part of message.content as unknown[]) {
             if (!isObject(part)) continue;
             if (part.type === 'image_url' || part.image_url !== undefined) {
-                found.add('image');
+                found.add(dataUrlModality(part.image_url) ?? 'image');
             } else if (
                 part.type === 'video_url' ||
                 part.video_url !== undefined
             ) {
-                found.add('video');
+                found.add(dataUrlModality(part.video_url) ?? 'video');
             } else if (
                 part.type === 'input_audio' ||
                 part.input_audio !== undefined

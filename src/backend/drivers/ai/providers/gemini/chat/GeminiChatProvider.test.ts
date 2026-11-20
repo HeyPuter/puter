@@ -78,12 +78,14 @@ vi.mock('openai', () => {
 });
 
 // The http→data-URL inliner does real fetches; stub it and assert on calls.
-const { inlineHttpImageUrlsMock } = vi.hoisted(() => ({
+const { inlineHttpImageUrlsMock, inlineHttpVideoUrlsMock } = vi.hoisted(() => ({
     inlineHttpImageUrlsMock: vi.fn(async (_messages: unknown) => {}),
+    inlineHttpVideoUrlsMock: vi.fn(async (_messages: unknown) => {}),
 }));
 
 vi.mock('../../../protocols/openaiCompatible/inlineImages.js', () => ({
     inlineHttpImageUrls: inlineHttpImageUrlsMock,
+    inlineHttpVideoUrls: inlineHttpVideoUrlsMock,
 }));
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -400,6 +402,96 @@ describe('GeminiChatProvider.complete image inlining', () => {
         expect(inlineHttpImageUrlsMock.mock.invocationCallOrder[0]).toBeLessThan(
             createMock.mock.invocationCallOrder[0]!,
         );
+    });
+});
+
+describe('GeminiChatProvider video and audio parts', () => {
+    const baseCompletion = {
+        choices: [
+            {
+                message: { content: 'Dog', role: 'assistant' },
+                finish_reason: 'stop',
+            },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+    };
+    const VIDEO_URL = 'data:video/mp4;base64,dmlkZW8=';
+
+    it('runs remote video URLs through the inliner', async () => {
+        inlineHttpVideoUrlsMock.mockClear();
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'video_url',
+                        video_url: { url: 'https://cdn.test/a.mp4' },
+                    },
+                ],
+            },
+        ];
+
+        await withTestActor(() =>
+            provider.complete({ model: 'gemini-3.5-flash', messages }),
+        );
+
+        expect(inlineHttpVideoUrlsMock).toHaveBeenCalledTimes(1);
+        expect(inlineHttpVideoUrlsMock.mock.calls[0]![0]).toBe(messages);
+    });
+
+    it('sends a video data URL in the image_url part Google reads, leaving the caller part alone', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        const part = { type: 'video_url', video_url: { url: VIDEO_URL } };
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-3.5-flash',
+                messages: [{ role: 'user', content: [part] }],
+            }),
+        );
+
+        expect(createMock.mock.calls.at(-1)![0].messages[0].content).toEqual([
+            { type: 'image_url', image_url: { url: VIDEO_URL } },
+        ]);
+        expect(part).toEqual({
+            type: 'video_url',
+            video_url: { url: VIDEO_URL },
+        });
+    });
+
+    it('sends audio inlined from a Puter file as bare base64 with a format Google accepts', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-3.5-flash',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'input_audio',
+                                input_audio: {
+                                    data: 'data:audio/mpeg;base64,YXVkaW8=',
+                                    format: 'mpeg',
+                                },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        expect(createMock.mock.calls.at(-1)![0].messages[0].content).toEqual([
+            {
+                type: 'input_audio',
+                input_audio: { data: 'YXVkaW8=', format: 'mp3' },
+            },
+        ]);
     });
 });
 

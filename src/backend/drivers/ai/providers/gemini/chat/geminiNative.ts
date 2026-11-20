@@ -49,7 +49,6 @@ type ChatContentPart =
           type?: string;
           text?: string;
           image_url?: { url?: string };
-          video_url?: { url?: string };
           input_audio?: { data?: string; format?: string };
       };
 
@@ -95,8 +94,10 @@ interface ChatParams {
 /** Ids made up for calls Gemini returned without one; never sent back. */
 const SYNTHETIC_CALL_ID_PREFIX = 'gemini_call_';
 
-const nativeCallId = (id: string | undefined): { id?: string } =>
-    id && !id.startsWith(SYNTHETIC_CALL_ID_PREFIX) ? { id } : {};
+const nativeCallId = (id: unknown): { id?: string } =>
+    typeof id === 'string' && id && !id.startsWith(SYNTHETIC_CALL_ID_PREFIX)
+        ? { id }
+        : {};
 
 /**
  * Tool-call arguments as an object. Replayed calls arrive JSON-encoded twice,
@@ -161,22 +162,19 @@ const contentParts = (content: ChatContent, audioVideo: boolean): Part[] => {
                     data: audio.data,
                 },
             });
-        } else if (part.type === 'video_url' && audioVideo) {
-            // Google doesn't fetch a remote video URL, so only inline data.
-            const uri = parseDataUri(part.video_url?.url ?? '');
-            if (!uri?.base64 || !uri.mimeType.startsWith('video/')) {
+        } else if (part.type === 'image_url') {
+            // http(s) images were already inlined as data URLs, and the
+            // provider hands video over as a data URL in this part too.
+            const url = part.image_url?.url;
+            const uri = parseDataUri(typeof url === 'string' ? url : '');
+            const kind = /^(audio|video)\//i.exec(uri?.mimeType ?? '')?.[1];
+            if (kind && !audioVideo) {
                 throw new HttpError(
                     400,
-                    'Video input sent with audio must be a video data URL',
+                    `${kind.toLowerCase()} content is not supported by this model`,
                     { legacyCode: 'bad_request' },
                 );
             }
-            parts.push({
-                inlineData: { mimeType: uri.mimeType, data: uri.data },
-            });
-        } else if (part.type === 'image_url') {
-            // http(s) images were already inlined as data URLs.
-            const uri = parseDataUri(part.image_url?.url ?? '');
             parts.push(
                 uri?.base64
                     ? { inlineData: { mimeType: uri.mimeType, data: uri.data } }
@@ -215,6 +213,13 @@ const toGeminiContents = (
         } else if (message.role === 'assistant') {
             const parts = contentParts(message.content, audioVideo);
             for (const call of message.tool_calls ?? []) {
+                if (typeof call?.function?.name !== 'string') {
+                    throw new HttpError(
+                        400,
+                        'A tool call needs a function name',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
                 if (call.id) toolNames.set(call.id, call.function.name);
                 const signature = call.extra_content?.google?.thought_signature;
                 parts.push({

@@ -18,7 +18,8 @@
  */
 
 // Most models go through Google's OpenAI-compatible endpoint with the openai
-// SDK; native models and separately priced audio use generateContent.
+// SDK; native models and separately priced audio, including a video's audio
+// track, use generateContent.
 import {
     type GenerateContentResponseUsageMetadata,
     GoogleGenAI,
@@ -32,7 +33,12 @@ import type {
     PuterMessage,
     UsageDetails,
 } from '../../../interfaces/chat/types.js';
-import { requiredInputModalities } from '../../../interfaces/chat/utils/mediaParts.js';
+import type { IChatCompleteResult } from '../../../interfaces/chat/types.js';
+import {
+    parseDataUri,
+    requiredInputModalities,
+} from '../../../interfaces/chat/utils/mediaParts.js';
+import { inlineHttpVideoUrls } from '../../../protocols/openaiCompatible/inlineImages.js';
 import { toolChoiceToWire } from '../../../protocols/openaiCompatible/openaiParams.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
@@ -90,21 +96,26 @@ export class GeminiChatProvider extends OpenAICompatProvider {
                             service_tier?: string;
                             messages?: PuterMessage[];
                         };
-                        const audioRequest =
-                            GEMINI_AUDIO_MODELS.has(model) &&
-                            requiredInputModalities(
-                                (params as { messages?: PuterMessage[] })
-                                    .messages,
-                            ).includes('audio');
-                        if (audioRequest && !native) {
+                        const modalities = GEMINI_AUDIO_MODELS.has(model)
+                            ? requiredInputModalities(
+                                  (params as { messages?: PuterMessage[] })
+                                      .messages,
+                              )
+                            : [];
+                        if (modalities.includes('audio') && !native) {
                             throw new HttpError(
                                 400,
                                 'Audio input requires the native Gemini endpoint',
                                 { legacyCode: 'bad_request' },
                             );
                         }
+                        // A video's audio track is priced as audio too.
+                        const splitAudio =
+                            !!native &&
+                            (modalities.includes('audio') ||
+                                modalities.includes('video'));
                         if (
-                            !audioRequest &&
+                            !splitAudio &&
                             !GEMINI_NATIVE_MODELS.has(model) &&
                             (service_tier === undefined || !native)
                         ) {
@@ -154,9 +165,25 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         return maxTokens === undefined ? {} : { maxTokens };
     }
 
+    /** Google fetches no remote video, so it is inlined like images are. */
+    override async complete(
+        args: ICompleteArguments,
+        resolved?: IChatModel,
+        attemptPricingTime?: Date,
+    ): Promise<IChatCompleteResult> {
+        if (Array.isArray(args.messages)) {
+            await inlineHttpVideoUrls(args.messages);
+        }
+        return super.complete(args, resolved, attemptPricingTime);
+    }
+
     protected override prepareMessages(messages: PuterMessage[]) {
-        for (const message of messages) delete message.cache_control;
-        return messages;
+        return messages.map((message) => {
+            delete message.cache_control;
+            return Array.isArray(message.content)
+                ? { ...message, content: message.content.map(geminiPart) }
+                : message;
+        });
     }
 
     protected override vendorParams(
@@ -262,6 +289,56 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         };
     }
 }
+
+const AUDIO_FORMATS: Record<string, string> = {
+    mpeg: 'mp3',
+    'x-wav': 'wav',
+    wave: 'wav',
+};
+
+/**
+ * A content part as Google reads it: video as a data URL in `image_url`, and
+ * audio as bare base64 with a `wav` or `mp3` format, which an inlined Puter
+ * file isn't.
+ */
+const geminiPart = (part: unknown): unknown => {
+    if (!part || typeof part !== 'object') return part;
+    const { type, video_url, input_audio, ...rest } = part as {
+        type?: unknown;
+        video_url?: { url?: unknown };
+        input_audio?: { data?: unknown; format?: unknown };
+    };
+    if (
+        type === 'video_url' &&
+        typeof video_url?.url === 'string' &&
+        video_url.url.startsWith('data:')
+    ) {
+        return {
+            ...rest,
+            type: 'image_url',
+            image_url: { url: video_url.url },
+        };
+    }
+    if (
+        type === 'input_audio' &&
+        typeof input_audio?.data === 'string' &&
+        typeof input_audio.format === 'string'
+    ) {
+        const uri = input_audio.data.startsWith('data:')
+            ? parseDataUri(input_audio.data)
+            : null;
+        return {
+            ...rest,
+            type,
+            input_audio: {
+                ...input_audio,
+                data: uri?.base64 ? uri.data : input_audio.data,
+                format: AUDIO_FORMATS[input_audio.format] ?? input_audio.format,
+            },
+        };
+    }
+    return part;
+};
 
 const count = (value: number | undefined): number | undefined =>
     typeof value === 'number' && Number.isFinite(value) ? value : undefined;

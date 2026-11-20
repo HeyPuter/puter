@@ -4,7 +4,8 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 
 ## November 20, 2026
 
-- Changed [`puter.ai.chat()`](/AI/chat/) to reject audio parts with `bad_request` when the model does not support audio input.
+- Changed [`puter.ai.chat()`](/AI/chat/) to reject audio with `bad_request` when the model does not support audio input. This covers audio parts, audio from a Puter file, and audio or video `data:` URLs sent in an image part.
+- Fixed video and Puter file audio input in [`puter.ai.chat()`](/AI/chat/) on Gemini models.
 
 ## November 18, 2026
 
