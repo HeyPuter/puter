@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFlac, createM4a, createMp3, flacPicture, id3Picture } from '../../../tests/fixtures/audio.js';
-import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
+import { createRecordingCanvas, linesOf } from '../../../tests/fixtures/canvas.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx, createZip } from '../../../tests/fixtures/docx.js';
 import { createHeif } from '../../../tests/fixtures/heif.js';
@@ -1004,6 +1004,32 @@ describe('source code, Markdown and plain text thumbnails', () => {
         expect(await createUploadThumbnailGenerator()(new File([text], name), { defaultGenerator })).toBe(thumbnail);
         expect(drawn.text.length).toBeGreaterThan(5);
         expect(new Set(drawn.text.map(word => word.color)).size).toBe(1);
+    });
+
+    it('wraps a long line of plain text inside the page, and runs one of YAML or HTML off it', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const text = `${'words '.repeat(30)}\nend\n`;
+        const generate = createUploadThumbnailGenerator();
+        await generate(new File([text], 'notes.txt'), { defaultGenerator });
+        const wrapped = linesOf(drawn);
+        expect(wrapped.length).toBeGreaterThan(2);
+        expect(Math.max(...drawn.text.map(word => word.x + word.text.length * 5))).toBeLessThanOrEqual(255 - 18);
+        for ( const name of ['config.yml', 'index.html'] ) {
+            drawn.text.length = 0;
+            await generate(new File([text], name), { defaultGenerator });
+            expect(linesOf(drawn).map(line => line.text.split(' ')[0])).toEqual(['words', 'end']);
+            expect(Math.max(...drawn.text.map(word => word.x + word.text.length * 5))).toBeGreaterThan(255 - 18);
+        }
+    });
+
+    it('starts each right-to-left line of plain text from the right', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        await createUploadThumbnailGenerator()(new File(['שלום עולם\nhello world\n'], 'notes.txt'), { defaultGenerator });
+        const [hebrew, latin] = linesOf(drawn);
+        const [first, second] = drawn.text.filter(word => word.y === hebrew.y && word.text.trim());
+        expect(first.text).toBe('שלום');
+        expect(first.x).toBeGreaterThan(second.x);
+        expect(latin).toMatchObject({ text: 'hello world', x: 18 });
     });
 
     it('draws a CSV file typed as plain text as a sheet', async () => {

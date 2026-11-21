@@ -105,7 +105,8 @@ export const indentJson = (text) => {
  * Split source code into runs of one color each.
  *
  * @param {string} text
- * @param {string} language A key of `TOKENS`, or `text` for text drawn without colors.
+ * @param {string} [language] A key of `CODE_NAMES` in `kinds.js`. Text in a language with no pattern here, or in
+ *     none, is drawn in one color.
  * @returns {import('./page.js').PageRun[]}
  */
 export const colorCode = (text, language) => {
@@ -126,10 +127,28 @@ export const colorCode = (text, language) => {
 };
 
 /**
+ * A paragraph of text in the font source code is drawn in.
+ *
+ * @param {import('./page.js').PageRun[]} runs
+ * @param {boolean} wrap
+ * @returns {import('./page.js').PageParagraph}
+ */
+const textBlock = (runs, wrap) => ({
+    runs,
+    size: FONT_SIZE,
+    align: 'start',
+    indent: 0,
+    spaceBefore: 0,
+    spaceAfter: 0,
+    lineSpacing: 1,
+    wrap,
+});
+
+/**
  * Get a small image of the start of a source file, colored as an editor would color it.
  *
  * @param {File} file
- * @param {string} language A key of `CODE_NAMES` in `kinds.js`, or `text` for text drawn without colors.
+ * @param {string} language A key of `CODE_NAMES` in `kinds.js`.
  * @returns {Promise<File | undefined>} An image file browsers can decode, or `undefined` for a file with no text.
  */
 export const readCodePreview = async (file, language) => {
@@ -138,15 +157,21 @@ export const readCodePreview = async (file, language) => {
     // A first line that holds a comma holds more than one value, as JSON written without line breaks does.
     if ( language === 'json' && text.split('\n', 1)[0].includes(',') ) text = indentJson(text);
     const page = createTextPage();
-    page.blocks = [{
-        runs: colorCode(text.replace(/\t/g, '    '), language),
-        size: FONT_SIZE,
-        align: 'start',
-        indent: 0,
-        spaceBefore: 0,
-        spaceAfter: 0,
-        lineSpacing: 1,
-        wrap: false,
-    }];
+    page.blocks = [textBlock(colorCode(text.replace(/\t/g, '    '), language), false)];
+    return renderPage(page);
+};
+
+/**
+ * Get a small image of the start of a plain text file, in one color. Each line wraps, as a text editor wraps prose,
+ * and is a paragraph of its own, so a line in a right-to-left script runs from the right.
+ *
+ * @param {File} file
+ * @returns {Promise<File | undefined>} An image file browsers can decode, or `undefined` for a file with no text.
+ */
+export const readPlainTextPreview = async (file) => {
+    const text = await readLeadingText(file);
+    if ( ! text ) return undefined;
+    const page = createTextPage();
+    page.blocks = text.replace(/\t/g, '    ').split('\n').map(line => textBlock(colorCode(line), true));
     return renderPage(page);
 };

@@ -229,11 +229,6 @@ literal is not recognized, and a CSS property is told from a selector by
 whether a `;` or `}` comes before the next `{`. Adding a language is a name in
 `kinds.js` and a pattern in `code.js`.
 
-A text file (`.txt`), a YAML file (`.yml`, `.yaml`) or an HTML file (`.html`,
-`.htm`) is drawn the same way, in one color: an HTML file shows its markup, not
-the page it makes. The names of Markdown, CSV and source files are checked
-first, since a browser can type any of them as plain text.
-
 JSON is drawn the same way, with keys colored apart from the strings they hold,
 and with comments, which settings files such as `tsconfig.json` hold. A JSON
 file whose first line holds a comma is written on one line, as minified JSON
@@ -241,6 +236,14 @@ is, so `code.js` lays it out first as a formatter would: one member or element
 to a line, two spaces in a level. That layout stops after 64 lines, more than a
 page shows, and indents no deeper than 16 levels, so a file of nothing but
 brackets costs no more than any other.
+
+A YAML file (`.yml`, `.yaml`) or an HTML file (`.html`, `.htm`) is drawn as
+source code is, in one color, since `code.js` has no pattern for either: an HTML file
+shows its markup, not the page it makes. A text file (`.txt`, or a file typed
+`text/plain`) is drawn in one color too, but its lines wrap, as a text editor
+wraps prose, and each line is a paragraph of its own, so a line in a
+right-to-left script runs from the right. The names of Markdown, CSV and source
+files are checked first, since a browser can type any of them as plain text.
 
 `csv.js` draws a CSV file as a spreadsheet opens it, through the sheet drawer
 `xlsx.js` uses: gridlines, cells of the default size, numbers aligned right and
@@ -280,7 +283,7 @@ from a PSD fixture's preview and from a fixture's merged image, and check the
 pixels of pages drawn from DOCX and DOC fixtures, of a sheet drawn from an XLSX
 fixture, of a slide drawn from a PPTX fixture, of a frame taken from a video fixture, of
 covers stored in MP3, FLAC and MP4 audio fixtures, of pages drawn from JavaScript, CSS, JSON,
-HTML and Markdown text, and of a sheet drawn from CSV text. The browser the suite installs has
+HTML, plain and Markdown text, and of a sheet drawn from CSV text. The browser the suite installs has
 no HEVC decoder, so there the HEIC test checks that a photo is skipped without an
 error; in a browser that has one, the same test checks the decoded pixels. `heif.test.js`
 covers the reader against a stand-in for the decoder. The parsers' unit tests draw on a
