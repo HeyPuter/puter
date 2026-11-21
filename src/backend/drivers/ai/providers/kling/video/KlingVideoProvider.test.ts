@@ -671,7 +671,7 @@ describe('KlingVideoProvider failures', () => {
     // Kling bills a task it reports as succeeded, video or not.
     it('fails, still metered, when the finished task has no video', async () => {
         mockTaskFlow(succeededTask({ outputs: [] }));
-        await expect(generate({})).rejects.toThrow(/video URL/);
+        await expect(generate({})).rejects.toThrow(/unexpected response/);
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
     });
 });

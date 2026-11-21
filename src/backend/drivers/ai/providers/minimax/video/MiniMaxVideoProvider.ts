@@ -27,6 +27,7 @@ import { readBoundedBody } from '../../../../util/fileInput.js';
 import { toUrlOrDataUri } from '../../../shared/imageInput.js';
 import {
     isTransientUpstreamError,
+    malformedUpstreamResponse,
     sanitizeUpstreamMessage,
 } from '../../../../util/upstreamErrors.js';
 import { capSecondsToRemainingCredits } from '../../../interfaces/video/creditCap.js';
@@ -115,6 +116,9 @@ const statusForCode = (code: number, httpStatus: number): number => {
 };
 
 /** The code a v2 error message ends with, e.g. "invalid params (2013)". */
+const stringOr = (value: unknown): string | undefined =>
+    typeof value === 'string' && value ? value : undefined;
+
 const parseCode = (message: string): number | undefined => {
     const match = message.match(/\((\d{4,5})\)\s*$/);
     return match ? Number.parseInt(match[1], 10) : undefined;
@@ -376,8 +380,8 @@ export class MiniMaxVideoProvider extends VideoProvider {
                 '/v2/video_generation',
                 body,
             );
-            if (!created.task_id) {
-                throw new Error('MiniMax response did not include a task id');
+            if (typeof created.task_id !== 'string' || !created.task_id) {
+                throw malformedUpstreamResponse(PROVIDER, 'MiniMax');
             }
             const task = await pollUntilSettled<H3Task>({
                 provider: PROVIDER,
@@ -388,8 +392,9 @@ export class MiniMaxVideoProvider extends VideoProvider {
                         'GET',
                         `/v2/query/video_generation/${encodeURIComponent(created.task_id!)}`,
                     );
-                    if (!task) {
-                        throw new Error('MiniMax task query returned no task');
+                    // Read as a missed poll, like any other 5xx.
+                    if (!task || typeof task !== 'object') {
+                        throw malformedUpstreamResponse(PROVIDER, 'MiniMax');
                     }
                     return task;
                 },
@@ -424,13 +429,14 @@ export class MiniMaxVideoProvider extends VideoProvider {
             if (task.status !== 'succeeded') {
                 throw videoJobFailure(
                     PROVIDER,
-                    task.error?.message || `Video generation ${task.status}`,
-                    task.error?.code,
+                    stringOr(task.error?.message) ??
+                        `Video generation ${stringOr(task.status) ?? 'failed'}`,
+                    stringOr(task.error?.code),
                 );
             }
             const url = task.content?.url;
             if (typeof url !== 'string' || !url.trim()) {
-                throw new Error('MiniMax response did not include a video URL');
+                throw malformedUpstreamResponse(PROVIDER, 'MiniMax');
             }
             return url;
         } finally {
@@ -490,8 +496,8 @@ export class MiniMaxVideoProvider extends VideoProvider {
                 '/v1/video_generation',
                 body,
             );
-            if (!created.task_id) {
-                throw new Error('MiniMax response did not include a task id');
+            if (typeof created.task_id !== 'string' || !created.task_id) {
+                throw malformedUpstreamResponse(PROVIDER, 'MiniMax');
             }
             const task = await pollUntilSettled<HailuoTask>({
                 provider: PROVIDER,
@@ -530,7 +536,7 @@ export class MiniMaxVideoProvider extends VideoProvider {
             const { file } = await this.#retrieveFile(task.file_id);
             const url = file?.download_url;
             if (typeof url !== 'string' || !url.trim()) {
-                throw new Error('MiniMax response did not include a video URL');
+                throw malformedUpstreamResponse(PROVIDER, 'MiniMax');
             }
 
             return url;
@@ -644,14 +650,14 @@ export class MiniMaxVideoProvider extends VideoProvider {
         if (typeof v1Code === 'number' && v1Code !== 0) {
             throw minimaxError(
                 v1Code,
-                payload.base_resp?.status_msg ||
+                stringOr(payload.base_resp?.status_msg) ??
                     `MiniMax request failed (code ${v1Code})`,
                 response.status,
             );
         }
         if (!response.ok) {
             const message =
-                payload.error?.message ||
+                stringOr(payload.error?.message) ??
                 `MiniMax request failed (status ${response.status})`;
             throw minimaxError(parseCode(message), message, response.status);
         }
