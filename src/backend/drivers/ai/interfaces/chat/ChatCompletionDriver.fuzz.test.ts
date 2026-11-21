@@ -53,6 +53,7 @@ import {
     anthropicToolStream,
     chatCompletionsToolStream,
     chatToolCallDeltas,
+    chatWholeToolCallDeltas,
     responsesToolStream,
 } from '../../shared/toolCallStreamTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
@@ -198,7 +199,9 @@ const healthyUpstream = ({
     if (streaming && Array.isArray(tools) && tools.length) {
         const sse = path.endsWith('/chat/completions')
             ? chatCompletionsToolStream(
-                  chatToolCallDeltas({ interleave: true }),
+                  url.hostname === 'api.mistral.ai'
+                      ? chatWholeToolCallDeltas()
+                      : chatToolCallDeltas({ interleave: true }),
               )
             : path.endsWith('/responses')
               ? responsesToolStream()

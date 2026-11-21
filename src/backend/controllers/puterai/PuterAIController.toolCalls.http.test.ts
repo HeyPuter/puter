@@ -32,6 +32,7 @@ import {
     anthropicToolStream,
     chatCompletionsToolStream,
     chatToolCallDeltas,
+    chatWholeToolCallDeltas,
     responsesToolStream,
     STREAMED_TOOL_CALLS,
 } from '../../drivers/ai/shared/toolCallStreamTestUtil.js';
@@ -75,12 +76,11 @@ const chatToolCalls = (events: Data[]): ToolCalls => {
     let stop: unknown;
     for (const choice of events.flatMap((event) => event.choices ?? [])) {
         for (const delta of choice.delta?.tool_calls ?? []) {
-            const call = calls.get(delta.index) ?? {
-                id: '',
-                name: '',
-                args: '',
-                pieces: 0,
-            };
+            const seen = calls.get(delta.index);
+            // Clients join a call's deltas by index, so a repeated id or name
+            // would be appended to the first.
+            if (seen) expect(delta.id ?? delta.function?.name).toBeUndefined();
+            const call = seen ?? { id: '', name: '', args: '', pieces: 0 };
             if (delta.id) call.id = delta.id;
             if (delta.function?.name) call.name = delta.function.name;
             if (delta.function?.arguments) {
@@ -91,6 +91,7 @@ const chatToolCalls = (events: Data[]): ToolCalls => {
         }
         if (choice.finish_reason) stop = choice.finish_reason;
     }
+    expect([...calls.keys()]).toEqual(STREAMED_TOOL_CALLS.map((_, i) => i));
     return { calls: [...calls.values()], stop };
 };
 
@@ -128,7 +129,18 @@ const responsesToolCalls = (events: Data[]): ToolCalls => {
 const anthropicToolCalls = (events: Data[]): ToolCalls => {
     const calls = new Map<number, ToolCalls['calls'][number]>();
     let stop: unknown;
+    let open: number | null = null;
     for (const event of events) {
+        // Blocks can't overlap: every delta and stop belongs to the open one.
+        if (event.type === 'content_block_start') {
+            expect(open).toBeNull();
+            open = event.index;
+        } else if (event.type === 'content_block_delta') {
+            expect(event.index).toBe(open);
+        } else if (event.type === 'content_block_stop') {
+            expect(event.index).toBe(open);
+            open = null;
+        }
         if (
             event.type === 'content_block_start' &&
             event.content_block.type === 'tool_use'
@@ -165,6 +177,7 @@ const ROUTES = {
         }),
         read: chatToolCalls,
         stop: 'tool_calls',
+        end: 'data: [DONE]',
     },
     responses: {
         path: '/puterai/openai/v1/responses',
@@ -181,6 +194,7 @@ const ROUTES = {
         }),
         read: responsesToolCalls,
         stop: ['function_call', 'function_call'],
+        end: 'event: response.completed',
     },
     anthropic: {
         path: '/puterai/anthropic/v1/messages',
@@ -197,6 +211,7 @@ const ROUTES = {
         }),
         read: anthropicToolCalls,
         stop: 'tool_use',
+        end: 'event: message_stop',
     },
 };
 
@@ -218,6 +233,20 @@ const VENDORS = {
         streamsPieces: true,
         sse: () =>
             chatCompletionsToolStream(chatToolCallDeltas({ interleave: true })),
+    },
+    'chat whole calls': {
+        model: 'deepseek-flash',
+        provider: 'deepseek',
+        endpoint: 'api.deepseek.com/chat/completions',
+        streamsPieces: false,
+        sse: () => chatCompletionsToolStream(chatWholeToolCallDeltas()),
+    },
+    mistral: {
+        model: 'mistral-large-4',
+        provider: 'mistral',
+        endpoint: 'api.mistral.ai/v1/chat/completions',
+        streamsPieces: false,
+        sse: () => chatCompletionsToolStream(chatWholeToolCallDeltas()),
     },
     responses: {
         model: 'gpt-6.1-sol',
@@ -273,9 +302,11 @@ describe('streamed tool calls through the compatibility routes', () => {
                 deepseek: key,
                 'openai-completion': key,
                 claude: key,
+                mistral: key,
             },
             meteringEnforcement: { subscriptions: false },
-            // Back-to-back streamed requests would otherwise wait on reserved usage.
+            // Back-to-back streamed requests otherwise get a 429 while the previous
+            // request's usage hold is still held.
             unlimitedMetering: true,
         } as never);
         await vi.waitFor(async () => {
@@ -297,7 +328,7 @@ describe('streamed tool calls through the compatibility routes', () => {
         '$vendor through the $route route rebuilds both tool calls',
         async ({ vendor, route }) => {
             const { model, provider, sse } = VENDORS[vendor];
-            const { path, body, read, stop } = ROUTES[route];
+            const { path, body, read, stop, end } = ROUTES[route];
             reply = sse();
             endpoint = VENDORS[vendor].endpoint;
             asked.clear();
@@ -324,7 +355,8 @@ describe('streamed tool calls through the compatibility routes', () => {
                 })),
             ).toEqual(STREAMED_TOOL_CALLS);
             expect(result.stop).toEqual(stop);
-            // Pieces must pass through as they arrive, not as one at the end.
+            expect(text).toContain(end);
+            // The route must pass a call's pieces on, not one joined piece.
             if (VENDORS[vendor].streamsPieces) {
                 for (const call of result.calls) {
                     expect(call.pieces, call.id).toBeGreaterThan(1);

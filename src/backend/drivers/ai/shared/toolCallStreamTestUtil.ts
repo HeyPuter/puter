@@ -66,29 +66,45 @@ export const argumentPieces = (call: StreamedToolCall): string[] => {
 
 /**
  * Each chunk's `delta.tool_calls`, shaped as OpenAI streams them: a call's
- * first delta carries its `index`, `id` and name, and the rest only `index`.
- * Interleaved, the calls' pieces alternate instead of following each other.
+ * first delta carries its `index`, `id`, name and empty arguments, and the
+ * pieces follow with only `index`. Interleaving the calls' pieces is no known
+ * vendor's shape; it checks that calls are kept apart by `index`.
  */
 export const chatToolCallDeltas = (options: {
     interleave: boolean;
 }): ChatToolCallDelta[][] => {
-    const perCall = STREAMED_TOOL_CALLS.map((call, index) =>
-        argumentPieces(call).map((piece, n): ChatToolCallDelta =>
-            n === 0
-                ? {
-                      index,
-                      id: call.id,
-                      type: 'function',
-                      function: { name: call.name, arguments: piece },
-                  }
-                : { index, function: { arguments: piece } },
-        ),
+    const perCall = STREAMED_TOOL_CALLS.map(
+        (call, index): ChatToolCallDelta[] => [
+            {
+                index,
+                id: call.id,
+                type: 'function',
+                function: { name: call.name, arguments: '' },
+            },
+            ...argumentPieces(call).map((piece) => ({
+                index,
+                function: { arguments: piece },
+            })),
+        ],
     );
     const ordered = options.interleave
         ? perCall[0].flatMap((_, n) => perCall.map((pieces) => pieces[n]))
         : perCall.flat();
     return ordered.map((delta) => [delta]);
 };
+
+/**
+ * Every call whole in one chunk, as Mistral sends them: its SDK requires a name
+ * on each tool-call delta, so it can't read the piece-by-piece shape.
+ */
+export const chatWholeToolCallDeltas = (): ChatToolCallDelta[][] => [
+    STREAMED_TOOL_CALLS.map((call, index) => ({
+        index,
+        id: call.id,
+        type: 'function',
+        function: { name: call.name, arguments: JSON.stringify(call.input) },
+    })),
+];
 
 const chatUsage = { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8 };
 const chatChunk = (delta: object, finish: string | null) => ({

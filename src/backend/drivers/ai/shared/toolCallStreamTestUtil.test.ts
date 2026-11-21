@@ -24,6 +24,7 @@ import {
     argumentPieces,
     chatCompletionsToolStream,
     chatToolCallDeltas,
+    chatWholeToolCallDeltas,
     responsesToolStream,
     STREAMED_TOOL_CALLS,
 } from './toolCallStreamTestUtil.js';
@@ -64,10 +65,12 @@ describe('toolCallStreamTestUtil', () => {
     });
 
     it("each vendor stream carries both calls' pieces in order", () => {
-        for (const interleave of [false, true]) {
-            const chat = chatCompletionsToolStream(
-                chatToolCallDeltas({ interleave }),
-            );
+        for (const deltas of [
+            chatToolCallDeltas({ interleave: false }),
+            chatToolCallDeltas({ interleave: true }),
+            chatWholeToolCallDeltas(),
+        ]) {
+            const chat = chatCompletionsToolStream(deltas);
             const chatPieces = chat.flatMap(({ data }) =>
                 ((data as Data).choices?.[0]?.delta?.tool_calls ?? []).map(
                     (call: Data): [unknown, string] => [
