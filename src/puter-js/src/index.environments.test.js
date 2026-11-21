@@ -179,6 +179,19 @@ describe('app launch parameters', () => {
         expect(puter.appDataPath).toBe('~/AppData/app-stored');
     });
 
+    it('hands over the opened item after the app has changed its URL', async () => {
+        const readURL = encodeURIComponent('https://api.test/file?uid=f-1');
+        const puter = await bootApp(
+            `${LAUNCH}&puter.item.name=a.txt&puter.item.uid=f-1&puter.item.path=%2Fu%2Fa.txt&puter.item.read_url=${readURL}`,
+        );
+        history.replaceState(null, '', '/app/editor');
+
+        const launched = vi.fn();
+        puter.ui.onLaunchedWithItems(launched);
+        expect(puter.ui.wasLaunchedWithItems()).toBe(true);
+        expect(launched.mock.calls[0][0][0].uid).toBe('f-1');
+    });
+
     it('strips the launch token a task later when the page has already loaded', async () => {
         Object.defineProperty(document, 'readyState', { value: 'complete', configurable: true });
         const puter = await bootApp();
@@ -494,6 +507,80 @@ describe('a tab the desktop opened for an app', () => {
             'puter.item.uid': 'f-1',
         });
         expect(puter.authToken).toBeFalsy();
+    });
+
+    it('clears the launch params from its address bar once the page loads', async () => {
+        const puter = await bootWeb(
+            `${LAUNCH}&page=2&puter.app.id=app-1&puter.args=%7B%22a%22%3A1%7D` +
+                '&puter.notification=n-1&utm_source=puter.com#/inbox',
+        );
+        await flush();
+        expect(new URLSearchParams(location.search).get('puter.app.id')).toBe('app-1');
+
+        window.dispatchEvent(new Event('load'));
+        await flush();
+
+        expect(location.pathname).toBe('/site/index.html');
+        expect(location.search).toBe('?page=2&puter.notification=n-1&utm_source=puter.com');
+        expect(location.hash).toBe('#/inbox');
+        expect(puter.appInstanceID).toBe('i');
+        expect(puter.appID).toBe('app-1');
+        expect(puter.args).toEqual({ a: 1 });
+    });
+
+    it('leaves puter.* params the app put in its URL after launch', async () => {
+        await bootWeb(`${LAUNCH}&puter.app.id=app-1`);
+        history.replaceState(null, '', '/site/index.html?puter.view=list&puter.app.id=app-1');
+        window.dispatchEvent(new Event('load'));
+        await flush();
+        expect(location.search).toBe('?puter.view=list');
+    });
+
+    it('still delivers the opened item when it arrives after the params are cleared', async () => {
+        let answer;
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) => {
+                answer = () => window.dispatchEvent(new MessageEvent('message', {
+                    origin: guiOrigin,
+                    source: opener,
+                    data: {
+                        msg: 'puter.launch',
+                        appInstanceID: data.appInstanceID,
+                        item: {
+                            'puter.item.name': 'notes.txt',
+                            'puter.item.uid': 'f-1',
+                            'puter.item.path': '~/notes.txt',
+                            'puter.item.read_url': 'https://api.test/file?uid=f-1',
+                        },
+                    },
+                }));
+            },
+        };
+        Object.defineProperty(globalThis, 'opener', { value: opener, configurable: true, writable: true });
+        const puter = await bootWeb(`${LAUNCH}&puter.item.uid=f-1`);
+        window.dispatchEvent(new Event('load'));
+        await flush();
+        expect(location.search).toBe('');
+
+        expect(puter.ui.wasLaunchedWithItems()).toBe(true);
+        const launched = vi.fn();
+        puter.ui.onLaunchedWithItems(launched);
+        answer();
+        await puter.openerLaunch_;
+        await flush();
+
+        expect(launched).toHaveBeenCalledOnce();
+        expect(launched.mock.calls[0][0][0].uid).toBe('f-1');
+    });
+});
+
+describe('a web page the desktop did not launch', () => {
+    it('keeps its own puter.* query params', async () => {
+        await bootWeb('?puter.theme=dark&x=1');
+        window.dispatchEvent(new Event('load'));
+        await flush();
+        expect(location.search).toBe('?puter.theme=dark&x=1');
     });
 });
 

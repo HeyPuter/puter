@@ -1,13 +1,13 @@
 /**
- * `href` with every `name` query parameter removed, or null when it has none.
- * Works on the raw query string so the parameters that stay keep their exact
- * encoding.
+ * `href` without the query parameters whose decoded name `shouldRemove`
+ * matches, or null when it has none. Works on the raw query string so the
+ * parameters that stay keep their exact encoding.
  *
  * @param {string} href
- * @param {string} name
+ * @param {(name: string) => boolean} shouldRemove
  * @returns {string | null}
  */
-export const urlWithoutQueryParam = (href, name) => {
+export const urlWithoutQueryParams = (href, shouldRemove) => {
     let url;
     try {
         url = new URL(href);
@@ -17,9 +17,9 @@ export const urlWithoutQueryParam = (href, name) => {
     const isTarget = (part) => {
         const rawKey = part.split('=', 1)[0].replace(/\+/g, ' ');
         try {
-            return decodeURIComponent(rawKey) === name;
+            return shouldRemove(decodeURIComponent(rawKey));
         } catch {
-            return rawKey === name;
+            return shouldRemove(rawKey);
         }
     };
     const parts = url.search.slice(1).split('&');

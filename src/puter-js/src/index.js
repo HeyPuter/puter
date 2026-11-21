@@ -9,7 +9,7 @@ import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
     requestLaunchFromOpener,
-    urlWithoutQueryParam,
+    urlWithoutQueryParams,
 } from './lib/launchToken.js';
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
@@ -26,7 +26,7 @@ import FSItem from './modules/FSItem.js';
 import { Hosting } from './modules/hosting/index.js';
 import { KV } from './modules/kv/index.js';
 import { netAPI } from './modules/networking/index.js';
-import { Notifications } from './modules/notifications/index.js';
+import { CLICK_PARAM, Notifications } from './modules/notifications/index.js';
 import { OS } from './modules/os/index.js';
 import { Perms } from './modules/perms/index.js';
 import PuterDialog from './modules/PuterDialog.js';
@@ -725,7 +725,9 @@ export class Puter {
                 URLParams.get(urlTokenParam),
             );
             if (bootstrapAuthToken) {
-                this.stripLaunchTokenFromUrl_(urlTokenParam);
+                this.stripParamsFromUrlAfterLoad_(
+                    (name) => name === urlTokenParam,
+                );
             }
             try {
                 let selectedAuthToken = bootstrapAuthToken;
@@ -849,6 +851,20 @@ export class Puter {
                     appInstanceID: this.appInstanceID,
                 })
                 : null;
+            // The launch params only describe the launch, so they're cleared
+            // from the tab's address bar. A framed app keeps them: its URL
+            // isn't shown, and reloading the frame needs them.
+            if (this.appInstanceID) {
+                const launchParams = new Set(
+                    [...URLParams.keys()].filter(
+                        (name) =>
+                            name.startsWith('puter.') && name !== CLICK_PARAM,
+                    ),
+                );
+                this.stripParamsFromUrlAfterLoad_((name) =>
+                    launchParams.has(name),
+                );
+            }
             if (openerLaunch) {
                 this.openerLaunch_ = openerLaunch.then((launch) => {
                     this.openerLaunch_ = null;
@@ -1601,18 +1617,19 @@ export class Puter {
 
     /**
      * @internal
-     * Remove the launch token from the address bar after the page loads, so it
-     * stops going out in Referer headers and in anything that records the page
-     * URL. Waiting for `load` keeps it readable to the app's own boot code.
+     * Remove launch params from the page URL after the page loads, so they
+     * stop showing in the address bar, going out in Referer headers, and
+     * landing in anything that records the page URL. Waiting for `load` keeps
+     * them readable to the app's own boot code.
      *
-     * @param {string} param
+     * @param {(name: string) => boolean} shouldRemove
      */
-    stripLaunchTokenFromUrl_ = function (param) {
+    stripParamsFromUrlAfterLoad_ = function (shouldRemove) {
         const strip = () => {
             try {
-                const cleaned = urlWithoutQueryParam(
+                const cleaned = urlWithoutQueryParams(
                     globalThis.location.href,
-                    param,
+                    shouldRemove,
                 );
                 if (cleaned) {
                     globalThis.history.replaceState(

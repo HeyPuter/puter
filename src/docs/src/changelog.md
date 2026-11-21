@@ -2,6 +2,11 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 21, 2026
+
+- Changed Puter.js in an app that Puter opens in its own browser tab to remove the `puter.*` launch parameters from the address bar once the page has loaded, keeping the app's other query parameters and its URL hash. Code that reads them from `location.search` has to do so before or during the `load` event.
+- Fixed [`puter.ui.onLaunchedWithItems()`](/UI/onLaunchedWithItems/) and [`puter.ui.wasLaunchedWithItems()`](/UI/wasLaunchedWithItems/) missing the opened item when the app changed its URL before calling them.
+
 ## November 20, 2026
 
 - Added the `senderAuth` field to the [`EmailMessage`](/Objects/emailmessage/) from [`puter.email.get()`](/Email/get/). It holds the result of Puter's check that mail naming a Puter domain as its sender really came from that domain.
