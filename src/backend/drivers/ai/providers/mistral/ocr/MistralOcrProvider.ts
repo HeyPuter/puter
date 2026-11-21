@@ -37,7 +37,10 @@ import {
     OCR_MAX_PAGES,
     type OcrModel,
 } from '../../../interfaces/ocr/models.js';
-import { isMistralInputError } from '../inputError.js';
+import { HTTPClient } from '@mistralai/mistralai/lib/http.js';
+import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
+import { isMistralInputError, isMistralUnusableAnswer } from '../inputError.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import type {
     IOcrProvider,
     OcrBlock,
@@ -81,8 +84,7 @@ const toMistralResponseFormat = (
 ): Record<string, unknown> => {
     const format = value as Record<string, unknown> | null;
     const jsonSchema = (format?.jsonSchema ?? format?.json_schema) as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
     const schema = jsonSchema?.schemaDefinition ?? jsonSchema?.schema;
     if (
         !format ||
@@ -122,6 +124,7 @@ export class MistralOcrProvider implements IOcrProvider {
         config: { apiKey: string },
     ) {
         this.#client = new Mistral({
+            httpClient: new HTTPClient({ fetcher: jsonCheckedFetch }),
             apiKey: config.apiKey,
         }) as unknown as MistralOcrClient;
     }
@@ -209,6 +212,9 @@ export class MistralOcrProvider implements IOcrProvider {
                 throw new HttpError(400, 'invalid request for Mistral OCR', {
                     legacyCode: 'bad_request',
                 });
+            }
+            if (isMistralUnusableAnswer(e)) {
+                throw malformedUpstreamResponse('mistral', 'Mistral OCR');
             }
             throw e;
         } finally {
