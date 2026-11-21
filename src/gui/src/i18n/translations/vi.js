@@ -138,7 +138,6 @@ const vi = {
         ok: 'OK',
         open: 'Mở',
         open_in_new_tab: 'Mở trong tab mới',
-        open_in_new_window: 'Mở trong cửa sổ mới',
         open_with: 'Mở bằng',
         original_name: 'Tên gốc',
         original_path: 'Đường dẫn gốc',

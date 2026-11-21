@@ -349,7 +349,6 @@ const en = {
         uninstall_delete_data: 'Also delete this app\'s data',
         uninstall_failed: 'Couldn\'t uninstall {{name}}. Please try again.',
         uninstall_named: 'Uninstall {{name}}',
-        open_in_new_window: 'Open in New Window',
         open_menu: 'Open menu',
         open_with: 'Open With',
         original_name: 'Original Name',
