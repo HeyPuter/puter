@@ -137,7 +137,6 @@ const th = {
         ok: 'ตกลง',
         open: 'เปิด',
         open_in_new_tab: 'เปิดในแท็บใหม่',
-        open_in_new_window: 'เปิดในหน้าต่างใหม่',
         open_with: 'เปิดด้วย',
         original_name: 'ชื่อดั้งเดิม',
         original_path: 'ที่อยู่ดั้งเดิม',

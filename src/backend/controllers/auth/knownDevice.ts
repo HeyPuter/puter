@@ -177,19 +177,15 @@ export async function isKnownDevice(
 }
 
 /**
- * Record the request's device on the account, issuing or renewing its cookie.
- * Call only once the request has proved the account (a completed sign-in, or a
- * session it already holds). The cookie is set before the first await, so a
- * caller may leave the record update running. Resolves to whether the device
- * was already recorded; a device recorded and renewed recently costs one read
- * and no write.
+ * The request's device id, issuing or renewing its cookie. Records nothing: the
+ * id only counts once {@link rememberDevice} or {@link recordKnownDevice} puts it
+ * on an account.
  */
-export async function rememberDevice(
+export function issueDeviceCookie(
     req: Request,
     res: Response,
-    userUuid: string,
-    deps: KnownDeviceDeps & { config: IConfig },
-): Promise<boolean> {
+    deps: Pick<KnownDeviceDeps, 'token'> & { config: IConfig },
+): string {
     const now = Math.floor(Date.now() / 1000);
     const cookie = readDeviceCookie(req, deps.token);
     const deviceId = cookie?.deviceId ?? uuidv4();
@@ -208,6 +204,58 @@ export async function rememberDevice(
             },
         );
     }
+    return deviceId;
+}
+
+/**
+ * Record a device on the account by id, for a request that doesn't carry its
+ * cookie. Same records as {@link rememberDevice}.
+ */
+export async function recordKnownDevice(
+    userUuid: string,
+    deviceId: string,
+    deps: Pick<KnownDeviceDeps, 'kv'>,
+): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    const fresh: DeviceRecord = { seenAt: now };
+    const expireAt = now + RECORD_TTL_SECONDS;
+    try {
+        await Promise.all([
+            deps.kv.set({
+                key: knownDeviceKey(userUuid, deviceId),
+                value: fresh,
+                expireAt,
+            }),
+            deps.kv.updateReservedItemIf(
+                knownDevicesMarkerKey(userUuid),
+                { set: { value: fresh, ttl: expireAt } },
+                'attribute_not_exists(#ttl) OR #ttl < :ttl',
+                { ':ttl': expireAt },
+                { '#ttl': 'ttl' },
+            ),
+        ]);
+    } catch (e) {
+        console.warn('[known-device] record update failed:', e);
+    }
+}
+
+/**
+ * Record the request's device on the account, issuing or renewing its cookie.
+ * Call only once the request has proved the account (a completed sign-in, or a
+ * session it already holds). The cookie is set before the first await, so a
+ * caller may leave the record update running. Resolves to whether the device
+ * was already recorded; a device recorded and renewed recently costs one read
+ * and no write.
+ */
+export async function rememberDevice(
+    req: Request,
+    res: Response,
+    userUuid: string,
+    deps: KnownDeviceDeps & { config: IConfig },
+): Promise<boolean> {
+    const now = Math.floor(Date.now() / 1000);
+    const cookie = readDeviceCookie(req, deps.token);
+    const deviceId = issueDeviceCookie(req, res, deps);
     // Without a cookie the device is new, and only the marker was read.
     const read = await readAccountDevices(req, userUuid, deps);
     const device = cookie ? (read?.device ?? null) : null;
