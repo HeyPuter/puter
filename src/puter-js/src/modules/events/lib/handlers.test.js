@@ -93,3 +93,54 @@ describe('scope', () => {
         expect([...handlers.known.keys()]).toEqual([]);
     });
 });
+
+describe('replace', () => {
+    it('honors options.replace in publishAll across all items', async () => {
+        const handlers = makeHandlers();
+        handlers.known.set('a', 'cached-hash-a');
+        handlers.known.set('b', 'cached-hash-b');
+
+        await handlers.publishAll(
+            [
+                { name: 'a', handler: SOURCE },
+                { name: 'b', handler: SOURCE },
+            ],
+            { replace: true },
+        );
+
+        expect(routeOf(0)).toBe('/events/handlers/publishAll');
+        expect(bodyOf(0).handlers[0]).toMatchObject({ name: 'a', replace: true });
+        expect(bodyOf(0).handlers[0]).not.toHaveProperty('ifHash');
+        expect(bodyOf(0).handlers[1]).toMatchObject({ name: 'b', replace: true });
+        expect(bodyOf(0).handlers[1]).not.toHaveProperty('ifHash');
+    });
+
+    it('allows an individual item to override options.replace in publishAll', async () => {
+        const handlers = makeHandlers();
+        handlers.known.set('a', 'cached-hash-a');
+        handlers.known.set('b', 'cached-hash-b');
+
+        await handlers.publishAll(
+            [
+                { name: 'a', handler: SOURCE, replace: false },
+                { name: 'b', handler: SOURCE },
+            ],
+            { replace: true },
+        );
+
+        expect(bodyOf(0).handlers[0]).toMatchObject({ name: 'a', ifHash: 'cached-hash-a' });
+        expect(bodyOf(0).handlers[0]).not.toHaveProperty('replace');
+        expect(bodyOf(0).handlers[1]).toMatchObject({ name: 'b', replace: true });
+        expect(bodyOf(0).handlers[1]).not.toHaveProperty('ifHash');
+    });
+
+    it('sends ifHash when neither item nor options specifies replace', async () => {
+        const handlers = makeHandlers();
+        handlers.known.set('a', 'cached-hash-a');
+
+        await handlers.publishAll([{ name: 'a', handler: SOURCE }]);
+
+        expect(bodyOf(0).handlers[0]).toMatchObject({ name: 'a', ifHash: 'cached-hash-a' });
+        expect(bodyOf(0).handlers[0]).not.toHaveProperty('replace');
+    });
+});
