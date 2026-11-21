@@ -376,13 +376,13 @@ export function withAiCostFactor(
         actor: Actor,
         amount: number,
         opts?: { ttlMs?: number; within?: UsageHeadroom },
-    ): Promise<CreditHold | null> => {
+    ): Promise<CreditHold | 'stale' | null> => {
         const hold = await metering.reserveCredits(
             actor,
             amount,
             opts as { within: UsageHeadroom },
         );
-        return hold && outlastingWrites(hold);
+        return hold && hold !== 'stale' ? outlastingWrites(hold) : hold;
     };
 
     // For a cost the caller has already factored.
