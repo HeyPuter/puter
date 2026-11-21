@@ -66,3 +66,8 @@ export function sanitizePhone(
 ): string | null {
     return parsePhone(input, defaultCountry)?.e164 ?? null;
 }
+
+/** The last two digits, for telling the owner which number a code goes to. */
+export function phoneLastDigits(phone: string): string {
+    return phone.replace(/\D/g, '').slice(-2);
+}

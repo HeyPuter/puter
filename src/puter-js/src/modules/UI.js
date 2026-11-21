@@ -566,6 +566,9 @@ export class UIModule extends EventListener {
     // The framed upgrade showing, which a call made while it's open joins.
     #upgradeFrame = null;
 
+    /** @type {Set<() => void>} */
+    #upgradeListeners = new Set();
+
     // The top-up showing, framed or about to open in a tab, which a call made meanwhile joins.
     #topUpFrame = null;
 
@@ -1815,6 +1818,36 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * Shows the upgrade flow for a button on the page, with no refused call
+     * behind it. On a signed-in first-party page it shows as
+     * {@link requestUpgrade} does there. On any other website it opens on the
+     * dashboard in a new tab and the promise resolves `{ upgraded: false }`.
+     *
+     * @internal
+     * @returns {Promise<import('../lib/types.js').UpgradeResult>}
+     */
+    showUpgrade_ () {
+        if ( this.canShowUpgradeFrame_() ) return this.#showUpgradeFrame({});
+        return this.#openUpgradeTab(upgradeUrl({ appID: appIDOf(puter) })).then(() => ({ upgraded: false }));
+    }
+
+    /**
+     * Calls `listener` each time an upgrade shown in a frame over the page
+     * gives the page's user a plan, after their cached whoami reads
+     * `subscribed: true`.
+     *
+     * @internal
+     * @param {() => void} listener
+     * @returns {() => void} removes the listener
+     */
+    onUpgraded_ (listener) {
+        this.#upgradeListeners.add(listener);
+        return () => {
+            this.#upgradeListeners.delete(listener);
+        };
+    }
+
+    /**
      * Whether {@link requestUpgrade} shows the upgrade in a frame over this page.
      *
      * @internal
@@ -1868,8 +1901,17 @@ export class UIModule extends EventListener {
                     onMessage: () => {},
                 });
                 // The page's cached whoami still reads it as having no plan,
-                // which is what the user menu offers Add credits by.
-                if ( framed?.upgraded ) user.subscribed = true;
+                // which is what the user menu reads the plan from.
+                if ( framed?.upgraded ) {
+                    user.subscribed = true;
+                    for ( const listener of [...this.#upgradeListeners] ) {
+                        try {
+                            listener();
+                        } catch (e) {
+                            console.error(e);
+                        }
+                    }
+                }
                 if ( framed ) return framed;
                 await this.#openUpgradeTab(upgradeUrl({ reason, method, appID: appIDOf(puter) }));
                 return { upgraded: false };

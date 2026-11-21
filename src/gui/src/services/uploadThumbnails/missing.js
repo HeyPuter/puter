@@ -54,7 +54,7 @@ export const wantsThumbnail = (fsentry, { listRow, homePath, excludedPaths }) =>
     const path = fsentry.path ?? '';
     if ( !homePath || !path.startsWith(`${homePath}/`) ) return false;
     if ( excludedPaths.some(excluded => excluded && path.startsWith(`${excluded}/`)) ) return false;
-    if ( listRow && isPageDocument(fsentry.name) ) return false;
+    if ( listRow && isPageDocument(fsentry.name, fsentry.type ?? '') ) return false;
     return canMakeThumbnail(fsentry.name, fsentry.type ?? '');
 };
 
