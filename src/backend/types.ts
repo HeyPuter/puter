@@ -995,6 +995,8 @@ interface IConfigOptional {
          * extension reports card verification enabled. On a build with no card
          * gate behind it the fallback stays off, since taking the offer there
          * could only strand the user.
+         *
+         * An extension answering `puter.card-fallback.policy` wins over this.
          */
         enabled?: boolean;
         /**

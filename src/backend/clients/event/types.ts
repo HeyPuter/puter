@@ -545,6 +545,12 @@ export type EventMap = {
     'puter.card-verification.status': {
         enabled: boolean | null;
     };
+    // Asked before `phone_verification_card_fallback.enabled` is read. A
+    // listener sets `enabled` to switch the SMS-to-card fallback on or off in
+    // place of config; left null, config decides.
+    'puter.card-fallback.policy': {
+        enabled: boolean | null;
+    };
     'puter.card-verification.confirm': {
         user_id: number;
         user_uid: string;

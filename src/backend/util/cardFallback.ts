@@ -103,6 +103,8 @@ export interface CardFallbackDeps {
      * installed.
      */
     probeCardVerification: () => Promise<boolean | null>;
+    /** An extension's answer for `enabled` in place of config; null when none. */
+    probeEnabledOverride: () => Promise<boolean | null>;
 }
 
 /** The clients that answer {@link CardFallbackDeps}. */
@@ -128,6 +130,15 @@ export function cardFallbackDepsFrom(
                 {},
             );
             return status.enabled;
+        },
+        probeEnabledOverride: async () => {
+            const policy: { enabled: boolean | null } = { enabled: null };
+            await clients.event?.emitAndWait(
+                'puter.card-fallback.policy',
+                policy,
+                {},
+            );
+            return policy.enabled;
         },
     };
 }
@@ -179,11 +190,19 @@ export async function isCardVerificationEnabled(
  * both halves actually work, off otherwise. Without that conjunction the offer
  * could show up on a deployment with no card gate behind it, where taking it
  * strands the user on a dialog that can only fail.
+ *
+ * An extension answering `puter.card-fallback.policy` wins over config.
  */
 export async function isCardFallbackEnabled(
     config: Pick<IConfig, 'phone_verification_card_fallback'>,
     deps: CardFallbackDeps,
 ): Promise<boolean> {
+    try {
+        const override = await deps.probeEnabledOverride();
+        if (typeof override === 'boolean') return override;
+    } catch (e) {
+        console.warn('[card-verification] fallback policy probe failed:', e);
+    }
     const configured = config.phone_verification_card_fallback?.enabled;
     if (typeof configured === 'boolean') return configured;
     if (!deps.smsConfigured()) return false;
