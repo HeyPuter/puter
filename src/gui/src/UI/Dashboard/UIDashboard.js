@@ -26,6 +26,7 @@ import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIAuthLogin from '../Auth/UIAuthLogin.js';
 import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
 import { clear_shared_param } from '../../helpers/parseSharedPath.js';
+import { forgetWorkers, forgetWorkersAfterMove } from '../../helpers/trashWorkers.js';
 import UIDashboardNotifications from './UIDashboardNotifications.js';
 import UIDashboardContactDialog from './UIDashboardContactDialog.js';
 import {
@@ -382,6 +383,8 @@ async function UIDashboard (options) {
     };
 
     window.socket.on('item.moved', async (resp) => {
+        // This tab's own moves included: they can change a worker's source path.
+        forgetWorkersAfterMove(resp.path);
         if ( resp.original_client_socket_id === window.socket.id ) return;
 
         // Fade out the stale row at the item's OLD location only. A moved item
@@ -437,6 +440,8 @@ async function UIDashboard (options) {
     });
 
     window.socket.on('item.renamed', async (item) => {
+        // A rename can change a worker's source path.
+        forgetWorkers();
         if ( item.original_client_socket_id === window.socket.id ) return;
 
         const $el = $(`.item[data-uid='${item.uid}']`);
@@ -458,6 +463,8 @@ async function UIDashboard (options) {
     });
 
     window.socket.on('item.updated', async (item) => {
+        // The owner hears of a rename as an update.
+        forgetWorkers();
         if ( item.original_client_socket_id === window.socket.id ) return;
 
         const $el = $(`.item[data-uid='${item.uid}']`);

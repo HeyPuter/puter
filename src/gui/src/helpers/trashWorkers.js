@@ -48,9 +48,20 @@ export const listWorkers = async () => {
     return entry.promise;
 };
 
-/** Drops the cached listing, after a worker is created or deleted. */
+/** Drops the cached listing: a worker was created or deleted, or a path changed. */
 export const forgetWorkers = () => {
     workerListCache = null;
+};
+
+/**
+ * Drops the cached listing after an item moved to `path`. A move into the
+ * Trash keeps it: the workers it would affect are deleted before the move.
+ *
+ * @param {string | undefined} path
+ */
+export const forgetWorkersAfterMove = (path) => {
+    if ( path?.startsWith(`${window.trash_path}/`) ) return;
+    forgetWorkers();
 };
 
 /**

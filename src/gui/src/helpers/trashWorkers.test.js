@@ -32,7 +32,7 @@ window.html_encode = globalThis.html_encode;
 window.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 window.matchMedia = () => ({ matches: false });
 
-const { confirmTrashingWorkers, forgetWorkers, listWorkers, workersUnderPaths } = await import('./trashWorkers.js');
+const { confirmTrashingWorkers, forgetWorkers, forgetWorkersAfterMove, listWorkers, workersUnderPaths } = await import('./trashWorkers.js');
 
 const API = { name: 'api', file_path: '/alice/Projects/api/index.js' };
 const CRON = { name: 'cron', file_path: '/alice/Projects/cron.js' };
@@ -113,6 +113,24 @@ describe('listWorkers', () => {
         forgetWorkers();
         await listWorkers();
         expect(workers.list).toHaveBeenCalledTimes(2);
+    });
+
+    it('lists again after an item moves somewhere other than the Trash', async () => {
+        window.trash_path = '/alice/Trash';
+        const workers = stubWorkers([API]);
+        await listWorkers();
+        forgetWorkersAfterMove('/alice/Archive/Projects');
+        await listWorkers();
+        expect(workers.list).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the listing when an item moves into the Trash', async () => {
+        window.trash_path = '/alice/Trash';
+        const workers = stubWorkers([API]);
+        await listWorkers();
+        forgetWorkersAfterMove('/alice/Trash/2f1c-notes.txt');
+        await listWorkers();
+        expect(workers.list).toHaveBeenCalledTimes(1);
     });
 
     it('does not cache a failed listing', async () => {
