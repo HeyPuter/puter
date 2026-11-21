@@ -154,6 +154,28 @@ describe('AI cost factor', () => {
         expect(result.total).toBe(1040 + 2080);
     });
 
+    it('records nothing for a count that is not a positive number', async () => {
+        const recorded = vi.spyOn(metering, 'batchIncrementUsages');
+
+        await scoped.utilRecordUsageObject(
+            {
+                input_tokens: 100,
+                output_tokens: '5',
+                cached_tokens: -1,
+                reasoning_tokens: NaN,
+                audio_tokens: 1e308,
+            } as unknown as Record<string, number>,
+            actor,
+            'claude:sonnet',
+        );
+
+        const amounts = recorded.mock.calls[0]![1].map(
+            ({ usageAmount }) => usageAmount,
+        );
+        recorded.mockRestore();
+        expect(amounts).toEqual([100, 0, 0, 0, 0]);
+    });
+
     it('records a usage object as it stood when recording began', async () => {
         listen(2);
         const recorded = vi.spyOn(metering, 'batchIncrementUsages');
