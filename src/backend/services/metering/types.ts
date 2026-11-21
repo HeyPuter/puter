@@ -83,5 +83,16 @@ export interface CreditHold {
     extend?(): Promise<void>;
 }
 
+/**
+ * What an actor has to spend and how much of it running operations hold.
+ * `version` marks the balance as read, so a conditional hold can tell that it
+ * changed since; null when the cache couldn't answer.
+ */
+export interface UsageHeadroom {
+    balance: number;
+    held: number;
+    version?: string | null;
+}
+
 /** For paths that take no hold but still release one. */
 export const NO_CREDIT_HOLD: CreditHold = { release: async () => {} };
