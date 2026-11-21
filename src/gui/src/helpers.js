@@ -3357,8 +3357,15 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             onDone?.(null);
 
             // A network failure rejects with no message, and the name going
-            // back on its own would look like the rename was ignored.
-            UIAlert(err?.message || i18n('error_unknown_cause', [], false));
+            // back on its own would look like the rename was ignored. A file
+            // picker sits above its app's window, so its alert is its child,
+            // and its listing takes the keyboard back when the alert closes.
+            const $picker = $(el_item).closest('.window-filedialog');
+            UIAlert({
+                message: err?.message || i18n('error_unknown_cause', [], false),
+                parent_uuid: $picker.attr('data-element_uuid'),
+                window_options: { on_close: () => $picker.find('.files').trigger('focus') },
+            });
         },
     }).catch(() => {
         // Handled by the error callback above.

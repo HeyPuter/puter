@@ -241,10 +241,7 @@ export function initFilePickerDialog (el_window, options) {
             console.error(err);
             answering = false;
             $mask().hide();
-            await UIAlert({
-                message: err?.message || i18n('error_unknown_cause', [], false),
-                parent_uuid: $win.attr('data-element_uuid'),
-            });
+            await picker.alert(err?.message || i18n('error_unknown_cause', [], false));
             return;
         }
 
@@ -293,7 +290,12 @@ export function initFilePickerDialog (el_window, options) {
         try {
             window.validate_fsentry_name(filename);
         } catch ( err ) {
-            UIAlert(err.message, 'error', 'OK');
+            UIAlert({
+                message: err.message,
+                parent_uuid: $win.attr('data-element_uuid'),
+                // The name is what needs fixing.
+                window_options: { on_close: () => $filename.trigger('focus') },
+            });
             return;
         }
         options.onSaveFileDialogSave?.(path.join(saveFolder(), filename), el_window);

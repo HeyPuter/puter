@@ -881,6 +881,26 @@ export default class FilePicker {
     }
 
     /**
+     * An alert above the picker. The listing takes the keyboard back when
+     * the alert closes.
+     *
+     * @param {string} message
+     * @returns {Promise<void>} Resolves once the alert has closed
+     */
+    alert (message) {
+        return new Promise(resolve => UIAlert({
+            message,
+            parent_uuid: $(this.el_window).attr('data-element_uuid'),
+            window_options: {
+                on_close: () => {
+                    this.focusListing();
+                    resolve();
+                },
+            },
+        }));
+    }
+
+    /**
      * Puts the keyboard on the listing.
      *
      * @returns {void}
@@ -1169,12 +1189,9 @@ export default class FilePicker {
                 overwrite: false,
             });
         } catch ( err ) {
-            await UIAlert({
-                message: err?.code === 'directory_depth_limit_exceeded'
-                    ? i18n('directory_depth_limit_exceeded')
-                    : (err?.message || i18n('error_unknown_cause', [], false)),
-                parent_uuid: $(this.el_window).attr('data-element_uuid'),
-            });
+            await this.alert(err?.code === 'directory_depth_limit_exceeded'
+                ? i18n('directory_depth_limit_exceeded', [], false)
+                : (err?.message || i18n('error_unknown_cause', [], false)));
             return;
         }
         if ( this.currentPath !== folder ) return;
@@ -1273,7 +1290,7 @@ export default class FilePicker {
             const newName = $(el_editor).val();
             if ( ! newName || newName === oldName || newName === '.' || newName === '..' ) {
                 if ( newName === '.' || newName === '..' ) {
-                    UIAlert(i18n('reserved_name_not_allowed', { name: newName }, false));
+                    this.alert(i18n('reserved_name_not_allowed', { name: newName }, false));
                 }
                 close();
                 return;

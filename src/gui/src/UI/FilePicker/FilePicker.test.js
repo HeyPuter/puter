@@ -40,6 +40,7 @@ jQuery.fn.close = function () {
     return this;
 };
 
+const { default: UIAlert } = await import('../UIAlert.js');
 const { default: UIContextMenu } = await import('../UIContextMenu.js');
 const { pickerAccepts } = await import('./FilePicker.js');
 const { filePickerPromptHtml, initFilePickerDialog } = await import('./filePickerDialog.js');
@@ -469,6 +470,25 @@ describe('open picker', () => {
         expect(document.body.contains(dialog.el_window)).toBe(false);
     });
 
+    it('says so above the picker when a file can\'t be signed, and stays open with the keyboard on the listing', async () => {
+        const app = appWindow();
+        const dialog = await openDialog({ is_openFileDialog: true, parent_uuid: 'app-1', initiating_app_uuid: 'app-uid' });
+        window.puter.fs.sign.mockRejectedValueOnce(new Error('no access'));
+        UIAlert.mockClear();
+
+        rowNamed(dialog, 'notes.txt').trigger('click');
+        dialog.$('.openfiledialog-open-btn').trigger('click');
+        await settle();
+
+        expect(UIAlert).toHaveBeenCalledWith(expect.objectContaining({ message: 'no access', parent_uuid: 'picker-1' }));
+        expect(app.posted).toEqual([]);
+        expect(document.body.contains(dialog.el_window)).toBe(true);
+
+        document.activeElement?.blur();
+        UIAlert.mock.calls[0][0].window_options.on_close();
+        expect(document.activeElement).toBe(dialog.$('.files')[0]);
+    });
+
     it('picks a double-clicked file the same way', async () => {
         const app = appWindow();
         const dialog = await openDialog({ is_openFileDialog: true, parent_uuid: 'app-1' });
@@ -601,6 +621,25 @@ describe('save picker', () => {
         rowNamed(dialog, 'old.txt').trigger('dblclick');
 
         expect(onSaveFileDialogSave).not.toHaveBeenCalled();
+    });
+
+    it('says a name can\'t be used in an alert above the picker', async () => {
+        const onSaveFileDialogSave = vi.fn();
+        const dialog = await openDialog({ is_saveFileDialog: true, saveFileDialog_default_filename: 'a/b.txt', onSaveFileDialogSave });
+        window.validate_fsentry_name = () => {
+            throw new Error('bad name');
+        };
+        UIAlert.mockClear();
+
+        dialog.$('.savefiledialog-save-btn').trigger('click');
+
+        expect(UIAlert).toHaveBeenCalledWith(expect.objectContaining({ message: 'bad name', parent_uuid: 'picker-1' }));
+        expect(onSaveFileDialogSave).not.toHaveBeenCalled();
+
+        // The name is what needs fixing once the alert closes.
+        dialog.$('.files')[0].focus();
+        UIAlert.mock.calls[0][0].window_options.on_close();
+        expect(document.activeElement).toBe(dialog.$('.savefiledialog-filename')[0]);
     });
 
     it('cancels through onDialogCancel', async () => {
