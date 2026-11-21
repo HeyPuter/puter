@@ -1000,6 +1000,8 @@ export default class FilePicker {
         if ( ! SORT_COLUMNS.includes(column) ) return;
         this.prefs.sortDirection = this.activeSortColumn() === column && this.prefs.sortDirection === 'asc' ? 'desc' : 'asc';
         this.prefs.sortColumn = column;
+        // Shown at once: the re-sorted listing is a round trip away.
+        this.updateSortIndicators();
         this.refresh();
     }
 

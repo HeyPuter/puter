@@ -195,6 +195,8 @@ describe('FilePicker listing', () => {
     it('sorts by a column header, flipping the order on a second click', async () => {
         const dialog = await openDialog({ is_openFileDialog: true });
         dialog.$('.header .columns .sortable[data-sort="name"]').trigger('click');
+        // The header answers the click before the listing arrives.
+        expect(dialog.$('.sortable[data-sort="name"]').hasClass('sort-desc')).toBe(true);
         await settle();
         expect(rowNames(dialog)).toEqual(['Kids', 'photo.png', 'notes.txt']);
         expect(dialog.$('.sortable[data-sort="name"]').hasClass('sort-desc')).toBe(true);
