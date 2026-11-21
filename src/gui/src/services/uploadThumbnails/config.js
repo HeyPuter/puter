@@ -14,7 +14,12 @@ export const PSD_COMPOSITE_MAX_READ_BYTES = 16 * 1024 * 1024;
 // Twice the thumbnail's size, so the image generator's downscale smooths the sampled rows.
 export const PSD_COMPOSITE_DIMENSION = 256;
 export const OFFICE_BATCH_TIMEOUT_MS = 5000;
-// Covers finding a DOCX's parts, and a DOC's allocation tables and text.
+// Covers finding the entries of a ZIP archive: its directory and the headers of the entries read.
+export const ARCHIVE_MAX_READ_BYTES = 4 * 1024 * 1024;
+// The picture a packaged document carries of itself. A book's cover can be a large one.
+export const EMBEDDED_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
+export const EMBEDDED_PREVIEW_MAX_PIXELS = 16 * 1024 * 1024;
+// Covers a DOC's allocation tables and text.
 export const OFFICE_MAX_READ_BYTES = 4 * 1024 * 1024;
 export const OFFICE_XML_MAX_BYTES = 1024 * 1024;
 export const WORD_TEXT_MAX_CHARACTERS = 16 * 1024;
