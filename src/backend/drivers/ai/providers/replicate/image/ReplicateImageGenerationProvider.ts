@@ -494,7 +494,11 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             }
 
             if (catalogInput) {
-                const seconds = predictionSeconds ?? 0;
+                // A prediction can't have run longer than it was given.
+                const seconds = Math.min(
+                    predictionSeconds ?? 0,
+                    (PREDICTION_WINDOW_MS + CLEANUP_WINDOW_MS) / 1000,
+                );
                 if (
                     selectedModel.costs.second !== undefined &&
                     (!Number.isFinite(predictionSeconds) || seconds < 0)
