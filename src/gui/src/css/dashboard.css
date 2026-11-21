@@ -12393,12 +12393,14 @@ span[data-avatar-user] > .avatar-picture {
     height: 100%;
 }
 
-/* Below 768px the Files tab pushes its folders down past the dashboard's
+/* The dashboard's 10px inset (.dashboard-content.files) is the folders'
+   own here. Below 768px the Files tab pushes them down past the dashboard's
    menu toggle; a picker has no toggle. */
 .file-picker .directories {
-    width: 180px;
+    width: 190px;
     flex-shrink: 0;
     padding-top: 16px;
+    padding-left: 10px;
 }
 
 .file-picker .directory-contents {
