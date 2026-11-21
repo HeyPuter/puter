@@ -2390,7 +2390,15 @@ window.init_upload_using_dialog = function (el_target_container, target_path = n
     el_input.click();
 };
 
-window.upload_items = async function (items, dest_path) {
+/**
+ * Uploads items into a folder, with a progress window.
+ *
+ * @param {FileList|File[]|DataTransferItemList} items
+ * @param {string} dest_path
+ * @param {{ onUploaded?: (paths: string[]) => void }} [options] - `onUploaded`
+ *   gets the uploaded items' paths once the upload succeeds
+ */
+window.upload_items = async function (items, dest_path, { onUploaded } = {}) {
     let upload_progress_window;
     let opid;
 
@@ -2465,6 +2473,7 @@ window.upload_items = async function (items, dest_path) {
 
                 // highlight the uploaded items in the destination
                 select_uploaded_items(dest_path, files);
+                onUploaded?.(files);
 
                 // close progress window after a bit of delay for a better UX
                 setTimeout(() => {

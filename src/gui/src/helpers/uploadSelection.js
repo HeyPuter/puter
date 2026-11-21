@@ -18,8 +18,8 @@
  */
 
 /**
- * Selection of freshly-uploaded items in UIItem containers — the desktop,
- * explorer windows, and file dialogs.
+ * Selection of freshly-uploaded items in UIItem containers: the desktop
+ * and explorer windows.
  *
  * An upload finishes through two independent channels: the batch HTTP
  * response (the upload's `success` callback) and per-item `item.added`
@@ -46,19 +46,14 @@ const prune_pending = () => {
     }
 };
 
-// Selection side effects that normally happen in UIItem's click handlers:
-// the explorer footer's "N items selected" line and, in open-file dialogs,
-// the Open button (enabled only when a file — not a directory — is selected).
+// The selection side effect that normally happens in UIItem's click
+// handlers: the explorer footer's "N items selected" line.
 const apply_selection_side_effects = (el_container) => {
     const $el_window = $(el_container).closest('.window');
     if ( $el_window.length === 0 ) {
         return;
     }
     window.update_explorer_footer_selected_items_count($el_window);
-    if ( $el_window.attr('data-is_openFileDialog') === 'true' ) {
-        const file_is_selected = $el_window.find('.item-selected[data-is_dir="0"]').length > 0;
-        $el_window.find('.openfiledialog-open-btn').toggleClass('disabled', !file_is_selected);
-    }
 };
 
 /**

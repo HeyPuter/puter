@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>puter-js test fixture: showOpenFilePicker</title>
+    <title>puter-js test fixture: file pickers</title>
     <style>
         body { font-family: system-ui, sans-serif; padding: 16px; }
         button { padding: 8px 12px; margin-right: 8px; font-size: 14px; }
@@ -11,10 +11,14 @@
     </style>
 </head>
 <body>
-    <h1>puter-js showOpenFilePicker fixture</h1>
+    <h1>puter-js file pickers fixture</h1>
     <p id="status">Loading puter.js…</p>
 
     <button id="open-file" disabled>Open File Picker</button>
+    <button id="open-files" disabled>Open Several Files</button>
+    <button id="open-images" disabled>Open an Image</button>
+    <button id="save-file" disabled>Save File Picker</button>
+    <button id="pick-directory" disabled>Directory Picker</button>
 
     <div id="log" data-testid="log"></div>
 
@@ -49,6 +53,24 @@
         }
         waitForPuter();
 
+        // Each picked item is logged as `<prefix>:<name>`; a cancel as `<prefix>:cancelled`.
+        const logPicked = (prefix, picked) => {
+            if ( picked === undefined ) {
+                log(`${prefix}:cancelled`);
+                return;
+            }
+            for ( const item of [].concat(picked) ) log(`${prefix}:${item?.name}`);
+        };
+        const pickerButton = (id, prefix, pick) => {
+            document.getElementById(id).addEventListener('click', async () => {
+                try {
+                    logPicked(prefix, await pick().undefinedOnCancel);
+                } catch (e) {
+                    log(`${prefix}:error:${e?.message ?? e}`);
+                }
+            });
+        };
+
         document.getElementById('open-file').addEventListener('click', async () => {
             try {
                 const file = await puter.ui.showOpenFilePicker();
@@ -57,6 +79,10 @@
                 log(`file:error:${e?.message ?? e}`);
             }
         });
+        pickerButton('open-files', 'files', () => puter.ui.showOpenFilePicker({ multiple: true }));
+        pickerButton('open-images', 'image', () => puter.ui.showOpenFilePicker({ accept: 'image/*' }));
+        pickerButton('save-file', 'saved', () => puter.ui.showSaveFilePicker('saved from the fixture', 'fixture-save.txt'));
+        pickerButton('pick-directory', 'dir', () => puter.ui.showDirectoryPicker());
     </script>
 </body>
 </html>

@@ -26,7 +26,7 @@ const openerPosts = (src) => {
 };
 
 describe('messages to a popup opener', () => {
-    for (const file of ['./initgui.js', './UI/UIWindow.js', './helpers/openItem.js']) {
+    for (const file of ['./initgui.js', './UI/FilePicker/filePickerDialog.js']) {
         it(`target the attested opener origin in ${file}`, () => {
             const posts = openerPosts(read(file));
             expect(posts.length).toBeGreaterThan(0);
