@@ -57,6 +57,9 @@ const folders = {
         { uid: 'k', name: 'Kids', path: `${DESKTOP}/Kids`, is_dir: true, modified: 1 },
     ],
     [`${DESKTOP}/Kids`]: [],
+    '/alice/Trash': [
+        { uid: 't1', name: 'old.txt', path: '/alice/Trash/old.txt', size: 3, modified: 1 },
+    ],
 };
 
 const settle = async () => {
@@ -365,6 +368,16 @@ describe('save picker', () => {
         dialog.$('.directories [data-folder="Shared"]').trigger('click');
         await settle();
         expect($save.prop('disabled')).toBe(true);
+    });
+
+    it('doesn\'t save over a double-clicked file where nothing can be saved', async () => {
+        const onSaveFileDialogSave = vi.fn();
+        const dialog = await openDialog({ is_saveFileDialog: true, saveFileDialog_default_filename: 'draft.txt', path: '/alice/Trash', onSaveFileDialogSave });
+        expect(dialog.$('.savefiledialog-save-btn').prop('disabled')).toBe(true);
+
+        rowNamed(dialog, 'old.txt').trigger('dblclick');
+
+        expect(onSaveFileDialogSave).not.toHaveBeenCalled();
     });
 
     it('cancels through onDialogCancel', async () => {

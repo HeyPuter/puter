@@ -287,6 +287,8 @@ export function initFilePickerDialog (el_window, options) {
     });
 
     $save.on('click', () => {
+        // A double-click or Enter on a file gets here with Save disabled.
+        if ( $save.prop('disabled') ) return;
         const filename = $filename.val();
         try {
             window.validate_fsentry_name(filename);
