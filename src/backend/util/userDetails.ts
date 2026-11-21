@@ -20,7 +20,7 @@
 import { createHash } from 'node:crypto';
 import type { OIDCService } from '../services/auth/OIDCService.js';
 import type { SystemKVStore } from '../stores/systemKv/SystemKVStore.js';
-import type { TeamStoreContract } from '../core/teams.js';
+import type { OrgSeatRow, TeamStoreContract } from '../core/teams.js';
 import type { UserRow } from '../stores/user/UserStore.js';
 import type { IConfig } from '../types.js';
 import {
@@ -28,7 +28,8 @@ import {
     isCardFallbackEligible,
     type CardFallbackClients,
 } from './cardFallback.js';
-import { isEmailGateLast } from './verificationOrder.js';
+import { phoneLastDigits } from './phone.js';
+import { isEmailGateLast, isPhoneOnFileStep } from './verificationOrder.js';
 
 export interface UserDetailsDeps {
     config: IConfig;
@@ -157,7 +158,11 @@ export const toUnixSeconds = (value: unknown): number | undefined => {
 export async function buildUserDetails(
     user: UserRow & { hasPassword?: boolean },
     deps: UserDetailsDeps,
-    opts: { isUser: boolean },
+    opts: {
+        isUser: boolean;
+        /** The account's team seat when the caller already read it. */
+        orgSeat?: OrgSeatRow | null;
+    },
 ): Promise<Record<string, unknown>> {
     const { config, clients, stores, services } = deps;
     const { isUser } = opts;
@@ -190,6 +195,12 @@ export async function buildUserDetails(
         // The phone number itself is deliberately absent: nothing on the
         // client reads it. Only the verification flag ships.
         requires_phone_verification: user.requires_phone_verification,
+        // The last two digits of a number the owner has to prove again, so the
+        // client can say where the code goes.
+        phone_on_file:
+            isUser && isPhoneOnFileStep(user)
+                ? phoneLastDigits(String(user.phone))
+                : null,
         requires_card_verification: user.requires_card_verification,
         // Card and phone come before email for this account.
         email_gate_last: isEmailGateLast(user),
@@ -231,6 +242,7 @@ export async function buildUserDetails(
     // The team that pays for the account; every seat restriction keys on it.
     const orgSeat = async () => {
         if (!isUser || config.teams_enabled !== true) return null;
+        if (opts.orgSeat !== undefined) return { seat: opts.orgSeat };
         try {
             return { seat: await stores.team?.getOrgSeat(user.id) };
         } catch (error) {

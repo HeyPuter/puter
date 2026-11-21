@@ -29,6 +29,7 @@ import { invalidate_shared_roots } from './helpers/sharedAccess.js';
 import truncate_filename from './helpers/truncateFilename.js';
 import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
 import update_username_in_gui from './helpers/updateUsernameInGui.js';
+import { confirmTrashingWorkers } from './helpers/trashWorkers.js';
 import { notifyItemWatchers } from './helpers/watchItems.js';
 import { select_uploaded_items } from './helpers/uploadSelection.js';
 import { templateMenuItem } from './helpers/templateMenuItem.js';
@@ -1793,6 +1794,15 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
     if ( all_items_are_immutable )
     {
         return;
+    }
+
+    // Trashing a worker's source file, or a folder holding one, deletes the
+    // worker; the user agrees to that first.
+    if ( dest_path === window.trash_path ) {
+        const trashed_paths = Array.from(el_items)
+            .filter(el_item => $(el_item).attr('data-immutable') !== '1')
+            .map(el_item => $(el_item).attr('data-path'));
+        if ( ! await confirmTrashingWorkers(trashed_paths) ) return;
     }
 
     // --------------------------------------------------------

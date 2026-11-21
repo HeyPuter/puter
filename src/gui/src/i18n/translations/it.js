@@ -150,7 +150,6 @@ const it = {
         ok: 'OK',
         open: 'Apri',
         open_in_new_tab: 'Apri in una nuova scheda',
-        open_in_new_window: 'Apri in una nuova finestra',
         open_with: 'Apri con',
         original_name: 'Nome originale',
         original_path: 'Percorso originale',

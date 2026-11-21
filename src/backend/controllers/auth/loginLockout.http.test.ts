@@ -156,6 +156,26 @@ describe('per-account wrong-password budget on /login', () => {
         });
     });
 
+    it('never locks an account with no email, which has no reset path', async () => {
+        const username = `lockout_${uuidv4().slice(0, 8)}`;
+        await createTestUser(env.server, { username, password });
+        const user = (await env.server.stores.user.getByUsername(username))!;
+        await env.server.stores.user.update(user.id, { email: null });
+        const alarm = vi.spyOn(env.server.clients.alarm, 'create');
+
+        await missPassword(username, 21);
+        const signedIn = await login(username, password);
+        expect(signedIn.status).toBe(200);
+        // Still counted, and still raised.
+        expect(alarm).toHaveBeenCalledWith(
+            `auth:login-locked:${user.uuid}`,
+            expect.stringContaining('not locked'),
+            expect.anything(),
+            'warning',
+            expect.anything(),
+        );
+    });
+
     it('refuses the correct password while locked, from a device the account has not seen', async () => {
         const { username } = await account();
         await missPassword(username, 20);
