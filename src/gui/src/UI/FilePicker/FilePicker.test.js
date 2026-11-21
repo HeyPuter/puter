@@ -40,6 +40,7 @@ jQuery.fn.close = function () {
     return this;
 };
 
+const { default: UIContextMenu } = await import('../UIContextMenu.js');
 const { pickerAccepts } = await import('./FilePicker.js');
 const { filePickerPromptHtml, initFilePickerDialog } = await import('./filePickerDialog.js');
 
@@ -266,6 +267,82 @@ describe('FilePicker selection', () => {
         expect(dialog.picker.selectedEntries().map(e => e.name)).toEqual(['Kids']);
         key('ArrowDown', 40);
         expect(dialog.picker.selectedEntries().map(e => e.name)).toEqual(['photo.png']);
+    });
+});
+
+describe('FilePicker keyboard focus', () => {
+    const press = (key, which) => jQuery(document.activeElement).trigger(jQuery.Event('keydown', { key, which }));
+
+    it('opens the row the arrows moved to with Enter, after a click on a sidebar folder', async () => {
+        const app = appWindow();
+        const dialog = await openDialog({ is_openFileDialog: true, parent_uuid: 'app-1' });
+        dialog.$('.directories [data-folder="Desktop"]')[0].focus();
+
+        press('ArrowDown', 40);
+        press('ArrowDown', 40);
+        expect(document.activeElement).toBe(dialog.$('.files')[0]);
+        expect(dialog.picker.selectedEntries().map(e => e.name)).toEqual(['notes.txt']);
+
+        press('Enter', 13);
+        await settle();
+        expect(app.posted[0]).toMatchObject({ msg: 'fileOpenPicked', items: [{ uid: 'f1' }] });
+    });
+
+    it('takes the keyboard from a focused button when a name is typed', async () => {
+        const dialog = await openDialog({ is_openFileDialog: true });
+        dialog.$('.sort-btn')[0].focus();
+
+        press('p', 80);
+
+        expect(dialog.picker.selectedEntries().map(e => e.name)).toEqual(['photo.png']);
+        expect(document.activeElement).toBe(dialog.$('.files')[0]);
+    });
+
+    it('keeps the keyboard on the listing after a click on a crumb', async () => {
+        const dialog = await openDialog({ is_openFileDialog: true });
+        const crumb = dialog.$('.path-breadcrumbs .dirname').first();
+        crumb[0].focus();
+
+        crumb.trigger('click');
+        await settle();
+
+        expect(dialog.el_window.getAttribute('data-path')).toBe('/alice');
+        expect(document.activeElement).toBe(dialog.$('.files')[0]);
+    });
+
+    it('takes the keyboard back when a menu closes with it on nothing', async () => {
+        const dialog = await openDialog({ is_openFileDialog: true });
+        dialog.$('.sort-btn').trigger('click');
+        const menu = UIContextMenu.mock.results.at(-1).value;
+        document.activeElement.blur();
+        expect(document.activeElement).toBe(document.body);
+
+        menu.onClose();
+
+        expect(document.activeElement).toBe(dialog.$('.files')[0]);
+    });
+
+    it('leaves the keyboard in the name field when a menu closes', async () => {
+        const dialog = await openDialog({ is_saveFileDialog: true, saveFileDialog_default_filename: 'draft.txt' });
+        dialog.$('.view-toggle-btn').trigger('click');
+        const menu = UIContextMenu.mock.results.at(-1).value;
+        dialog.$('.savefiledialog-filename')[0].focus();
+
+        menu.onClose();
+
+        expect(document.activeElement).toBe(dialog.$('.savefiledialog-filename')[0]);
+    });
+
+    it('returns to the listing when Enter ends a rename', async () => {
+        window.rename_file = vi.fn();
+        const dialog = await openDialog({ is_openFileDialog: true });
+        const $editor = rowNamed(dialog, 'notes.txt').find('.item-name-editor').show().addClass('item-name-editor-active').val('renamed.txt');
+        $editor[0].focus();
+
+        $editor.trigger(jQuery.Event('keydown', { key: 'Enter', which: 13 }));
+
+        expect(window.rename_file).toHaveBeenCalled();
+        expect(document.activeElement).toBe(dialog.$('.files')[0]);
     });
 });
 

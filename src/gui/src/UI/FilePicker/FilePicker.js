@@ -628,9 +628,9 @@ export default class FilePicker {
             this.setSelection([]);
             this.showMenu(this.folderMenuItems(), e, e.target.getBoundingClientRect());
         });
-        // Clicks elsewhere in the picker leave the keyboard with the listing,
-        // not with the page behind the window.
-        this.$root.on('mousedown', (e) => {
+        // Clicks elsewhere in the picker (its head and button bar too) leave
+        // the keyboard with the listing, not with the page behind the window.
+        $(this.el_window).on('mousedown.filepicker', (e) => {
             if ( $(e.target).closest('input, textarea, button, [tabindex], a').length ) return;
             setTimeout(() => this.focusListing(), 0);
         });
@@ -722,8 +722,24 @@ export default class FilePicker {
             return;
         }
         const position = e.pageX !== undefined ? { left: e.pageX, top: e.pageY } : { left: rect.left, top: rect.bottom };
-        const menu = UIContextMenu({ items, position });
-        if ( menu ) menu.onClose = onClose;
+        this.openMenu({ items, position }, onClose);
+    }
+
+    /**
+     * Opens a menu. A click on one of its entries leaves the keyboard on
+     * nothing, so the listing takes it back when the menu closes.
+     *
+     * @param {Object} options - UIContextMenu options
+     * @param {() => void} [onClose]
+     * @returns {void}
+     */
+    openMenu (options, onClose) {
+        const menu = UIContextMenu(options);
+        if ( ! menu ) return;
+        menu.onClose = () => {
+            onClose?.();
+            this.reclaimFocus();
+        };
     }
 
     /**
@@ -818,8 +834,19 @@ export default class FilePicker {
     /** @returns {void} */
     renderBreadcrumbs () {
         const $crumbs = this.$root.find('.path-breadcrumbs');
+        // Rebuilding the crumbs drops a focused one. The keyboard's focus
+        // stays on that folder's crumb; a click's goes to the listing.
+        const focused = $crumbs[0]?.contains(document.activeElement) ? document.activeElement : null;
+        const focusedPath = focused?.matches(':focus-visible') ? focused.getAttribute('data-path') : undefined;
         $crumbs.html(breadcrumbsHtml(this.currentPath));
-        $crumbs.find('.dirname').last().attr('aria-current', 'page');
+        const $dirnames = $crumbs.find('.dirname');
+        $dirnames.last().attr('aria-current', 'page');
+        if ( focusedPath !== undefined ) {
+            const same = $dirnames.toArray().find(crumb => crumb.getAttribute('data-path') === focusedPath);
+            (same ?? $dirnames.last()[0])?.focus({ preventScroll: true });
+        } else if ( focused ) {
+            this.focusListing();
+        }
         const el = $crumbs[0];
         if ( el ) el.scrollLeft = el.scrollWidth;
     }
@@ -860,6 +887,28 @@ export default class FilePicker {
         const active = document.activeElement;
         if ( active && this.el_window.contains(active) && $(active).is('input, textarea') ) return;
         this.$files[0].focus({ preventScroll: true });
+    }
+
+    /**
+     * Puts the keyboard back on the listing when it was left on nothing:
+     * what had it was clicked away or removed.
+     *
+     * @returns {void}
+     */
+    reclaimFocus () {
+        const active = document.activeElement;
+        if ( ! active || active === document.body ) this.focusListing();
+    }
+
+    /**
+     * Once the arrows or typing drive the selection, Enter and Space must
+     * reach the rows, not a folder, crumb or button a click left focused.
+     *
+     * @returns {void}
+     */
+    yieldFocusToRows () {
+        const active = document.activeElement;
+        if ( active !== this.$files[0] && this.$root[0].contains(active) ) this.focusListing();
     }
 
     // -- History --
@@ -1065,7 +1114,7 @@ export default class FilePicker {
         }
         const active = this.activeSortColumn();
         const arrow = this.prefs.sortDirection === 'asc' ? ' ↑' : ' ↓';
-        UIContextMenu({
+        this.openMenu({
             items: options.map(opt => ({
                 html: `<span>${opt.label}${active === opt.column ? arrow : ''}</span>`,
                 checked: active === opt.column,
@@ -1085,7 +1134,7 @@ export default class FilePicker {
             { view: 'grid-sm', label: i18n('view_compact_grid') },
             { view: 'grid', label: i18n('view_grid') },
         ];
-        UIContextMenu({
+        this.openMenu({
             items: options.map(opt => ({
                 html: `<span>${opt.label}</span>`,
                 checked: this.prefs.view === opt.view,
@@ -1191,6 +1240,7 @@ export default class FilePicker {
                 e.stopPropagation();
                 window.last_enter_pressed_to_rename_ts = Date.now();
                 el_editor.blur();
+                this.focusListing();
             } else if ( e.key === 'Escape' ) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1283,6 +1333,7 @@ export default class FilePicker {
 
         if ( e.which >= 33 && e.which <= 40 && ! e.altKey && ! e.metaKey ) {
             if ( ! rows.length ) return false;
+            this.yieldFocusToRows();
             const cursor = selected.includes(this.anchor) ? this.anchor : selected[selected.length - 1];
             if ( ! cursor ) {
                 const first = e.which === 35 ? rows[rows.length - 1] : rows[0];
@@ -1325,6 +1376,7 @@ export default class FilePicker {
             const names = rows.map(row => (row.getAttribute('data-name') || '').toLowerCase());
             const target = typeSelectTarget(names, rows.indexOf(selected[0]), this.typeSearchTerm);
             if ( target !== -1 ) {
+                this.yieldFocusToRows();
                 this.setSelection([rows[target]], rows[target]);
                 rows[target].scrollIntoView({ block: 'nearest' });
             }
