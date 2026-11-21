@@ -100,6 +100,10 @@ export class AIChatToolUseStream extends AIChatConstructStream {
         try {
             input = JSON.parse(this.buffer);
         } catch {
+            // Arguments are user data: log only enough to find the call.
+            console.warn(
+                `[ai-chat] tool call arguments were not valid JSON; passing {} (${this.contentBlock.name}, ${this.contentBlock.id}, ${this.buffer.length} chars)`,
+            );
             input = {};
         }
         this.chatStream.writeChunk(
