@@ -43,6 +43,8 @@ import {
     VIDEO_HOLD_TTL_MS,
     videoJobFailure,
 } from '../../../shared/polling.js';
+import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import {
     TOGETHER_VIDEO_GENERATION_MODELS,
     type ITogetherVideoModel,
@@ -93,6 +95,7 @@ export class TogetherVideoProvider extends VideoProvider {
         this.#client = new Together({
             apiKey: config.apiKey,
             timeout: REQUEST_TIMEOUT_MS,
+            fetch: jsonCheckedFetch,
         });
         this.#meteringService = meteringService;
         this.#files = files;
@@ -370,6 +373,9 @@ export class TogetherVideoProvider extends VideoProvider {
             };
 
             const job = await this.#client.videos.create(createPayload);
+            if (typeof job?.id !== 'string' || !job.id) {
+                throw malformedUpstreamResponse('together', 'Together AI');
+            }
             const finalJob = await this.#pollUntilComplete(
                 job.id,
                 meter,
@@ -388,7 +394,9 @@ export class TogetherVideoProvider extends VideoProvider {
                     typeof errorMessage === 'string'
                         ? errorMessage
                         : JSON.stringify(errorMessage),
-                    finalJob?.error?.code,
+                    typeof finalJob?.error?.code === 'string'
+                        ? finalJob.error.code
+                        : undefined,
                 );
             }
 
@@ -404,7 +412,7 @@ export class TogetherVideoProvider extends VideoProvider {
                 return videoUrl;
             }
 
-            throw new Error('Together AI response did not include a video URL');
+            throw malformedUpstreamResponse('together', 'Together AI');
         } finally {
             await jobHold.release();
         }
@@ -444,7 +452,14 @@ export class TogetherVideoProvider extends VideoProvider {
             provider: 'together',
             providerLabel: 'Together AI',
             intervalMs: POLL_INTERVAL_MS,
-            fetch: () => (this.#client as any).videos.retrieve(jobId),
+            fetch: async () => {
+                const job = await (this.#client as any).videos.retrieve(jobId);
+                // Read as a missed poll, like any other 5xx.
+                if (!job || typeof job !== 'object') {
+                    throw malformedUpstreamResponse('together', 'Together AI');
+                }
+                return job;
+            },
             isPending: (job) =>
                 job.status === 'queued' || job.status === 'in_progress',
             meter,

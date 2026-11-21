@@ -142,6 +142,7 @@ describe('TogetherVideoProvider construction', () => {
         expect(togetherCtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             timeout: 60_000,
+            fetch: expect.any(Function),
         });
     });
 
@@ -665,7 +666,7 @@ describe('TogetherVideoProvider.generate polling', () => {
 
         await expect(
             withTestActor(() => provider.generate({ prompt: 'hi' })),
-        ).rejects.toThrow(/did not include a video URL/);
+        ).rejects.toThrow(/unexpected response/);
     });
 
     it('throws when a job is cancelled mid-flight', async () => {
