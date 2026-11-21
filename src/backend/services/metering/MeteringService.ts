@@ -1602,9 +1602,9 @@ export class MeteringService extends PuterService {
      * prevent.
      *
      * With `within`, the headroom the caller sized the operation from, the hold
-     * is taken only if it still fits: null when another operation took the
-     * room, or the balance changed, since that read. The caller reads the
-     * headroom again and sizes the operation anew.
+     * is taken only if it still fits: null when another operation took the room
+     * since that read, `'stale'` when the balance changed. Either way the
+     * caller reads the headroom again and sizes the operation anew.
      */
     async reserveCredits(
         actor: Actor,
@@ -1615,12 +1615,12 @@ export class MeteringService extends PuterService {
         actor: Actor,
         amount: number,
         opts: { ttlMs?: number; within: UsageHeadroom },
-    ): Promise<CreditHold | null>;
+    ): Promise<CreditHold | 'stale' | null>;
     async reserveCredits(
         actor: Actor,
         amount: number,
         opts: { ttlMs?: number; within?: UsageHeadroom } = {},
-    ): Promise<CreditHold | null> {
+    ): Promise<CreditHold | 'stale' | null> {
         const userId = actor?.user?.uuid;
         if (!userId || isSystemActor(actor) || !(amount > 0)) {
             return NO_CREDIT_HOLD;
@@ -1643,7 +1643,8 @@ export class MeteringService extends PuterService {
             if (result.outcome === 'accepted') {
                 return this.#holdHandle(userId, result.member, opts.ttlMs);
             }
-            return result.outcome === 'unavailable' ? NO_CREDIT_HOLD : null;
+            if (result.outcome === 'unavailable') return NO_CREDIT_HOLD;
+            return result.outcome === 'stale' ? 'stale' : null;
         }
 
         const member = await this.stores.creditHold.take(
