@@ -171,7 +171,7 @@ export class EventHandlers {
      * @returns {Promise<PublishedHandler[]>}
      */
     async #send (items, options, route) {
-        const { appUid, scope } = options;
+        const { appUid, scope, replace: defaultReplace } = options;
         const handlers = [];
         for ( const item of items ) {
             const name = item?.name;
@@ -179,11 +179,12 @@ export class EventHandlers {
 
             const { source } = await prepareHandler(this.module.puter, item.handler);
             const ifHash = this.known.get(baseKey(appUid, name, scope));
+            const shouldReplace = item.replace !== undefined ? Boolean(item.replace) : Boolean(defaultReplace);
             handlers.push({
                 name,
                 source,
-                ...(item.replace === true ? { replace: true } : {}),
-                ...(ifHash && item.replace !== true ? { ifHash } : {}),
+                ...(shouldReplace ? { replace: true } : {}),
+                ...(ifHash && !shouldReplace ? { ifHash } : {}),
             });
         }
 

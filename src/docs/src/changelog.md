@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 21, 2026
+
+- Fixed [`puter.events.handlers.publishAll()`](/Events/handlers/) ignoring `replace: true` in its `options` argument.
+
 ## November 20, 2026
 
 - Added the `senderAuth` field to the [`EmailMessage`](/Objects/emailmessage/) from [`puter.email.get()`](/Email/get/). It holds the result of Puter's check that mail naming a Puter domain as its sender really came from that domain.

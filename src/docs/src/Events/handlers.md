@@ -123,7 +123,7 @@ puter.events.handlers.publishAll(handlers)
 puter.events.handlers.publishAll(handlers, options)
 ```
 
-Publishes a set in one call, for build steps. Pass `handlers` as an array of up to 50 `{ name, handler, replace? }`, published in order. The `options.appUid` and `options.scope` options work as they do for `publish()`. If one is refused, publishing stops there. Earlier items stay published, and the error says where it stopped.
+Publishes a set in one call, for build steps. Pass `handlers` as an array of up to 50 `{ name, handler, replace? }`, published in order. The `options.appUid`, `options.scope`, and `options.replace` options work as they do for `publish()` (setting `options.replace: true` applies to every handler that does not specify its own `replace`). If one is refused, publishing stops there. Earlier items stay published, and the error says where it stopped.
 
 Resolves to an array of `publish()` results.
 
