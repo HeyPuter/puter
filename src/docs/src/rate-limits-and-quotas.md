@@ -403,6 +403,15 @@ The Puter desktop makes a Word document, spreadsheet, or presentation upload thu
 | Text drawn from a cell | 256 characters |
 | Output | First page, sheet, or slide, at most 128 × 128 pixels, aspect ratio preserved |
 
+The Puter desktop makes an upload thumbnail for a Pages, Numbers, Keynote, OpenDocument, or Sketch file from the preview stored in it, and for an EPUB from its cover, within these budgets. A file with no stored preview, or one over a budget, keeps its file icon. These files are read in the same queue as Word documents, spreadsheets, and presentations, under the same preparation limit.
+
+| Stored preview thumbnail | Limit |
+| --- | --- |
+| Data read from the file to find its entries | 4 MiB |
+| Stored preview or cover | 8 MiB and 16,777,216 pixels |
+| XML read from each of an EPUB's container and package document, after decompression | 1 MiB |
+| Output | At most 128 × 128 pixels, aspect ratio preserved |
+
 The Puter desktop makes a HEIC or HEIF photo upload thumbnail with the browser's own decoder where it has one, as Safari does. In other browsers the desktop reads the photo's stored thumbnail, or else the photo itself, and decodes it with the device's HEVC video decoder, within these budgets. A photo over a budget, or one on a device with no HEVC decoder, keeps its file icon.
 
 | HEIC thumbnail | Limit |
@@ -436,7 +445,7 @@ The Puter desktop makes a video upload thumbnail from one frame of an MP4, MOV, 
 | Frame | One tenth of the way into the video, at most 10 seconds in |
 | Output | At most 128 × 128 pixels, aspect ratio preserved |
 
-The Puter desktop makes a text file upload thumbnail from the start of a JavaScript (`.js`, `.mjs`, `.cjs`), CSS, JSON, CSV, or Markdown (`.md`, `.markdown`) file, within these budgets. For a JavaScript, CSS, or JSON file, the desktop draws the first lines of the file in a fixed-width font, with comments, strings, keywords, and numbers in different colors. A JSON file written on one line is drawn indented, with one value per line. For a CSV file, the desktop draws the first rows and columns as a spreadsheet, with gridlines. For a Markdown file, the desktop draws a page with the file's headings, paragraphs, lists, quotes, code blocks, and tables. A file still queued when the preparation time runs out keeps its file icon. A file with no text to draw keeps its file icon too.
+The Puter desktop makes a text file upload thumbnail from the start of a JavaScript (`.js`, `.mjs`, `.cjs`), CSS, JSON, CSV, Markdown (`.md`, `.markdown`), text (`.txt`), YAML (`.yml`, `.yaml`), or HTML (`.html`, `.htm`) file, within these budgets. For a JavaScript, CSS, or JSON file, the desktop draws the first lines of the file in a fixed-width font, with comments, strings, keywords, and numbers in different colors. A JSON file written on one line is drawn indented, with one value per line. For a YAML or HTML file, the desktop draws the first lines the same way in one color, and an HTML file shows its markup. For a text file, the desktop draws the first lines in a fixed-width font in one color, and wraps long lines. For a CSV file, the desktop draws the first rows and columns as a spreadsheet, with gridlines. For a Markdown file, the desktop draws a page with the file's headings, paragraphs, lists, quotes, code blocks, and tables. A file still queued when the preparation time runs out keeps its file icon. A file with no text to draw keeps its file icon too.
 
 | Text file thumbnail | Limit |
 | --- | --- |
@@ -500,7 +509,7 @@ These apply to signing in to Puter itself, through the sign-in screen or [`puter
 
 Only wrong passwords and wrong codes count toward the per-account limits; a right one costs nothing.
 
-- **Wrong passwords.** Once either window is spent, password sign-in to that account answers `429` with `errorCode: "login_locked"` and `action: "reset_password"`, even for the right password, until the window passes. A browser that has signed in to the account before can still sign in, so the owner isn't locked out by someone else's guesses. Any new password ends the lockout at once, whether the owner changes it, resets it by email, or a team admin sets it. The owner is emailed when a lockout starts.
+- **Wrong passwords.** Once either window is spent, password sign-in to that account answers `429` with `errorCode: "login_locked"` and `action: "reset_password"`, even for the right password, until the window passes. A browser that has signed in to the account before can still sign in, so the owner isn't locked out by someone else's guesses. Any new password ends the lockout at once, whether the owner changes it, resets it by email, or a team admin sets it. The owner is emailed when a lockout starts. An account with no email address is never locked, since it has no way to reset its password.
 - **Email confirmation codes.** A code older than an hour answers `400` with `code: "confirmation_code_expired"`; send a new one. Over the wrong-code limit, confirming answers `429` until the window passes, even for the right code. Sending a new code doesn't reset the count.
 
 ### Sites and workers

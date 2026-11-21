@@ -138,7 +138,6 @@ const hu = {
         ok: 'Rendben',
         open: 'Megnyitás',
         open_in_new_tab: 'Megnyitás új lapon',
-        open_in_new_window: 'Megnyitás új ablakban',
         open_with: 'Megnyitás ezzel',
         original_name: 'Eredeti név',
         original_path: 'Eredeti útvonal',

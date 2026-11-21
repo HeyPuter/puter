@@ -146,7 +146,6 @@ const fr = {
         open: 'Ouvrir',
         open_with_ai: 'Ouvrir avec l\'IA',
         open_in_new_tab: 'Ouvrir dans un nouvel onglet',
-        open_in_new_window: 'Ouvrir dans une nouvelle fenêtre',
         open_with: 'Ouvrir avec',
         original_name: "Nom d'origine",
         original_path: "Chemin d'origine",

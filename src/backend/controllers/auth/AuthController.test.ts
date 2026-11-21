@@ -114,6 +114,8 @@ type CardConfirmOverride = (data: {
     enabled: boolean | null;
     verified: boolean;
     reason: string | null;
+    fingerprint?: string | null;
+    card_entered?: boolean;
 }) => void;
 let cardSetupOverride: CardSetupOverride | null = null;
 let cardConfirmOverride: CardConfirmOverride | null = null;
@@ -6204,7 +6206,6 @@ describe('AuthController SMS → card fallback', () => {
         const { user, actor } = await makeUserAndActor({
             requires_card_verification: 1,
             requires_phone_verification: 1,
-            phone: '+14155550123',
         });
         await openFallback(user.id);
         await withFallbackConfig({ enabled: true }, async () => {
@@ -6317,7 +6318,6 @@ describe('AuthController SMS → card fallback', () => {
         const { user, actor } = await makeUserAndActor({
             requires_card_verification: 1,
             requires_phone_verification: 1,
-            phone: '+14155550123',
         });
         await openFallback(user.id);
         await withFallbackConfig({ enabled: true }, async () => {
@@ -6348,7 +6348,6 @@ describe('AuthController SMS → card fallback', () => {
     it('clears the phone gate via card even when card was not required', async () => {
         const { user, actor } = await makeUserAndActor({
             requires_phone_verification: 1,
-            phone: '+14155550123',
         });
         await openFallback(user.id);
         await withFallbackConfig({ enabled: true }, async () => {
@@ -6370,6 +6369,349 @@ describe('AuthController SMS → card fallback', () => {
             force: true,
         });
         expect(after!.requires_phone_verification).toBe(false);
+    });
+});
+
+describe('AuthController phone on file', () => {
+    const ON_FILE = '+14155550123';
+    const stubPrelude = (over: Record<string, unknown> = {}) => ({
+        isConfigured: () => true,
+        isCountrySupported: () => true,
+        defaultCountry: 'US',
+        createVerification: vi.fn(async () => ({ status: 'success' })),
+        checkVerification: vi.fn(async () => ({ status: 'success' })),
+        ...over,
+    });
+    const withPrelude = async (
+        prelude: unknown,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { prelude: unknown } };
+        const real = ctrl.clients.prelude;
+        ctrl.clients.prelude = prelude;
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.prelude = real;
+        }
+    };
+    const withFallbackConfig = async (
+        value: unknown,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const cfg = (controller as { config: Record<string, unknown> }).config;
+        const prev = cfg.phone_verification_card_fallback;
+        cfg.phone_verification_card_fallback = value;
+        try {
+            await fn();
+        } finally {
+            cfg.phone_verification_card_fallback = prev;
+        }
+    };
+    const onFileAccount = (extra: Record<string, unknown> = {}) =>
+        makeUserAndActor({
+            phone: ON_FILE,
+            requires_phone_verification: 1,
+            ...extra,
+        });
+    const confirmCard = async (
+        actor: Actor,
+        fingerprint: string,
+        entered = true,
+    ): Promise<MockRes> => {
+        const res = makeRes();
+        await withCardConfirmOverride(
+            (data) => {
+                data.enabled = true;
+                data.verified = true;
+                data.fingerprint = fingerprint;
+                data.card_entered = entered;
+            },
+            () =>
+                controller.handleCardVerificationConfirm(
+                    makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                    res,
+                ),
+        );
+        return res;
+    };
+
+    it('sends the code to the number on file, whatever number the request names', async () => {
+        const { user, actor } = await onFileAccount();
+        const prelude = stubPrelude();
+        await withPrelude(prelude, async () => {
+            await controller.handleSendConfirmPhone(
+                makeReq({ phone: '+14155550999' }, { actor }),
+                makeRes(),
+            );
+        });
+        expect(prelude.createVerification).toHaveBeenCalledWith(
+            ON_FILE,
+            expect.anything(),
+        );
+        const { res: staged } = await server.stores.kv.get({
+            key: `phone-verify-pending:${user.id}`,
+        });
+        expect(staged).toBe(ON_FILE);
+    });
+
+    it('confirms only against the number on file', async () => {
+        const { user, actor } = await onFileAccount();
+        // A number staged before the step was set doesn't count.
+        await server.stores.kv.set({
+            key: `phone-verify-pending:${user.id}`,
+            value: '+14155550999',
+        });
+        const prelude = stubPrelude();
+        await withPrelude(prelude, async () => {
+            const res = makeRes();
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor }),
+                res,
+            );
+            expect(res.body).toMatchObject({ phone_verified: true });
+        });
+        expect(prelude.checkVerification).toHaveBeenCalledWith(
+            ON_FILE,
+            '123456',
+        );
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after).toMatchObject({
+            phone: ON_FILE,
+            requires_phone_verification: false,
+        });
+    });
+
+    it('opens the card fallback for a lost number without sending anything', async () => {
+        const { user, actor } = await onFileAccount({
+            card_fingerprint: 'fp_on_file',
+        });
+        const prelude = stubPrelude();
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(prelude, async () => {
+                const res = makeRes();
+                await controller.handleSendConfirmPhone(
+                    makeReq({ lostNumber: true }, { actor }),
+                    res,
+                );
+                expect(res.body).toEqual({ card_fallback_available: true });
+            });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
+        const { res: flag } = await server.stores.kv.get({
+            key: `card-fallback-open:${user.id}`,
+        });
+        expect(flag).toBe(true);
+    });
+
+    it('points a lost number at support when the account has no card on file', async () => {
+        const { actor } = await onFileAccount();
+        const prelude = stubPrelude();
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(prelude, async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ lostNumber: true }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 409,
+                    code: 'phone_on_file_unavailable',
+                });
+            });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
+    });
+
+    it('clears the step only with the card already on file', async () => {
+        const { user, actor } = await onFileAccount({
+            card_fingerprint: 'fp_on_file',
+        });
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await controller.handleSendConfirmPhone(
+                    makeReq({ lostNumber: true }, { actor }),
+                    makeRes(),
+                );
+            });
+            // Another card, and the right card reused without being entered.
+            for (const [fingerprint, entered] of [
+                ['fp_other', true],
+                ['fp_on_file', false],
+            ] as const) {
+                expect(
+                    (await confirmCard(actor, fingerprint, entered)).body,
+                ).toEqual({
+                    card_verified: false,
+                    reason: 'card_not_on_file',
+                });
+            }
+            expect(
+                (await server.stores.user.getById(user.id, { force: true }))!
+                    .requires_phone_verification,
+            ).toBe(true);
+            expect((await confirmCard(actor, 'fp_on_file')).body).toMatchObject(
+                { card_verified: true, phone_verified: true },
+            );
+        });
+        // The number counts as proven for the next hour.
+        expect(
+            (
+                await server.stores.kv.get({
+                    key: `phone-on-file-proven:${user.id}`,
+                })
+            ).res,
+        ).toMatchObject({ phone: ON_FILE });
+        expect(
+            (await server.stores.user.getById(user.id, { force: true }))!
+                .requires_phone_verification,
+        ).toBe(false);
+    });
+
+    it('marks the number proven only when it is the one on file', async () => {
+        const proven = async (id: number) =>
+            (await server.stores.kv.get({ key: `phone-on-file-proven:${id}` }))
+                .res ?? null;
+
+        const onFile = await onFileAccount();
+        await withPrelude(stubPrelude(), async () => {
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor: onFile.actor }),
+                makeRes(),
+            );
+        });
+        expect(await proven(onFile.user.id)).toMatchObject({ phone: ON_FILE });
+
+        // A number entered for the first time proves nothing about the past.
+        const fresh = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await server.stores.kv.set({
+            key: `phone-verify-pending:${fresh.user.id}`,
+            value: ON_FILE,
+        });
+        await withPrelude(stubPrelude(), async () => {
+            await controller.handleConfirmPhone(
+                makeReq({ code: '123456' }, { actor: fresh.actor }),
+                makeRes(),
+            );
+        });
+        expect(await proven(fresh.user.id)).toBeNull();
+    });
+
+    it('lets no new card through while a number on file waits, whatever the gate order', async () => {
+        // Card-first order reaches the card check without the fallback.
+        const { user, actor } = await onFileAccount({
+            requires_card_verification: 1,
+        });
+        await server.stores.user.updateMetadata(user.id, {
+            emailGateLast: true,
+        });
+        expect((await confirmCard(actor, 'fp_new')).body).toEqual({
+            card_verified: false,
+            reason: 'card_not_on_file',
+        });
+        expect(
+            (await server.stores.user.getById(user.id, { force: true }))!
+                .requires_card_verification,
+        ).toBe(true);
+    });
+
+    it('offers no card for a number on file from a fallback opened earlier', async () => {
+        const { user, actor } = await onFileAccount();
+        await server.stores.kv.set({
+            key: `card-fallback-open:${user.id}`,
+            value: true,
+        });
+        await withFallbackConfig({ enabled: true }, async () => {
+            await expect(
+                controller.handleCardVerificationSetup(
+                    makeReq({}, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 409 });
+        });
+    });
+
+    it('asks a card step on an account with a card for that card', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_card_verification: 1,
+            card_fingerprint: 'fp_on_file',
+        });
+        for (const [fingerprint, entered] of [
+            ['fp_other', true],
+            ['fp_on_file', false],
+        ] as const) {
+            expect((await confirmCard(actor, fingerprint, entered)).body).toEqual({
+                card_verified: false,
+                reason: 'card_not_on_file',
+            });
+        }
+        expect((await confirmCard(actor, 'fp_on_file')).body).toMatchObject({
+            card_verified: true,
+        });
+        expect(
+            (await server.stores.user.getById(user.id, { force: true }))!
+                .requires_card_verification,
+        ).toBe(false);
+    });
+
+    it('sends at most two codes a day to a number on file', async () => {
+        const { actor } = await onFileAccount();
+        const prelude = stubPrelude();
+        await withPrelude(prelude, async () => {
+            for (let i = 0; i < 2; i++) {
+                await controller.handleSendConfirmPhone(
+                    makeReq({}, { actor }),
+                    makeRes(),
+                );
+            }
+            await expect(
+                controller.handleSendConfirmPhone(makeReq({}, { actor }), makeRes()),
+            ).rejects.toMatchObject({
+                statusCode: 429,
+                code: 'phone_on_file_send_limit',
+            });
+        });
+        expect(prelude.createVerification).toHaveBeenCalledTimes(2);
+    });
+
+    it('points a lost number at support when there is no card fallback', async () => {
+        const { actor } = await onFileAccount();
+        const prelude = stubPrelude();
+        await withFallbackConfig({ enabled: false }, async () => {
+            await withPrelude(prelude, async () => {
+                await expect(
+                    controller.handleSendConfirmPhone(
+                        makeReq({ lostNumber: true }, { actor }),
+                        makeRes(),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 409,
+                    code: 'phone_on_file_unavailable',
+                });
+            });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
+    });
+
+    it('lets an account with no number on file name one', async () => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        const prelude = stubPrelude();
+        await withPrelude(prelude, async () => {
+            await controller.handleSendConfirmPhone(
+                makeReq({ phone: '+14155550999', lostNumber: true }, { actor }),
+                makeRes(),
+            );
+        });
+        expect(prelude.createVerification).toHaveBeenCalledWith(
+            '+14155550999',
+            expect.anything(),
+        );
     });
 });
 
@@ -7411,7 +7753,7 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change-email: 400 on missing/invalid email and on a confirmed-account collision', async () => {
-        const { actor } = await makeUserAndActor();
+        const { actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
         await expect(
             controller.handleChangeEmail(makeReq({}, { actor }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -7456,7 +7798,7 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change-email: stages the new email + token on success', async () => {
-        const { user, actor } = await makeUserAndActor();
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
         const newEmail = `ch_${uniq()}@test.local`;
         const res = makeRes();
         await controller.handleChangeEmail(
@@ -7517,7 +7859,7 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change_email/confirm: completes the swap when the token matches the staged row', async () => {
-        const { user, actor } = await makeUserAndActor();
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
         const newEmail = `chc_${uniq()}@test.local`;
         await controller.handleChangeEmail(
             makeReq({ new_email: newEmail }, { actor }),
@@ -9947,8 +10289,8 @@ describe('AuthController user-protected mutations: additional branches', () => {
     it('change-email: 400 when an unconfirmed-but-password-holding account already owns the email', async () => {
         // Other user: password set, email NOT confirmed → still blocks
         // (existing.password !== null branch).
-        const { user: other } = await makeUserAndActor();
-        const { actor } = await makeUserAndActor();
+        const { user: other } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
+        const { actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
         await expect(
             controller.handleChangeEmail(
                 makeReq({ new_email: other.email! }, { actor }),
@@ -11782,7 +12124,7 @@ describe('AuthController account mail streams', () => {
     });
 
     it('sends both change-email messages on the auth stream', async () => {
-        const { user, actor } = await makeUserAndActor();
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
         const newEmail = `cs_${uniq()}@test.local`;
         const send = spySend();
         const sendRaw = vi

@@ -138,7 +138,6 @@ const pl = {
         ok: 'OK',
         open: 'Otwórz',
         open_in_new_tab: 'Otwórz w nowej karcie',
-        open_in_new_window: 'Otwórz w nowym oknie',
         open_with: 'Otwórz za pomocą',
         original_name: 'Oryginalna nazwa',
         original_path: 'Oryginalna ścieżka',

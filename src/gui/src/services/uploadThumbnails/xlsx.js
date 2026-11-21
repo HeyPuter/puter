@@ -10,11 +10,11 @@ import {
     TOKEN,
     attributesOf,
     decodeEntities,
-    openArchive,
     readRelationships,
     readStoredThumbnail,
     readThemeColors,
 } from './ooxml.js';
+import { openArchive } from './zip.js';
 
 const DEFAULT_ROW_HEIGHT = 15;
 const DEFAULT_COLUMN_CHARACTERS = 8.43;
