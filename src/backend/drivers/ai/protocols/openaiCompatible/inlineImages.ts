@@ -25,81 +25,151 @@ import { fetchImageBytes } from '../../shared/imageInput.js';
 // Matches the OpenAI Chat-Completions inline-upload cap.
 export const MAX_IMAGE_BYTES = 5 * 1_000_000;
 export const MAX_INLINE_IMAGES = 20;
-const IMAGE_FETCH_CONCURRENCY = 4;
+export const MAX_VIDEO_BYTES = 20 * 1_000_000;
+export const MAX_INLINE_VIDEOS = 4;
+const FETCH_CONCURRENCY = 4;
 
-interface ImageContentPart {
+type MediaField = 'image_url' | 'video_url';
+
+interface MediaContentPart {
     type?: string;
     text?: string;
     image_url?: { url?: string };
+    video_url?: { url?: string };
 }
 
 interface MessageWithContent {
     content?: unknown;
 }
 
+interface MediaKind {
+    field: MediaField;
+    noun: 'image' | 'video';
+    maxBytes: number;
+    maxCount: number;
+}
+
+const IMAGE: MediaKind = {
+    field: 'image_url',
+    noun: 'image',
+    maxBytes: MAX_IMAGE_BYTES,
+    maxCount: MAX_INLINE_IMAGES,
+};
+
+const VIDEO: MediaKind = {
+    field: 'video_url',
+    noun: 'video',
+    maxBytes: MAX_VIDEO_BYTES,
+    maxCount: MAX_INLINE_VIDEOS,
+};
+
+/** For a host that serves a video without a video content type. */
+const VIDEO_MIME_BY_EXTENSION: Record<string, string> = {
+    mp4: 'video/mp4',
+    m4v: 'video/mp4',
+    mov: 'video/quicktime',
+    webm: 'video/webm',
+};
+
 // Moonshot's vision API rejects http(s) image URLs and only accepts base64
 // data URIs or file-id refs, so any web URL must be fetched and inlined.
 // Failures become inline text-error parts (same shape as
 // openai/chat/fileUpload.ts).
-export async function inlineHttpImageUrls(
+export const inlineHttpImageUrls = (
     messages: MessageWithContent[],
+): Promise<void> => inlineHttpMedia(messages, IMAGE);
+
+/** The same for `video_url` parts, for a vendor that fetches no video URL. */
+export const inlineHttpVideoUrls = (
+    messages: MessageWithContent[],
+): Promise<void> => inlineHttpMedia(messages, VIDEO);
+
+async function inlineHttpMedia(
+    messages: MessageWithContent[],
+    kind: MediaKind,
 ): Promise<void> {
-    const tasks: Array<{ part: ImageContentPart; url: string }> = [];
+    const tasks: Array<{ part: MediaContentPart; url: string }> = [];
     for (const message of messages) {
         if (!Array.isArray(message.content)) continue;
-        for (const part of message.content as ImageContentPart[]) {
-            const url = part?.image_url?.url;
+        for (const part of message.content as MediaContentPart[]) {
+            const url = part?.[kind.field]?.url;
             if (typeof url !== 'string') continue;
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
                 continue;
             }
-            if (tasks.length >= MAX_INLINE_IMAGES) {
+            if (tasks.length >= kind.maxCount) {
                 setTextError(
                     part,
-                    `maximum of ${MAX_INLINE_IMAGES} remote images per request`,
+                    `maximum of ${kind.maxCount} remote ${kind.noun}s per request`,
                 );
                 continue;
             }
             tasks.push({ part, url });
         }
     }
-    await runWithConcurrencyLimit(
-        tasks,
-        IMAGE_FETCH_CONCURRENCY,
-        ({ part, url }) => inlineOne(part, url),
+    await runWithConcurrencyLimit(tasks, FETCH_CONCURRENCY, ({ part, url }) =>
+        inlineOne(part, url, kind),
     );
 }
 
-async function inlineOne(part: ImageContentPart, url: string): Promise<void> {
+const videoMimeOf = (
+    declared: string | undefined,
+    url: string,
+): string | undefined => {
+    if (declared?.startsWith('video/')) return declared;
+    let extension: string | undefined;
     try {
-        const { bytes, mime } = await fetchImageBytes(url, {
-            maxBytes: MAX_IMAGE_BYTES,
+        extension = new URL(url).pathname.split('.').pop()?.toLowerCase();
+    } catch {
+        return undefined;
+    }
+    return VIDEO_MIME_BY_EXTENSION[extension ?? ''];
+};
+
+async function inlineOne(
+    part: MediaContentPart,
+    url: string,
+    kind: MediaKind,
+): Promise<void> {
+    try {
+        const { bytes, mime, declaredMime } = await fetchImageBytes(url, {
+            maxBytes: kind.maxBytes,
             signal: Context.get('abortSignal'),
-            requireImageMime: true,
+            requireImageMime: kind === IMAGE,
         });
-        part.type = 'image_url';
-        part.image_url = {
-            url: `data:${mime};base64,${bytes.toString('base64')}`,
+        const mimeType = kind === IMAGE ? mime : videoMimeOf(declaredMime, url);
+        if (!mimeType) {
+            setTextError(
+                part,
+                `expected a video, got ${declaredMime || 'unknown MIME type'}`,
+            );
+            return;
+        }
+        part.type = kind.field;
+        part[kind.field] = {
+            url: `data:${mimeType};base64,${bytes.toString('base64')}`,
         };
     } catch (err) {
         if (isHttpError(err) && err.code === 'input_too_large') {
             setTextError(
                 part,
-                `image exceeds maximum of ${MAX_IMAGE_BYTES} bytes`,
+                `${kind.noun} exceeds maximum of ${kind.maxBytes} bytes`,
             );
             return;
         }
-        // fetchImageBytes' own errors are safe to show; anything else (DNS,
-        // socket, SSRF guard) stays generic.
-        const message = isHttpError(err)
-            ? err.message
-            : 'failed to fetch image';
+        // fetchImageBytes' own errors are safe to show, but they name an
+        // image; anything else (DNS, socket, SSRF guard) stays generic.
+        const message =
+            isHttpError(err) && kind === IMAGE
+                ? err.message
+                : `failed to fetch ${kind.noun}`;
         setTextError(part, message);
     }
 }
 
-function setTextError(part: ImageContentPart, reason: string): void {
+function setTextError(part: MediaContentPart, reason: string): void {
     delete part.image_url;
+    delete part.video_url;
     part.type = 'text';
     // Phrasing matches openai/chat/fileUpload.ts so the model reads it as a
     // system note, not user input.

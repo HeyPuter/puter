@@ -184,6 +184,9 @@ const healthyUpstream = ({
     const path = url.pathname;
     // A caller-supplied media link that leads nowhere.
     if (url.hostname === 'upstream.test') return { status: 404, body: '' };
+    if (url.hostname === 'media.upstream.test') {
+        return { body: 'video-bytes', contentType: 'video/mp4' };
+    }
     const streaming = (json as { stream?: unknown } | undefined)?.stream;
     if (path.endsWith('/chat/completions')) {
         if (!streaming) {
@@ -458,6 +461,43 @@ CORPUS.push(
                     { puter_path: '~/Documents/a.png' },
                 ],
             },
+        ],
+    },
+    // Audio and video, as their own parts and inside an image part.
+    {
+        messages: [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'input_audio',
+                        input_audio: { data: 'UklGRg==', format: 'wav' },
+                    },
+                    {
+                        type: 'input_audio',
+                        input_audio: {
+                            data: 'data:audio/mpeg;base64,SUQz',
+                            format: 'mpeg',
+                        },
+                    },
+                    {
+                        type: 'image_url',
+                        image_url: { url: 'data:audio/wav;base64,UklGRg==' },
+                    },
+                    {
+                        type: 'image_url',
+                        image_url: { url: 'data:video/mp4;base64,AAAA' },
+                    },
+                    {
+                        type: 'video_url',
+                        video_url: {
+                            url: 'https://media.upstream.test/a.mp4',
+                        },
+                    },
+                ],
+            },
+            { role: 'assistant', content: 'Noted.' },
+            { role: 'user', content: 'What was in them?' },
         ],
     },
     // Model output sent back, in each vendor's shape.
