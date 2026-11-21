@@ -257,6 +257,7 @@ const en = {
         folder_empty: 'No files in this directory.',
         folder_open_failed: 'This folder couldn\'t be opened.',
         path_not_found: 'Couldn\'t find "%%". Check the path and try again.',
+        picked_item_unavailable: 'Something you picked isn\'t there anymore, or can\'t be reached. Pick again.',
         reserved_name_not_allowed: 'The name "{{name}}" is not allowed, because it is a reserved name. Please choose another name.',
         save_file_not_returned: 'The file was saved, but it couldn\'t be passed back to the app or website that asked for it.',
         upload_some_failed: 'Some uploads failed:',

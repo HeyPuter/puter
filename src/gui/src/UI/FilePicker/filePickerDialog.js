@@ -234,9 +234,13 @@ export function initFilePickerDialog (el_window, options) {
                 action: 'write',
                 path: entry.path,
             })));
-            items = (Array.isArray(signed.items) ? signed.items : [signed.items]).map(item => (typeof item.path === 'string'
-                ? { ...item, path: window.privacy_aware_path(item.path) }
-                : item));
+            const signedItems = Array.isArray(signed.items) ? signed.items : [signed.items];
+            // An item removed or put out of reach since it was listed comes back unsigned.
+            if ( signedItems.some(item => typeof item?.path !== 'string') ) {
+                picker.refresh();
+                throw new Error(i18n('picked_item_unavailable', [], false));
+            }
+            items = signedItems.map(item => ({ ...item, path: window.privacy_aware_path(item.path) }));
         } catch ( err ) {
             console.error(err);
             answering = false;

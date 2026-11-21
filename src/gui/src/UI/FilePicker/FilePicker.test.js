@@ -489,6 +489,25 @@ describe('open picker', () => {
         expect(document.activeElement).toBe(dialog.$('.files')[0]);
     });
 
+    it('doesn\'t answer with a file that\'s gone since it was listed, and lists the folder again', async () => {
+        const app = appWindow();
+        const dialog = await openDialog({ is_openFileDialog: true, parent_uuid: 'app-1', initiating_app_uuid: 'app-uid', selectable_body: true });
+        // The server leaves an item it can't sign empty.
+        window.puter.fs.sign.mockResolvedValueOnce({ items: [{}, { uid: 'f2', path: `${DESKTOP}/photo.png` }] });
+        window.puter.fs.readdir.mockClear();
+        UIAlert.mockClear();
+
+        dialog.picker.setSelection(dialog.picker.rows());
+        dialog.$('.openfiledialog-open-btn').trigger('click');
+        await settle();
+
+        expect(app.posted).toEqual([]);
+        expect(UIAlert).toHaveBeenCalledWith(expect.objectContaining({ message: 'picked_item_unavailable', parent_uuid: 'picker-1' }));
+        expect(window.puter.fs.readdir).toHaveBeenCalledWith({ path: DESKTOP, consistency: 'strong' });
+        expect(document.body.contains(dialog.el_window)).toBe(true);
+        expect(dialog.$('.window-disable-mask').css('display')).toBe('none');
+    });
+
     it('picks a double-clicked file the same way', async () => {
         const app = appWindow();
         const dialog = await openDialog({ is_openFileDialog: true, parent_uuid: 'app-1' });
