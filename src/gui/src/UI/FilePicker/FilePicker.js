@@ -337,6 +337,8 @@ export default class FilePicker {
      */
     refresh ({ selectPaths } = {}) {
         if ( ! this.currentPath ) return Promise.resolve();
+        // Another folder is on its way; listing this one again would cancel it.
+        if ( this.pendingPath && this.pendingPath !== this.currentPath ) return Promise.resolve();
         return this.navigate(this.currentPath, {
             push: false,
             keepSelection: ! selectPaths,

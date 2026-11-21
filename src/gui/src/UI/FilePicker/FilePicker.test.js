@@ -215,6 +215,23 @@ describe('FilePicker listing', () => {
         expect(rowNames(dialog)).toEqual(['Kids', 'photo.png', 'notes.txt']);
         expect(dialog.$('.sortable[data-sort="name"]').hasClass('sort-desc')).toBe(true);
     });
+
+    it('still opens a folder when the listing is sorted before it arrives', async () => {
+        const dialog = await openDialog({ is_openFileDialog: true });
+        const readdir = window.puter.fs.readdir.getMockImplementation();
+        let list;
+        window.puter.fs.readdir.mockImplementation(args => new Promise((resolve) => {
+            list = () => resolve(readdir(args));
+        }));
+
+        rowNamed(dialog, 'Kids').trigger('dblclick');
+        dialog.$('.header .columns .sortable[data-sort="size"]').trigger('click');
+        list();
+        await settle();
+
+        expect(dialog.el_window.getAttribute('data-path')).toBe(`${DESKTOP}/Kids`);
+        expect(dialog.$('.sortable[data-sort="size"]').hasClass('sort-asc')).toBe(true);
+    });
 });
 
 describe('FilePicker resizing', () => {
