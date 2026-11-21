@@ -138,7 +138,6 @@ const zh = {
         ok: '好的',
         open: '打开',
         open_in_new_tab: '在新标签页中打开',
-        open_in_new_window: '在新窗口中打开',
         open_with: '打开方式',
         original_name: '原名',
         original_path: '原路径',

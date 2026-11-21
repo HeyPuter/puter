@@ -137,7 +137,6 @@ const hi = {
         ok: 'ठीक है',
         open: 'खुला',
         open_in_new_tab: 'वेब टेब में खोलें',
-        open_in_new_window: 'नई विंडो में खोलें',
         open_with: 'के साथ खोलें',
         original_name: 'वास्तविक नाम',
         original_path: 'वास्तविक पथ',

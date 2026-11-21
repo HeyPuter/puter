@@ -4,6 +4,7 @@ import { PuterJSError } from '../../lib/PuterJSError.js';
 import {
     candidateDays, dayPath, isMissingDirectory, isUuidV7, normalizeFolder, toSummary,
 } from './lib/mailbox.js';
+import { parseSenderAuth } from './lib/senderAuth.js';
 
 /** @typedef {import('./types.js').EmailFolder} EmailFolder */
 /** @typedef {import('./types.js').EmailGetOptions} EmailGetOptions */
@@ -83,6 +84,7 @@ const toMessage = (summary, parsed) => {
         bcc: parsed.bcc ?? [],
         replyTo: parsed.replyTo ?? [],
         headers: parsed.headers,
+        senderAuth: parseSenderAuth(parsed.headers),
         text: parsed.text ?? null,
         html: parsed.html ?? null,
         attachments: parsed.attachments.map(toAttachment),

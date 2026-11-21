@@ -146,7 +146,6 @@ const fil = {
         ok: 'OK',
         open: 'Buksan',
         open_in_new_tab: 'Buksan sa bagong tab',
-        open_in_new_window: 'Buksan sa bagong window',
         open_with: 'Buksan gamit ang',
         original_name: 'Orihinal na pangalan',
         original_path: 'Orihinal na lokasyon',
