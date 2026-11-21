@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { copyPdfThumbnailAssets } from '../../../tools/copyPdfThumbnailAssets.js';
 import { createFlac, createM4a, createMp3, flacPicture, id3Picture } from '../../../tests/fixtures/audio.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
-import { createDocx, paragraph, picture } from '../../../tests/fixtures/docx.js';
+import { createDocx, createZip, paragraph, picture } from '../../../tests/fixtures/docx.js';
+import { createEpub } from '../../../tests/fixtures/packages.js';
 import { createHeif, createHeifGrid } from '../../../tests/fixtures/heif.js';
 import { createPdf } from '../../../tests/fixtures/pdf.js';
 import { createPptx, paragraph as slideParagraph, pictureShape, shape, solid } from '../../../tests/fixtures/pptx.js';
@@ -228,7 +229,7 @@ describe('Upload thumbnails in a real browser', () => {
                 const image = new File([await new Promise(resolve => canvas.toBlob(resolve))], 'image.png', { type: 'image/png' });
                 const file = new File([pdf], 'document.PDF');
                 const generate = window.createUploadThumbnailGenerator();
-                const thumbnails = await Promise.all([file, image, new File(['notes'], 'notes.txt')]
+                const thumbnails = await Promise.all([file, image, new File(['notes'], 'notes.rtf')]
                     .map(file => generate(file, { defaultGenerator: window.defaultGenerator })));
                 // An SDK without the callback context calls the generator with the file alone.
                 const withoutContext = await generate(image);
@@ -601,6 +602,51 @@ describe('Upload thumbnails in a real browser', () => {
         }
     });
 
+    it.each([false, true])('scales the picture a packaged document carries of itself (bundled: %s)', async (bundled) => {
+        const page = await browser.newPage();
+        const errors = [];
+        page.on('pageerror', error => errors.push(error.message));
+        try {
+            await page.goto(bundled ? `${origin}/bundled` : origin);
+            await page.waitForFunction(() => window.createUploadThumbnailGenerator);
+            const result = await page.evaluate(async (files) => {
+                const generate = window.createUploadThumbnailGenerator();
+                const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
+                const thumbnails = await Promise.all(files.map(([name, bytes]) => generate(new File([new Uint8Array(bytes)], name), context)));
+                return Promise.all(thumbnails.map(async (thumbnail) => {
+                    if ( ! thumbnail ) return null;
+                    const image = new Image();
+                    image.src = thumbnail;
+                    await image.decode();
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    return { width: image.width, height: image.height, pixel: [...ctx.getImageData(5, 5, 1, 1).data] };
+                }));
+            }, [
+                // Each holds the same 160 x 80 red JPEG where its format keeps its picture.
+                ['letter.pages', [...createZip({ 'Index/Document.iwa': 'x', 'preview-web.jpg': psdPreviewJpeg(), 'preview.jpg': psdPreviewJpeg() })]],
+                ['old.key', [...createZip({ 'index.apxl': '<x/>', 'QuickLook/Thumbnail.jpg': psdPreviewJpeg() })]],
+                ['letter.odt', [...createZip({ 'content.xml': '<x/>', 'Thumbnails/thumbnail.jpg': psdPreviewJpeg() })]],
+                ['app.sketch', [...createZip({ 'document.json': '{}', 'previews/preview.png': psdPreviewJpeg() })]],
+                ['book.epub', [...createEpub({ cover: psdPreviewJpeg(), declare: 'meta' })]],
+                ['empty.numbers', [...createZip({ 'Index/Document.iwa': 'x' })]],
+                ['server.key', [...new TextEncoder().encode('-----BEGIN PRIVATE KEY-----')]],
+            ]);
+            const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 15);
+            for ( const shown of result.slice(0, 5) ) {
+                expect(shown).toMatchObject({ width: 128, height: 64 });
+                expect(shown.pixel).toSatisfy(near([255, 0, 0, 255]));
+            }
+            expect(result.slice(5)).toEqual([null, null]);
+            expect(errors).toEqual([]);
+        } finally {
+            await page.close();
+        }
+    });
+
     it.each([false, true])('scales the cover stored in an audio file (bundled: %s)', async (bundled) => {
         const page = await browser.newPage();
         const errors = [];
@@ -686,7 +732,7 @@ describe('Upload thumbnails in a real browser', () => {
         }
     });
 
-    it.each([false, true])('draws the start of a source file in color, and a Markdown file as a page (bundled: %s)', async (bundled) => {
+    it.each([false, true])('draws the start of a source file in color, markup and plain text without, and a Markdown file as a page (bundled: %s)', async (bundled) => {
         const page = await browser.newPage();
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
@@ -697,12 +743,14 @@ describe('Upload thumbnails in a real browser', () => {
                 const generate = window.createUploadThumbnailGenerator();
                 // The bundled page has no SDK generator to pass, as with an SDK that predates the callback context.
                 const context = window.defaultGenerator && { defaultGenerator: window.defaultGenerator };
-                const [script, comment, sheet, markdown, ...skipped] = await Promise.all([
+                const [script, comment, sheet, markdown, html, plain, ...skipped] = await Promise.all([
                     // Three lines of keywords, then a line far longer than the page is wide.
                     new File([`${'return return return\n'.repeat(3)}${'W'.repeat(400)}\n`], 'app.js'),
                     new File(['// nothing here but a comment\n'], 'note.mjs'),
                     new File(['a { color: red; }\n'], 'site.css', { type: 'text/css' }),
                     new File([`# Heading\n\n${'W'.repeat(60)}\n`], 'README.md'),
+                    new File([`${'<p>return return</p>\n'.repeat(3)}${'W'.repeat(400)}\n`], 'index.html', { type: 'text/html' }),
+                    new File([`${'<p>return return</p>\n'.repeat(3)}${'W'.repeat(400)}\n`], 'notes.txt', { type: 'text/plain' }),
                     new File(['\n\n'], 'blank.js'),
                     new File(['![logo](logo.png)\n'], 'pictures.md'),
                     new File([new Uint8Array(64)], 'binary.css'),
@@ -740,11 +788,11 @@ describe('Upload thumbnails in a real browser', () => {
                     };
                 };
                 return {
-                    pages: await Promise.all([script, comment, sheet, markdown].map(decode)),
+                    pages: await Promise.all([script, comment, sheet, markdown, html, plain].map(decode)),
                     skipped,
                 };
             });
-            const [script, comment, sheet, markdown] = result.pages;
+            const [script, comment, sheet, markdown, html, plain] = result.pages;
             const near = expected => pixel => pixel.every((value, index) => Math.abs(value - expected[index]) < 15);
             for ( const drawn of result.pages ) {
                 expect(drawn).toMatchObject({ width: 99, height: 128, below: { count: 0 } });
@@ -755,10 +803,16 @@ describe('Upload thumbnails in a real browser', () => {
             expect(script.top.red).toBeGreaterThan(10);
             expect(comment.top.red).toBe(0);
             expect(sheet.top.red).toBe(0);
-            // The script's long line runs off the page, and the page's long word wraps inside its margins.
+            expect(html.top.red).toBe(0);
+            expect(plain.top.red).toBe(0);
+            // The script's and the HTML file's long lines run off the page, and the long words of the Markdown page
+            // and the text file wrap inside their margins.
             expect(script.rightEdge.count).toBeGreaterThan(0);
+            expect(html.rightEdge.count).toBeGreaterThan(0);
             expect(markdown.rightEdge.count).toBe(0);
+            expect(plain.rightEdge.count).toBe(0);
             expect(markdown.middle.count).toBeGreaterThan(script.middle.count);
+            expect(plain.middle.count).toBeGreaterThan(html.middle.count);
             expect(result.skipped).toEqual([undefined, undefined, undefined]);
             expect(errors).toEqual([]);
         } finally {

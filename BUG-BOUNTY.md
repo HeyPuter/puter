@@ -66,11 +66,24 @@ To participate, you must:
 1. **Report responsibly**: Provide detailed steps to reproduce the issue, including proof-of-concept code, screenshots, or a screen recording (see _Proof of Reproduction_ below).
 2. **Do no harm**: Do not exfiltrate, modify, or delete data. Only access your own account or test data.
 3. **Respect availability**: Do not perform denial-of-service attacks or automated scans that degrade service.
-4. **Follow disclosure policy**: Do not publicly disclose vulnerabilities until we have confirmed and patched the issue.
-5. **Act in good faith**: Make every effort to avoid privacy violations, destruction of data, and interruption or degradation of services.
-6. **Check Eligibility and Known Non-Issues**: Reports that fall outside "Eligibility" or match an item in "Known Non-Issues" above are not eligible and will be closed.
+4. **Identify your testing**: Test only from accounts you declared, with the identifying header on every request (see _Identify Your Testing_ below).
+5. **Follow disclosure policy**: Do not publicly disclose vulnerabilities until we have confirmed and patched the issue.
+6. **Act in good faith**: Make every effort to avoid privacy violations, destruction of data, and interruption or degradation of services.
+7. **Check Eligibility and Known Non-Issues**: Reports that fall outside "Eligibility" or match an item in "Known Non-Issues" above are not eligible and will be closed.
 
 Reports that do not meet these guidelines may not be eligible for a reward.
+
+## Identify Your Testing
+
+Testing on `puter.com` and `api.puter.com` is authorized only when we can tell it is yours while it happens. We can't tell unidentified testing from an attack, so we treat it as one: the accounts and addresses involved may be blocked without notice, and findings from it are not eligible for a reward.
+
+- **Declare your test accounts first.** Before testing, email **[security@puter.com](mailto:security@puter.com)** with the subject `Bug bounty test accounts`, the handle you will use, and the usernames of the accounts you will test with. You don't need to wait for a reply. Tell us when you add an account.
+- **Use only accounts you created for testing.** Do not use accounts that belong to anyone else, with or without their permission, and do not use bought, borrowed, aged, or compromised accounts or credentials. To test an interaction between two users, create both accounts and declare both.
+- **Send the identifying header on every request.** Add `X-Bug-Bounty: <your handle>` to all requests your testing makes, from scripts, proxies, and scanners as well as the browser. Use the handle you declared.
+- **Test from addresses you control and keep them stable.** Do not rotate IP addresses, and do not route testing through residential proxies, anonymity networks, or other people's devices.
+- **Keep automated traffic small.** A few requests per second at most, and stop if you see errors or slow responses that your traffic may be causing.
+
+Testing your own self-hosted Puter instance needs none of this, and is the best place for anything noisy or destructive.
 
 ## Proof of Reproduction
 
@@ -97,6 +110,7 @@ Include:
 - Steps to reproduce
 - Potential impact
 - Suggested remediation (if available)
+- The handle and test accounts you declared (see _Identify Your Testing_)
 - Paypal id where we can send the bounty (if eligible)
 
 Send the full report in your first email. We don't reply to messages that only ask whether we run a bounty or where to report.
@@ -125,4 +139,4 @@ At this time, **payments will only be made via PayPal**. To be eligible to recei
 
 ## Legal Safe Harbor
 
-If you make a good-faith effort to comply with this policy, we will consider your research to be authorized. If you inadvertently access data outside your own account, stop immediately and include details in your report so we can investigate and remediate.
+If you make a good-faith effort to comply with this policy, we will consider your research to be authorized. Testing that isn't identified as described in _Identify Your Testing_ is not authorized and is not covered by this safe harbor. If you inadvertently access data outside your own account, stop immediately and include details in your report so we can investigate and remediate.

@@ -71,6 +71,19 @@ The `Reply-To` addresses, in the same shape as `to`.
 
 Every header of the message, each `{ key, originalKey, value }` where `key` is the lowercase name and `originalKey` preserves the original case.
 
+#### `senderAuth` (Object | null)
+
+The result of Puter's sender check, or `null` when the message has none. Puter checks mail whose `From` header names one of Puter's own domains, such as `puter.com`, when it files the message.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `result` | String | `'pass'` when the message was signed by the domain it names. `'fail'` when it was not. `'temperror'` when the check could not finish. |
+| `from` | Array | Puter's own domains that the `From` header names. |
+| `signedBy` | Array | Every domain that signed the message, verified or not. |
+| `local` | Boolean | `true` when Puter filed the message itself instead of receiving it from outside. |
+
+Treat any result other than `'pass'` as an unverified sender. A `'fail'` means the message claims to come from Puter and does not. Show the user a warning before they act on it.
+
 #### `text` (String | null)
 
 The plain-text body, or `null` when the message has none.
