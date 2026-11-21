@@ -94,7 +94,16 @@ describe('openVerificationGateWindow with factors', () => {
         expect(options.show_close_button).toBeUndefined();
         expect(options.logout_in_footer).toBeUndefined();
         expect(options.card_alternative).toBe(false);
-        expect(window.refresh_user_data).not.toHaveBeenCalled();
+        // Read once before opening; nothing after backing out.
+        expect(window.refresh_user_data).toHaveBeenCalledTimes(1);
+    });
+
+    test('reads the account before opening, so the window sees a gate set mid-session', async () => {
+        const order = [];
+        window.refresh_user_data = vi.fn(async () => order.push('refresh'));
+        phoneGate.mockImplementationOnce(async () => order.push('window') && false);
+        await openVerificationGateWindow('phone_verification_required');
+        expect(order).toEqual(['refresh', 'window']);
     });
 
     test('offers the card alongside when the server accepts either', async () => {
@@ -192,6 +201,23 @@ describe('runVerificationGates', () => {
         await runVerificationGates({ requires_phone_verification: true }, false, false, true);
         expect(phoneGate).toHaveBeenCalledTimes(2);
         expect(phoneGate.mock.calls[0][0].window_options).toEqual({ cover_page: true, has_head: false });
+    });
+
+    test('skips a gate the one before it cleared, reading the account again in between', async () => {
+        const order = track();
+        globalThis.puter = { os: { user: vi.fn(async () => ({ requires_phone_verification: false })) } };
+        try {
+            await runVerificationGates({ requires_phone_verification: true, phone_on_file: '42' }, true, false, false);
+        } finally {
+            delete globalThis.puter;
+        }
+        expect(order).toEqual(['email']);
+    });
+
+    test('tells the phone window which number is on file', async () => {
+        track();
+        await runVerificationGates({ requires_phone_verification: true, phone_on_file: '42' }, false, false, false);
+        expect(phoneGate.mock.calls[0][0].phone_on_file).toBe('42');
     });
 
     test('reports an email the user did not confirm', async () => {

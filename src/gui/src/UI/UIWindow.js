@@ -2513,22 +2513,7 @@ $(document).on('click', '.window-sidebar-item', async function (e) {
     const parent_win_id = $(el_window).attr('data-id');
     const item_path =  $(this).attr('data-path');
 
-    // ctrl/cmd + click will open in new window
-    if ( e.metaKey || e.ctrlKey ) {
-        UIWindow({
-            path: item_path,
-            title: path.basename(item_path),
-            icon: await item_icon({ is_dir: true, path: item_path }),
-            // todo
-            // uid: $(el_item).attr('data-uid'),
-            is_dir: true,
-            // todo
-            // sort_by: $(el_item).attr('data-sort_by'),
-            app: 'explorer',
-        });
-    }
-    // update window path only if it's a new path AND no ctrl/cmd key pressed
-    else if ( item_path !== $(el_window).attr('data-path') ) {
+    if ( item_path !== $(el_window).attr('data-path') ) {
         window.window_nav_history[parent_win_id] = window.window_nav_history[parent_win_id].slice(0, window.window_nav_history_current_position[parent_win_id] + 1);
         window.window_nav_history[parent_win_id].push(item_path);
         window.window_nav_history_current_position[parent_win_id]++;
@@ -2540,56 +2525,6 @@ $(document).on('click', '.window-sidebar-item', async function (e) {
 $(document).on('contextmenu', '.window-sidebar', function (e) {
     e.preventDefault();
     e.stopPropagation();
-    return false;
-});
-
-$(document).on('contextmenu taphold', '.window-sidebar-item', function (event) {
-    // dismiss taphold on regular devices
-    if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-    {
-        return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    // todo
-    // $(this).addClass('window-sidebar-item-highlighted');
-    const item = this;
-    UIContextMenu({
-        parent_element: $(this),
-        items: [
-            //--------------------------------------------------
-            // Open
-            //--------------------------------------------------
-            {
-                html: i18n('open'),
-                onClick: function () {
-                    $(item).trigger('click');
-                },
-            },
-            //--------------------------------------------------
-            // Open in New Window
-            //--------------------------------------------------
-            {
-                html: i18n('open_in_new_window'),
-                onClick: async function () {
-                    let item_path = $(item).attr('data-path');
-
-                    UIWindow({
-                        path: item_path,
-                        title: path.basename(item_path),
-                        icon: await item_icon({ is_dir: true, path: item_path }),
-                        // todo
-                        // uid: $(el_item).attr('data-uid'),
-                        is_dir: true,
-                        // todo
-                        // sort_by: $(el_item).attr('data-sort_by'),
-                        app: 'explorer',
-                    });
-                },
-            },
-        ],
-    });
     return false;
 });
 
@@ -2707,20 +2642,8 @@ $(document).on('click', '.window-navbar-path-dirname', function (e) {
     const $el_parent_window = $(this).closest('.window');
     const parent_win_id = $($el_parent_window).attr('data-id');
 
-    // open in new window
-    if ( e.metaKey || e.ctrlKey ) {
-        const dirpath = $(this).attr('data-path');
-        UIWindow({
-            path: dirpath,
-            title: dirpath === '/' ? window.root_dirname : path.basename(dirpath),
-            icon: window.icons['folder.svg'],
-            // uid: $(el_item).attr('data-uid'),
-            is_dir: true,
-            app: 'explorer',
-        });
-    }
     // only change dir if target is not the same as current path
-    else if ( $el_parent_window.attr('data-path') !== $(this).attr('data-path') ) {
+    if ( $el_parent_window.attr('data-path') !== $(this).attr('data-path') ) {
         window.window_nav_history[parent_win_id] = window.window_nav_history[parent_win_id].slice(0, window.window_nav_history_current_position[parent_win_id] + 1);
         window.window_nav_history[parent_win_id].push($(this).attr('data-path'));
         window.window_nav_history_current_position[parent_win_id] = window.window_nav_history[parent_win_id].length - 1;
@@ -2763,23 +2686,6 @@ $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function (e
         html: i18n('open'),
         onClick: () => {
             $(this).trigger('click');
-        },
-    });
-    // -------------------------------------------
-    // Open in New Window
-    // (only if the item is on a window)
-    // -------------------------------------------
-    menu_items.push({
-        html: i18n('open_in_new_window'),
-        onClick: function () {
-            UIWindow({
-                path: $(el).attr('data-path'),
-                title: $(el).attr('data-path') === '/' ? window.root_dirname : path.basename($(el).attr('data-path')),
-                icon: window.icons['folder.svg'],
-                uid: $(el).attr('data-uid'),
-                is_dir: true,
-                app: 'explorer',
-            });
         },
     });
     // -------------------------------------------

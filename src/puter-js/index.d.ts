@@ -123,6 +123,7 @@ export type {
     EmailListStreamOptions,
     EmailMessage,
     EmailMessageAttachment,
+    EmailSenderAuth,
     EmailSummary,
 } from './types/modules/Email/types.js';
 

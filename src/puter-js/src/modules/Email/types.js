@@ -66,6 +66,18 @@
  */
 
 /**
+ * The check Puter made, when it filed a message, that mail naming one of
+ * Puter's own domains as its sender really came from that domain.
+ *
+ * @typedef {Object} EmailSenderAuth
+ * @property {'pass' | 'fail' | 'temperror'} result `pass`: signed by the domain it names. `fail`: not signed by it.
+ *   `temperror`: the check could not finish, so the sender is unverified.
+ * @property {string[]} from Puter's own domains that the `From` header names.
+ * @property {string[]} signedBy Every domain that signed the message, verified or not.
+ * @property {boolean} local `true` when Puter filed the message itself instead of receiving it from outside.
+ */
+
+/**
  * A fully parsed message, as returned by `get()`.
  *
  * @typedef {EmailSummary & {
@@ -78,6 +90,7 @@
  *   bcc: EmailAddress[],
  *   replyTo: EmailAddress[],
  *   headers: EmailHeader[],
+ *   senderAuth: EmailSenderAuth | null,
  *   text: string | null,
  *   html: string | null,
  *   attachments: EmailMessageAttachment[],
