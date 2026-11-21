@@ -350,29 +350,30 @@ window.scrollParentToChild = (parent, child) => {
  * 6. Name cannot exceed the maximum allowed length (as defined in window.max_item_name_length).
  */
 window.validate_fsentry_name = function (name) {
+    // The messages go to UIAlert, which encodes them itself.
     if ( ! name )
     {
-        throw { message: i18n('name_cannot_be_empty') };
+        throw { message: i18n('name_cannot_be_empty', [], false) };
     }
     else if ( ! window.isString(name) )
     {
-        throw { message: i18n('name_must_be_string') };
+        throw { message: i18n('name_must_be_string', [], false) };
     }
     else if ( name.includes('/') )
     {
-        throw { message: i18n('name_cannot_contain_slash') };
+        throw { message: i18n('name_cannot_contain_slash', [], false) };
     }
     else if ( name === '.' )
     {
-        throw { message: i18n('name_cannot_contain_period') };
+        throw { message: i18n('name_cannot_contain_period', [], false) };
     }
     else if ( name === '..' )
     {
-        throw { message: i18n('name_cannot_contain_double_period') };
+        throw { message: i18n('name_cannot_contain_double_period', [], false) };
     }
     else if ( name.length > window.max_item_name_length )
     {
-        throw { message: i18n('name_too_long', window.max_item_name_length) };
+        throw { message: i18n('name_too_long', [window.max_item_name_length], false) };
     }
     else
     {
