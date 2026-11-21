@@ -654,10 +654,18 @@ export class ChatCompletionDriver extends PuterDriver {
         this.#registerProviders();
         // Not awaited: a gateway catalog can take its whole fetch timeout, and
         // the drivers started after this one shouldn't wait for it.
-        this.#modelMapBuilt = this.#buildModelMap({ publishEachCatalog: true });
+        // A failed build keeps the map it had; nothing awaits the refreshes, so
+        // a rejection left alone would be an unhandled one.
+        const keepMap = (error: unknown) =>
+            console.warn(
+                `[ai-chat] model map build failed: ${(error as Error)?.message ?? error}`,
+            );
+        this.#modelMapBuilt = this.#buildModelMap({
+            publishEachCatalog: true,
+        }).catch(keepMap);
         // Gateway catalogs change under us; rebuild once they've expired.
         this.#modelMapRefresh = setInterval(() => {
-            void this.#buildModelMap();
+            void this.#buildModelMap().catch(keepMap);
         }, CATALOG_TTL_MS);
         this.#modelMapRefresh.unref?.();
     }
