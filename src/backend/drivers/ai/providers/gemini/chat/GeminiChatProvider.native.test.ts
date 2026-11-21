@@ -862,6 +862,48 @@ describe('gemini-4-argon output cap', () => {
                 } as ICompleteArguments),
             );
 
+        it.each([
+            ['2026-11-30T23:59:59.999Z', 3_500_000],
+            ['2026-12-01T00:00:00.000Z', 1_400_000],
+        ] as const)(
+            'prices the Gemini provider default at %s',
+            async (iso, grounding) => {
+                vi.setSystemTime(new Date(iso));
+                openAICreate.mockResolvedValueOnce({
+                    choices: [
+                        {
+                            message: {
+                                role: 'assistant',
+                                content: 'OK',
+                                extra_content: {
+                                    grounding_metadata: {
+                                        web_search_queries: ['query'],
+                                    },
+                                },
+                            },
+                            finish_reason: 'stop',
+                        },
+                    ],
+                    usage: {
+                        prompt_tokens: 10,
+                        completion_tokens: 2,
+                        total_tokens: 12,
+                    },
+                });
+                await viaDriver({
+                    provider: 'gemini',
+                    model: undefined,
+                    max_tokens: 5,
+                });
+                expect(openAICreate.mock.calls[0]![0].model).toBe('gemini-2.5-flash');
+                expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                    prompt_tokens: 300,
+                    completion_tokens: 500,
+                    grounding_requests: grounding,
+                });
+            },
+        );
+
         // The two-token prompt costs less than one output token.
         const heldOutputTokens = () =>
             Math.floor(
@@ -1316,6 +1358,66 @@ describe('gemini-4-argon tool calls', () => {
         expect(config.toolConfig).toEqual({
             functionCallingConfig: { mode: 'ANY' },
         });
+    });
+
+    it.each([
+        ['no function', { id: 'call_1', type: 'function', function: null }],
+        ['an entry that is not a call', true],
+    ])('rejects a replayed tool call with %s', async (_label, call) => {
+        await expect(
+            complete({
+                messages: [
+                    { role: 'user', content: 'Weather in Paris?' },
+                    { role: 'assistant', content: 'x', tool_calls: [call] },
+                ] as never,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'A tool call needs a function name',
+        });
+        expect(generateContent).not.toHaveBeenCalled();
+    });
+
+    it('treats a tool call id that is not text as one Google did not issue', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await complete({
+            messages: [
+                { role: 'user', content: 'Weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                        {
+                            id: { nested: true },
+                            type: 'function',
+                            function: { name: 'get_weather', arguments: '{}' },
+                        },
+                    ],
+                },
+            ] as never,
+        });
+        expect(requestOf().contents[1]).toEqual({
+            role: 'model',
+            parts: [{ functionCall: { name: 'get_weather', args: {} } }],
+        });
+    });
+
+    it('reads an image URL that is not text as an image that could not be loaded', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await complete({
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'image_url',
+                            image_url: { url: { toString: 'x' } },
+                        },
+                    ],
+                },
+            ] as never,
+        });
+        expect(generateContent).toHaveBeenCalledTimes(1);
     });
 
     it('rejects a tool result with no matching call', async () => {
@@ -1797,4 +1899,408 @@ describe('Gemini 4 Neon', () => {
         await neon({ max_tokens: 65_536 });
         expect(requestOf().config.maxOutputTokens).toBe(65_536);
     });
+});
+
+describe('Gemini audio metering', () => {
+    it.each([
+        ['gemini-2.5-flash', '2026-11-30T23:59:59.999Z', 100, 10],
+        ['gemini-2.5-flash', '2026-12-01T00:00:00.000Z', 30, 3],
+        ['gemini-2.5-flash-lite', '2026-11-30T23:59:59.999Z', 30, 3],
+        ['gemini-2.5-flash-lite', '2026-12-01T00:00:00.000Z', 30, 3],
+    ] as const)(
+        'prices audio for %s at %s',
+        async (model, iso, audio, cachedAudio) => {
+            generateContent.mockResolvedValueOnce(
+                textResponse('OK', {
+                    promptTokenCount: 110,
+                    candidatesTokenCount: 2,
+                    cachedContentTokenCount: 50,
+                    promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 100 }],
+                    cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 50 }],
+                }),
+            );
+            await complete(
+                {
+                    model,
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'input_audio',
+                                    input_audio: {
+                                        data: 'YXVkaW8=',
+                                        format: 'mp3',
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+                new Date(iso),
+            );
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                audio_tokens: 50 * audio,
+                cached_audio_tokens: 50 * cachedAudio,
+            });
+        },
+    );
+
+    it('meters audio input from streaming metadata', async () => {
+        generateContentStream.mockResolvedValueOnce(
+            asAsyncIterable([
+                textResponse('OK', {
+                    promptTokenCount: 110,
+                    candidatesTokenCount: 2,
+                    thoughtsTokenCount: 3,
+                    promptTokensDetails: [
+                        { modality: 'AUDIO', tokenCount: 100 },
+                    ],
+                }),
+            ]),
+        );
+        await runStream({
+            model: 'gemini-2.5-flash-lite',
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'input_audio',
+                            input_audio: { data: 'YXVkaW8=', format: 'mp3' },
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(recordSpy.mock.calls[0]![0]).toMatchObject({
+            prompt_tokens: 10,
+            audio_tokens: 100,
+            completion_tokens: 2,
+            thinking_tokens: 3,
+        });
+    });
+
+    it('rejects audio on a compatibility-only proxy', async () => {
+        await expect(
+            withTestActor(() =>
+                makeProvider({
+                    apiKey: 'test-key',
+                    apiBaseUrl: 'https://proxy.test/v1',
+                }).complete({
+                    model: 'gemini-2.5-flash',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'input_audio',
+                                    input_audio: {
+                                        data: 'YXVkaW8=',
+                                        format: 'mp3',
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(openAICreate).not.toHaveBeenCalled();
+    });
+
+    it('splits cached audio without charging it twice', async () => {
+        generateContent.mockResolvedValueOnce(
+            textResponse('OK', {
+                promptTokenCount: 110,
+                cachedContentTokenCount: 50,
+                candidatesTokenCount: 2,
+                promptTokensDetails: [{ modality: 'AUDIO', tokenCount: 100 }],
+                cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 50 }],
+            }),
+        );
+        await complete({
+            model: 'gemini-2.5-flash',
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'input_audio',
+                            input_audio: { data: 'YXVkaW8=', format: 'wav' },
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(recordSpy.mock.calls[0]![0]).toMatchObject({
+            prompt_tokens: 10,
+            audio_tokens: 50,
+            cached_tokens: 0,
+            cached_audio_tokens: 50,
+        });
+    });
+
+    it('rejects audio without a supported format before calling Google', async () => {
+        await expect(
+            complete({
+                model: 'gemini-2.5-flash',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'input_audio',
+                                input_audio: {
+                                    data: 'YXVkaW8=',
+                                    format: 'invalid',
+                                },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(generateContent).not.toHaveBeenCalled();
+    });
+
+    it.each(['gemini-2.5-flash', 'gemini-2.5-flash-lite'])(
+        'sends earlier audio and video with a text follow-up for %s',
+        async (model) => {
+            generateContent.mockResolvedValueOnce(textResponse('OK'));
+            await complete({
+                model,
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'input_audio',
+                                input_audio: {
+                                    data: 'YXVkaW8=',
+                                    format: 'mp3',
+                                },
+                            },
+                            {
+                                type: 'video_url',
+                                video_url: {
+                                    url: 'data:video/mp4;base64,dmlkZW8=',
+                                },
+                            },
+                        ],
+                    },
+                    { role: 'assistant', content: 'Noted' },
+                    { role: 'user', content: 'What was the code?' },
+                ],
+            });
+            expect(openAICreate).not.toHaveBeenCalled();
+            expect(generateContent.mock.calls[0]![0].contents).toEqual([
+                {
+                    role: 'user',
+                    parts: [
+                        {
+                            inlineData: {
+                                mimeType: 'audio/mpeg',
+                                data: 'YXVkaW8=',
+                            },
+                        },
+                        {
+                            inlineData: {
+                                mimeType: 'video/mp4',
+                                data: 'dmlkZW8=',
+                            },
+                        },
+                    ],
+                },
+                { role: 'model', parts: [{ text: 'Noted' }] },
+                { role: 'user', parts: [{ text: 'What was the code?' }] },
+            ]);
+        },
+    );
+
+    const AUDIO_USAGE = {
+        promptTokenCount: 4424,
+        candidatesTokenCount: 1,
+        promptTokensDetails: [
+            { modality: 'TEXT', tokenCount: 11 },
+            { modality: 'VIDEO', tokenCount: 3945 },
+            { modality: 'AUDIO', tokenCount: 468 },
+        ],
+    };
+
+    it.each([
+        [
+            'a video part',
+            { type: 'video_url', video_url: { url: 'data:video/mp4;base64,dmlkZW8=' } },
+            'video/mp4',
+        ],
+        [
+            'video in an image part',
+            { type: 'image_url', image_url: { url: 'data:video/mp4;base64,dmlkZW8=' } },
+            'video/mp4',
+        ],
+        [
+            'audio in an image part',
+            { type: 'image_url', image_url: { url: 'data:audio/wav;base64,dmlkZW8=' } },
+            'audio/wav',
+        ],
+    ])(
+        'meters the audio tokens of %s at the audio rate',
+        async (_label, part, mimeType) => {
+            generateContent.mockResolvedValueOnce(
+                textResponse('Dog', AUDIO_USAGE),
+            );
+            await complete({
+                model: 'gemini-2.5-flash-lite',
+                messages: [{ role: 'user', content: [part] }],
+            });
+            expect(openAICreate).not.toHaveBeenCalled();
+            expect(
+                generateContent.mock.calls[0]![0].contents[0].parts,
+            ).toEqual([{ inlineData: { mimeType, data: 'dmlkZW8=' } }]);
+            const [usage, , , costs] = recordSpy.mock.calls[0]!;
+            expect(usage).toMatchObject({
+                prompt_tokens: 3956,
+                audio_tokens: 468,
+            });
+            expect(costs.audio_tokens).toBe(468 * 30);
+        },
+    );
+
+    it('sends audio inlined from a Puter file natively', async () => {
+        generateContent.mockResolvedValueOnce(textResponse('OK'));
+        await complete({
+            model: 'gemini-2.5-flash',
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'input_audio',
+                            input_audio: {
+                                data: 'data:audio/mpeg;base64,YXVkaW8=',
+                                format: 'mpeg',
+                            },
+                        },
+                    ],
+                },
+            ],
+        });
+        expect(generateContent.mock.calls[0]![0].contents[0].parts).toEqual([
+            { inlineData: { mimeType: 'audio/mpeg', data: 'YXVkaW8=' } },
+        ]);
+    });
+
+    it('keeps video without audio on a compatibility-only proxy', async () => {
+        openAICreate.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'Dog' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 1 },
+        });
+        await withTestActor(() =>
+            makeProvider({
+                apiKey: 'test-key',
+                apiBaseUrl: 'https://proxy.test/v1',
+            }).complete({
+                model: 'gemini-2.5-flash',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'video_url',
+                                video_url: {
+                                    url: 'data:video/mp4;base64,dmlkZW8=',
+                                },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+        expect(openAICreate).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['audio/wav', 'video/mp4'])(
+        'rejects %s in an image part on a model that reads only images',
+        async (mimeType) => {
+            await expect(
+                complete({
+                    model: 'gemini-3-flash-preview',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'image_url',
+                                    image_url: {
+                                        url: `data:${mimeType};base64,AAAA`,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: `${mimeType.split('/')[0]} content is not supported by this model`,
+            });
+            expect(generateContent).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['gemini-2.5-flash', 'gemini-2.5-flash-lite'])(
+        'splits audio input for %s',
+        async (model) => {
+            generateContent.mockResolvedValueOnce(
+                textResponse('7391', {
+                    promptTokenCount: 1508,
+                    candidatesTokenCount: 2,
+                    thoughtsTokenCount: 20,
+                    promptTokensDetails: [
+                        { modality: 'TEXT', tokenCount: 9 },
+                        { modality: 'AUDIO', tokenCount: 1499 },
+                    ],
+                }),
+            );
+            await complete({
+                model,
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'input_audio',
+                                input_audio: {
+                                    data: 'YXVkaW8=',
+                                    format: 'mp3',
+                                },
+                            },
+                            { type: 'text', text: 'Reply with the code' },
+                        ],
+                    },
+                ],
+            });
+            expect(openAICreate).not.toHaveBeenCalled();
+            expect(
+                generateContent.mock.calls[0]![0].contents[0].parts[0],
+            ).toEqual({
+                inlineData: { mimeType: 'audio/mpeg', data: 'YXVkaW8=' },
+            });
+            const [usage, , , costs] = recordSpy.mock.calls[0]!;
+            expect(usage).toMatchObject({
+                prompt_tokens: 9,
+                audio_tokens: 1499,
+                completion_tokens: 2,
+                thinking_tokens: 20,
+            });
+            expect(costs.audio_tokens).toBe(
+                1499 * (model === 'gemini-2.5-flash' ? 100 : 30),
+            );
+        },
+    );
 });

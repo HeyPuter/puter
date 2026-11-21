@@ -10,6 +10,8 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 
 ## November 20, 2026
 
+- Changed [`puter.ai.chat()`](/AI/chat/) to reject audio with `bad_request` when the model does not support audio input. This covers audio parts, audio from a Puter file, and audio or video `data:` URLs sent in an image part.
+- Fixed video and Puter file audio input in [`puter.ai.chat()`](/AI/chat/) on Gemini models.
 - Added the `senderAuth` field to the [`EmailMessage`](/Objects/emailmessage/) from [`puter.email.get()`](/Email/get/). It holds the result of Puter's check that mail naming a Puter domain as its sender really came from that domain.
 
 ## November 18, 2026

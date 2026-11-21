@@ -227,6 +227,35 @@ describe('requiredInputModalities', () => {
         ).toEqual(['image', 'video']);
     });
 
+    it('reads audio and video data URLs by their MIME type, whatever part carries them', () => {
+        expect(
+            requiredInputModalities([
+                {
+                    content: [
+                        {
+                            type: 'image_url',
+                            image_url: { url: 'data:audio/wav;base64,AAAA' },
+                        },
+                    ],
+                },
+            ]),
+        ).toEqual(['audio']);
+        expect(
+            requiredInputModalities([
+                {
+                    content: [
+                        { image_url: 'data:VIDEO/mp4;base64,AAAA' },
+                        { type: 'image_url', image_url: { url: DATA_URL } },
+                        {
+                            type: 'video_url',
+                            video_url: { url: 'data:audio/mpeg;base64,AAAA' },
+                        },
+                    ],
+                },
+            ]),
+        ).toEqual(['video', 'image', 'audio']);
+    });
+
     it('ignores puter_path parts, string content and missing messages', () => {
         expect(
             requiredInputModalities([
