@@ -108,7 +108,7 @@ describe('wantsThumbnail', () => {
         ['a file outside the home folder', { path: '/bob/Pictures/photo.png' }, place, false],
         ['a file in the Trash', { path: `${HOME}/Trash/photo.png` }, place, false],
         ['a file in AppData', { path: `${HOME}/AppData/app/icon.png` }, place, false],
-        ['a kind the generator does not read', { name: 'notes.txt', type: 'text/plain' }, place, false],
+        ['a kind the generator does not read', { name: 'notes.rtf', type: 'application/rtf' }, place, false],
         ['a PDF in a list row', { name: 'doc.pdf', type: 'application/pdf' }, { ...place, listRow: true }, false],
         ['an image in a list row', {}, { ...place, listRow: true }, true],
         ['an image known only by its name', { name: 'photo.JPG', type: '' }, place, true],
@@ -124,6 +124,11 @@ describe('wantsThumbnail', () => {
         ['a Markdown file in a list row', { name: 'README.md', type: 'text/markdown' }, { ...place, listRow: true }, false],
         ['a JSON file in a grid', { name: 'data.json', type: 'application/json' }, place, true],
         ['a CSV file in a grid', { name: 'table.csv', type: 'text/csv' }, place, true],
+        ['a text file in a grid', { name: 'notes.txt', type: 'text/plain' }, place, true],
+        ['an HTML file in a grid', { name: 'index.html', type: 'text/html' }, place, true],
+        ['a YAML file known only by its name', { name: 'config.yml', type: '' }, place, true],
+        ['a text file in a list row', { name: 'notes.txt', type: 'text/plain' }, { ...place, listRow: true }, false],
+        ['a file typed as text in a list row', { name: 'notes.text', type: 'text/plain' }, { ...place, listRow: true }, false],
         ['a CSV file in a list row', { name: 'table.csv', type: 'text/csv' }, { ...place, listRow: true }, false],
         ['a CSV file typed as an Excel workbook', { name: 'table.csv', type: 'application/vnd.ms-excel' }, place, true],
         ['a Pages document in a grid', { name: 'letter.pages', type: '' }, place, true],
@@ -288,8 +293,8 @@ describe('createMissingThumbnailFiller', () => {
         const file = entry();
         filler.observe(row, file, place);
 
-        file.name = 'photo.txt';
-        file.type = 'text/plain';
+        file.name = 'photo.rtf';
+        file.type = 'application/rtf';
         show(row);
         await vi.advanceTimersByTimeAsync(MISSING_THUMBNAIL_SETTLE_MS);
         expect(downloads).toHaveLength(0);

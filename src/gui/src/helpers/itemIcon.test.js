@@ -18,7 +18,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('item_icon for a file with a thumbnail', () => {
-    it.each(['photo.jpg', 'clip.mp4', 'art.psd', 'report.pdf', 'letter.docx', 'budget.xlsx', 'app.js', 'site.css', 'README.md', 'data.json', 'table.csv'])(
+    it.each(['photo.jpg', 'clip.mp4', 'art.psd', 'report.pdf', 'letter.docx', 'budget.xlsx', 'app.js', 'site.css', 'README.md', 'data.json', 'table.csv', 'notes.txt', 'config.yml', 'index.html'])(
         'shows the thumbnail of %s where there is room for it', async (name) => {
             expect(await item_icon(entry(name))).toEqual({ image: thumbnail, type: 'thumb' });
         },
@@ -46,12 +46,21 @@ describe('item_icon for a file with a thumbnail', () => {
             .toEqual({ image: icon, type: 'icon' });
     });
 
-    it.each(['letter.pages', 'budget.numbers', 'deck.key', 'letter.odt', 'budget.ods', 'deck.odp'])(
+    it.each(['letter.pages', 'budget.numbers', 'deck.key', 'letter.odt', 'budget.ods', 'deck.odp', 'notes.txt', 'config.yaml', 'index.htm'])(
         'shows a type icon for %s in a list row', async (name) => {
             expect(await item_icon(entry(name), { listRow: true })).toMatchObject({ type: 'icon' });
             expect(await item_icon(entry(name))).toEqual({ image: thumbnail, type: 'thumb' });
         },
     );
+
+    it.each([
+        ['server.log', 'text/plain; charset=utf-8'],
+        ['notes.text', 'text/plain'],
+        ['page.shtml', 'text/html; charset=utf-8'],
+    ])('shows a type icon for %s, a page drawn from text of type %s, in a list row', async (name, type) => {
+        expect(await item_icon(entry(name, { type }), { listRow: true })).toMatchObject({ type: 'icon' });
+        expect(await item_icon(entry(name, { type }))).toEqual({ image: thumbnail, type: 'thumb' });
+    });
 
     it('keeps the thumbnail of a folder named like a document in a list row', async () => {
         expect(await item_icon(entry('scans.pdf', { is_dir: true }), { listRow: true })).toEqual({ image: thumbnail, type: 'thumb' });

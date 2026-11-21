@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFlac, createM4a, createMp3, flacPicture, id3Picture } from '../../../tests/fixtures/audio.js';
-import { createRecordingCanvas } from '../../../tests/fixtures/canvas.js';
+import { createRecordingCanvas, linesOf } from '../../../tests/fixtures/canvas.js';
 import { createDoc } from '../../../tests/fixtures/doc.js';
 import { createDocx, createZip } from '../../../tests/fixtures/docx.js';
 import { createHeif } from '../../../tests/fixtures/heif.js';
@@ -943,7 +943,7 @@ describe('HEIC photo thumbnails', () => {
 });
 
 
-describe('source code and Markdown thumbnails', () => {
+describe('source code, Markdown and plain text thumbnails', () => {
     let drawn;
     beforeEach(() => {
         const canvas = createRecordingCanvas();
@@ -964,6 +964,17 @@ describe('source code and Markdown thumbnails', () => {
         ['notes', 'text/markdown', '11px sans-serif'],
         ['data.json', '', '10px monospace'],
         ['data', 'application/json', '10px monospace'],
+        ['notes.txt', '', '10px monospace'],
+        ['notes', 'text/plain', '10px monospace'],
+        ['config.yml', '', '10px monospace'],
+        ['CONFIG.YAML', '', '10px monospace'],
+        ['config', 'application/yaml', '10px monospace'],
+        ['config', 'text/x-yaml', '10px monospace'],
+        ['index.html', '', '10px monospace'],
+        ['page.htm', '', '10px monospace'],
+        ['page', 'text/html', '10px monospace'],
+        // Browsers type some of these as plain text, and their names still decide.
+        ['README.md', 'text/plain', '11px sans-serif'],
     ])('hands the image generator a page drawn from %s (%s)', async (name, type, font) => {
         const defaultGenerator = vi.fn(async () => thumbnail);
         const file = new File(['plain words'], name, { type });
@@ -987,6 +998,59 @@ describe('source code and Markdown thumbnails', () => {
         expect(drawn.lines.length).toBeGreaterThan(0);
     });
 
+    it.each(['index.html', 'config.yml', 'notes.txt'])('draws %s in one color', async (name) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const text = '<p class="x">// return 1, "two"</p>\nkey: true # done\n';
+        expect(await createUploadThumbnailGenerator()(new File([text], name), { defaultGenerator })).toBe(thumbnail);
+        expect(drawn.text.length).toBeGreaterThan(5);
+        expect(new Set(drawn.text.map(word => word.color)).size).toBe(1);
+    });
+
+    it('wraps a long line of plain text inside the page, and runs one of YAML or HTML off it', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const text = `${'words '.repeat(30)}\nend\n`;
+        const generate = createUploadThumbnailGenerator();
+        await generate(new File([text], 'notes.txt'), { defaultGenerator });
+        const wrapped = linesOf(drawn);
+        expect(wrapped.length).toBeGreaterThan(2);
+        expect(Math.max(...drawn.text.map(word => word.x + word.text.length * 5))).toBeLessThanOrEqual(255 - 18);
+        for ( const name of ['config.yml', 'index.html'] ) {
+            drawn.text.length = 0;
+            await generate(new File([text], name), { defaultGenerator });
+            expect(linesOf(drawn).map(line => line.text.split(' ')[0])).toEqual(['words', 'end']);
+            expect(Math.max(...drawn.text.map(word => word.x + word.text.length * 5))).toBeGreaterThan(255 - 18);
+        }
+    });
+
+    it('starts each right-to-left line of plain text from the right', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        await createUploadThumbnailGenerator()(new File(['שלום עולם\nhello world\n'], 'notes.txt'), { defaultGenerator });
+        const [hebrew, latin] = linesOf(drawn);
+        const [first, second] = drawn.text.filter(word => word.y === hebrew.y && word.text.trim());
+        expect(first.text).toBe('שלום');
+        expect(first.x).toBeGreaterThan(second.x);
+        expect(latin).toMatchObject({ text: 'hello world', x: 18 });
+    });
+
+    it.each([
+        ['little-endian', [0xFF, 0xFE], 'utf16le'],
+        ['big-endian', [0xFE, 0xFF], 'utf16be'],
+    ])('draws text saved as %s UTF-16 with a byte order mark', async (_order, mark, encoding) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const units = [...'plain words\r\nmore'].map(character => character.charCodeAt(0));
+        const bytes = units.flatMap(unit => encoding === 'utf16le' ? [unit & 0xFF, unit >> 8] : [unit >> 8, unit & 0xFF]);
+        const file = new File([new Uint8Array([...mark, ...bytes])], 'notes.txt', { type: 'text/plain' });
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(linesOf(drawn).map(line => line.text)).toEqual(['plain words', 'more']);
+    });
+
+    it('draws a CSV file typed as plain text as a sheet', async () => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const file = new File(['plain,words'], 'table.csv', { type: 'text/plain' });
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(drawn.lines.length).toBeGreaterThan(0);
+    });
+
     it('colors a file by the language its name gives it', async () => {
         const defaultGenerator = vi.fn(async () => thumbnail);
         const generate = createUploadThumbnailGenerator();
@@ -1002,7 +1066,8 @@ describe('source code and Markdown thumbnails', () => {
     it.each([
         ['a blank file', new File(['\n\n'], 'app.js')],
         ['a file that is not text', new File(['\0\0\0\0'], 'README.md')],
-        ['other text files', new File(['plain words'], 'notes.txt', { type: 'text/plain' })],
+        ['other text files', new File(['plain words'], 'server.conf')],
+        ['a text file that is not text', new File(['\0\0\0\0'], 'notes.txt', { type: 'text/plain' })],
         ['a CSV of empty fields', new File([',,\n,,\n'], 'table.csv')],
         ['an old Excel workbook, the type Windows gives a CSV', new File(['a,b'], 'book.xls', { type: 'application/vnd.ms-excel' })],
         ['TypeScript, which browsers call a video', new File(['const a = 1;'], 'app.ts', { type: 'video/mp2t' })],

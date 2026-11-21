@@ -1,6 +1,6 @@
 import { defaultThumbnailGenerator } from '../../../../puter-js/src/modules/FileSystem/operations/upload/thumbnails.js';
 import { readAudioCover } from './audio.js';
-import { readCodePreview } from './code.js';
+import { readCodePreview, readPlainTextPreview } from './code.js';
 import {
     AUDIO_BATCH_TIMEOUT_MS,
     HEIF_BATCH_TIMEOUT_MS,
@@ -30,6 +30,8 @@ import {
     MARKDOWN_NAME,
     MARKDOWN_TYPE,
     PDF_NAME,
+    PLAIN_TEXT_NAME,
+    PLAIN_TEXT_TYPE,
     PRESENTATION_NAME,
     PRESENTATION_TYPE,
     PSD_NAME,
@@ -69,6 +71,8 @@ const readTextPreview = (file) => {
     if ( language ) return readCodePreview(file, language);
     if ( CSV_TYPE.test(file.type) || CSV_NAME.test(name) ) return readCsvPreview(file);
     if ( MARKDOWN_TYPE.test(file.type) || MARKDOWN_NAME.test(name) ) return readMarkdownPreview(file);
+    // Checked last, since browsers type some Markdown and CSV files as plain text.
+    if ( PLAIN_TEXT_TYPE.test(file.type) || PLAIN_TEXT_NAME.test(name) ) return readPlainTextPreview(file);
     return Promise.resolve(undefined);
 };
 

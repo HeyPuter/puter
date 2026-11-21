@@ -18,10 +18,19 @@ export const PSD_NAME = /\.ps[db]$/i;
 export const HEIF_NAME = /\.(heic|heif|hif)$/i;
 export const AUDIO_NAME = /\.(mp3|m4a|m4b|flac)$/i;
 export const VIDEO_NAME = /\.(mp4|m4v|mov|webm)$/i;
-// Source code, by language. `code.js` holds how each language is colored.
-export const CODE_NAMES = { javascript: /\.[cm]?js$/i, css: /\.css$/i, json: /\.json$/i };
+// Source code, by language. `code.js` holds how each language is colored; one it has no pattern for is drawn in one
+// color.
+export const CODE_NAMES = {
+    javascript: /\.[cm]?js$/i,
+    css: /\.css$/i,
+    json: /\.json$/i,
+    yaml: /\.ya?ml$/i,
+    html: /\.html?$/i,
+};
 export const MARKDOWN_NAME = /\.(md|markdown)$/i;
 export const CSV_NAME = /\.csv$/i;
+// Plain text, which wraps as a text editor wraps it.
+export const PLAIN_TEXT_NAME = /\.txt$/i;
 
 export const PSD_TYPE = 'image/vnd.adobe.photoshop';
 export const WORD_TYPE = /^application\/(msword$|vnd\.ms-word\.|vnd\.openxmlformats-officedocument\.wordprocessingml\.)/;
@@ -37,10 +46,13 @@ export const CODE_TYPES = {
     javascript: /^(text|application)\/(x-)?javascript$/,
     css: /^text\/css$/,
     json: /^application\/json$/,
+    yaml: /^(text|application)\/(x-)?yaml$/,
+    html: /^text\/html$/,
 };
 export const MARKDOWN_TYPE = /^text\/(x-)?markdown$/;
 // With Excel installed, Windows types a CSV as `application/vnd.ms-excel`, an old workbook's type, so its name decides.
 export const CSV_TYPE = /^text\/csv$/;
+export const PLAIN_TEXT_TYPE = /^text\/plain$/;
 // The pictures browsers decode. Many other files are typed `image/` (TIFF scans, CAD drawings, DjVu books) and none of
 // them can be drawn, so a file is only worth downloading for a thumbnail when it's one of these.
 export const DECODABLE_IMAGE_TYPE = /^image\/(png|apng|jpeg|gif|webp|bmp|avif|svg\+xml|x-icon|vnd\.microsoft\.icon)$/;
@@ -52,13 +64,15 @@ export const DECODABLE_IMAGE_NAME = /\.(png|jpe?g|jfif|gif|webp|bmp|avif)$/i;
  * it is a blank square.
  *
  * @param {string} [name]
+ * @param {string} [type] A text file drawn by its type alone, such as a `.log` typed `text/plain`, is a page too. The
+ *     type may carry parameters, as `text/plain; charset=utf-8` does.
  * @returns {boolean}
  */
-export const isPageDocument = (name = '') =>
+export const isPageDocument = (name = '', type = '') =>
     [
         PDF_NAME, WORD_NAME, SPREADSHEET_NAME, PRESENTATION_NAME, IWORK_NAME, OPEN_DOCUMENT_NAME, CSV_NAME, MARKDOWN_NAME,
-        ...Object.values(CODE_NAMES),
-    ].some(pattern => pattern.test(name));
+        PLAIN_TEXT_NAME, ...Object.values(CODE_NAMES),
+    ].some(pattern => pattern.test(name)) || !!leadingBytesRead(name, type.split(';')[0].trim());
 
 /**
  * Whether a file is one of the packages that carry a picture of themselves, made by the editor that saved them.
@@ -90,7 +104,8 @@ export const codeLanguage = (name = '', type = '') => Object.keys(CODE_NAMES)
  */
 export const leadingBytesRead = (name = '', type = '') =>
     codeLanguage(name, type) || MARKDOWN_TYPE.test(type) || MARKDOWN_NAME.test(name) ||
-    CSV_TYPE.test(type) || CSV_NAME.test(name) ? TEXT_MAX_READ_BYTES : undefined;
+    CSV_TYPE.test(type) || CSV_NAME.test(name) ||
+    PLAIN_TEXT_TYPE.test(type) || PLAIN_TEXT_NAME.test(name) ? TEXT_MAX_READ_BYTES : undefined;
 
 /**
  * Whether the thumbnail generator has a reader for a file of this name and type that works in every browser. It may
