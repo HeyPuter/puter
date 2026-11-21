@@ -333,6 +333,44 @@ describe('FilePicker keyboard focus', () => {
         expect(document.activeElement).toBe(dialog.$('.savefiledialog-filename')[0]);
     });
 
+    it('returns to the listing when the path field closes', async () => {
+        window.puter.fs.stat = vi.fn(async ({ path }) => ({ path, is_dir: true }));
+        const dialog = await openDialog({ is_openFileDialog: true });
+        const files = dialog.$('.files')[0];
+        files.focus();
+
+        press('/', 191);
+        const editor = dialog.$('.path-editor')[0];
+        expect(document.activeElement).toBe(editor);
+        jQuery(editor).val(`${DESKTOP}/Kids`).trigger(jQuery.Event('keydown', { key: 'Enter', which: 13 }));
+        await settle();
+        expect(dialog.el_window.getAttribute('data-path')).toBe(`${DESKTOP}/Kids`);
+        expect(document.activeElement).toBe(files);
+
+        press('/', 191);
+        jQuery(editor).trigger(jQuery.Event('keydown', { key: 'Escape', which: 27 }));
+        expect(document.activeElement).toBe(files);
+    });
+
+    it('returns to the listing when Escape cancels a rename, and the next rename goes through', async () => {
+        window.rename_file = vi.fn();
+        const dialog = await openDialog({ is_openFileDialog: true });
+        const $editor = rowNamed(dialog, 'notes.txt').find('.item-name-editor');
+        const edit = (name) => {
+            $editor.show().addClass('item-name-editor-active').val(name);
+            $editor[0].focus();
+        };
+
+        edit('dropped.txt');
+        $editor.trigger(jQuery.Event('keydown', { key: 'Escape', which: 27 }));
+        expect(window.rename_file).not.toHaveBeenCalled();
+        expect(document.activeElement).toBe(dialog.$('.files')[0]);
+
+        edit('kept.txt');
+        $editor.trigger(jQuery.Event('keydown', { key: 'Enter', which: 13 }));
+        expect(window.rename_file).toHaveBeenCalledTimes(1);
+    });
+
     it('returns to the listing when Enter ends a rename', async () => {
         window.rename_file = vi.fn();
         const dialog = await openDialog({ is_openFileDialog: true });

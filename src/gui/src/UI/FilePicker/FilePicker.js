@@ -965,7 +965,11 @@ export default class FilePicker {
         // Hidden, the crumbs lost their scroll position.
         const crumbs = $path.find('.path-breadcrumbs')[0];
         if ( crumbs ) crumbs.scrollLeft = crumbs.scrollWidth;
-        if ( refocus ) this.focusListing();
+        if ( refocus ) {
+            // Hidden, the field still holds the focus the listing won't take from a field.
+            $path.find('.path-editor')[0]?.blur();
+            this.focusListing();
+        }
     }
 
     /**
@@ -1245,6 +1249,8 @@ export default class FilePicker {
                 e.preventDefault();
                 e.stopPropagation();
                 cancelled = true;
+                // Blurred first: the listing won't take the focus from a field.
+                el_editor.blur();
                 close();
                 this.focusListing();
             }
