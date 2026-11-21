@@ -1214,6 +1214,9 @@ export default class FilePicker {
             onUploaded: (paths) => {
                 if ( this.currentPath !== folder || ! this.$root[0].isConnected ) return;
                 this.refresh({ selectPaths: paths });
+                // From the listing, Enter opens the uploaded files; from Upload it asks for more.
+                const active = document.activeElement;
+                if ( ! active || active === document.body || this.el_window.contains(active) ) this.focusListing();
             },
         });
     }

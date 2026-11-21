@@ -333,6 +333,18 @@ describe('FilePicker keyboard focus', () => {
         expect(document.activeElement).toBe(dialog.$('.savefiledialog-filename')[0]);
     });
 
+    it('moves from Upload to the listing once the upload is in', async () => {
+        window.upload_items = vi.fn((_items, _folder, { onUploaded }) => onUploaded([`${DESKTOP}/photo.png`]));
+        const dialog = await openDialog({ is_openFileDialog: true });
+        dialog.$('.window-filedialog-upload-here')[0].focus();
+
+        dialog.picker.upload([new File(['x'], 'photo.png')]);
+        await settle();
+
+        expect(dialog.picker.selectedEntries().map(e => e.name)).toEqual(['photo.png']);
+        expect(document.activeElement).toBe(dialog.$('.files')[0]);
+    });
+
     it('returns to the listing when the path field closes', async () => {
         window.puter.fs.stat = vi.fn(async ({ path }) => ({ path, is_dir: true }));
         const dialog = await openDialog({ is_openFileDialog: true });
