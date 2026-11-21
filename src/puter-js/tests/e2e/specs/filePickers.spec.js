@@ -120,6 +120,24 @@ test.describe('file pickers (env=app)', () => {
         await expect(logged(appFrame).last()).toHaveText(`file:~/Desktop/${name}`);
     });
 
+    test('Enter picks the selected file after a click on a sidebar folder or a crumb', async ({ page }) => {
+        const { picker, appFrame } = await openPicker(page, appName);
+
+        // The clicked folder keeps the focus until the arrows move the selection.
+        await picker.locator('.directories [data-folder="Desktop"]').click();
+        await expect(row(picker, FOLDER)).toBeVisible();
+        await picker.locator('.path-breadcrumbs .dirname').last().click();
+        await expect(row(picker, FOLDER)).toBeVisible();
+        await page.keyboard.type('picker-e2e-n');
+        await expect(row(picker, TEXT_FILE)).toHaveClass(/selected/);
+        await picker.locator('.directories [data-folder="Desktop"]').focus();
+        await page.keyboard.press('ArrowDown');
+        await expect(row(picker, OTHER_FILE)).toHaveClass(/selected/);
+
+        await page.keyboard.press('Enter');
+        await expect(logged(appFrame).last()).toHaveText(`file:~/Desktop/${OTHER_FILE}`);
+    });
+
     test('typing a name selects it', async ({ page }) => {
         const { picker } = await openPicker(page, appName);
 
