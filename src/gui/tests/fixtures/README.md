@@ -35,6 +35,12 @@ by loading its output with the Python `openpyxl` package.
 master, with a theme and optional media. It was checked by loading its output
 with the Python `python-pptx` package.
 
+`packages.js` builds EPUBs with a cover declared either way. Pages, Numbers,
+Keynote, OpenDocument and Sketch files are plain archives the tests make with
+`createZip()`. The entry names they use were checked against real files: Pages,
+Numbers and Keynote documents, OpenDocument files written by LibreOffice, and
+EPUBs, all from the Apache Tika test corpus.
+
 `heif.js` builds HEIF photos box by box around one real HEVC picture of
 128 × 64 pixels, red on its left half and blue on its right. The picture and its
 decoder configuration were taken from a file written by macOS:

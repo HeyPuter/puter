@@ -310,6 +310,25 @@ describe('get()', () => {
         expect(msg.path).toBe(`~/.mail/objects/2024-03-15/${ ids.d15a }--${ toB64Url('c') }`);
     });
 
+    it('has no sender check on a message Puter recorded none for', async () => {
+        const { fs } = fakeFs(inboxTree, files);
+        const email = moduleOver(fs);
+        expect((await email.get.call(email, ids.d15a)).senderAuth).toBeNull();
+    });
+
+    it.each([
+        ['pass; from=puter.com; signed-by=puter.com,amazonses.com', { result: 'pass', from: ['puter.com'], signedBy: ['puter.com', 'amazonses.com'], local: false }],
+        ['fail; from=puter.com; signed-by=none', { result: 'fail', from: ['puter.com'], signedBy: [], local: false }],
+        ['temperror; from=puter.com,puter.email; signed-by=none; via=local', { result: 'temperror', from: ['puter.com', 'puter.email'], signedBy: [], local: true }],
+        ['maybe; from=puter.com; signed-by=puter.com', null],
+    ])('reads the sender check `%s`', async (value, expected) => {
+        // Puter's header is the first one; a later copy doesn't count.
+        const stamped = `X-Puter-Sender-Auth: ${ value }\r\n${ raw.replace('Subject:', 'X-Puter-Sender-Auth: pass; from=evil.test; signed-by=evil.test\r\nSubject:') }`;
+        const { fs } = fakeFs(inboxTree, { [Object.keys(files)[0]]: stamped });
+        const email = moduleOver(fs);
+        expect((await email.get.call(email, ids.d15a)).senderAuth).toEqual(expected);
+    });
+
     it('returns the raw blob when asked', async () => {
         const { fs } = fakeFs(inboxTree, files);
         const email = moduleOver(fs);

@@ -149,7 +149,6 @@ const ru = {
         ok: 'OK',
         open: 'Открыть',
         open_in_new_tab: 'Открыть в новой вкладке',
-        open_in_new_window: 'Открыть в новом окне',
         open_with: 'Открыть с помощью',
         original_name: 'Оригинальное имя',
         original_path: 'Изначальный путь',

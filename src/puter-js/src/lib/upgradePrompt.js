@@ -4,6 +4,7 @@
 // prompt AND reject, never prompt instead of rejecting.
 
 import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
+import { canTopUp } from './topUp.js';
 
 /** @typedef {import('./types.js').UpgradeReason} UpgradeReason */
 /** @typedef {import('./types.js').UpgradePromptContext} UpgradePromptContext */
@@ -26,7 +27,8 @@ import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
  *
  * @typedef {{
  *   env?: string,
- *   ui?: { requestUpgrade: Function, canShowUpgradeFrame_?: () => boolean, upgradeFrameShowing_?: () => boolean, topUpShowing_?: () => boolean },
+ *   ui?: { requestUpgrade: Function, canShowUpgradeFrame_?: () => boolean, upgradeFrameShowing_?: () => boolean, topUpShowing_?: () => boolean, showTopUp_?: () => Promise<unknown> },
+ *   whoami?: { subscribed?: unknown, team?: { uid?: unknown } | null } | null,
  *   authToken?: string,
  *   appID?: string,
  *   getAppIDFromAuthToken?: (token: unknown) => string | null,
@@ -110,7 +112,9 @@ const messageFor = (reason, error, context) => {
  * never answers). The SDK's own dialog covers storage refusals everywhere
  * else - the desktop leans on it for those - and funding / plan refusals on
  * websites only. On a first-party page its Upgrade button shows the upgrade
- * in a frame over the page. The error is not consumed; callers still reject.
+ * in a frame over the page. For an account with a plan that ran out of
+ * credit, the dialog leads with Add Credits, which shows the top-up. The
+ * error is not consumed; callers still reject.
  *
  * @param {unknown} error The rejection, in whatever shape it arrived.
  * @param {UpgradePromptContext} [context] Which SDK method was refused and,
@@ -135,11 +139,16 @@ export const promptIfUpgradeRequired = (error, context = {}, puter = globalThis.
         // A first-party page shows the upgrade in a frame over itself
         // instead of a dashboard tab.
         const framed = puter?.env === 'web' && puter.ui?.canShowUpgradeFrame_?.() === true;
+        // Credit is what ran out, and an account with a plan can buy more
+        // without changing the plan.
+        const topUp = reason === 'funds' && puter?.env === 'web' &&
+            typeof puter.ui?.showTopUp_ === 'function' && canTopUp(puter.whoami);
         showUsageLimitDialog(message, {
             title: TITLES[reason],
             method,
             reason,
             appID: appIDOf(puter),
+            ...(topUp ? { onTopUp: () => void puter.ui.showTopUp_() } : {}),
             ...(framed ? {
                 // The page may have stopped being able to frame it, such as
                 // by signing out, since the dialog opened.

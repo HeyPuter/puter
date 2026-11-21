@@ -50,6 +50,12 @@ describe('UIDashboardDialog', () => {
         expect($('.dashboard-dialog-message').html()).toBe('hello');
     });
 
+    it('stacks over every window only when asked to', () => {
+        UIDashboardDialog({ message: 'm' });
+        UIDashboardDialog({ message: 'm', aboveWindows: true });
+        expect(overlay().map((_, el) => $(el).hasClass('dashboard-dialog-above-windows')).get()).toEqual([false, true]);
+    });
+
     it('resolves with the pressed button value', async () => {
         const p = UIDashboardDialog({
             message: 'm',

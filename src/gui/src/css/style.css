@@ -2285,7 +2285,7 @@ label {
     padding-left: 10px;
 }
 
-.send-conf-email, .conf-email-log-out {
+.send-conf-email, .change-conf-email, .conf-email-log-out {
     cursor: pointer;
 }
 
@@ -2314,7 +2314,7 @@ label {
     font-weight: 300;
 }
 
-.send-conf-email:hover, .conf-email-log-out:hover {
+.send-conf-email:hover, .change-conf-email:hover, .conf-email-log-out:hover {
     text-decoration: underline;
 }
 
