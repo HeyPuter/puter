@@ -12408,6 +12408,16 @@ span[data-avatar-user] > .avatar-picture {
     min-width: 0;
 }
 
+/* On a phone the Files tab's crumbs clear the dashboard's menu button;
+   a picker has none beside them. */
+@media (max-width: 480px) {
+    .file-picker .header .path-breadcrumbs,
+    .file-picker .header .path-editor,
+    .file-picker .header .path.path-editing::after {
+        margin-left: 0;
+    }
+}
+
 /* No footer under the listing here. */
 .file-picker .files {
     margin-bottom: 0;
