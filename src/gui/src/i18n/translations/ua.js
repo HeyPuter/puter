@@ -140,7 +140,6 @@ const ua = {
         ok: 'Так',
         open: 'Відчинити',
         open_in_new_tab: 'Відчинити у Новій Вкладці',
-        open_in_new_window: 'Відчинити у Новому Вікні',
         open_with: 'Відчинити за допомогою',
         original_name: "Оригінальне Ім'я",
         original_path: 'Оригінальний шлях',

@@ -137,7 +137,6 @@ const tr = {
         ok: 'Tamam',
         open: 'Aç',
         open_in_new_tab: 'Yeni Sekmede Aç',
-        open_in_new_window: 'Yeni Pencerede Aç',
         open_with: 'Şununla Aç',
         original_name: 'Orijinal Ad',
         original_path: 'Orijinal Yol',
