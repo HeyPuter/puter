@@ -152,13 +152,17 @@ const askAndDeleteWorkers = async (paths) => {
     const results = await Promise.allSettled(workers.map(w => puter.workers.delete(w.name)));
     forgetWorkers();
     // A worker deleted elsewhere since the list was read is already gone.
-    const failed = results.findIndex(r => r.status === 'rejected' && r.reason?.code !== 'not_found');
-    if ( failed !== -1 ) {
-        const reason = results[failed].reason;
+    const failures = workers
+        .map((worker, i) => ({ worker, result: results[i] }))
+        .filter(({ result }) => result.status === 'rejected' && result.reason?.code !== 'not_found');
+    if ( failures.length > 0 ) {
+        const reasonOf = ({ result }) => html_encode(result.reason?.message ?? i18n('error_unknown_cause', [], false));
+        const message = failures.length === 1
+            ? `<p>${i18n('trash_worker_delete_failed', [failures[0].worker.name])}</p><p>${reasonOf(failures[0])}</p>`
+            : `<p>${i18n('trash_workers_delete_failed')}</p><ul>${failures.map(f => `<li><strong>${html_encode(f.worker.name)}</strong>: ${reasonOf(f)}</li>`).join('')}</ul>`;
         await UIDashboardDialog({
-            title: i18n('trash_worker_delete_failed_title', [], false),
-            message: `<p>${i18n('trash_worker_delete_failed', [workers[failed].name])}</p>`
-                + `<p>${html_encode(reason?.message ?? i18n('error_unknown_cause', [], false))}</p>`,
+            title: i18n(failures.length === 1 ? 'trash_worker_delete_failed_title' : 'trash_workers_delete_failed_title', [], false),
+            message,
             tone: 'error',
             aboveWindows: true,
         });

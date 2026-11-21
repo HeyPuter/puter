@@ -238,6 +238,36 @@ describe('confirmTrashingWorkers', () => {
         expect(workers.delete).toHaveBeenCalledTimes(2);
     });
 
+    it('names every worker that could not be deleted', async () => {
+        stubWorkers([API, CRON, { name: 'mail', file_path: '/alice/Projects/mail.js' }], async (name) => {
+            if ( name === 'api' ) return true;
+            if ( name === 'mail' ) throw { message: 'Worker not found', code: 'not_found' };
+            throw { message: `Could not delete ${name}`, code: 'internal' };
+        });
+        const result = confirmTrashingWorkers(['/alice/Projects']);
+        await settle();
+        await press('delete');
+        expect(dialog().find('.dashboard-dialog-title').text()).toBe('trash_worker_delete_failed_title');
+        await press('ok');
+        await expect(result).resolves.toBe(false);
+
+        const workers = stubWorkers([API, CRON, { name: 'mail', file_path: '/alice/Projects/mail.js' }], async (name) => {
+            if ( name === 'cron' ) return true;
+            throw { message: `Could not delete <${name}>`, code: 'internal' };
+        });
+        const again = confirmTrashingWorkers(['/alice/Projects']);
+        await settle();
+        await press('delete');
+
+        expect(dialog().find('.dashboard-dialog-title').text()).toBe('trash_workers_delete_failed_title');
+        expect(dialog().find('.dashboard-dialog-message p').text()).toBe('trash_workers_delete_failed');
+        expect(dialog().find('li').map((_, el) => $(el).text()).get())
+            .toEqual(['api: Could not delete <api>', 'mail: Could not delete <mail>']);
+        await press('ok');
+        await expect(again).resolves.toBe(false);
+        expect(workers.delete).toHaveBeenCalledTimes(3);
+    });
+
     it('goes ahead when a worker was already deleted elsewhere', async () => {
         const workers = stubWorkers([API, CRON], async (name) => {
             if ( name === 'cron' ) throw { message: 'Worker not found', code: 'not_found' };
