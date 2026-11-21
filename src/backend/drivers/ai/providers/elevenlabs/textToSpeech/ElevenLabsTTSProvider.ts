@@ -24,6 +24,7 @@ import type { DriverStreamResult } from '../../../../meta.js';
 import {
     upstreamBodyStream,
     upstreamFetch,
+    upstreamJson,
 } from '../../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../shared/testMode.js';
 import type {
@@ -144,12 +145,14 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
     private async fetchVoices(): Promise<ITTSVoice[]> {
         const res = await this.request('/v1/voices');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data: any = await res.json();
-        const voices = Array.isArray(data?.voices)
-            ? data.voices
-            : Array.isArray(data)
-              ? data
-              : [];
+        const data: any = await upstreamJson('elevenlabs', 'ElevenLabs', res);
+        const voices = (
+            Array.isArray(data?.voices)
+                ? data.voices
+                : Array.isArray(data)
+                  ? data
+                  : []
+        ).filter((voice: unknown) => voice && typeof voice === 'object');
 
         return (
             voices
@@ -216,7 +219,11 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
             if (pageToken) params.set('next_page_token', pageToken);
             const res = await this.request(`/v2/voices?${params}`);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const data: any = await res.json();
+            const data: any = await upstreamJson(
+                'elevenlabs',
+                'ElevenLabs',
+                res,
+            );
             for (const entry of Array.isArray(data?.voices)
                 ? data.voices
                 : []) {
