@@ -612,11 +612,18 @@ describe('BytePlusVideoProvider.generate metering', () => {
         });
     const outstanding = (actor: Actor) =>
         server.stores.creditHold.outstanding(actor.user!.uuid);
+    // The hold is taken against the real balance, not the stubbed read.
+    const fund = (actor: Actor) =>
+        server.services.metering.updateAddonCredit(
+            actor.user!.uuid,
+            1_000_000_000,
+        );
 
     it('holds the clamped clip while the task runs and releases it after', async () => {
         // seedance 2.0 mini @720p: 7.56 cents/s.
         const perSecondMicroCents = 21_600 * 0.00035 * 1_000_000;
         const actor = holdUser('hold');
+        await fund(actor);
         let heldWhilePolling = -1;
         fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 'cgt-test-1' }));
         fetchSpy.mockImplementationOnce(async () => {
@@ -635,6 +642,7 @@ describe('BytePlusVideoProvider.generate metering', () => {
 
     it('releases the hold when the task fails', async () => {
         const actor = holdUser('fail');
+        await fund(actor);
         mockTaskFlow({
             id: 'cgt-test-1',
             status: 'failed',

@@ -86,25 +86,31 @@ export async function capSecondsToRemainingCredits({
     }
 
     // Usage is recorded at the factored rate, so the clamp prices at it too.
-    const [factor, remaining] = await Promise.all([
-        metering.costFactor(actor, aiModelKey(usageType)),
-        metering.getRemainingUsage(actor),
-    ]);
+    const factor = await metering.costFactor(actor, aiModelKey(usageType));
     const perSecond = perSecondMicroCents * factor;
-    const seconds = pickAffordableSeconds(
-        Math.floor(remaining / perSecond),
-        requestedSeconds,
-        allowedSeconds,
-        minSeconds,
-    );
-    // Already factored, so held through the plain service.
-    const hold = await metering.reserveCredits(
-        actor,
-        Math.round(seconds * perSecond),
-        { ttlMs: VIDEO_HOLD_TTL_MS },
-    );
-    return { seconds, hold };
+    for (let attempt = 1; ; attempt++) {
+        const remaining = await metering.getRemainingUsage(actor);
+        const seconds = pickAffordableSeconds(
+            Math.floor(remaining / perSecond),
+            requestedSeconds,
+            allowedSeconds,
+            minSeconds,
+        );
+        // Already factored, so held through the plain service, and only if it
+        // still fits: clips this account asked for at the same moment were
+        // sized from the same balance, and the ones that lose are sized again.
+        const hold = await metering.reserveCreditsIfAffordable(
+            actor,
+            Math.round(seconds * perSecond),
+            { ttlMs: VIDEO_HOLD_TTL_MS },
+        );
+        if (hold) return { seconds, hold };
+        if (attempt >= CAP_ATTEMPTS) throw insufficientCreditsError();
+    }
 }
+
+/** Times a clip is sized again after another request took its balance. */
+const CAP_ATTEMPTS = 3;
 
 /** The longest clip up to the request that `affordableSeconds` covers. */
 function pickAffordableSeconds(
