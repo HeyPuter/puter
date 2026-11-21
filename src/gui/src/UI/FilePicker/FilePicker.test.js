@@ -284,6 +284,23 @@ describe('FilePicker selection', () => {
         expect(dialog.picker.selectedEntries().map(e => e.name)).toEqual(['Kids', 'notes.txt', 'photo.png']);
     });
 
+    it('keeps a selection made while the folder is being listed again', async () => {
+        const dialog = await openDialog({ is_openFileDialog: true });
+        rowNamed(dialog, 'notes.txt').trigger('click');
+        const readdir = window.puter.fs.readdir.getMockImplementation();
+        let list;
+        window.puter.fs.readdir.mockImplementation(args => new Promise((resolve) => {
+            list = () => resolve(readdir(args));
+        }));
+
+        const listed = dialog.picker.refresh();
+        rowNamed(dialog, 'photo.png').trigger('click');
+        list();
+        await listed;
+
+        expect(dialog.$('.files .row.selected').map((_, row) => row.getAttribute('data-name')).get()).toEqual(['photo.png']);
+    });
+
     it('never selects a greyed-out file', async () => {
         const dialog = await openDialog({ is_directoryPicker: true });
         rowNamed(dialog, 'notes.txt').trigger('click');
