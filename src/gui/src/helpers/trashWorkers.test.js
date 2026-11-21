@@ -202,18 +202,21 @@ describe('confirmTrashingWorkers', () => {
         expect(workers.delete).not.toHaveBeenCalled();
     });
 
-    it('stops and shows the error when a worker cannot be deleted', async () => {
-        const workers = stubWorkers([CRON], async () => {
-            throw { message: 'Permission denied', code: 'forbidden' };
+    it('stops and names the worker that could not be deleted', async () => {
+        const workers = stubWorkers([API, CRON], async (name) => {
+            if ( name === 'cron' ) throw { message: 'Permission denied', code: 'forbidden' };
+            return true;
         });
-        const result = confirmTrashingWorkers(['/alice/Projects/cron.js']);
+        const result = confirmTrashingWorkers(['/alice/Projects']);
         await settle();
         await press('delete');
 
-        expect(dialog().find('.dashboard-dialog-message').text()).toBe('Permission denied');
+        expect(dialog().find('.dashboard-dialog-title').text()).toBe('trash_worker_delete_failed_title');
+        expect(dialog().find('.dashboard-dialog-message p').map((_, el) => $(el).text()).get())
+            .toEqual(['trash_worker_delete_failed:cron', 'Permission denied']);
         await press('ok');
         await expect(result).resolves.toBe(false);
-        expect(workers.delete).toHaveBeenCalledTimes(1);
+        expect(workers.delete).toHaveBeenCalledTimes(2);
     });
 
     it('goes ahead when a worker was already deleted elsewhere', async () => {

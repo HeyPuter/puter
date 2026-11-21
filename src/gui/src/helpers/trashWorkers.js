@@ -118,12 +118,14 @@ export const confirmTrashingWorkers = async (paths) => {
     const results = await Promise.allSettled(workers.map(w => puter.workers.delete(w.name)));
     forgetWorkers();
     // A worker deleted elsewhere since the list was read is already gone.
-    const failure = results.find(r => r.status === 'rejected' && r.reason?.code !== 'not_found');
-    if ( failure ) {
-        const reason = failure.reason;
+    const failed = results.findIndex(r => r.status === 'rejected' && r.reason?.code !== 'not_found');
+    if ( failed !== -1 ) {
+        const reason = results[failed].reason;
         await UIDashboardDialog({
+            title: i18n('trash_worker_delete_failed_title', [], false),
+            message: `<p>${i18n('trash_worker_delete_failed', [workers[failed].name])}</p>`
+                + `<p>${html_encode(reason?.message ?? i18n('error_unknown_cause', [], false))}</p>`,
             tone: 'error',
-            message: html_encode(reason?.message ?? String(reason)),
         });
         return false;
     }

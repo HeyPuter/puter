@@ -759,6 +759,8 @@ const en = {
         delete_workers_title: 'Delete Workers?',
         trash_deletes_worker: 'Moving to the Trash also deletes the worker %strong%. Its URL will stop working.',
         trash_deletes_workers: 'Moving to the Trash also deletes these workers. Their URLs will stop working.',
+        trash_worker_delete_failed: 'The worker %strong% couldn\'t be deleted, so nothing was moved to the Trash.',
+        trash_worker_delete_failed_title: 'Couldn\'t Delete Worker',
         worker_published: 'Your worker is live',
         worker_sandboxed: 'Sandboxed',
         worker_sandboxed_hint: 'Keeps the worker\'s data separate from the rest of your account.',
