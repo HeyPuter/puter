@@ -139,7 +139,6 @@ const pt = {
         ok: 'OK',
         open: 'Abrir',
         open_in_new_tab: 'Abrir em Nova Aba',
-        open_in_new_window: 'Abrir em Nova Janela',
         open_with: 'Abrir Com',
         original_name: 'Original Name',
         original_path: 'Original Path',

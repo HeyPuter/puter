@@ -139,7 +139,6 @@ const ro = {
         ok: 'OK',
         open: 'Deschide',
         open_in_new_tab: 'Deschide in alt tab',
-        open_in_new_window: 'Deschide in fereastră nouă',
         open_with: 'Deschide cu',
         original_name: 'Numele original',
         original_path: 'Calea originală',

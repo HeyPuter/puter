@@ -152,7 +152,6 @@ const fa = {
         ok: 'خوب',
         open: 'باز کردن',
         open_in_new_tab: 'در تب جدید باز کن',
-        open_in_new_window: 'در پنجره جدید باز کن',
         open_with: 'باز کردن با',
         original_name: 'نام اصلی',
         original_path: 'مسیر اصلی',

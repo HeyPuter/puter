@@ -55,7 +55,7 @@ const item_icon = async (fsentry, { listRow = false } = {}) => {
     // --------------------------------------------------
     // thumbnail
     // --------------------------------------------------
-    if ( fsentry.thumbnail && !(listRow && !fsentry.is_dir && isPageDocument(fsentry.name)) ) {
+    if ( fsentry.thumbnail && !(listRow && !fsentry.is_dir && isPageDocument(fsentry.name, fsentry.type ?? '')) ) {
         // if thumbnail but a directory under AppData, then it's a thumbnail for an app and must be treated as an icon
         if ( fsentry.path.startsWith(`${window.appdata_path }/`) )
         {

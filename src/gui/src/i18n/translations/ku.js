@@ -147,7 +147,6 @@ const ku = {
         ok: 'باشە',
         open: 'کردنەوە',
         open_in_new_tab: 'کردنەوە لە تابێکی نوێ',
-        open_in_new_window: 'کردنەوە لە پەنجەرەیەکی نوێ',
         open_with: 'کردنەوە بە',
         original_name: 'ناوی ڕەسەن',
         original_path: 'ڕێکەوتی ڕەسەن',

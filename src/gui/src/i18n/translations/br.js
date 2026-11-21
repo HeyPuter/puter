@@ -138,7 +138,6 @@ const br = {
         'ok': 'OK',
         'open': 'Abrir',
         'open_in_new_tab': 'Abrir em Nova Aba',
-        'open_in_new_window': 'Abrir em Nova Janela',
         'open_with': 'Abrir com',
         'original_name': 'Nome Original',
         'original_path': 'Caminho Original',
