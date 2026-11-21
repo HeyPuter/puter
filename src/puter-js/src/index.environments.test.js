@@ -179,6 +179,19 @@ describe('app launch parameters', () => {
         expect(puter.appDataPath).toBe('~/AppData/app-stored');
     });
 
+    it('hands over the opened item after the app has changed its URL', async () => {
+        const readURL = encodeURIComponent('https://api.test/file?uid=f-1');
+        const puter = await bootApp(
+            `${LAUNCH}&puter.item.name=a.txt&puter.item.uid=f-1&puter.item.path=%2Fu%2Fa.txt&puter.item.read_url=${readURL}`,
+        );
+        history.replaceState(null, '', '/app/editor');
+
+        const launched = vi.fn();
+        puter.ui.onLaunchedWithItems(launched);
+        expect(puter.ui.wasLaunchedWithItems()).toBe(true);
+        expect(launched.mock.calls[0][0][0].uid).toBe('f-1');
+    });
+
     it('strips the launch token a task later when the page has already loaded', async () => {
         Object.defineProperty(document, 'readyState', { value: 'complete', configurable: true });
         const puter = await bootApp();
@@ -494,6 +507,222 @@ describe('a tab the desktop opened for an app', () => {
             'puter.item.uid': 'f-1',
         });
         expect(puter.authToken).toBeFalsy();
+    });
+
+    it('clears the launch params from its address bar once the page loads', async () => {
+        const puter = await bootWeb(
+            `${LAUNCH}&page=2&puter.app.id=app-1&puter.args=%7B%22a%22%3A1%7D` +
+                '&puter.notification=n-1&utm_source=puter.com#/inbox',
+        );
+        await flush();
+        expect(new URLSearchParams(location.search).get('puter.app.id')).toBe('app-1');
+
+        window.dispatchEvent(new Event('load'));
+        await flush();
+
+        expect(location.pathname).toBe('/site/index.html');
+        expect(location.search).toBe('?page=2&puter.notification=n-1&utm_source=puter.com');
+        expect(location.hash).toBe('#/inbox');
+        expect(puter.appInstanceID).toBe('i');
+        expect(puter.appID).toBe('app-1');
+        expect(puter.args).toEqual({ a: 1 });
+    });
+
+    it('keeps a godmode app\'s id for a reload after the params are cleared', async () => {
+        const godmodeToken = jwt({ t: 's', v: '2', godmode_app_uid: 'app-1' });
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) => window.dispatchEvent(new MessageEvent('message', {
+                origin: guiOrigin,
+                source: opener,
+                data: { msg: 'puter.launch', appInstanceID: data.appInstanceID, token: godmodeToken },
+            })),
+        };
+        Object.defineProperty(globalThis, 'opener', { value: opener, configurable: true, writable: true });
+        const puter = await bootWeb(`${LAUNCH}&puter.app.id=app-1`);
+        await puter.openerLaunch_;
+        window.dispatchEvent(new Event('load'));
+        await flush();
+        expect(location.search).toBe('');
+
+        const reloaded = await bootWeb();
+        expect(reloaded.authToken).toBe(godmodeToken);
+        expect(reloaded.appID).toBe('app-1');
+        expect(reloaded.appDataPath).toBe('~/AppData/app-1');
+    });
+
+    it('hands the opened item to the next page of the launch when one keeps it', async () => {
+        const item = {
+            'puter.item.name': 'notes.txt',
+            'puter.item.uid': 'f-1',
+            'puter.item.path': '~/notes.txt',
+            'puter.item.read_url': 'https://api.test/file?uid=f-1',
+        };
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) => window.dispatchEvent(new MessageEvent('message', {
+                origin: guiOrigin,
+                source: opener,
+                data: { msg: 'puter.launch', appInstanceID: data.appInstanceID, token: APP_TOKEN, item },
+            })),
+        };
+        Object.defineProperty(globalThis, 'opener', { value: opener, configurable: true, writable: true });
+        const search = `${LAUNCH}&puter.item.uid=f-1`;
+        // The sign-in page: takes the launch, keeps its item, and moves on.
+        const signInPage = await bootWeb(search);
+        await signInPage.keepTabLaunchForNextPage_(APP_TOKEN);
+
+        const app = await bootWeb(search);
+        expect(app.openerLaunch_).toBeNull();
+        expect(app.ui.wasLaunchedWithItems()).toBe(true);
+        const launched = vi.fn();
+        app.ui.onLaunchedWithItems(launched);
+        expect(launched.mock.calls[0][0][0].uid).toBe('f-1');
+
+        const reloaded = await bootWeb(search);
+        expect(reloaded.ui.wasLaunchedWithItems()).toBe(false);
+    });
+
+    it('keeps the opened item from a next page that runs on another token', async () => {
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) => window.dispatchEvent(new MessageEvent('message', {
+                origin: guiOrigin,
+                source: opener,
+                data: {
+                    msg: 'puter.launch',
+                    appInstanceID: data.appInstanceID,
+                    token: APP_TOKEN,
+                    item: {
+                        'puter.item.name': 'notes.txt',
+                        'puter.item.uid': 'f-1',
+                        'puter.item.path': '~/notes.txt',
+                        'puter.item.read_url': 'https://api.test/file?uid=f-1',
+                    },
+                },
+            })),
+        };
+        Object.defineProperty(globalThis, 'opener', { value: opener, configurable: true, writable: true });
+        const search = `${LAUNCH}&puter.item.uid=f-1`;
+        const signInPage = await bootWeb(search);
+        await signInPage.keepTabLaunchForNextPage_(APP_TOKEN);
+        // Another tab of the app signed in as someone else meanwhile.
+        const otherToken = jwt({ t: 'au', v: '2', au: Buffer.alloc(16, 2).toString('base64') });
+        localStorage.setItem(STORAGE_KEY, otherToken);
+
+        const app = await bootWeb(search);
+        expect(app.authToken).toBe(otherToken);
+        expect(app.ui.wasLaunchedWithItems()).toBe(false);
+        expect(sessionStorage.getItem('puter.launch.keptItem')).toBeNull();
+    });
+
+    it('keeps nothing for the next page when the launch had no item', async () => {
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) => window.dispatchEvent(new MessageEvent('message', {
+                origin: guiOrigin,
+                source: opener,
+                data: { msg: 'puter.launch', appInstanceID: data.appInstanceID, token: APP_TOKEN },
+            })),
+        };
+        Object.defineProperty(globalThis, 'opener', { value: opener, configurable: true, writable: true });
+        const signInPage = await bootWeb(LAUNCH);
+        await signInPage.keepTabLaunchForNextPage_(APP_TOKEN);
+
+        expect(sessionStorage.length).toBe(0);
+    });
+
+    it('keeps nothing for a sign-in with a token other than the one handed over', async () => {
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) => window.dispatchEvent(new MessageEvent('message', {
+                origin: guiOrigin,
+                source: opener,
+                data: {
+                    msg: 'puter.launch',
+                    appInstanceID: data.appInstanceID,
+                    token: APP_TOKEN,
+                    item: { 'puter.item.uid': 'f-1', 'puter.item.name': 'a.txt' },
+                },
+            })),
+        };
+        Object.defineProperty(globalThis, 'opener', { value: opener, configurable: true, writable: true });
+        const signInPage = await bootWeb(LAUNCH);
+        await signInPage.keepTabLaunchForNextPage_(PLAIN_TOKEN);
+        await signInPage.keepTabLaunchForNextPage_();
+
+        expect(sessionStorage.getItem('puter.launch.keptItem')).toBeNull();
+    });
+
+    it('boots a reloaded tab where storage is blocked', async () => {
+        const realSession = Object.getOwnPropertyDescriptor(window, 'sessionStorage');
+        Object.defineProperty(window, 'sessionStorage', {
+            configurable: true,
+            get() {
+                throw new DOMException('denied', 'SecurityError');
+            },
+        });
+        try {
+            const puter = await bootWeb(`${LAUNCH}&puter.item.uid=f-1`);
+            expect(puter.ui.wasLaunchedWithItems()).toBe(false);
+        } finally {
+            Object.defineProperty(window, 'sessionStorage', realSession);
+        }
+    });
+
+    it('leaves puter.* params the app put in its URL after launch', async () => {
+        await bootWeb(`${LAUNCH}&puter.app.id=app-1`);
+        history.replaceState(null, '', '/site/index.html?puter.view=list&puter.app.id=app-1');
+        window.dispatchEvent(new Event('load'));
+        await flush();
+        expect(location.search).toBe('?puter.view=list');
+    });
+
+    it('still delivers the opened item when it arrives after the params are cleared', async () => {
+        let answer;
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) => {
+                answer = () => window.dispatchEvent(new MessageEvent('message', {
+                    origin: guiOrigin,
+                    source: opener,
+                    data: {
+                        msg: 'puter.launch',
+                        appInstanceID: data.appInstanceID,
+                        item: {
+                            'puter.item.name': 'notes.txt',
+                            'puter.item.uid': 'f-1',
+                            'puter.item.path': '~/notes.txt',
+                            'puter.item.read_url': 'https://api.test/file?uid=f-1',
+                        },
+                    },
+                }));
+            },
+        };
+        Object.defineProperty(globalThis, 'opener', { value: opener, configurable: true, writable: true });
+        const puter = await bootWeb(`${LAUNCH}&puter.item.uid=f-1`);
+        window.dispatchEvent(new Event('load'));
+        await flush();
+        expect(location.search).toBe('');
+
+        expect(puter.ui.wasLaunchedWithItems()).toBe(true);
+        const launched = vi.fn();
+        puter.ui.onLaunchedWithItems(launched);
+        answer();
+        await puter.openerLaunch_;
+        await flush();
+
+        expect(launched).toHaveBeenCalledOnce();
+        expect(launched.mock.calls[0][0][0].uid).toBe('f-1');
+    });
+});
+
+describe('a web page the desktop did not launch', () => {
+    it('keeps its own puter.* query params', async () => {
+        await bootWeb('?puter.theme=dark&x=1');
+        window.dispatchEvent(new Event('load'));
+        await flush();
+        expect(location.search).toBe('?puter.theme=dark&x=1');
     });
 });
 

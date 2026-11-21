@@ -2,29 +2,44 @@ import { describe, expect, it, vi } from 'vitest';
 import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
+    keepLaunchItem,
     requestLaunchFromOpener,
-    urlWithoutQueryParam,
+    takeKeptLaunchItem,
+    tokenTag,
+    urlWithoutQueryParams,
 } from './launchToken.js';
 
-describe('urlWithoutQueryParam', () => {
-    it('removes the parameter and keeps the rest of the URL', () => {
+describe('urlWithoutQueryParams', () => {
+    const named = (target) => (name) => name === target;
+
+    it('removes the matching parameter and keeps the rest of the URL', () => {
         expect(
-            urlWithoutQueryParam(
+            urlWithoutQueryParams(
                 'https://app.example/p?puter.app_instance_id=i' +
                     '&puter.auth.token=T&x=1#h',
-                'puter.auth.token',
+                named('puter.auth.token'),
             ),
         ).toBe('https://app.example/p?puter.app_instance_id=i&x=1#h');
+    });
+
+    it('removes every parameter the predicate matches', () => {
+        expect(
+            urlWithoutQueryParams(
+                'https://app.example/p?puter.app_instance_id=i&page=2' +
+                    '&puter.args=%7B%7D&utm_source=puter.com#h',
+                (name) => name.startsWith('puter.'),
+            ),
+        ).toBe('https://app.example/p?page=2&utm_source=puter.com#h');
     });
 
     it('keeps the encoding of the parameters that stay', () => {
         // Re-serializing through URLSearchParams would turn %20 into `+`,
         // which changes the value for apps that parse the query by hand.
         expect(
-            urlWithoutQueryParam(
+            urlWithoutQueryParams(
                 'https://app.example/?puter.item.name=My%20File%2B1.txt' +
                     '&puter.auth.token=T&puter.args=%7B%22a%22%3A1%7D',
-                'puter.auth.token',
+                named('puter.auth.token'),
             ),
         ).toBe(
             'https://app.example/?puter.item.name=My%20File%2B1.txt&puter.args=%7B%22a%22%3A1%7D',
@@ -33,42 +48,134 @@ describe('urlWithoutQueryParam', () => {
 
     it('drops the query entirely when nothing else is left', () => {
         expect(
-            urlWithoutQueryParam(
+            urlWithoutQueryParams(
                 'https://app.example/index.html?puter.auth.token=T',
-                'puter.auth.token',
+                named('puter.auth.token'),
             ),
         ).toBe('https://app.example/index.html');
     });
 
     it('removes every occurrence, including a percent-encoded key', () => {
         expect(
-            urlWithoutQueryParam(
+            urlWithoutQueryParams(
                 'https://app.example/?auth_token=a&k=v&auth%5Ftoken=b',
-                'auth_token',
+                named('auth_token'),
             ),
         ).toBe('https://app.example/?k=v');
     });
 
     it('leaves parameters that only share a prefix', () => {
         expect(
-            urlWithoutQueryParam(
+            urlWithoutQueryParams(
                 'https://app.example/?puter.auth.token=T&puter.auth.username=u',
-                'puter.auth.token',
+                named('puter.auth.token'),
             ),
         ).toBe('https://app.example/?puter.auth.username=u');
     });
 
     it('returns null when there is nothing to remove', () => {
         expect(
-            urlWithoutQueryParam(
+            urlWithoutQueryParams(
                 'https://app.example/?puter.auth.username=u',
-                'puter.auth.token',
+                named('puter.auth.token'),
             ),
         ).toBeNull();
         expect(
-            urlWithoutQueryParam('https://app.example/', 'puter.auth.token'),
+            urlWithoutQueryParams(
+                'https://app.example/',
+                named('puter.auth.token'),
+            ),
         ).toBeNull();
-        expect(urlWithoutQueryParam('not a url', 'puter.auth.token')).toBeNull();
+        expect(
+            urlWithoutQueryParams('not a url', named('puter.auth.token')),
+        ).toBeNull();
+    });
+});
+
+describe('kept launch items', () => {
+    const memoryScope = () => {
+        const map = new Map();
+        return {
+            sessionStorage: {
+                getItem: (key) => (map.has(key) ? map.get(key) : null),
+                setItem: (key, value) => map.set(key, String(value)),
+                removeItem: (key) => map.delete(key),
+            },
+            map,
+        };
+    };
+    const item = { 'puter.item.uid': 'f-1', 'puter.item.name': 'a.txt' };
+    const keep = (scope, now, extra = {}) =>
+        keepLaunchItem({ appInstanceID: 'i-1', item, token: 'T', scope, now, ...extra });
+    const take = (scope, now, extra = {}) =>
+        takeKeptLaunchItem({ appInstanceID: 'i-1', token: 'T', scope, now, ...extra });
+
+    it('hands the item to the next page of the same launch, once', () => {
+        const scope = memoryScope();
+        keep(scope, 1000);
+
+        expect(take(scope, 2000)).toEqual(item);
+        expect(take(scope, 2000)).toBeNull();
+    });
+
+    it('keeps a fingerprint of the token, not the token', () => {
+        const scope = memoryScope();
+        keep(scope, 1000, { token: 'header.payload.signature' });
+
+        expect([...scope.map.values()].join()).not.toContain('signature');
+    });
+
+    it('drops an item kept for another launch or another token', () => {
+        const scope = memoryScope();
+        keep(scope, 1000);
+        expect(take(scope, 2000, { appInstanceID: 'i-2' })).toBeNull();
+        expect(scope.map.size).toBe(0);
+
+        keep(scope, 1000);
+        expect(take(scope, 2000, { token: 'OTHER' })).toBeNull();
+        keep(scope, 1000);
+        expect(take(scope, 2000, { token: null })).toBeNull();
+    });
+
+    it('drops an item kept too long ago, or with a time in the future', () => {
+        const scope = memoryScope();
+        keep(scope, 0);
+        expect(take(scope, 5 * 60 * 1000 + 1)).toBeNull();
+
+        keep(scope, 10_000);
+        expect(take(scope, 0)).toBeNull();
+    });
+
+    it('keeps only puter.item.* string params', () => {
+        const scope = memoryScope();
+        keep(scope, 1000, {
+            item: { ...item, 'puter.auth.token': 'T', 'puter.item.size': 3 },
+        });
+
+        expect(take(scope, 1000)).toEqual(item);
+    });
+
+    it('returns null for a malformed entry', () => {
+        const scope = memoryScope();
+        scope.sessionStorage.setItem('puter.launch.keptItem', '{not json');
+        expect(take(scope)).toBeNull();
+    });
+
+    it('does nothing where storage is blocked', () => {
+        const blocked = {
+            get sessionStorage() {
+                throw new DOMException('denied', 'SecurityError');
+            },
+        };
+        expect(() => keep(blocked)).not.toThrow();
+        expect(take(blocked)).toBeNull();
+    });
+});
+
+describe('tokenTag', () => {
+    it('is stable for a token and differs between tokens', () => {
+        expect(tokenTag('a.b.c')).toBe(tokenTag('a.b.c'));
+        expect(tokenTag('a.b.c')).not.toBe(tokenTag('a.b.d'));
     });
 });
 

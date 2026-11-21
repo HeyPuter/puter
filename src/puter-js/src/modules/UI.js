@@ -556,9 +556,11 @@ export class UIModule extends EventListener {
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
 
-    // Read once at load: an app's router may rewrite the URL afterwards.
-    #guiFeatures = new URLSearchParams(globalThis.location?.search ?? '')
-        .get('puter.gui_features')?.split(',') ?? [];
+    // Read once at load: an app's router may rewrite the URL afterwards, and
+    // an app tab's launch params are cleared from its address bar.
+    #launchParams = new URLSearchParams(globalThis.location?.search ?? '');
+
+    #guiFeatures = this.#launchParams.get('puter.gui_features')?.split(',') ?? [];
 
     // Set while the framed feedback dialog is open on a first-party page.
     #feedbackEmbedOpen = false;
@@ -1274,7 +1276,7 @@ export class UIModule extends EventListener {
      * @returns {FSItem|null}
      */
     #launchItem () {
-        let URLParams = new URLSearchParams(globalThis.location.search);
+        let URLParams = this.#launchParams;
         if ( !hasLaunchItemParams(URLParams) && puter.openerLaunchItem_ ) {
             URLParams = puter.openerLaunchItem_;
         }
@@ -1344,7 +1346,7 @@ export class UIModule extends EventListener {
      * @returns {boolean}
      */
     wasLaunchedWithItems () {
-        const URLParams = new URLSearchParams(globalThis.location.search);
+        const URLParams = this.#launchParams;
         if ( hasLaunchItemParams(URLParams) || puter.openerLaunchItem_ ) {
             return true;
         }
