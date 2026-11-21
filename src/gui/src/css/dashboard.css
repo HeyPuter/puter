@@ -10104,11 +10104,17 @@ body.dashboard-mode .notifications-close-all {
     overflow-wrap: anywhere;
 }
 
-.dashboard-dialog-message p {
+.dashboard-dialog-message p,
+.dashboard-dialog-message ul {
     margin: 0 0 10px;
 }
 
-.dashboard-dialog-message p:last-child {
+.dashboard-dialog-message ul {
+    padding-left: 20px;
+}
+
+.dashboard-dialog-message p:last-child,
+.dashboard-dialog-message ul:last-child {
     margin-bottom: 0;
 }
 
