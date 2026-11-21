@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIAlert from './UIAlert.js';
 import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
 import UIAuthLogin from './Auth/UIAuthLogin.js';
@@ -2623,8 +2622,6 @@ window.update_window_path = async function (el_window, target_path) {
 
         // empty body to be filled with the results of /readdir
         $(el_window_body).find('.item').removeItems();
-        // nothing is selected in the folder being opened
-        $(el_window).find('.openfiledialog-open-btn').addClass('disabled');
 
         // add the 'Detail View' table header
         if ( $(el_window).find('.explore-table-headers').length === 0 )
