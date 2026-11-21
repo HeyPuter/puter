@@ -45,6 +45,7 @@ import {
     createTestUser,
     setupTestServer,
 } from './testUtil.ts';
+import type { Actor } from './core/actor.ts';
 import type { IConfig } from './types';
 
 /**
@@ -1518,6 +1519,18 @@ describe('PuterServer HTTP alarm gate', () => {
             },
             {
                 method: 'get',
+                path: '/owned',
+                options: {},
+                handler: ((req: Request) => {
+                    req.alarmActor = { user: { uuid: 'owner-uuid' } } as Actor;
+                    if (req.query.as) {
+                        req.actor = { user: { uuid: req.query.as } } as Actor;
+                    }
+                    throw new Error('kaboom');
+                }) as unknown as RequestHandler,
+            },
+            {
+                method: 'get',
                 path: '/credits-exhausted',
                 options: {},
                 handler: (() => {
@@ -1617,6 +1630,30 @@ describe('PuterServer HTTP alarm gate', () => {
         expect(fields.status).toBe(500);
         expect(fields.error).toBeInstanceOf(Error);
         expect(fields).not.toHaveProperty('details');
+    });
+
+    it('names the host, and the actor the request is reported against when it has none', async () => {
+        const anonymous = await raisedFor('/plain');
+        expect(anonymous.fields.host).toBe('puter.localhost');
+        expect(anonymous.fields.actor).toBeUndefined();
+
+        const owned = await raisedFor('/owned');
+        expect(owned.fields.actor).toBe('user:owner-uuid');
+    });
+
+    it("prefers the request's own actor", async () => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        await rawRequest(port, '/owned?as=visitor-uuid', {
+            host: 'puter.localhost',
+        });
+        const raised = alarm.mock.calls.find((c) =>
+            String(c[0]).startsWith('http_500:GET:/owned:'),
+        );
+        expect((raised![2] as { actor?: string }).actor).toBe(
+            'user:visitor-uuid',
+        );
     });
 
     it('keeps request body values, query values and the user row out of the alarm', async () => {

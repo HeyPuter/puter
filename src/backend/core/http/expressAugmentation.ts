@@ -134,6 +134,13 @@ declare global {
             egressActor?: Actor;
 
             /**
+             * Who a failure on this request is reported against when it has no
+             * `actor`, such as a hosted site's owner for an anonymous visitor.
+             * Read only by the error alarm.
+             */
+            alarmActor?: Actor;
+
+            /**
              * Object-store requests made while serving this request, by class.
              * Tallied through `recordStorageOps` and billed when the response
              * ends.
