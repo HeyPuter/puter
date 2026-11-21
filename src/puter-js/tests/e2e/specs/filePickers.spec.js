@@ -16,9 +16,11 @@ const pickerWindow = (page) => page.locator('.window.window-filedialog');
 const row = (picker, name) => picker.locator(`.files .row.item[data-name="${name}"]`);
 const logged = (appFrame) => appFrame.locator('[data-testid="log"] div');
 
-// The Desktop with a folder, two text files and an image, and no earlier save.
+// The Desktop with a folder, two text files and an image, no earlier save,
+// and no view remembered from an earlier picker.
 async function seedDesktop (page) {
     await page.evaluate(async ({ folder, files, saved }) => {
+        await window.puter.kv.del('file_picker_view').catch(() => {});
         const desktop = `/${window.user.username}/Desktop`;
         await window.puter.fs.mkdir(`${desktop}/${folder}`, { dedupeName: false }).catch(() => {});
         for ( const name of files ) {
@@ -237,6 +239,28 @@ test.describe('file pickers (env=app)', () => {
         const gap = await picker.evaluate(el => el.querySelector('.window-filedialog-prompt').getBoundingClientRect().top
             - el.querySelector('.files').getBoundingClientRect().bottom);
         expect(gap).toBe(0);
+    });
+
+    test('a picker opens in the view chosen in the last one, here and after a reload', async ({ page }) => {
+        const { picker, appFrame } = await openPicker(page, appName);
+        await expect(picker.locator('.files')).toHaveClass(/files-list-view/);
+        await picker.locator('.view-toggle-btn').click();
+        await page.locator('.context-menu .context-menu-item', { hasText: 'Compact Grid' }).last().click();
+        await expect(picker.locator('.files')).toHaveClass(/files-grid-view-sm/);
+        await picker.locator('.filedialog-cancel-btn').click();
+        await expect(picker).toHaveCount(0);
+
+        await appFrame.locator('#save-file').click();
+        await expect(row(picker, FOLDER)).toBeVisible();
+        await expect(picker.locator('.files')).toHaveClass(/files-grid-view-sm/);
+        // Saved before the page goes away.
+        await expect.poll(() => page.evaluate(() => window.puter.kv.get('file_picker_view'))).toContain('grid-sm');
+
+        const reloaded = await gotoTestApp(page, appName);
+        await reloaded.locator('#pick-directory').click();
+        await expect(row(picker, FOLDER)).toBeVisible();
+        await expect(picker.locator('.files')).toHaveClass(/files-grid-view-sm/);
+        await page.evaluate(() => window.puter.kv.del('file_picker_view').catch(() => {}));
     });
 
     test('Escape cancels the picker', async ({ page }) => {

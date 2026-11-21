@@ -66,34 +66,102 @@ const encode = (value) => window.html_encode(value);
 /** On a Mac, Ctrl+click is a right-click; Cmd is what adds to a selection. */
 const CTRL_CLICK_IS_SECONDARY = /mac/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
 
-// The saved view, read once per page.
-let savedPrefs = null;
+// Where the view and sort chosen in a picker are saved, as JSON.
+const PICKER_PREFS_KEY = 'file_picker_view';
+const SAVED_PREFS_KEYS = [PICKER_PREFS_KEY, 'view_mode', 'sort_column', 'sort_direction'];
+
+// One account's saved views, read once per page.
+let prefsAccount;
+let savedPrefsRead = null;
+/** @type {Partial<FilePickerViewPrefs>} The Files tab's saved view and sort */
+let savedFilesPrefs = {};
+/** @type {Partial<FilePickerViewPrefs>} What was chosen in a picker: the saved choices, with this page's over them */
+let pickerChoices = {};
 
 /**
- * The view and sort a picker opens with: the Files tab's, else the saved
- * preference. A change made in a picker stays in that picker; the Files
- * tab's preference stays as the user set it there.
+ * Reads the account's saved views, once per page.
+ *
+ * @returns {Promise<void>} Resolves when they're in, or couldn't be read
+ */
+function readSavedPrefs () {
+    const account = window.user?.uuid ?? window.user?.username;
+    if ( account !== prefsAccount ) {
+        prefsAccount = account;
+        savedPrefsRead = null;
+        savedFilesPrefs = {};
+        pickerChoices = {};
+    }
+    savedPrefsRead ??= Promise.resolve()
+        .then(() => window.puter.kv.get(SAVED_PREFS_KEYS))
+        .then(([choices, view, sortColumn, sortDirection]) => {
+            if ( account !== prefsAccount ) return;
+            savedFilesPrefs = { view, sortColumn, sortDirection };
+            // A choice made while the read was out is the newer one.
+            pickerChoices = { ...savedChoices(choices), ...pickerChoices };
+        })
+        .catch(() => {});
+    return savedPrefsRead;
+}
+
+/**
+ * The view and sort a picker opens with: what was last chosen in a picker,
+ * and the Files tab's for the rest.
  *
  * @returns {Promise<FilePickerViewPrefs>}
  */
 function loadViewPrefs () {
-    const files = window.dashboard_object;
-    if ( files?.currentView ) {
-        return Promise.resolve(validPrefs([files.currentView, files.sortColumn, files.sortDirection]));
-    }
-    const read = (key) => Promise.resolve().then(() => window.puter.kv.get(key)).catch(() => null);
-    savedPrefs ??= Promise.race([
-        Promise.all([read('view_mode'), read('sort_column'), read('sort_direction')]),
-        new Promise(resolve => setTimeout(() => resolve([]), PREFS_TIMEOUT_MS)),
-    ]).then(validPrefs);
-    return savedPrefs.then(prefs => ({ ...prefs }));
+    const timeout = new Promise(resolve => setTimeout(resolve, PREFS_TIMEOUT_MS));
+    return Promise.race([readSavedPrefs(), timeout]).then(() => {
+        const files = window.dashboard_object;
+        const filesPrefs = files?.currentView
+            ? { view: files.currentView, sortColumn: files.sortColumn, sortDirection: files.sortDirection }
+            : savedFilesPrefs;
+        return validPrefs({ ...filesPrefs, ...pickerChoices });
+    });
 }
 
 /**
- * @param {Array<unknown>} values - View, sort column and sort direction, as stored
+ * Remembers a view or sort chosen in a picker for the pickers opened after
+ * it, on this page and from the account's saved choices. The Files tab's
+ * own preference stays as the user set it there.
+ *
+ * @param {Partial<FilePickerViewPrefs>} choice
+ * @returns {void}
+ */
+function rememberChoice (choice) {
+    pickerChoices = { ...pickerChoices, ...choice };
+    // After the read, so the save keeps the saved choices this one doesn't replace.
+    readSavedPrefs()
+        .then(() => window.puter.kv.set(PICKER_PREFS_KEY, JSON.stringify(pickerChoices)))
+        .catch(err => console.warn(`Could not save ${PICKER_PREFS_KEY}:`, err));
+}
+
+/**
+ * The choices in a saved value that can be used.
+ *
+ * @param {unknown} stored - The saved JSON, or what it parses to
+ * @returns {Partial<FilePickerViewPrefs>}
+ */
+function savedChoices (stored) {
+    let saved = stored;
+    try {
+        if ( typeof stored === 'string' ) saved = JSON.parse(stored);
+    } catch {
+        return {};
+    }
+    if ( ! saved || typeof saved !== 'object' ) return {};
+    const choices = {};
+    if ( VIEWS.includes(saved.view) ) choices.view = saved.view;
+    if ( SORT_COLUMNS.includes(saved.sortColumn) ) choices.sortColumn = saved.sortColumn;
+    if ( ['asc', 'desc'].includes(saved.sortDirection) ) choices.sortDirection = saved.sortDirection;
+    return choices;
+}
+
+/**
+ * @param {{ view?: unknown, sortColumn?: unknown, sortDirection?: unknown }} [values] - As stored
  * @returns {FilePickerViewPrefs}
  */
-function validPrefs ([view, sortColumn, sortDirection] = []) {
+function validPrefs ({ view, sortColumn, sortDirection } = {}) {
     return {
         view: VIEWS.includes(view) ? view : 'list',
         sortColumn: SORT_COLUMNS.includes(sortColumn) ? sortColumn : 'name',
@@ -1102,6 +1170,7 @@ export default class FilePicker {
         if ( ! SORT_COLUMNS.includes(column) ) return;
         this.prefs.sortDirection = this.activeSortColumn() === column && this.prefs.sortDirection === 'asc' ? 'desc' : 'asc';
         this.prefs.sortColumn = column;
+        rememberChoice({ sortColumn: column, sortDirection: this.prefs.sortDirection });
         // Shown at once: the re-sorted listing is a round trip away.
         this.updateSortIndicators();
         this.refresh();
@@ -1114,6 +1183,7 @@ export default class FilePicker {
     setView (view) {
         if ( this.prefs.view === view ) return;
         this.prefs.view = view;
+        rememberChoice({ view });
         this.applyViewMode();
         // Grid tiles show thumbnails where list rows show type icons.
         this.refresh();

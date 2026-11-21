@@ -68,9 +68,12 @@ const settle = async () => {
     for ( let i = 0; i < 5; i++ ) await new Promise(resolve => setTimeout(resolve, 0));
 };
 
+// A new account each test: a picker's view and sort are remembered per account.
+let accounts = 0;
+
 beforeEach(() => {
     Object.assign(window, {
-        user: { username: 'alice' },
+        user: { username: 'alice', uuid: `alice-${++accounts}` },
         home_path: '/alice',
         desktop_path: DESKTOP,
         docs_path: '/alice/Documents',
@@ -90,7 +93,10 @@ beforeEach(() => {
         check_fsentry_against_allowed_file_types_string: (entry, allowed) => ! allowed
             || allowed.split(',').some(ext => entry.name.endsWith(ext.trim())),
         puter: {
-            kv: { get: vi.fn(async () => null) },
+            kv: {
+                get: vi.fn(async keys => (Array.isArray(keys) ? keys.map(() => null) : null)),
+                set: vi.fn(async () => true),
+            },
             fs: {
                 readdir: vi.fn(async ({ path }) => {
                     if ( ! folders[path] ) throw new Error('not found');
@@ -692,5 +698,58 @@ describe('view preferences', () => {
         const dialog = await openDialog({ is_openFileDialog: true });
         expect(dialog.$('.files').hasClass('files-grid-view')).toBe(true);
         expect(dialog.$('.sortable[data-sort="size"]').hasClass('sort-desc')).toBe(true);
+    });
+
+    it('opens the next picker in the view and sort chosen in the last one, and saves them apart from the Files tab\'s', async () => {
+        const first = await openDialog({ is_openFileDialog: true });
+        first.picker.setView('grid-sm');
+        first.$('.header .columns .sortable[data-sort="size"]').trigger('click');
+        first.$('.header .columns .sortable[data-sort="size"]').trigger('click');
+        await settle();
+        first.$('.filedialog-cancel-btn').trigger('click');
+        document.body.innerHTML = '';
+
+        const second = await openDialog({ is_saveFileDialog: true });
+
+        expect(second.$('.files').hasClass('files-grid-view-sm')).toBe(true);
+        expect(second.$('.sortable[data-sort="size"]').hasClass('sort-desc')).toBe(true);
+        expect(window.puter.kv.set).toHaveBeenLastCalledWith('file_picker_view',
+            JSON.stringify({ view: 'grid-sm', sortColumn: 'size', sortDirection: 'desc' }));
+        expect(window.puter.kv.set.mock.calls.every(([key]) => key === 'file_picker_view')).toBe(true);
+        // One read serves every picker on the page.
+        expect(window.puter.kv.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens in the view saved from a picker, and follows the Files tab for what no picker chose', async () => {
+        window.dashboard_object = { currentView: 'grid', sortColumn: 'size', sortDirection: 'desc' };
+        window.puter.kv.get.mockResolvedValue([JSON.stringify({ view: 'list', sortColumn: 'nonsense' }), 'grid', 'name', 'asc']);
+
+        const dialog = await openDialog({ is_openFileDialog: true });
+
+        expect(dialog.$('.files').hasClass('files-list-view')).toBe(true);
+        expect(dialog.$('.sortable[data-sort="size"]').hasClass('sort-desc')).toBe(true);
+    });
+
+    it('keeps the saved sort when only the view is changed', async () => {
+        window.puter.kv.get.mockResolvedValue([JSON.stringify({ sortColumn: 'modified', sortDirection: 'desc' }), null, null, null]);
+        const dialog = await openDialog({ is_openFileDialog: true });
+
+        dialog.picker.setView('grid');
+        await settle();
+
+        expect(window.puter.kv.set).toHaveBeenLastCalledWith('file_picker_view',
+            JSON.stringify({ sortColumn: 'modified', sortDirection: 'desc', view: 'grid' }));
+    });
+
+    it('doesn\'t carry one account\'s choices to another signed in on the same page', async () => {
+        const first = await openDialog({ is_openFileDialog: true });
+        first.picker.setView('grid');
+        await settle();
+        document.body.innerHTML = '';
+        window.user = { username: 'bob', uuid: 'bob-1' };
+
+        const second = await openDialog({ is_openFileDialog: true });
+
+        expect(second.$('.files').hasClass('files-list-view')).toBe(true);
     });
 });
