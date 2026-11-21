@@ -53,6 +53,15 @@ describe('item_icon for a file with a thumbnail', () => {
         },
     );
 
+    it.each([
+        ['server.log', 'text/plain; charset=utf-8'],
+        ['notes.text', 'text/plain'],
+        ['page.shtml', 'text/html; charset=utf-8'],
+    ])('shows a type icon for %s, a page drawn from text of type %s, in a list row', async (name, type) => {
+        expect(await item_icon(entry(name, { type }), { listRow: true })).toMatchObject({ type: 'icon' });
+        expect(await item_icon(entry(name, { type }))).toEqual({ image: thumbnail, type: 'thumb' });
+    });
+
     it('keeps the thumbnail of a folder named like a document in a list row', async () => {
         expect(await item_icon(entry('scans.pdf', { is_dir: true }), { listRow: true })).toEqual({ image: thumbnail, type: 'thumb' });
     });

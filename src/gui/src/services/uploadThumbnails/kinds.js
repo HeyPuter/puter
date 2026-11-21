@@ -64,13 +64,15 @@ export const DECODABLE_IMAGE_NAME = /\.(png|jpe?g|jfif|gif|webp|bmp|avif)$/i;
  * it is a blank square.
  *
  * @param {string} [name]
+ * @param {string} [type] A text file drawn by its type alone, such as a `.log` typed `text/plain`, is a page too. The
+ *     type may carry parameters, as `text/plain; charset=utf-8` does.
  * @returns {boolean}
  */
-export const isPageDocument = (name = '') =>
+export const isPageDocument = (name = '', type = '') =>
     [
         PDF_NAME, WORD_NAME, SPREADSHEET_NAME, PRESENTATION_NAME, IWORK_NAME, OPEN_DOCUMENT_NAME, CSV_NAME, MARKDOWN_NAME,
         PLAIN_TEXT_NAME, ...Object.values(CODE_NAMES),
-    ].some(pattern => pattern.test(name));
+    ].some(pattern => pattern.test(name)) || !!leadingBytesRead(name, type.split(';')[0].trim());
 
 /**
  * Whether a file is one of the packages that carry a picture of themselves, made by the editor that saved them.

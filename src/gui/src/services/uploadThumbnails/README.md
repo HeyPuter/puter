@@ -14,7 +14,8 @@ file, an OpenDocument file, a source file, a JSON or CSV file, a Markdown file,
 or a plain text file is a picture of a page.
 The Files tab shows it in the grid views and shows the file's type icon in list
 rows, where a page would be a blank square. `kinds.js` holds the names that make
-a file a document, for the generator and for the icon helper alike.
+a file a document, for the generator and for the icon helper alike. A text file
+drawn by its type alone, such as a `.log` typed `text/plain`, is a page too.
 
 ## PSD
 

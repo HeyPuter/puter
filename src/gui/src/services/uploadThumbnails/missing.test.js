@@ -128,6 +128,7 @@ describe('wantsThumbnail', () => {
         ['an HTML file in a grid', { name: 'index.html', type: 'text/html' }, place, true],
         ['a YAML file known only by its name', { name: 'config.yml', type: '' }, place, true],
         ['a text file in a list row', { name: 'notes.txt', type: 'text/plain' }, { ...place, listRow: true }, false],
+        ['a file typed as text in a list row', { name: 'notes.text', type: 'text/plain' }, { ...place, listRow: true }, false],
         ['a CSV file in a list row', { name: 'table.csv', type: 'text/csv' }, { ...place, listRow: true }, false],
         ['a CSV file typed as an Excel workbook', { name: 'table.csv', type: 'application/vnd.ms-excel' }, place, true],
         ['a Pages document in a grid', { name: 'letter.pages', type: '' }, place, true],
