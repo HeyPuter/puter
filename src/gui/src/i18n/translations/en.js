@@ -404,6 +404,7 @@ const en = {
         phone_on_file_subtitle: "We'll text a code to the phone number on your account ending in {{digits}}.",
         phone_lost_number: 'I no longer have this number',
         card_not_on_file: 'Use the card that is already on your account. If you no longer have it, email support@puter.com.',
+        card_not_accepted: "This card can't be used for verification. Please use a credit or debit card issued by your bank.",
         pictures: 'Pictures',
         plural_suffix: 's',
         preparing: 'Preparing...',

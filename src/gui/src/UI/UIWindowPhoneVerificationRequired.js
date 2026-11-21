@@ -76,7 +76,7 @@ const SEND_REASON_MESSAGES = {
     device_unverifiable:
         "We couldn't verify your device. Please email support@puter.com for assistance.",
     phone_virtual_number:
-        "This number can't be used for verification. Please use a mobile number, or verify with a card instead.",
+        "This number can't be used for verification. Please use a mobile number.",
     phone_signals_missing:
         "We couldn't verify this browser. Please verify with a card instead, or allow this page in your tracker blocker and try again.",
 };

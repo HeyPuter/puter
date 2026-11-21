@@ -492,6 +492,12 @@ export type EventMap = {
         // With `allowed` false, offer the card fallback in place of SMS. Only
         // honored while the fallback is on; otherwise the send proceeds.
         card_fallback_instead?: boolean;
+        // With `card_fallback_instead`, keep the refusal when there is no
+        // fallback to offer.
+        refuseWithoutFallback?: boolean;
+        // With `allowed` false, set false to keep this attempt out of the
+        // count that opens the card fallback.
+        countsTowardFallback?: boolean;
         [key: string]: unknown;
     };
     // Fire-and-forget signal that a code was actually sent — the abuse
