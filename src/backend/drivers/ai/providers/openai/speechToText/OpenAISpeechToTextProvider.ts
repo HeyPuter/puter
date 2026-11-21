@@ -27,7 +27,11 @@ import type {
     ISpeechToTextModel,
     ITranscribeArgs,
 } from '../../../interfaces/speechToText/types.js';
-import { SpeechToTextProvider } from '../../../interfaces/speechToText/SpeechToTextProvider.js';
+import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
+import {
+    billableAudioSeconds,
+    SpeechToTextProvider,
+} from '../../../interfaces/speechToText/SpeechToTextProvider.js';
 
 /**
  * Wraps OpenAI's audio transcription API. No current OpenAI model serves
@@ -73,7 +77,7 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
     constructor(deps: ISpeechToTextDeps, config: { apiKey?: string }) {
         super(deps);
         this.#openai = config.apiKey
-            ? new OpenAI({ apiKey: config.apiKey })
+            ? new OpenAI({ apiKey: config.apiKey, fetch: jsonCheckedFetch })
             : null;
     }
 
@@ -138,7 +142,9 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
         );
 
         const selectedModel = args.model || DEFAULT_TRANSCRIBE_MODEL;
-        const caps = MODEL_CAPS[selectedModel];
+        const caps = Object.hasOwn(MODEL_CAPS, selectedModel)
+            ? MODEL_CAPS[selectedModel]
+            : undefined;
         if (!caps) {
             throw new HttpError(400, `Unsupported model: ${selectedModel}`, {
                 legacyCode: 'bad_request',
@@ -228,13 +234,33 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
                 payload.extra_body = extra;
             }
 
-            const result = await this.#openai.audio.transcriptions.create(
-                payload as unknown as Parameters<
-                    OpenAI['audio']['transcriptions']['create']
-                >[0],
-            );
+            const result = await this.#openai.audio.transcriptions
+                .create(
+                    payload as unknown as Parameters<
+                        OpenAI['audio']['transcriptions']['create']
+                    >[0],
+                )
+                .catch((error: unknown) => {
+                    // The SDK can't write a null inside a list or an object
+                    // into the form it sends.
+                    if (
+                        error instanceof TypeError &&
+                        error.message.startsWith('Received null for')
+                    ) {
+                        throw new HttpError(
+                            400,
+                            'language and extra_body must not contain null',
+                            { legacyCode: 'bad_request' },
+                        );
+                    }
+                    throw error;
+                });
 
-            const billedSeconds = reportedSeconds(result) ?? estimatedSeconds;
+            const billedSeconds = billableAudioSeconds(
+                reportedSeconds(result),
+                estimatedSeconds,
+                loaded.buffer.byteLength,
+            );
             this.deps.metering.incrementUsage(
                 actor,
                 usageType,
@@ -246,7 +272,7 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             if (args.response_format === 'text') {
                 return typeof result === 'string'
                     ? result
-                    : ((result as { text?: string }).text ?? '');
+                    : ((result as { text?: string } | null)?.text ?? '');
             }
             return result;
         } finally {
@@ -255,17 +281,12 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
     }
 }
 
-/** Whole seconds of audio OpenAI reports billing for, if it reports them. */
-function reportedSeconds(result: unknown): number | undefined {
+/** The seconds of audio OpenAI reports billing for, if it reports them. */
+function reportedSeconds(result: unknown): unknown {
     if (!result || typeof result !== 'object') return undefined;
     const { usage, duration } = result as {
         usage?: { type?: string; seconds?: unknown };
         duration?: unknown;
     };
-    const seconds = usage?.type === 'duration' ? usage.seconds : duration;
-    return typeof seconds === 'number' &&
-        Number.isFinite(seconds) &&
-        seconds > 0
-        ? Math.max(1, Math.ceil(seconds))
-        : undefined;
+    return usage?.type === 'duration' ? usage.seconds : duration;
 }

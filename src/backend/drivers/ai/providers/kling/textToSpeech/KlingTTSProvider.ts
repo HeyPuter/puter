@@ -239,10 +239,16 @@ export class KlingTTSProvider implements ITTSProvider {
                     },
                 );
                 const url = task.task_result?.audios?.[0]?.url;
-                if (task.task_status !== 'succeed' || !url) {
+                if (
+                    task.task_status !== 'succeed' ||
+                    typeof url !== 'string' ||
+                    !url
+                ) {
                     throw new HttpError(
                         502,
-                        task.task_status_msg || 'Kling TTS returned no audio',
+                        (typeof task.task_status_msg === 'string' &&
+                            task.task_status_msg) ||
+                            'Kling TTS returned no audio',
                         {
                             legacyCode: 'upstream_failed',
                             fields: { provider: 'kling' },

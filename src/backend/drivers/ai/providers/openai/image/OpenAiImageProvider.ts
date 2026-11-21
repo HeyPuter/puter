@@ -19,7 +19,8 @@
 
 import { assertImagePrompt } from '../../../interfaces/image/imageValidation.js';
 import { closestAspectRatio } from '../../../interfaces/image/imageDimensions.js';
-import { imageDataUri } from '../../../interfaces/image/imageOutput.js';
+import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
+import { imageEntryUrl } from '../../../interfaces/image/imageOutput.js';
 import openai, { OpenAI, toFile } from 'openai';
 import {
     ImageEditParamsNonStreaming,
@@ -101,6 +102,7 @@ export class OpenAiImageProvider implements IImageProvider {
         this.#meteringService = meteringService;
         this.#openai = new openai.OpenAI({
             apiKey: config.apiKey,
+            fetch: jsonCheckedFetch,
         });
     }
 
@@ -299,11 +301,7 @@ export class OpenAiImageProvider implements IImageProvider {
                 );
             }
 
-            const url =
-                result.data?.[0]?.url ||
-                (result.data?.[0]?.b64_json
-                    ? imageDataUri(result.data[0].b64_json)
-                    : null);
+            const url = imageEntryUrl(result?.data?.[0]);
 
             if (!url) {
                 throw new HttpError(
@@ -320,7 +318,7 @@ export class OpenAiImageProvider implements IImageProvider {
     }
 
     #extractUsage(result: ImagesResponse): OpenAIImageUsage {
-        const usage = (result.usage ?? {}) as ImagesResponse.Usage &
+        const usage = (result?.usage ?? {}) as ImagesResponse.Usage &
             Record<string, unknown>;
         const inputTokens = this.#toSafeCount(usage.input_tokens);
         const outputTokens = this.#toSafeCount(usage.output_tokens);

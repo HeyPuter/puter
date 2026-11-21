@@ -130,6 +130,7 @@ describe('BytePlusImageProvider construction', () => {
         makeProvider();
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
+            fetch: expect.any(Function),
             baseURL: 'https://ark.ap-southeast.bytepluses.com/api/v3',
         });
     });
@@ -140,6 +141,7 @@ describe('BytePlusImageProvider construction', () => {
         });
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
+            fetch: expect.any(Function),
             baseURL: 'https://ark.eu-west.bytepluses.com/api/v3',
         });
     });
@@ -636,7 +638,7 @@ describe('BytePlusImageProvider.generate response handling', () => {
         generateMock.mockResolvedValueOnce({ data: [{}] });
         await expect(
             withTestActor(() => makeProvider().generate({ prompt: 'hi' })),
-        ).rejects.toThrow(/Failed to extract image URL/);
+        ).rejects.toThrow(/unexpected response/);
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
     });
 });

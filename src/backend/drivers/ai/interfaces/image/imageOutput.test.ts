@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { imageDataUri } from './imageOutput.js';
+import { imageDataUri, imageEntryUrl } from './imageOutput.js';
 
 describe('imageDataUri', () => {
     it.each([
@@ -49,5 +49,31 @@ describe('imageDataUri', () => {
         expect(imageDataUri(base64)).toBe(
             `data:image/svg+xml;base64,${base64}`,
         );
+    });
+});
+
+describe('imageEntryUrl', () => {
+    it('prefers the URL and falls back to the base64 payload', () => {
+        expect(imageEntryUrl({ url: 'https://x.test/a.png' })).toBe(
+            'https://x.test/a.png',
+        );
+        expect(imageEntryUrl({ b64_json: 'AAAA' }, 'image/jpeg')).toBe(
+            'data:image/jpeg;base64,AAAA',
+        );
+    });
+
+    it('finds nothing in an entry that holds neither as text', () => {
+        for (const entry of [
+            undefined,
+            null,
+            'x',
+            {},
+            { url: '' },
+            { url: { href: 'https://x.test' } },
+            { b64_json: 5 },
+            { b64_json: { data: 'AAAA' } },
+        ]) {
+            expect(imageEntryUrl(entry)).toBeUndefined();
+        }
     });
 });

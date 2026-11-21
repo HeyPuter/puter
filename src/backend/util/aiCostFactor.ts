@@ -26,6 +26,7 @@ import {
     type CreditHold,
     NO_CREDIT_HOLD,
     type UsageByType,
+    type UsageHeadroom,
     type UsageInput,
 } from '../services/metering/types.js';
 
@@ -154,8 +155,7 @@ const PENDING_WRITES_KEY = 'aiPendingUsageWrites';
 const trackWrite = (write: Promise<UsageByType>): Promise<UsageByType> => {
     if (!Context.current()) return write;
     let pending = Context.get(PENDING_WRITES_KEY) as
-        | Set<Promise<void>>
-        | undefined;
+        Set<Promise<void>> | undefined;
     if (!pending) {
         pending = new Set();
         Context.set(PENDING_WRITES_KEY, pending);
@@ -180,8 +180,7 @@ const outlastingWrites = (hold: CreditHold): CreditHold => {
         ...hold,
         release: async () => {
             const pending = Context.get(PENDING_WRITES_KEY) as
-                | Set<Promise<void>>
-                | undefined;
+                Set<Promise<void>> | undefined;
             if (!pending?.size) return hold.release();
             void Promise.all([...pending])
                 .then(() => hold.release())
@@ -296,11 +295,23 @@ export function withAiCostFactor(
     };
 
     const utilRecordUsageObject = <T extends Record<string, number>>(
-        trackedUsageObject: T,
+        reportedUsageObject: T,
         actor: Actor,
         modelPrefix: string,
         costsOverrides?: Partial<Record<keyof T, number>>,
     ): Promise<UsageByType> => {
+        // Counts come from the provider's answer. One that isn't a positive
+        // number records nothing, instead of the ledger's one-unit fallback.
+        const trackedUsageObject = Object.fromEntries(
+            Object.entries(reportedUsageObject).map(([key, amount]) => [
+                key,
+                typeof amount === 'number' &&
+                amount > 0 &&
+                amount <= Number.MAX_SAFE_INTEGER
+                    ? amount
+                    : 0,
+            ]),
+        ) as T;
         noteRequestCosts(
             Object.entries(trackedUsageObject).map(([key, usageAmount]) => ({
                 usageType: key,
@@ -316,8 +327,7 @@ export function withAiCostFactor(
                 modelPrefix,
                 costsOverrides,
             );
-        // Recorded after the lookup; callers may add keys to theirs meanwhile.
-        const usageObject = { ...trackedUsageObject };
+        const usageObject = trackedUsageObject;
         const scaleOverrides = (factor: number) =>
             factor === 1
                 ? costsOverrides
@@ -365,9 +375,29 @@ export function withAiCostFactor(
     const reserveCredits = async (
         actor: Actor,
         amount: number,
+        opts?: { ttlMs?: number; within?: UsageHeadroom },
+    ): Promise<CreditHold | 'stale' | null> => {
+        const hold = await metering.reserveCredits(
+            actor,
+            amount,
+            opts as { within: UsageHeadroom },
+        );
+        return hold && hold !== 'stale' ? outlastingWrites(hold) : hold;
+    };
+
+    // For a cost the caller has already factored.
+    const reserveCreditsIfAffordable = async (
+        actor: Actor,
+        amount: number,
         opts?: { ttlMs?: number },
-    ): Promise<CreditHold> =>
-        outlastingWrites(await metering.reserveCredits(actor, amount, opts));
+    ): Promise<CreditHold | null> => {
+        const hold = await metering.reserveCreditsIfAffordable(
+            actor,
+            amount,
+            opts,
+        );
+        return hold && outlastingWrites(hold);
+    };
 
     const overrides: Record<string, unknown> = {
         incrementUsage: (...args: Parameters<typeof incrementUsage>) =>
@@ -381,6 +411,7 @@ export function withAiCostFactor(
         costFactor,
         reserveAiCredits,
         reserveCredits,
+        reserveCreditsIfAffordable,
     };
 
     // A proxy, not a wrapper: providers use far more of the service than the

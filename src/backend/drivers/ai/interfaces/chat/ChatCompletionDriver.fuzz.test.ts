@@ -182,8 +182,54 @@ const healthyUpstream = ({
     json,
 }: UpstreamRequest): UpstreamReply | undefined => {
     const path = url.pathname;
+    if (path.endsWith('/api/tags'))
+        return { body: { models: [{ name: 'gpt-oss:20b', size: 8192 }] } };
+    if (path.endsWith('/quota'))
+        return { body: { accounting_method: 'token' } };
+    if (path.endsWith('/endpoints'))
+        return { body: { data: { endpoints: [] } } };
+    if (path.endsWith('/models')) {
+        if (url.hostname.includes('together'))
+            return {
+                body: [
+                    {
+                        id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+                        type: 'chat',
+                        display_name: 'Llama',
+                        context_length: 8192,
+                        pricing: { input: 1, output: 2 },
+                    },
+                ],
+            };
+        return {
+            body: {
+                data: [
+                    {
+                        id: 'fuzz/model',
+                        name: 'Fuzz',
+                        category_type: 'LLM',
+                        supported_endpoint_types: ['openai'],
+                        min_prompt_price: 1,
+                        min_completion_price: 2,
+                        context_length: 8192,
+                        pricing: { prompt: '0.000001', completion: '0.000002' },
+                        metadata: {
+                            pricing: {
+                                currency: 'USD',
+                                input_per_million: 1,
+                                output_per_million: 2,
+                            },
+                        },
+                    },
+                ],
+            },
+        };
+    }
     // A caller-supplied media link that leads nowhere.
     if (url.hostname === 'upstream.test') return { status: 404, body: '' };
+    if (url.hostname === 'media.upstream.test') {
+        return { body: 'video-bytes', contentType: 'video/mp4' };
+    }
     const streaming = (json as { stream?: unknown } | undefined)?.stream;
     if (path.endsWith('/chat/completions')) {
         if (!streaming) {
@@ -460,6 +506,43 @@ CORPUS.push(
             },
         ],
     },
+    // Audio and video, as their own parts and inside an image part.
+    {
+        messages: [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'input_audio',
+                        input_audio: { data: 'UklGRg==', format: 'wav' },
+                    },
+                    {
+                        type: 'input_audio',
+                        input_audio: {
+                            data: 'data:audio/mpeg;base64,SUQz',
+                            format: 'mpeg',
+                        },
+                    },
+                    {
+                        type: 'image_url',
+                        image_url: { url: 'data:audio/wav;base64,UklGRg==' },
+                    },
+                    {
+                        type: 'image_url',
+                        image_url: { url: 'data:video/mp4;base64,AAAA' },
+                    },
+                    {
+                        type: 'video_url',
+                        video_url: {
+                            url: 'https://media.upstream.test/a.mp4',
+                        },
+                    },
+                ],
+            },
+            { role: 'assistant', content: 'Noted.' },
+            { role: 'user', content: 'What was in them?' },
+        ],
+    },
     // Model output sent back, in each vendor's shape.
     {
         messages: [
@@ -557,17 +640,57 @@ const providers = {
     alibaba: key,
     byteplus: key,
     hoonify: key,
-    ollama: { enabled: false },
+    infron: key,
+    openrouter: key,
+    neuralwatt: key,
+    'together-ai': key,
+    ollama: { apiBaseUrl: 'https://ollama.upstream.test' },
 };
 
 let server: PuterServer;
 let driver: ChatCompletionDriver;
+// Charges no vendor answer should be able to cause.
+const charges: string[] = [];
+const isCatalogRequest = (path: string) =>
+    /\/(models|api\/tags|quota|endpoints)$/.test(path);
 // Every provider gets the same share of cases, whatever its catalog size.
 let routes: Map<string, { provider: string; id: string }[]>;
 
 beforeAll(async () => {
     upstream.install();
+    upstream.respond = healthyUpstream;
     server = await setupTestServer();
+    const metering = server.services.metering as unknown as Record<string, any>;
+    const realBatch = metering.batchIncrementUsages.bind(metering);
+    metering.batchIncrementUsages = (who: unknown, usages: any[]) => {
+        for (const usage of usages ?? []) {
+            // The ledger skips a zero amount.
+            if (usage?.usageAmount === 0) continue;
+            for (const [name, value] of [
+                ['amount', usage?.usageAmount],
+                ['cost', usage?.costOverride],
+            ] as const) {
+                if (value === undefined || value === null) continue;
+                const kind =
+                    typeof value !== 'number'
+                        ? 'non-number'
+                        : !Number.isFinite(value)
+                          ? 'non-finite'
+                          : value < 0
+                            ? 'negative'
+                            : value > 1e15
+                              ? 'huge'
+                              : !Number.isInteger(value) && name === 'amount'
+                                ? ''
+                                : '';
+                if (kind)
+                    charges.push(
+                        `${kind} ${name} ${usage?.usageType} ${String(value)}`,
+                    );
+            }
+        }
+        return realBatch(who, usages);
+    };
     driver = new ChatCompletionDriver(
         { providers } as never,
         server.clients,
@@ -625,12 +748,17 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
             'gemini',
             'groq',
             'hoonify',
+            'infron',
             'meta',
             'minimax',
             'mistral',
             'moonshotai',
+            'neuralwatt',
+            'ollama',
             'openai-completion',
             'openai-responses',
+            'openrouter',
+            'together-ai',
             'xai',
             'zai',
         ]);
@@ -718,9 +846,224 @@ describe('ChatCompletionDriver seeded fuzzing', () => {
                     replies,
                 );
             }
+            for (const charge of charges.splice(0)) {
+                findings.add(
+                    `${route.provider} metering ${charge.split(' ').slice(0, 2).join(' ')}`,
+                    index,
+                    `${route.id} ${charge}`,
+                    replies,
+                );
+            }
             clearUnhealthyRoutes();
         }
         findings.assertNone();
         expect(upstream.asked).toBeGreaterThan(askedBefore);
+    }, 1_800_000);
+
+    it('classifies a 200 whose JSON body is cut short, on every provider', async () => {
+        const findings = new Findings();
+        const rejections: unknown[] = [];
+        const onRejection = (reason: unknown) => rejections.push(reason);
+        process.on('unhandledRejection', onRejection);
+        const bodies = [
+            '{"id":"x","choices":[{"mess',
+            '',
+            '<html>502</html>',
+            'null',
+            '[]',
+            '"ok"',
+            '0',
+        ];
+        for (const [provider, list] of routes) {
+            for (const body of bodies) {
+                for (const stream of [false, true]) {
+                    upstream.respond = (request) =>
+                        isCatalogRequest(request.url.pathname)
+                            ? healthyUpstream(request)
+                            : { body, contentType: 'application/json' };
+                    const error = await complete({
+                        messages: [{ role: 'user', content: 'hi' }],
+                        provider,
+                        model: list[0]!.id,
+                        stream,
+                        fallback: false,
+                    });
+                    await new Promise((resolve) => setTimeout(resolve, 5));
+                    const label = `${provider} stream=${stream} body=${JSON.stringify(body)}`;
+                    const unclassified = error && unclassifiedFailure(error);
+                    if (unclassified)
+                        findings.add(
+                            `${provider} ${unclassified.slice(0, 160)}`,
+                            0,
+                            label,
+                            body,
+                        );
+                    // A stream reports its failure in-band, so only a unary answer counts.
+                    if (!error && !stream)
+                        findings.add(
+                            `${provider} answered a request the vendor did not answer (stream=${stream})`,
+                            0,
+                            label,
+                            body,
+                        );
+                    for (const reason of rejections.splice(0))
+                        findings.add(
+                            `${provider} unhandled rejection ${(reason as Error)?.name}`,
+                            0,
+                            label,
+                            String((reason as Error)?.stack).slice(0, 500),
+                        );
+                    clearUnhealthyRoutes();
+                }
+            }
+        }
+        process.off('unhandledRejection', onRejection);
+        upstream.respond = healthyUpstream;
+        findings.assertNone();
     }, 600_000);
+
+    it('builds a sane catalog from a malformed vendor model list', async () => {
+        const findings = new Findings();
+        const dynamic = [
+            'infron',
+            'openrouter',
+            'neuralwatt',
+            'together-ai',
+            'ollama',
+        ];
+        for (let index = 0; index < fuzzCases(300); index++) {
+            const random = caseRandom(0xca7a, index);
+            const replies: unknown[] = [];
+            upstream.respond = (request) => {
+                const healthy = healthyUpstream(request);
+                if (!healthy || !isCatalogRequest(request.url.pathname))
+                    return healthy;
+                const reply = corruptReply(healthy, random);
+                replies.push(
+                    request.url.hostname + request.url.pathname,
+                    reply.body,
+                );
+                return reply;
+            };
+            const fresh = new ChatCompletionDriver(
+                {
+                    providers: Object.fromEntries(
+                        Object.entries(providers).filter(([name]) =>
+                            dynamic.includes(name),
+                        ),
+                    ),
+                } as never,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            try {
+                await fresh.onServerStart();
+                const models = await fresh.models();
+                for (const model of models as unknown as Record<
+                    string,
+                    any
+                >[]) {
+                    if (model.provider === 'fake-chat') continue;
+                    const bad: string[] = [];
+                    if (
+                        typeof model.id !== 'string' ||
+                        !model.id.trim() ||
+                        /undefined|\[object/.test(model.id)
+                    )
+                        bad.push(`id ${JSON.stringify(model.id)}`);
+                    for (const alias of model.aliases ?? [])
+                        if (typeof alias !== 'string')
+                            bad.push(`alias ${JSON.stringify(alias)}`);
+                    for (const [k, v] of Object.entries(model.costs ?? {}))
+                        if (
+                            typeof v !== 'number' ||
+                            !Number.isFinite(v) ||
+                            v < 0
+                        )
+                            bad.push(`cost ${k}=${String(v)}`);
+                    // A catalog writes 0 for a model that declares no output cap.
+                    for (const k of ['max_tokens', 'context'])
+                        if (
+                            model[k] !== undefined &&
+                            model[k] !== null &&
+                            (typeof model[k] !== 'number' ||
+                                !Number.isFinite(model[k]) ||
+                                model[k] < 0 ||
+                                (k === 'context' && model[k] === 0))
+                        )
+                            bad.push(`${k}=${JSON.stringify(model[k])}`);
+                    if (
+                        model.name !== undefined &&
+                        typeof model.name !== 'string'
+                    )
+                        bad.push(`name ${JSON.stringify(model.name)}`);
+                    for (const b of bad)
+                        findings.add(
+                            `${model.provider} catalog ${b.split(/[ =]/)[0]}`,
+                            index,
+                            `${b}`,
+                            replies,
+                        );
+                }
+                JSON.stringify(models);
+                // One request per listed provider, answered healthily.
+                upstream.respond = healthyUpstream;
+                const seen = new Set<string>();
+                for (const model of models) {
+                    if (
+                        !model.provider ||
+                        model.provider === 'fake-chat' ||
+                        seen.has(model.provider)
+                    )
+                        continue;
+                    seen.add(model.provider);
+                    try {
+                        const result = await withTestActor(() =>
+                            fresh.complete({
+                                messages: [{ role: 'user', content: 'hi' }],
+                                provider: model.provider,
+                                model: model.id,
+                                fallback: false,
+                            } as unknown as ICompleteArguments),
+                        );
+                        if (isDriverStreamResult(result))
+                            await readStreamResult(result);
+                    } catch (error) {
+                        const unclassified = unclassifiedFailure(error);
+                        if (unclassified)
+                            findings.add(
+                                `${model.provider} ${unclassified}`,
+                                index,
+                                String(model.id),
+                                replies,
+                            );
+                    }
+                    for (const charge of charges.splice(0))
+                        findings.add(
+                            `${model.provider} metering ${charge.split(' ').slice(0, 2).join(' ')}`,
+                            index,
+                            `${String(model.id)} ${charge} MODEL ${JSON.stringify(model)}`,
+                            [],
+                        );
+                }
+            } catch (error) {
+                findings.add(
+                    `catalog build threw ${(error as Error)?.name}: ${String((error as Error)?.message).slice(0, 150)} ${(
+                        error as Error
+                    )?.stack
+                        ?.split('\n')
+                        .filter((l) => l.includes('/src/'))
+                        .slice(0, 4)
+                        .join(' <- ')}`,
+                    index,
+                    '',
+                    replies,
+                );
+            }
+            clearUnhealthyRoutes();
+        }
+        upstream.respond = healthyUpstream;
+        findings.assertNone();
+    }, 1_800_000);
 });

@@ -35,6 +35,7 @@ import {
     sanitizeUpstreamMessage,
     upstreamBodyStream,
     upstreamFetch,
+    upstreamJson,
     UpstreamResponseError,
 } from './upstreamErrors.js';
 
@@ -224,6 +225,12 @@ describe('sanitizeUpstreamMessage', () => {
         ).toBe('Bad gateway');
     });
 
+    it('reads a message that is not text as empty', () => {
+        for (const value of [undefined, null, 5, { message: 'x' }, ['x']]) {
+            expect(sanitizeUpstreamMessage(value)).toBe('');
+        }
+    });
+
     it('bounds the length', () => {
         const out = sanitizeUpstreamMessage('x'.repeat(1000));
         expect(out.length).toBe(300);
@@ -242,6 +249,26 @@ describe('sanitizeUpstreamMessage', () => {
                 'Add credits at https://vendor.test/billing (request id: req-parenthesized) request_id: req_standalone',
             ),
         ).toBe('Add credits at');
+    });
+});
+
+describe('upstreamJson', () => {
+    it('returns the parsed body', async () => {
+        expect(
+            await upstreamJson('acme', 'Acme', Response.json({ a: 1 })),
+        ).toEqual({ a: 1 });
+    });
+
+    it('raises a 502 naming the provider when the body is not JSON', async () => {
+        const error = await upstreamJson(
+            'acme',
+            'Acme',
+            new Response('<html>Bad gateway</html>'),
+        ).catch((e) => e);
+        expect(error).toBeInstanceOf(HttpError);
+        expect(error.statusCode).toBe(502);
+        expect(error.legacyCode).toBe('upstream_failed');
+        expect(error.fields).toEqual({ provider: 'acme' });
     });
 });
 

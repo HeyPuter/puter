@@ -59,12 +59,7 @@ const emailStreamName = (value: unknown): string | null => {
 
 /** Where a confirmation email was sent from; names its failure alarm. */
 export type ConfirmationEmailStage =
-    | 'signup'
-    | 'save-account'
-    | 'resend'
-    | 'deferred'
-    | 'sign-in'
-    | 'team';
+    'signup' | 'save-account' | 'resend' | 'deferred' | 'sign-in' | 'team';
 
 /** What `puter.signup.validate` and the bonus hooks decided about a signup. */
 export type SignupGateOutcome =

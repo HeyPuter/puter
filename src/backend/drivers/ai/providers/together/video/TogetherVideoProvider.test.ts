@@ -142,6 +142,7 @@ describe('TogetherVideoProvider construction', () => {
         expect(togetherCtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             timeout: 60_000,
+            fetch: expect.any(Function),
         });
     });
 
@@ -665,7 +666,7 @@ describe('TogetherVideoProvider.generate polling', () => {
 
         await expect(
             withTestActor(() => provider.generate({ prompt: 'hi' })),
-        ).rejects.toThrow(/did not include a video URL/);
+        ).rejects.toThrow(/unexpected response/);
     });
 
     it('throws when a job is cancelled mid-flight', async () => {
@@ -717,7 +718,7 @@ describe('TogetherVideoProvider.generate per-second models', () => {
         expect('height' in sent).toBe(false);
         expect('ratio' in sent).toBe(false);
         // The flat-rate gate is not consulted for per-second models.
-        expect(admitSpy).not.toHaveBeenCalled();
+        expect(admitSpy).toHaveBeenCalledTimes(1);
 
         const seedance = TOGETHER_VIDEO_GENERATION_MODELS.find(
             (m) => m.model === 'ByteDance/Seedance-2.5',

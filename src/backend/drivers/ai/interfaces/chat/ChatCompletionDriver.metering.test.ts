@@ -391,6 +391,134 @@ describe('ChatCompletionDriver credit gate against real metering', () => {
         ).toBeGreaterThan(0);
     });
 
+    it('holds no more than the balance for requests that start at the same moment', async () => {
+        const actor = freeUser() as never;
+        const metering = server.services.metering;
+        const allowance = (await metering.getActorSubscription(actor))
+            .monthUsageAllowance;
+        await metering.incrementUsage(
+            actor,
+            'test:prior-spend',
+            1,
+            Math.floor(allowance * 0.9),
+        );
+        const { remaining: balance } = await metering.getAllowedUsage(actor);
+
+        let finish: (v: unknown) => void = () => {};
+        const inFlight = new Promise((r) => {
+            finish = r;
+        });
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockImplementation(
+                async () =>
+                    inFlight.then(() => ({
+                        message: {
+                            role: 'assistant',
+                            content: [{ type: 'text', text: 'ok' }],
+                        },
+                        usage: { input_tokens: 1, output_tokens: 1 },
+                        finish_reason: 'stop',
+                    })) as never,
+            );
+
+        // Each would take all that's left if it were alone.
+        const requests = Array.from({ length: 6 }, (_, i) =>
+            withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'priced',
+                        messages: [{ role: 'user', content: `request ${i}` }],
+                    }),
+                actor,
+            ).catch((error) => error),
+        );
+        await vi.waitFor(() => expect(completeSpy).toHaveBeenCalled());
+        // Every request has either reached the provider or been refused.
+        await vi.waitFor(async () => {
+            const settled = await Promise.all(
+                requests.map((request) =>
+                    Promise.race([request, Promise.resolve('running')]),
+                ),
+            );
+            expect(
+                settled.filter((outcome) => outcome === 'running'),
+            ).toHaveLength(completeSpy.mock.calls.length);
+        });
+
+        expect(await metering.getOutstandingHolds(actor)).toBeLessThanOrEqual(
+            balance,
+        );
+
+        finish(undefined);
+        await Promise.all(requests);
+        completeSpy.mockRestore();
+    });
+
+    describe('a balance that changes while the gate reads it', () => {
+        const okCompletion = {
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ok' }],
+            },
+            usage: { input_tokens: 1, output_tokens: 1 },
+            finish_reason: 'stop',
+        };
+        const complete = (actor: never) =>
+            withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'priced',
+                        messages: [{ role: 'user', content: 'hello' }],
+                    }),
+                actor,
+            );
+
+        it('is read again, beyond the tries a lost headroom gets', async () => {
+            const actor = freeUser() as never;
+            const completeSpy = vi
+                .spyOn(FakeChatProvider.prototype, 'complete')
+                .mockResolvedValue(okCompletion as never);
+            const reserve = vi.spyOn(server.stores.creditHold, 'reserve');
+            reserve
+                .mockResolvedValueOnce({ outcome: 'stale' })
+                .mockResolvedValueOnce({ outcome: 'stale' })
+                .mockResolvedValueOnce({ outcome: 'stale' });
+
+            await complete(actor);
+
+            expect(reserve).toHaveBeenCalledTimes(4);
+            expect(completeSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('refuses without naming holds once it never holds still', async () => {
+            const actor = freeUser() as never;
+            const completeSpy = vi.spyOn(
+                FakeChatProvider.prototype,
+                'complete',
+            );
+            const reserve = vi
+                .spyOn(server.stores.creditHold, 'reserve')
+                .mockResolvedValue({ outcome: 'stale' });
+
+            const error = await complete(actor).then(
+                () => null,
+                (e) => e,
+            );
+
+            expect(error).toMatchObject({
+                statusCode: 429,
+                legacyCode: 'too_many_requests',
+            });
+            expect(error.code).not.toBe('credits_reserved');
+            expect(reserve).toHaveBeenCalledTimes(5);
+            expect(completeSpy).not.toHaveBeenCalled();
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0);
+        });
+    });
+
     it('caps output to the balance left, so one call cannot run away with the month', async () => {
         const actor = freeUser() as never;
         const metering = server.services.metering;
@@ -1230,5 +1358,22 @@ describe('ChatCompletionDriver pricing across a scheduled rate change', () => {
         expect(completeSpy.mock.calls[0]![2]).toEqual(AFTER);
         const [, held] = reserve.mock.calls[0]!;
         expect(held).toBeGreaterThanOrEqual(10 * 4000);
+    });
+});
+
+describe('ChatCompletionDriver model map build', () => {
+    it('keeps serving when a catalog makes the build fail', async () => {
+        // Not a list, so assembling the map throws.
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue(
+            5 as never,
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const failing = await makeDriver();
+
+        await expect(failing.models()).resolves.toEqual([]);
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('model map build failed'),
+        );
     });
 });

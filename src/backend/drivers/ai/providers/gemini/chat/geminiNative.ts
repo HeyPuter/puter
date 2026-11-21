@@ -41,9 +41,16 @@ import { promoteStopForToolCalls } from '../../../interfaces/chat/utils/stopReas
 import { UpstreamDeadlineError } from '../../../../util/upstreamErrors.js';
 import type { ChatCompletionsClient } from '../../../protocols/openaiCompatible/OpenAICompatProvider.js';
 
+import { GEMINI_AUDIO_MODELS } from './models.js';
+
 type ChatContentPart =
     | string
-    | { type?: string; text?: string; image_url?: { url?: string } };
+    | {
+          type?: string;
+          text?: string;
+          image_url?: { url?: string };
+          input_audio?: { data?: string; format?: string };
+      };
 
 type ChatContent = string | ChatContentPart[] | null | undefined;
 
@@ -87,8 +94,10 @@ interface ChatParams {
 /** Ids made up for calls Gemini returned without one; never sent back. */
 const SYNTHETIC_CALL_ID_PREFIX = 'gemini_call_';
 
-const nativeCallId = (id: string | undefined): { id?: string } =>
-    id && !id.startsWith(SYNTHETIC_CALL_ID_PREFIX) ? { id } : {};
+const nativeCallId = (id: unknown): { id?: string } =>
+    typeof id === 'string' && id && !id.startsWith(SYNTHETIC_CALL_ID_PREFIX)
+        ? { id }
+        : {};
 
 /**
  * Tool-call arguments as an object. Replayed calls arrive JSON-encoded twice,
@@ -120,7 +129,8 @@ const textOf = (content: ChatContent): string => {
         .join('');
 };
 
-const contentParts = (content: ChatContent): Part[] => {
+/** `audioVideo` is set for the models whose audio and video come here. */
+const contentParts = (content: ChatContent, audioVideo: boolean): Part[] => {
     if (typeof content === 'string') return content ? [{ text: content }] : [];
     if (!Array.isArray(content)) return [];
     const parts: Part[] = [];
@@ -131,16 +141,47 @@ const contentParts = (content: ChatContent): Part[] => {
             if (typeof part.text === 'string' && part.text) {
                 parts.push({ text: part.text });
             }
+        } else if (part.type === 'input_audio' && audioVideo) {
+            const audio = part.input_audio;
+            if (
+                typeof audio?.data !== 'string' ||
+                !audio.data ||
+                typeof audio.format !== 'string' ||
+                !['wav', 'mp3'].includes(audio.format)
+            ) {
+                throw new HttpError(
+                    400,
+                    'Audio input requires data and a wav or mp3 format',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            parts.push({
+                inlineData: {
+                    mimeType:
+                        audio.format === 'mp3' ? 'audio/mpeg' : 'audio/wav',
+                    data: audio.data,
+                },
+            });
         } else if (part.type === 'image_url') {
-            // http(s) images were already inlined as data URLs.
-            const uri = parseDataUri(part.image_url?.url ?? '');
+            // http(s) images were already inlined as data URLs, and the
+            // provider hands video over as a data URL in this part too.
+            const url = part.image_url?.url;
+            const uri = parseDataUri(typeof url === 'string' ? url : '');
+            const kind = /^(audio|video)\//i.exec(uri?.mimeType ?? '')?.[1];
+            if (kind && !audioVideo) {
+                throw new HttpError(
+                    400,
+                    `${kind.toLowerCase()} content is not supported by this model`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
             parts.push(
                 uri?.base64
                     ? { inlineData: { mimeType: uri.mimeType, data: uri.data } }
                     : unsupportedMediaTextPart('image could not be loaded'),
             );
         } else {
-            // Audio and file parts have no mapping here; dropping them would
+            // Unsupported parts have no mapping here; dropping them would
             // send Google a different prompt than the caller wrote.
             throw new HttpError(
                 400,
@@ -154,6 +195,7 @@ const contentParts = (content: ChatContent): Part[] => {
 
 const toGeminiContents = (
     messages: ChatMessage[],
+    audioVideo: boolean,
 ): { contents: Content[]; systemInstruction?: Content } => {
     const system: Part[] = [];
     const contents: Content[] = [];
@@ -167,10 +209,17 @@ const toGeminiContents = (
 
     for (const message of messages) {
         if (message.role === 'system' || message.role === 'developer') {
-            system.push(...contentParts(message.content));
+            system.push(...contentParts(message.content, audioVideo));
         } else if (message.role === 'assistant') {
-            const parts = contentParts(message.content);
+            const parts = contentParts(message.content, audioVideo);
             for (const call of message.tool_calls ?? []) {
+                if (typeof call?.function?.name !== 'string') {
+                    throw new HttpError(
+                        400,
+                        'A tool call needs a function name',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
                 if (call.id) toolNames.set(call.id, call.function.name);
                 const signature = call.extra_content?.google?.thought_signature;
                 parts.push({
@@ -202,7 +251,7 @@ const toGeminiContents = (
                 },
             ]);
         } else {
-            push('user', contentParts(message.content));
+            push('user', contentParts(message.content, audioVideo));
         }
     }
 
@@ -233,7 +282,10 @@ const toGenerateContentRequest = (
     params: ChatParams,
     signal: AbortSignal | undefined,
 ) => {
-    const { contents, systemInstruction } = toGeminiContents(params.messages);
+    const { contents, systemInstruction } = toGeminiContents(
+        params.messages,
+        GEMINI_AUDIO_MODELS.has(params.model),
+    );
     if (!contents.length) {
         throw new HttpError(
             400,
