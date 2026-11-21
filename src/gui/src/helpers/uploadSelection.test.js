@@ -87,7 +87,7 @@ describe('select_uploaded_items', () => {
         expect(selected_paths(other)).toEqual([]);
     });
 
-    it('never selects disabled items (e.g. filtered out by a dialog file-type filter)', () => {
+    it('never selects disabled items (e.g. filtered out by a file-type filter)', () => {
         const container = make_container('/user/Desktop');
         container.append(make_item({ path: '/user/Desktop/a.txt', disabled: true }));
 
@@ -96,11 +96,9 @@ describe('select_uploaded_items', () => {
         expect(selected_paths(container)).toEqual([]);
     });
 
-    it('enables the Open button of an open-file dialog when a file lands selected', () => {
+    it('updates the window footer\'s selected count when an item lands selected', () => {
         const el_window = document.createElement('div');
         el_window.className = 'window';
-        el_window.setAttribute('data-is_openFileDialog', 'true');
-        el_window.innerHTML = '<button class="openfiledialog-open-btn disabled"></button>';
         document.body.appendChild(el_window);
         const container = make_container('/user/Desktop');
         el_window.appendChild(container);
@@ -108,7 +106,6 @@ describe('select_uploaded_items', () => {
 
         select_uploaded_items('/user/Desktop', ['/user/Desktop/a.txt']);
 
-        expect(el_window.querySelector('.openfiledialog-open-btn').classList.contains('disabled')).toBe(false);
         expect(window.update_explorer_footer_selected_items_count).toHaveBeenCalled();
     });
 });

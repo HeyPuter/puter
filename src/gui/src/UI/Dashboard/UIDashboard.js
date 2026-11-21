@@ -360,7 +360,7 @@ async function UIDashboard (options) {
         // Only the rows: the loading overlay lives in the listing too.
         const dashboard = window.dashboard_object;
         if ( msg.is_empty && dashboard && dashboard.currentPath === window.trash_path ) {
-            $('.files-tab .files .item').remove();
+            dashboard.$el_window.find('.files-tab .files .item').remove();
             dashboard.syncEmptiedTrash?.();
         }
     });
@@ -376,7 +376,7 @@ async function UIDashboard (options) {
     // step, and say the folder is empty when the Files listing just lost its
     // last row (rows can also sit in a file picker window).
     const remove_row = (el_row) => {
-        const from_listing = $(el_row).closest('.files-tab .files').length > 0;
+        const from_listing = !! window.dashboard_object?.$el_window?.find('.files-tab .files').get(0)?.contains(el_row);
         $(el_row).remove();
         if ( from_listing ) window.dashboard_object?.renderEmptyPlaceholderIfNeeded?.();
         window.dashboard_object?.updateFooterStats?.();
@@ -449,7 +449,7 @@ async function UIDashboard (options) {
 
         // Files-tab rows go through the shared updater, which also refits
         // the name and keeps the entry their handlers use current.
-        const $fileRows = $el.filter('.files-tab .item');
+        const $fileRows = $el.filter((_, el) => !! window.dashboard_object?.$el_window?.find('.files-tab').get(0)?.contains(el));
         if ( $fileRows.length ) window.UIDashboardFileItemUpdate?.($fileRows, item);
         const $others = $el.not($fileRows);
 
@@ -467,7 +467,9 @@ async function UIDashboard (options) {
         forgetWorkers();
         if ( item.original_client_socket_id === window.socket.id ) return;
 
-        const $el = $(`.item[data-uid='${item.uid}']`);
+        // A file picker lists its folder again itself; re-sorted here, its
+        // row would land in the Files tab.
+        const $el = $(`.item[data-uid='${item.uid}']`).not('.file-picker .item');
         if ( $el.length === 0 ) return;
 
         // Delegate to the shared row updater (defined in TabFiles.init) so

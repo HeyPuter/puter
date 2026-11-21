@@ -138,16 +138,8 @@ const refresh_item_container = function (el_item_container, options) {
         // The listing request below reports the failure to the user.
     });
 
-    // is_directoryPicker
-    let is_directoryPicker = $(el_window).attr('data-is_directoryPicker');
-    is_directoryPicker = (is_directoryPicker === 'true' || is_directoryPicker === '1') ? true : false;
-
     // allowed_file_types
     let allowed_file_types = $(el_window).attr('data-allowed_file_types');
-
-    // is_directoryPicker
-    let is_openFileDialog = $(el_window).attr('data-is_openFileDialog');
-    is_openFileDialog = (is_openFileDialog === 'true' || is_openFileDialog === '1') ? true : false;
 
     // remove all existing items
     $(el_item_container).find('.item').removeItems();
@@ -224,12 +216,6 @@ const refresh_item_container = function (el_item_container, options) {
                     const fsentry = fsentries[index];
                     let is_disabled = false;
 
-                    // disable files if this is a showDirectoryPicker() window
-                    if ( is_directoryPicker && !fsentry.is_dir )
-                    {
-                        is_disabled = true;
-                    }
-
                     // if this item is not allowed because of filetype restrictions, disable it
                     if ( ! window.check_fsentry_against_allowed_file_types_string(fsentry, allowed_file_types) )
                     {
@@ -263,7 +249,6 @@ const refresh_item_container = function (el_item_container, options) {
                             icon: await item_icon(fsentry),
                             name: fsentry.name,
                             is_dir: fsentry.is_dir,
-                            multiselectable: !is_openFileDialog,
                             has_website: fsentry.has_website,
                             metadata: fsentry.metadata,
                             is_shortcut: fsentry.is_shortcut,

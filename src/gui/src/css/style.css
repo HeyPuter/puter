@@ -1275,22 +1275,12 @@ span.header-sort-icon img {
     right: 0;
 }
 
-.window-filedialog .window-sidebar {
-    height: calc(100% - 30px);
-}
-
-.window-cover-page.window-filedialog .window-body {
-    height: calc(100% - 109px) !important;
-}
-
 .window-cover-page .window-sidebar {
     height: 100%;
 }
 
-/* Auth/dialog cover pages fill the viewport. File dialogs are excluded: their
-   body is an item-container sitting beside a floated sidebar, and because
-   `overflow: auto` makes it its own formatting context, a forced 100% width
-   can't shrink to fit and drops below the sidebar instead. */
+/* Auth/dialog cover pages fill the viewport. A file picker's body shares the
+   page with its button bar (see dashboard.css), so it's left out. */
 .window-cover-page:not(.window-filedialog) .window-body {
     height: 100% !important;
     width: 100% !important;
@@ -1426,11 +1416,6 @@ span.header-sort-icon img {
     color: #CCC;
 }
 
-.window-body-filedialog {
-    width: auto !important;
-    height: calc(100% - 137px);
-}
-
 .window-body-app {
     height: calc(100% - 30px);
 }
@@ -1448,69 +1433,6 @@ span.header-sort-icon img {
 .fullpage-mode.device-desktop .window-with-menubar .window-body-app,
 .fullpage-mode.device-phone .window-with-menubar .window-body-app {
     height: calc(100% - 35px);
-}
-
-.window-filedialog-prompt {
-    height: 60px;
-    border-top: 1px solid #dbdee3;
-    background-color: #f3f5f9;
-    padding: 0 15px;
-    display: flex;
-    flex-direction: row;
-    justify-content: center;
-    align-items: center;
-}
-
-/* The file name shrinks so the buttons stay on one line, on screen, in a narrow dialog. */
-.window-filedialog-prompt > div {
-    min-width: 0;
-    white-space: nowrap;
-}
-
-@media (max-width: 480px) {
-    .window-filedialog-prompt .button-small {
-        padding: 0 16px;
-    }
-}
-
-.savefiledialog-filename {
-    float: left;
-    margin-right: 10px;
-    padding: 5px !important;
-    border-width: 1px !important;
-    height: 31px;
-    flex-grow: 1;
-    min-width: 0;
-    width: initial !important;
-}
-
-/* In a narrow open dialog, the upload label gives way so its buttons stay whole. */
-.window-filedialog-upload-here + div {
-    flex-shrink: 0;
-}
-
-.window-filedialog-upload-here {
-    min-width: 0;
-    margin-right: 10px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    -webkit-font-smoothing: antialiased;
-    opacity: 0.7;
-    font-size: 14px;
-}
-
-.window-filedialog-upload-here:hover {
-    cursor: pointer;
-    opacity: 1;
-}
-
-.savefiledialog-save-btn, .openfiledialog-open-btn {
-    margin-left: 10px;
-}
-
-.filedialog-cancel-btn {
-    margin-left: 10px;
 }
 
 .window-action-btn {

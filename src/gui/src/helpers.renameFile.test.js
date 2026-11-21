@@ -55,7 +55,26 @@ describe('rename_file', () => {
         process.off('unhandledRejection', unhandled);
 
         expect(onDone).toHaveBeenCalledWith(null);
-        expect(UIAlert).toHaveBeenCalledWith('error_unknown_cause');
+        expect(UIAlert).toHaveBeenCalledWith(expect.objectContaining({ message: 'error_unknown_cause', parent_uuid: undefined }));
         expect(unhandled).not.toHaveBeenCalled();
+    });
+
+    it('says so above the file picker the item is in, and hands its listing the keyboard back', async () => {
+        globalThis.puter = { fs: { rename: ({ error }) => {
+            error({ message: 'taken' });
+            return Promise.resolve();
+        } } };
+        document.body.innerHTML = `<div class="window window-filedialog" data-element_uuid="picker-1">
+            <div class="files" tabindex="0"><div class="item row" data-uid="u1" data-name="a.txt"></div></div>
+        </div>`;
+        UIAlert.mockClear();
+
+        await window.rename_file({ uid: 'u1', name: 'a.txt', path: '/alice/a.txt' }, 'b.txt', 'a.txt', '/alice/a.txt',
+            document.querySelector('.item'), null, null, null, '', false);
+
+        expect(UIAlert).toHaveBeenCalledWith(expect.objectContaining({ message: 'taken', parent_uuid: 'picker-1' }));
+        UIAlert.mock.calls[0][0].window_options.on_close();
+        expect(document.activeElement).toBe(document.querySelector('.files'));
+        document.body.innerHTML = '';
     });
 });

@@ -667,26 +667,6 @@ async function UIItem (options) {
             $(this).closest('.item-container').find('.item-selected').not(this).removeClass('item-selected');
             window.update_explorer_footer_selected_items_count($el_parent_window);
         }
-        //----------------------------------------------------------------
-        // On an OpenFileDialog?
-        //----------------------------------------------------------------
-        if ( $el_parent_window.attr('data-is_openFileDialog') === 'true' ) {
-            if ( ! options.is_dir )
-            {
-                $el_parent_window.find('.openfiledialog-open-btn').removeClass('disabled');
-            }
-            else
-            {
-                $el_parent_window.find('.openfiledialog-open-btn').addClass('disabled');
-            }
-        }
-        //----------------------------------------------------------------
-        // On a SaveFileDialog?
-        //----------------------------------------------------------------
-        if ( $el_parent_window.attr('data-is_saveFileDialog') === 'true' && !options.is_dir ) {
-            $el_parent_window.find('.savefiledialog-filename').val($(el_item).attr('data-name'));
-            $el_parent_window.find('.savefiledialog-save-btn').removeClass('disabled');
-        }
     });
 
     $(document).on(`click.item-${item_id}`, function (e) {

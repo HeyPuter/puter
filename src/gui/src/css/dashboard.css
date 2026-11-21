@@ -5007,7 +5007,7 @@ body.myapps-reordering .myapps-tile {
     border-bottom: 1px solid var(--dashboard-border);
 }
 
-.dashboard .path-nav-buttons {
+.dashboard-section-files .path-nav-buttons {
     flex-shrink: 0;
     padding: 4px 10px 4px 0px;
     display: flex;
@@ -5018,7 +5018,7 @@ body.myapps-reordering .myapps-tile {
     border-right: 1px dotted var(--dashboard-border);
 }
 
-.dashboard .path-btn {
+.dashboard-section-files .path-btn {
     width: 28px;
     cursor: pointer;
     border-radius: 5px;
@@ -5029,7 +5029,7 @@ body.myapps-reordering .myapps-tile {
 /* 36px touch targets in the same 28px footprint (they're <img>s, so no
    pseudo-element hit area) */
 @media (pointer: coarse) {
-    .dashboard .path-btn {
+    .dashboard-section-files .path-btn {
         width: 36px;
         padding: 8px;
         margin: -4px;
@@ -5052,7 +5052,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 @media (hover: hover) {
-    .dashboard .path-btn:hover {
+    .dashboard-section-files .path-btn:hover {
         background-color: #EEE;
         border-color: #EEE;
     }
@@ -12352,4 +12352,200 @@ span[data-avatar-user] > .avatar-picture {
     object-fit: cover;
     border-radius: inherit;
     pointer-events: none;
+}
+
+/* ======================================
+   File Pickers
+   ====================================== */
+
+/* An open, save or directory picker is the Files listing (the rules above
+   reach it through .dashboard-section-files) over a bar of buttons. */
+.window-filedialog .window-body-filedialog {
+    width: 100% !important;
+    height: calc(100% - var(--file-picker-head-height) - var(--file-picker-prompt-height)) !important;
+    padding: 0;
+    overflow: hidden;
+    background: var(--dashboard-background);
+}
+
+.window-filedialog {
+    --file-picker-head-height: 30px;
+    --file-picker-prompt-height: 64px;
+}
+
+/* A popup's picker has no head: the page is the window. */
+.window-filedialog.window-cover-page {
+    --file-picker-head-height: 0px;
+}
+
+.file-picker {
+    display: flex;
+    height: 100%;
+    color: var(--dashboard-text);
+}
+
+.file-picker * {
+    box-sizing: border-box;
+}
+
+.file-picker .files-tab {
+    width: 100%;
+    height: 100%;
+}
+
+/* The dashboard's 10px inset (.dashboard-content.files) is the folders'
+   own here. Below 768px the Files tab pushes them down past the dashboard's
+   menu toggle; a picker has no toggle. */
+.file-picker .directories {
+    width: 190px;
+    flex-shrink: 0;
+    padding-top: 7px;
+    padding-left: 10px;
+}
+
+.file-picker .directory-contents {
+    flex: 1;
+    min-width: 0;
+}
+
+/* On a phone the Files tab's crumbs clear the dashboard's menu button;
+   a picker has none beside them. */
+@media (max-width: 480px) {
+    .file-picker .header .path-breadcrumbs,
+    .file-picker .header .path-editor,
+    .file-picker .header .path.path-editing::after {
+        margin-left: 0;
+    }
+}
+
+/* No footer under the listing here. */
+.file-picker .files {
+    margin-bottom: 0;
+}
+
+/* The columns keep their widths: nothing to drag. */
+.file-picker .header .columns .col-resize-handle {
+    cursor: default;
+    pointer-events: none;
+}
+
+.file-picker .files-tab.shared-view .header .columns,
+.file-picker .files-tab.shared-view .files.files-list-view .row {
+    grid-template-columns: 24px auto 4px 140px 4px 100px 4px 120px 4px 20px;
+}
+
+/* Files the picker can't pick: other types, or any file in a directory picker. */
+.file-picker .files .row.item-disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.file-picker .files .row.item-disabled .item-more {
+    visibility: hidden;
+}
+
+@media (hover: hover) {
+    .dashboard-section-files.file-picker .files .row.item-disabled:hover {
+        background: none;
+    }
+}
+
+.window-filedialog-prompt {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    box-sizing: border-box;
+    height: var(--file-picker-prompt-height);
+    padding: 0 16px;
+    border-top: 1px solid var(--dashboard-border);
+    background: var(--dashboard-background);
+}
+
+/* The name field shrinks so the buttons stay whole, on one line, on screen. */
+.window-filedialog-prompt-row {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.window-filedialog-prompt-buttons {
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+/* On a phone a dashboard dialog's buttons stack full width; these share
+   the bar with the name field. */
+.window-filedialog-prompt .dashboard-dialog-btn {
+    flex-shrink: 0;
+    width: auto;
+    min-width: 72px;
+}
+
+.window-filedialog-prompt .dashboard-dialog-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+    pointer-events: none;
+}
+
+.window-filedialog-prompt .savefiledialog-filename {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    height: 36px;
+    margin: 0;
+    padding: 0 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background, var(--dashboard-background));
+    color: var(--dashboard-text-primary);
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.window-filedialog-prompt .savefiledialog-filename:focus {
+    outline: none;
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* In a narrow open picker, Upload gives way so the buttons stay whole. */
+.window-filedialog-upload-here {
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 6px 8px;
+    border-radius: 8px;
+    overflow: hidden;
+    white-space: nowrap;
+    color: var(--dashboard-text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.window-filedialog-upload-here svg {
+    flex-shrink: 0;
+}
+
+.window-filedialog-upload-here:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
+.window-filedialog-upload-here[aria-disabled="true"] {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+@media (hover: hover) {
+    .window-filedialog-upload-here:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
 }
