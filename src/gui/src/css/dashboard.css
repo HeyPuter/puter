@@ -12418,8 +12418,10 @@ span[data-avatar-user] > .avatar-picture {
     }
 }
 
-/* No footer under the listing here. */
-.file-picker .files {
+/* No footer under the listing here. The Files tab's grids clear its footer
+   with a rule of their own, which this has to outrank. */
+.file-picker .files,
+.dashboard-section-files.file-picker .files-tab .files.files-grid-view {
     margin-bottom: 0;
 }
 
