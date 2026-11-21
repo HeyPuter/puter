@@ -208,6 +208,14 @@ const isModerationRefusal = (e: unknown): boolean =>
 const CREDIT_GATE_ATTEMPTS = 3;
 
 /**
+ * Times the credit gate reads a balance that keeps changing under it, and the
+ * upper bound of the randomized wait before each new read, times the attempt.
+ * The same policy as a fixed-amount reservation's.
+ */
+const CREDIT_GATE_STALE_ATTEMPTS = 5;
+const CREDIT_GATE_STALE_BACKOFF_MS = 20;
+
+/**
  * The refusal for a request its funds can't cover. When what's missing is only
  * held by the account's own requests still in flight, waiting is the remedy,
  * not a top-up: a retryable 429 rather than a 402 that prompts an upgrade.
@@ -1837,6 +1845,7 @@ export class ChatCompletionDriver extends PuterDriver {
             pricingTime: Date;
         },
         attempt = 1,
+        staleAttempt = 1,
     ): Promise<{
         hold: CreditHold;
         fundsCap?: number;
@@ -1993,6 +2002,32 @@ export class ChatCompletionDriver extends PuterDriver {
             Math.max(worstCaseCost, minimumCredits),
             { within: headroom },
         );
+        if (hold === 'stale') {
+            // The balance changed since it was read, which says nothing about
+            // what is held: counted apart from lost headroom, and read again
+            // after a short wait.
+            if (staleAttempt >= CREDIT_GATE_STALE_ATTEMPTS) {
+                throw new HttpError(
+                    429,
+                    'The account balance is changing too quickly to admit this request. Retry shortly.',
+                    { legacyCode: 'too_many_requests' },
+                );
+            }
+            await new Promise((resolve) =>
+                setTimeout(
+                    resolve,
+                    Math.random() * CREDIT_GATE_STALE_BACKOFF_MS * staleAttempt,
+                ),
+            );
+            return this.#applyCreditGate(
+                actor,
+                model,
+                args,
+                estimates,
+                attempt,
+                staleAttempt + 1,
+            );
+        }
         if (!hold) {
             if (attempt >= CREDIT_GATE_ATTEMPTS) throw fundsRefusal(true);
             return this.#applyCreditGate(
@@ -2001,6 +2036,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 args,
                 estimates,
                 attempt + 1,
+                staleAttempt,
             );
         }
         return { hold, fundsCap, costFactor, promptTokenEstimate };
