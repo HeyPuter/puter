@@ -12399,7 +12399,7 @@ span[data-avatar-user] > .avatar-picture {
 .file-picker .directories {
     width: 190px;
     flex-shrink: 0;
-    padding-top: 16px;
+    padding-top: 7px;
     padding-left: 10px;
 }
 
