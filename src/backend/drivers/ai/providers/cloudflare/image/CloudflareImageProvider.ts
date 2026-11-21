@@ -34,6 +34,8 @@ import {
     CLOUDFLARE_IMAGE_GENERATION_MODELS,
     CloudflareImageModel,
 } from './models.js';
+import { readBoundedBody } from '../../../../util/fileInput.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import { fetchCloudflareImageCatalog } from './catalog.js';
 import {
     assertInputImageString,
@@ -42,6 +44,10 @@ import {
     resolveSingleInputImage,
     parseDataUri,
 } from '../../../interfaces/image/inputImage.js';
+
+// One synchronous call covers the whole generation.
+const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 type CloudflareGenerateParams = IGenerateParams & {
     steps?: number;
@@ -498,17 +504,20 @@ export class CloudflareImageProvider implements IImageProvider {
             method: 'POST',
             headers,
             body,
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
+        const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES, () =>
+            malformedUpstreamResponse('cloudflare', 'Cloudflare'),
+        );
 
         const contentType = (
             response.headers.get('content-type') || ''
         ).toLowerCase();
         if (contentType.startsWith('image/')) {
-            const imageBuffer = Buffer.from(await response.arrayBuffer());
-            return `data:${contentType};base64,${imageBuffer.toString('base64')}`;
+            return `data:${contentType};base64,${raw.toString('base64')}`;
         }
 
-        const text = await response.text();
+        const text = raw.toString('utf8');
         let payload: unknown;
         try {
             payload = text ? JSON.parse(text) : {};
