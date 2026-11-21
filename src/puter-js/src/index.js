@@ -878,6 +878,9 @@ export class Puter {
                             launch.token,
                         );
                         this.setAuthToken(launch.token);
+                        // A godmode token doesn't name the app, and a reload
+                        // won't have the app id in the URL any more.
+                        if (this.appID) this.setAppID(this.appID);
                     }
                 });
             }

@@ -528,6 +528,29 @@ describe('a tab the desktop opened for an app', () => {
         expect(puter.args).toEqual({ a: 1 });
     });
 
+    it('keeps a godmode app\'s id for a reload after the params are cleared', async () => {
+        const godmodeToken = jwt({ t: 's', v: '2', godmode_app_uid: 'app-1' });
+        const opener = {
+            closed: false,
+            postMessage: (data, guiOrigin) => window.dispatchEvent(new MessageEvent('message', {
+                origin: guiOrigin,
+                source: opener,
+                data: { msg: 'puter.launch', appInstanceID: data.appInstanceID, token: godmodeToken },
+            })),
+        };
+        Object.defineProperty(globalThis, 'opener', { value: opener, configurable: true, writable: true });
+        const puter = await bootWeb(`${LAUNCH}&puter.app.id=app-1`);
+        await puter.openerLaunch_;
+        window.dispatchEvent(new Event('load'));
+        await flush();
+        expect(location.search).toBe('');
+
+        const reloaded = await bootWeb();
+        expect(reloaded.authToken).toBe(godmodeToken);
+        expect(reloaded.appID).toBe('app-1');
+        expect(reloaded.appDataPath).toBe('~/AppData/app-1');
+    });
+
     it('leaves puter.* params the app put in its URL after launch', async () => {
         await bootWeb(`${LAUNCH}&puter.app.id=app-1`);
         history.replaceState(null, '', '/site/index.html?puter.view=list&puter.app.id=app-1');
