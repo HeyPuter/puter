@@ -32,6 +32,27 @@ import type {
     ITranscribeArgs,
 } from './types.js';
 
+// Speech codecs don't go below about 1 kbps, so a file can't hold more audio
+// than its size at that rate.
+const MIN_AUDIO_BYTES_PER_SECOND = 125;
+
+/**
+ * Whole seconds to bill for a transcription: what the provider reports, held to
+ * the longest audio `audioBytes` could contain, or `estimatedSeconds` when it
+ * reports nothing usable.
+ */
+export const billableAudioSeconds = (
+    reported: unknown,
+    estimatedSeconds: number,
+    audioBytes: number,
+): number =>
+    typeof reported === 'number' && Number.isFinite(reported) && reported > 0
+        ? Math.min(
+              Math.max(1, Math.ceil(reported)),
+              Math.max(1, Math.ceil(audioBytes / MIN_AUDIO_BYTES_PER_SECOND)),
+          )
+        : estimatedSeconds;
+
 export abstract class SpeechToTextProvider implements ISpeechToTextProvider {
     abstract readonly providerName: string;
 

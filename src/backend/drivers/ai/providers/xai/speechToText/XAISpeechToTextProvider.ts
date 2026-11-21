@@ -21,13 +21,20 @@ import { HttpError } from '../../../../../core/http/HttpError.js';
 import type { Actor } from '../../../../../core/actor.js';
 import { withAiCreditHold } from '../../../../../util/aiCostFactor.js';
 import { loadFileInput } from '../../../../util/fileInput.js';
-import { upstreamFetch } from '../../../../util/upstreamErrors.js';
+import {
+    malformedUpstreamResponse,
+    upstreamFetch,
+    upstreamJson,
+} from '../../../../util/upstreamErrors.js';
 import type {
     ISpeechToTextDeps,
     ISpeechToTextModel,
     ITranscribeArgs,
 } from '../../../interfaces/speechToText/types.js';
-import { SpeechToTextProvider } from '../../../interfaces/speechToText/SpeechToTextProvider.js';
+import {
+    billableAudioSeconds,
+    SpeechToTextProvider,
+} from '../../../interfaces/speechToText/SpeechToTextProvider.js';
 
 /**
  * Speech-to-text via the xAI (Grok) STT API.
@@ -168,12 +175,14 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
         // be known upfront, so the hold covers a conservative 60 seconds.
         // Actual usage is metered from the duration xAI reports.
         let estimatedSeconds = 60;
+        let audioBytes = MAX_AUDIO_FILE_SIZE;
         if (this.#isHttpUrl(args.file)) {
             formData.append('url', args.file);
         } else {
             // The file must be the last field, per xAI's docs.
             const { blob, filename } = await this.#loadAudio(args.file, actor);
             estimatedSeconds = Math.max(1, Math.ceil(blob.size / 16000));
+            audioBytes = blob.size;
             formData.append('file', blob, filename);
         }
 
@@ -194,11 +203,19 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
                     },
                     { providerLabel: 'xAI STT', timeoutMs: STT_TIMEOUT_MS },
                 );
-                const result = await response.json();
-                const actualSeconds =
-                    typeof result.duration === 'number'
-                        ? Math.ceil(result.duration)
-                        : estimatedSeconds;
+                const result = (await upstreamJson(
+                    'xai',
+                    'xAI STT',
+                    response,
+                )) as { duration?: unknown } | null;
+                if (!result || typeof result !== 'object') {
+                    throw malformedUpstreamResponse('xai', 'xAI STT');
+                }
+                const actualSeconds = billableAudioSeconds(
+                    result.duration,
+                    estimatedSeconds,
+                    audioBytes,
+                );
                 metering.incrementUsage(
                     actor,
                     'xai:stt:second',
