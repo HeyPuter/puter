@@ -12393,9 +12393,12 @@ span[data-avatar-user] > .avatar-picture {
     height: 100%;
 }
 
+/* Below 768px the Files tab pushes its folders down past the dashboard's
+   menu toggle; a picker has no toggle. */
 .file-picker .directories {
     width: 180px;
     flex-shrink: 0;
+    padding-top: 16px;
 }
 
 .file-picker .directory-contents {
