@@ -21,7 +21,10 @@ import { Together } from 'together-ai';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import type { IChatModel } from '../../../interfaces/chat/types.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
-import { catalogPrice } from '../../../shared/catalogPrice.js';
+import {
+    catalogPrice,
+    catalogTokenLimit,
+} from '../../../shared/catalogPrice.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
     type ChatProviderConfig,
@@ -70,6 +73,12 @@ export class TogetherAIProvider extends OpenAICompatProvider {
             throw new Error('Invalid Together catalog');
         const models: IChatModel[] = [];
         for (const model of apiModels) {
+            if (typeof model?.id !== 'string' || !model.id) continue;
+            const displayName =
+                typeof model.display_name === 'string'
+                    ? model.display_name
+                    : model.id;
+            const context = catalogTokenLimit(model.context_length);
             if (
                 model.type === 'chat' ||
                 model.type === 'code' ||
@@ -83,9 +92,9 @@ export class TogetherAIProvider extends OpenAICompatProvider {
                         `togetherai/${model.id}`,
                         model.id.split('/').slice(1).join('/'),
                     ],
-                    name: model.display_name,
-                    context: model.context_length,
-                    description: model.display_name,
+                    name: displayName,
+                    context,
+                    description: displayName,
                     costs_currency: 'usd-cents',
                     input_cost_key: 'input',
                     output_cost_key: 'output',
@@ -107,9 +116,7 @@ export class TogetherAIProvider extends OpenAICompatProvider {
                     // output at what the window leaves after an estimated
                     // prompt, which runs low on whitespace-poor prompts — the
                     // headroom keeps short prompts from overshooting it.
-                    max_tokens: model.context_length
-                        ? Math.floor(model.context_length * 0.95)
-                        : 8000,
+                    max_tokens: context ? Math.floor(context * 0.95) : 8000,
                 });
             }
         }

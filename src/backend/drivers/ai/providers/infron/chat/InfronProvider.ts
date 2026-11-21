@@ -22,7 +22,10 @@ import { OpenAI } from 'openai';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import type { IChatModel } from '../../../interfaces/chat/types.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
-import { catalogPrice } from '../../../shared/catalogPrice.js';
+import {
+    catalogPrice,
+    catalogTokenLimit,
+} from '../../../shared/catalogPrice.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
     type ChatProviderConfig,
@@ -140,6 +143,8 @@ const coerceModel = (
 ): IChatModel => {
     const suffix = tier ? `:${tier}` : '';
     const shortId = model.id.split('/').slice(1).join('/');
+    const displayName =
+        typeof model.display_name === 'string' ? model.display_name : '';
     // Catalog prices are USD per million tokens; costs are microcents per
     // token, so the conversion is ×100.
     const promptCost = catalogPrice(prices.prompt, 100);
@@ -147,20 +152,22 @@ const coerceModel = (
     const requestCost = catalogPrice(model.min_request_price, 100_000_000);
     return {
         id: `infron:${model.id}${suffix}`,
-        name: `${model.display_name || model.id} (Infron${tier ? `, ${tier}` : ''})`,
+        name: `${displayName || model.id} (Infron${tier ? `, ${tier}` : ''})`,
         aliases: [
             `${model.id}${suffix}`,
-            ...(model.display_name && !tier ? [model.display_name] : []),
+            ...(displayName && !tier ? [displayName] : []),
             `infron/${model.id}${suffix}`,
             `${shortId}${suffix}`,
             // The plain id already means the default tier; accept the
             // explicit spelling of it too.
             ...(tier ? [] : [`${model.id}:${DEFAULT_SERVICE_TIER}`]),
         ],
-        context: tier
-            ? (prices.context ?? model.context_length)
-            : model.context_length,
-        max_tokens: model.max_output_tokens ?? 0,
+        context: catalogTokenLimit(
+            tier
+                ? (prices.context ?? model.context_length)
+                : model.context_length,
+        ),
+        max_tokens: catalogTokenLimit(model.max_output_tokens) ?? 0,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt',
         output_cost_key: 'completion',
@@ -242,10 +249,14 @@ export class InfronProvider extends OpenAICompatProvider {
         for (const model of models) {
             // The catalog mixes chat with image/video/embedding/search
             // models — only chat-completion-capable models belong here.
+            if (typeof model?.id !== 'string' || !model.id) continue;
             if (model.category_type !== 'LLM') continue;
             if (model.is_display_only) continue;
             if (model.deprecated) continue;
-            if (!(model.supported_endpoint_types ?? []).includes('openai')) {
+            if (
+                !Array.isArray(model.supported_endpoint_types) ||
+                !model.supported_endpoint_types.includes('openai')
+            ) {
                 continue;
             }
             const byTier = pricesByTier(model);

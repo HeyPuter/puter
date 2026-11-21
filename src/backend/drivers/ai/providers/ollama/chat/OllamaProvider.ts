@@ -22,6 +22,7 @@ import { OpenAI } from 'openai';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import type { IChatModel } from '../../../interfaces/chat/types.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
+import { catalogTokenLimit } from '../../../shared/catalogPrice.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
     OpenAICompatProvider,
@@ -68,16 +69,22 @@ export class OllamaChatProvider extends OpenAICompatProvider {
             url: `${this.#apiBaseUrl}/api/tags`,
             signal,
         });
-        const models = resp.data.models || [];
+        const models = Array.isArray(resp.data?.models) ? resp.data.models : [];
 
         const coerced_models: IChatModel[] = [];
         for (const model of models) {
             // Ollama API returns models with 'name' property, not 'model'
-            const modelName = model.name || model.model || 'unknown';
+            const modelName =
+                [model?.name, model?.model].find(
+                    (name) => typeof name === 'string' && name,
+                ) ?? 'unknown';
             coerced_models.push({
                 id: `ollama:ollama/${modelName}`,
                 name: `${modelName} (Ollama)`,
-                max_tokens: model.size || model.max_context || 8192,
+                max_tokens:
+                    catalogTokenLimit(model.size) ??
+                    catalogTokenLimit(model.max_context) ??
+                    8192,
                 costs_currency: 'usd-cents',
                 costs: {
                     tokens: 1_000_000,
