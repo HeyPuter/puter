@@ -1184,6 +1184,7 @@ describe('requireAnyVerifiedGate', () => {
     ): AnyVerifiedDeps => ({
         smsConfigured: () => sms,
         probeCardVerification: async () => card,
+        probeEnabledOverride: async () => null,
         hasPaidPlan: async () => paid,
     });
 

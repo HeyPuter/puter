@@ -6129,6 +6129,60 @@ describe('AuthController SMS → card fallback', () => {
         });
     });
 
+    // An extension answering the policy event decides in place of config.
+    const withFallbackPolicy = async (
+        enabled: boolean,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { event: unknown } };
+        const real = ctrl.clients.event;
+        ctrl.clients.event = {
+            emitAndWait: async (
+                key: string,
+                event: Record<string, unknown>,
+            ) => {
+                if (key === 'puter.card-fallback.policy') {
+                    event.enabled = enabled;
+                }
+            },
+            emit: () => undefined,
+        };
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.event = real;
+        }
+    };
+
+    it.each([
+        { configured: true, policy: false, body: {} },
+        {
+            configured: false,
+            policy: true,
+            body: { card_fallback_available: true },
+        },
+    ])(
+        'follows an extension policy of $policy over enabled: $configured',
+        async ({ configured, policy, body }) => {
+            const { user, actor } = await makeUserAndActor({
+                requires_phone_verification: 1,
+            });
+            await withFallbackConfig({ enabled: configured }, async () => {
+                await withPrelude(stubPrelude(), async () => {
+                    await withFallbackPolicy(policy, async () => {
+                        await seedAttempts(user.id, 9);
+                        const res = makeRes();
+                        await controller.handleSendConfirmPhone(
+                            makeReq({ phone: '+14155550123' }, { actor }),
+                            res,
+                        );
+                        expect(res.body).toEqual(body);
+                    });
+                });
+            });
+        },
+    );
+
     it('clamps after_attempts to the send allowance so it stays reachable', async () => {
         const { user, actor } = await makeUserAndActor({
             requires_phone_verification: 1,
