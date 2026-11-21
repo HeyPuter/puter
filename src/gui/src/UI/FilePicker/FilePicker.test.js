@@ -241,6 +241,23 @@ describe('FilePicker selection', () => {
     });
 });
 
+describe('FilePicker rename', () => {
+    it('fits the name to its row again when the rename fails', async () => {
+        // As rename_file does on an error: the old name back, cut short.
+        window.rename_file = vi.fn((_entry, _newName, _oldName, _oldPath, _row, el_name, _icon, _editor, _url, _undo, onDone) => {
+            jQuery(el_name).text('not…txt');
+            onDone(null);
+        });
+        const dialog = await openDialog({ is_openFileDialog: true });
+        const $row = rowNamed(dialog, 'notes.txt');
+
+        $row.find('.item-name-editor').addClass('item-name-editor-active').val('photo.png').trigger('focusout');
+
+        expect(window.rename_file).toHaveBeenCalled();
+        expect($row.find('.item-name').text()).toBe('notes.txt');
+    });
+});
+
 describe('open picker', () => {
     it('enables Open for a selected file, and sends the signed file to the app window', async () => {
         const app = appWindow();

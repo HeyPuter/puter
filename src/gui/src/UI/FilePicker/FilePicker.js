@@ -1196,7 +1196,12 @@ export default class FilePicker {
             $(el_editor).removeClass('item-name-editor-active');
             entry.path = oldPath;
             window.rename_file(entry, newName, oldName, oldPath, row, el_name, el_icon, el_editor, row.getAttribute('data-website_url'), false, (fsentry) => {
-                if ( ! fsentry || ! row.isConnected ) return;
+                if ( ! row.isConnected ) return;
+                if ( ! fsentry ) {
+                    // A failed rename puts the name back cut to the desktop's fixed length.
+                    fitNames([el_name], { list: ! this.isGridView(), nameWidth: null });
+                    return;
+                }
                 this.refresh({ selectPaths: [path.join(path.dirname(oldPath), fsentry.name ?? newName)] });
             });
         });
