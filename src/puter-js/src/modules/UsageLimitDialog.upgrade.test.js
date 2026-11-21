@@ -49,3 +49,42 @@ describe('the usage limit dialog Upgrade button', () => {
         expect(document.querySelector('usage-limit-dialog')).toBeNull();
     });
 });
+
+describe('the usage limit dialog for an account that can add credits', () => {
+    const shadow = () => document.querySelector('usage-limit-dialog').shadowRoot;
+
+    it('leads with Add Credits, keeps Upgrade beside it, and says what to do', () => {
+        showUsageLimitDialog('Your account does not have enough funding to complete this request.', {
+            reason: 'funds', onTopUp: vi.fn(),
+        });
+        const labels = [...shadow().querySelectorAll('.buttons button')].map((button) => button.textContent.trim());
+        expect(labels).toEqual(['Add Credits', 'Upgrade Plan', 'Close']);
+        expect(shadow().querySelector('#top-up-btn').classList.contains('button-primary')).toBe(true);
+        expect(shadow().querySelector('#upgrade-btn').classList.contains('button-primary')).toBe(false);
+        expect(shadow().querySelector('.message').textContent).toContain('Add credits to continue.');
+    });
+
+    it('runs onTopUp once the dialog has closed, and opens no tab', () => {
+        const onTopUp = vi.fn(() => {
+            expect(document.querySelector('usage-limit-dialog')).toBeNull();
+        });
+        showUsageLimitDialog('Out of credit.', { reason: 'funds', onTopUp });
+        shadow().querySelector('#top-up-btn').click();
+        expect(onTopUp).toHaveBeenCalledTimes(1);
+        expect(window.open).not.toHaveBeenCalled();
+    });
+
+    it('still upgrades from its Upgrade button', () => {
+        showUsageLimitDialog('Out of credit.', { reason: 'funds', onTopUp: vi.fn() });
+        upgradeButton().click();
+        expect(window.open).toHaveBeenCalledWith('https://puter.com/dashboard/?upgrade=funds#home', '_blank');
+    });
+
+    it('offers only the upgrade to everyone else', () => {
+        showUsageLimitDialog('Out of credit.', { reason: 'funds' });
+        expect(shadow().querySelector('#top-up-btn')).toBeNull();
+        expect(upgradeButton().textContent).toBe('Upgrade Now');
+        expect(upgradeButton().classList.contains('button-primary')).toBe(true);
+        expect(shadow().querySelector('.message').textContent).toContain('Please upgrade to continue.');
+    });
+});

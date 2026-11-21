@@ -149,7 +149,6 @@ const ig = {
         ok: 'OK',
         open: 'Mepee',
         open_in_new_tab: 'Mepee na Tab ọhụrụ',
-        open_in_new_window: 'Mepee na window ọhụrụ',
         open_with: 'Ji Mepee Ya',
         original_name: 'Aha izizi',
         original_path: 'Ụzọ izizi',

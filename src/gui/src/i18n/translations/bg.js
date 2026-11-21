@@ -155,7 +155,6 @@ const bg = {
         ok: 'ОК',
         open: 'Отвори',
         open_in_new_tab: 'Отвори в нов раздел',
-        open_in_new_window: 'Отвори в нов прозорец',
         open_with: 'Отвори с',
         original_name: 'Оригинално име',
         original_path: 'Оригинален път',

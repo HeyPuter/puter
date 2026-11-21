@@ -122,6 +122,7 @@ export default suite('email', {
     'get parses the message, attachments included': async (t) => {
         const boundary = 'suite-boundary';
         const raw = [
+            'X-Puter-Sender-Auth: fail; from=puter.com; signed-by=none',
             'From: Ada Lovelace <ada@example.com>',
             'To: Bob <bob@puter.email>',
             'Cc: carol@example.com',
@@ -155,6 +156,7 @@ export default suite('email', {
         t.assert.deepEqual(msg.cc, [{ name: '', address: 'carol@example.com' }]);
         t.assert.equal(msg.messageId, '<get@example.com>');
         t.assert.equal(msg.date, '2017-03-05T10:00:00.000Z');
+        t.assert.deepEqual(msg.senderAuth, { result: 'fail', from: ['puter.com'], signedBy: [], local: false });
         t.assert.equal((msg.text ?? '').trim(), 'hello body');
         t.assert.equal(msg.attachments.length, 1);
         t.assert.equal(msg.attachments[0].filename, 'note.txt');

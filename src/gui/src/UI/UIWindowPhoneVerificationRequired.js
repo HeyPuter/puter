@@ -51,6 +51,10 @@ import {
 // right, so it is offered from the start and the card dialog is told that a
 // card alone satisfies it — see UIWindowCardVerificationRequired.
 //
+// An account proving the number it already has (`phone_on_file`, the last two
+// digits whoami reports) gets no number field: the code goes to that number, and
+// a user who lost it asks for the card path instead.
+//
 // The number field combines a searchable country-code picker with the national
 // number. Everything the user types is normalized to E.164 with libphonenumber
 // before it's sent, so country selection and on-screen formatting are purely a
@@ -87,6 +91,9 @@ function UIWindowPhoneVerificationRequired(options) {
         let final_code = '';
         let is_checking_code = false;
         let is_sending = false;
+        // Also learned from a send, when the window opened before the client
+        // knew the account had a number to prove.
+        let phone_on_file = options.phone_on_file ?? window.user?.phone_on_file ?? null;
         // Resolve the returned promise at most once. Success resolves(true);
         // a user-initiated close resolves(false). The card fallback resolves
         // the string 'card' — truthy, so callers polling `while (!ok)` are
@@ -146,6 +153,8 @@ function UIWindowPhoneVerificationRequired(options) {
             card_fallback_link: i18n('phone_card_fallback_link'),
             card_fallback_note: i18n('phone_card_fallback_note'),
             card_fallback_unavailable: i18n('phone_card_fallback_unavailable'),
+            on_file_subtitle: i18n('phone_on_file_subtitle', { digits: phone_on_file ?? '' }),
+            lost_number: i18n('phone_lost_number'),
             suggested: i18n('phone_suggested'),
             all_countries: i18n('phone_all_countries'),
         };
@@ -421,11 +430,14 @@ function UIWindowPhoneVerificationRequired(options) {
 
         // -- Step 1: phone number --
         h += '<form class="phone-step phone-step-1">';
-        h += `<p class="phone-subtitle">${T.subtitle}</p>`;
+        h += `<p class="phone-subtitle">${phone_on_file ? T.on_file_subtitle : T.subtitle}</p>`;
         // Offer a friendly human fallback so verification is never a dead end —
         // worded as help, not as an accusation.
-        h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:-12px auto 18px; max-width:320px;">Need help? Email <a href="mailto:support@puter.com" style="color:#3b82f6; text-decoration:none;">support@puter.com</a> and we'll assist creating your account.</p>`;
+        if (!phone_on_file) {
+            h += `<p style="text-align:center; font-size:12px; line-height:1.4; color:#8a99a8; margin:-12px auto 18px; max-width:320px;">Need help? Email <a href="mailto:support@puter.com" style="color:#3b82f6; text-decoration:none;">support@puter.com</a> and we'll assist creating your account.</p>`;
+        }
         h += '<div class="error" role="alert" aria-live="assertive"></div>';
+        h += `<div class="phone-number-entry"${phone_on_file ? ' hidden' : ''}>`;
         h += `<label class="phone-field-label" id="phone-number-label" for="phone-verif-input">${T.number_label}</label>`;
         h += '<div class="phone-input-group">';
         h += `<button type="button" class="phone-country-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="${T.select_country}">`;
@@ -442,10 +454,18 @@ function UIWindowPhoneVerificationRequired(options) {
         h += `<ul class="phone-country-list" id="phone-country-listbox" role="listbox" aria-label="${T.country_label}">${countryOptions}</ul>`;
         h += `<div class="phone-country-empty" hidden>${T.no_matches}</div>`;
         h += '</div>';
+        h += '</div>';
         h += `<button type="submit" class="button button-block button-primary phone-send-btn">${send_btn_txt}</button>`;
         h += card_fallback_html;
+        const step_1_links = [];
+        if (phone_on_file) {
+            step_1_links.push(`<a class="phone-lost-number" role="button" tabindex="0">${T.lost_number}</a>`);
+        }
         if (options.logout_in_footer) {
-            h += `<div class="phone-footer"><a class="phone-log-out">${i18n('log_out')}</a></div>`;
+            step_1_links.push(`<a class="phone-log-out">${i18n('log_out')}</a>`);
+        }
+        if (step_1_links.length) {
+            h += `<div class="phone-footer">${step_1_links.join(' &nbsp;&bull;&nbsp; ')}</div>`;
         }
         h += '</form>';
 
@@ -467,7 +487,9 @@ function UIWindowPhoneVerificationRequired(options) {
         h += `<button type="submit" class="button button-block button-primary phone-verify-btn" disabled>${verify_btn_txt}</button>`;
         h += card_fallback_html;
         h += '<div class="phone-footer">';
-        h += `<a class="phone-resend-code">${T.resend_code}</a> &nbsp;&bull;&nbsp; <a class="phone-change-number">${T.change_number}</a>`;
+        h += `<a class="phone-resend-code">${T.resend_code}</a>`;
+        h += `<span class="phone-change-number-wrap"${phone_on_file ? ' hidden' : ''}> &nbsp;&bull;&nbsp; <a class="phone-change-number">${T.change_number}</a></span>`;
+        h += `<span class="phone-lost-number-wrap"${phone_on_file ? '' : ' hidden'}> &nbsp;&bull;&nbsp; <a class="phone-lost-number" role="button" tabindex="0">${T.lost_number}</a></span>`;
         if (options.logout_in_footer) {
             h += ' &nbsp;&bull;&nbsp; ';
             h += `<a class="phone-log-out">${i18n('log_out')}</a>`;
@@ -506,6 +528,10 @@ function UIWindowPhoneVerificationRequired(options) {
                 if (!logging_out) settle(false);
             },
             onAppend: function (el_window) {
+                if (phone_on_file) {
+                    $(el_window).find('.phone-send-btn').focus();
+                    return;
+                }
                 const $inp = $(el_window).find('.phone-input').first();
                 $inp.focus();
                 $inp.closest('.phone-input-group').addClass('focused');
@@ -854,18 +880,22 @@ function UIWindowPhoneVerificationRequired(options) {
         const sendCode = async () => {
             if (is_sending) return;
             clearError();
-            const inp = el_window.querySelector('#phone-verif-input');
-            const raw = (inp ? inp.value : '').trim();
-            const digits = raw.replace(/\D/g, '');
-            if (digits.length < 4) {
-                showError(T.enter_valid);
-                return;
+            let phone = phone_on_file ? `•••• ${phone_on_file}` : null;
+            if (!phone_on_file) {
+                const inp = el_window.querySelector('#phone-verif-input');
+                const raw = (inp ? inp.value : '').trim();
+                const digits = raw.replace(/\D/g, '');
+                if (digits.length < 4) {
+                    showError(T.enter_valid);
+                    return;
+                }
+                // Canonical E.164 from libphonenumber; fall back to a naive join
+                // only if parsing fails entirely, so we always send *something*
+                // and let the server be the final arbiter (never block a real
+                // signup).
+                const { e164 } = inspect_phone(raw, currentIso);
+                phone = e164 || `${currentDial}${digits}`;
             }
-            // Canonical E.164 from libphonenumber; fall back to a naive join
-            // only if parsing fails entirely, so we always send *something* and
-            // let the server be the final arbiter (never block a real signup).
-            const { e164 } = inspect_phone(raw, currentIso);
-            const phone = e164 || `${currentDial}${digits}`;
 
             is_sending = true;
             $(el_window)
@@ -887,7 +917,8 @@ function UIWindowPhoneVerificationRequired(options) {
                 ]);
             } catch (_) {}
 
-            const sendData = { phone };
+            // The server sends to the number on file and ignores any other.
+            const sendData = phone_on_file ? {} : { phone };
             if ( fingerprint ) sendData.fingerprint = fingerprint;
             if ( dispatchId ) sendData.dispatch_id = dispatchId;
 
@@ -904,6 +935,12 @@ function UIWindowPhoneVerificationRequired(options) {
                     // open on a send that itself succeeded — the user still may
                     // never receive the code.
                     if (res?.card_fallback_available) revealCardFallback();
+                    if (res?.phone_on_file) {
+                        phone_on_file = res.phone_on_file;
+                        phone = `•••• ${phone_on_file}`;
+                        $(el_window).find('.phone-change-number-wrap').prop('hidden', true);
+                        $(el_window).find('.phone-lost-number-wrap').prop('hidden', false);
+                    }
                     // Advance to the code-entry step with a clean slate.
                     $(el_window).find('.phone-target').text(phone);
                     // `channel` is where Prelude actually delivered the code;
@@ -1079,6 +1116,39 @@ function UIWindowPhoneVerificationRequired(options) {
         $(el_window).find('.phone-resend-code').on('click', function () {
             if ($(this).hasClass('disabled')) return;
             sendCode();
+        });
+        // The number on file is gone: ask for the card path instead.
+        const reportLostNumber = () => {
+            if (is_sending) return;
+            is_sending = true;
+            clearError();
+            $.ajax({
+                url: `${window.api_origin}/send-confirm-phone`,
+                type: 'POST',
+                data: JSON.stringify({ lostNumber: true }),
+                async: true,
+                contentType: 'application/json',
+                headers: { Authorization: `Bearer ${window.auth_token}` },
+                statusCode: { 401: (xhr) => window.handle401(xhr) },
+                success: function (res) {
+                    if (res?.card_fallback_available) {
+                        revealCardFallback();
+                        useCardInstead();
+                    }
+                },
+                error: function (xhr) {
+                    showError(xhr.responseJSON?.message ?? xhr.responseJSON?.error ?? T.could_not_send);
+                },
+                complete: function () {
+                    is_sending = false;
+                },
+            });
+        };
+        $(el_window).find('.phone-lost-number').on('click', reportLostNumber).on('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                reportLostNumber();
+            }
         });
         $(el_window).find('.phone-change-number').on('click', function () {
             clearError();

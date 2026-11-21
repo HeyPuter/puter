@@ -7,11 +7,11 @@ import {
     TOKEN,
     attributesOf,
     decodeEntities,
-    openArchive,
     readPicture,
     readRelationships,
     readStoredThumbnail,
 } from './ooxml.js';
+import { openArchive } from './zip.js';
 import { createPage, renderPage } from './page.js';
 
 const TWIPS_PER_POINT = 20;
