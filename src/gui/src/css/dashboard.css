@@ -9961,6 +9961,11 @@ body.dashboard-mode .notifications-close-all {
     pointer-events: none;
 }
 
+/* Above every window (phones pin them all at 9999999, the dashboard's
+   included) and under the stay-on-top band, like the auth dialog. */
+.dashboard-dialog-overlay.dashboard-dialog-above-windows {
+    z-index: 99999998;
+}
 .dashboard-dialog-overlay.dashboard-dialog-show {
     opacity: 1;
     pointer-events: auto;
@@ -10099,11 +10104,17 @@ body.dashboard-mode .notifications-close-all {
     overflow-wrap: anywhere;
 }
 
-.dashboard-dialog-message p {
+.dashboard-dialog-message p,
+.dashboard-dialog-message ul {
     margin: 0 0 10px;
 }
 
-.dashboard-dialog-message p:last-child {
+.dashboard-dialog-message ul {
+    padding-left: 20px;
+}
+
+.dashboard-dialog-message p:last-child,
+.dashboard-dialog-message ul:last-child {
     margin-bottom: 0;
 }
 

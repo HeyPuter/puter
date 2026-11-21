@@ -150,7 +150,6 @@ const ko = {
         ok: '확인',
         open: '열기',
         open_in_new_tab: '새 탭에서 열기',
-        open_in_new_window: '새 창에서 열기',
         open_with: '다른 앱으로 열기',
         original_name: '원본 이름',
         original_path: '원본 경로',

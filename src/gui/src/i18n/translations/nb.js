@@ -145,7 +145,6 @@ const nb = {
         ok: 'OK',
         open: 'Åpne',
         open_in_new_tab: 'Åpne i ny fane',
-        open_in_new_window: 'Åpne i nytt vindu',
         open_with: 'Åpne med',
         original_name: 'Opprinnelig navn',
         original_path: 'Opprinnelig sti',

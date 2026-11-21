@@ -149,7 +149,6 @@ const ar = {
         ok: 'موافق',
         open: 'فتح',
         open_in_new_tab: 'فتح في علامة تبويب جديدة',
-        open_in_new_window: 'فتح في نافذة جديدة',
         open_with: 'فتح باستخدام',
         original_name: 'الاسم الأصلي',
         original_path: 'المسار الأصلي',

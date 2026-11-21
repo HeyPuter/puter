@@ -56,6 +56,11 @@ describe('colorCode', () => {
         expect(runs.every(run => run.family === 'monospace' && !run.bold && !run.italic)).toBe(true);
     });
 
+    it.each(['html', 'yaml', undefined])('draws text in one plain run when there is no pattern for %s', (language) => {
+        const source = 'const a = "b"; // c\n<p>1</p>';
+        expect(colorCode(source, language).map(run => [run.text, run.color])).toEqual([[source, PLAIN]]);
+    });
+
     it('puts every character of the source in a run, in order', () => {
         const source = 'if (a) {\n\treturn `x${a}`;\n}\n/* end';
         expect(colorCode(source, 'javascript').map(run => run.text).join('')).toBe(source);
