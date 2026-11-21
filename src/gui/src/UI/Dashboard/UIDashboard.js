@@ -467,7 +467,9 @@ async function UIDashboard (options) {
         forgetWorkers();
         if ( item.original_client_socket_id === window.socket.id ) return;
 
-        const $el = $(`.item[data-uid='${item.uid}']`);
+        // A file picker lists its folder again itself; re-sorted here, its
+        // row would land in the Files tab.
+        const $el = $(`.item[data-uid='${item.uid}']`).not('.file-picker .item');
         if ( $el.length === 0 ) return;
 
         // Delegate to the shared row updater (defined in TabFiles.init) so
