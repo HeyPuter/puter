@@ -31,6 +31,7 @@ import sharp from 'sharp';
 import type { Actor } from '../../../../../core/actor.js';
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
+import { convertsToText } from '../../../shared/scalarOptions.js';
 import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import {
     type CreditHold,
@@ -462,7 +463,7 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                         ) {
                             if (signal?.aborted) throw aborted();
                             throw new Error(
-                                `Prediction failed: ${prediction.error || prediction.status}`,
+                                `Prediction failed: ${typeof prediction.error === 'string' && prediction.error ? prediction.error : prediction.status}`,
                             );
                         }
                         output = prediction.output;
@@ -944,7 +945,8 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                 const url = this.#extractUrl(object[key]);
                 if (url) return url;
             }
-            const value = String(output);
+            // A file output prints as its URL.
+            const value = convertsToText(output) ? String(output) : '';
             if (/^https?:\/\//.test(value)) return value;
         }
         return undefined;

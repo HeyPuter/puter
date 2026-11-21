@@ -22,7 +22,8 @@ import {
     closestAspectRatio,
     expandAspectRatio,
 } from '../../../interfaces/image/imageDimensions.js';
-import { imageDataUri } from '../../../interfaces/image/imageOutput.js';
+import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
+import { imageEntryUrl } from '../../../interfaces/image/imageOutput.js';
 import { Together } from 'together-ai';
 import { Context } from '../../../../../core/context.js';
 import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
@@ -77,7 +78,10 @@ export class TogetherImageProvider implements IImageProvider {
             throw new Error('Together AI image generation requires an API key');
         }
         this.#meteringService = meteringService;
-        this.#client = new Together({ apiKey: config.apiKey });
+        this.#client = new Together({
+            apiKey: config.apiKey,
+            fetch: jsonCheckedFetch,
+        });
     }
 
     models(): TogetherImageModel[] {
@@ -287,13 +291,7 @@ export class TogetherImageProvider implements IImageProvider {
                 );
             }
 
-            const first = response.data[0] as {
-                url?: string;
-                b64_json?: string;
-            };
-            const url =
-                first.url ||
-                (first.b64_json ? imageDataUri(first.b64_json) : undefined);
+            const url = imageEntryUrl(response?.data?.[0]);
 
             if (!url) {
                 throw new HttpError(

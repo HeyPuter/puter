@@ -24,6 +24,7 @@ import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import { klingImageInput, klingRequest } from '../kling.js';
 import {
     CONTENT_FILTER_PATTERN,
+    malformedUpstreamResponse,
     sanitizeUpstreamMessage,
 } from '../../../../util/upstreamErrors.js';
 import { JobHold, pollUntilSettled } from '../../../shared/polling.js';
@@ -221,8 +222,8 @@ export class KlingImageProvider implements IImageProvider {
                 throw this.#taskFailure(task.task_status_msg);
             }
             const url = task.task_result?.images?.[0]?.url;
-            if (!url) {
-                throw new Error('Kling response did not include an image URL');
+            if (typeof url !== 'string' || !url) {
+                throw malformedUpstreamResponse('kling', 'Kling');
             }
             return url;
         } finally {
@@ -236,8 +237,7 @@ export class KlingImageProvider implements IImageProvider {
      */
     #taskFailure(message: string | undefined): HttpError {
         const detail =
-            sanitizeUpstreamMessage(message ?? '') ||
-            'Kling image generation failed';
+            sanitizeUpstreamMessage(message) || 'Kling image generation failed';
         const fields = { provider: 'kling' };
         if (CONTENT_FILTER_PATTERN.test(detail)) {
             return new HttpError(400, detail, {
