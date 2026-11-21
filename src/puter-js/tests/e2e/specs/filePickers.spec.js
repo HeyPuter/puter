@@ -233,6 +233,10 @@ test.describe('file pickers (env=app)', () => {
 
         await expect(picker.locator('.files')).toHaveClass(/files-grid-view/);
         await expect(row(picker, FOLDER)).toBeVisible();
+        // The grid runs down to the button bar: a picker has no footer to clear.
+        const gap = await picker.evaluate(el => el.querySelector('.window-filedialog-prompt').getBoundingClientRect().top
+            - el.querySelector('.files').getBoundingClientRect().bottom);
+        expect(gap).toBe(0);
     });
 
     test('Escape cancels the picker', async ({ page }) => {
