@@ -158,12 +158,12 @@ export async function klingRequest<T>(
     if (!response.ok || (code !== undefined && code !== 0)) {
         throw klingError(
             code,
-            envelope.message ||
+            (typeof envelope.message === 'string' && envelope.message) ||
                 `Kling request failed (status ${response.status})`,
             response.status,
         );
     }
-    if (envelope.data === undefined) {
+    if (!envelope.data || typeof envelope.data !== 'object') {
         throw klingError(undefined, 'Kling response had no data', 502);
     }
     return envelope.data;
