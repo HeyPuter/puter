@@ -54,6 +54,7 @@ import { httpsIconFor, notificationTarget, senderNameFor } from './Dashboard/not
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import { resolve_default_app } from '../helpers/defaultApp.js';
+import { forgetWorkers, forgetWorkersAfterMove } from '../helpers/trashWorkers.js';
 
 async function UIDesktop () {
     // start a transaction if we're not in embedded or fullpage mode
@@ -338,6 +339,8 @@ async function UIDesktop () {
     });
 
     window.socket.on('item.updated', async (item) => {
+        // The owner hears of a rename as an update.
+        forgetWorkers();
         // Don't update if this is the original client that initiated the action
         if ( item.original_client_socket_id === window.socket.id )
         {
@@ -395,6 +398,7 @@ async function UIDesktop () {
     });
 
     window.socket.on('item.moved', async (resp) => {
+        forgetWorkersAfterMove(resp.path);
         let fsentry = resp;
         // Notify all apps that are watching this item
         window.sendItemChangeEventToWatchingApps(fsentry.uid, {
@@ -563,6 +567,8 @@ async function UIDesktop () {
     });
 
     window.socket.on('item.renamed', async (item) => {
+        // A rename can change a worker's source path.
+        forgetWorkers();
         // Notify all apps that are watching this item
         window.sendItemChangeEventToWatchingApps(item.uid, {
             event: 'rename',

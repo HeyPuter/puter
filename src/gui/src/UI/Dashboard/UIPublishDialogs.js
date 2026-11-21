@@ -23,6 +23,7 @@
 
 import ensure_can_publish from '../../helpers/ensureCanPublish.js';
 import forget_parent_listing from '../../helpers/forgetParentListing.js';
+import { forgetWorkers } from '../../helpers/trashWorkers.js';
 import UIDashboardFormDialog, { copyRowHtml } from './UIDashboardFormDialog.js';
 import { openLinkHtml, publishDomainFields, setupPublishDomain } from './publishDomain.js';
 import { finalizePublishName, normalizePublishName, PUBLISH_NAME_RULES } from './publishName.js';
@@ -95,6 +96,7 @@ const KINDS = {
         }],
         async publish (name, path, { sandboxed }) {
             const result = await puter.workers.create(name, path, { sandbox: sandboxed });
+            forgetWorkers();
             return result?.url ?? `https://${name}.puter.work`;
         },
         markPublished (path, url) {

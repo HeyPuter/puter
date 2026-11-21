@@ -19,6 +19,9 @@ describe('upgradeUrl', () => {
 
     it('leaves out what it was not told', () => {
         expect(upgradeUrl({ reason: 'storage' })).toBe('https://puter.com/dashboard/?upgrade=storage#home');
-        expect(upgradeUrl()).toBe('https://puter.com/dashboard/#home');
+    });
+
+    it('still asks for the upgrade flow when nothing was refused', () => {
+        expect(upgradeUrl()).toBe('https://puter.com/dashboard/?upgrade=#home');
     });
 });

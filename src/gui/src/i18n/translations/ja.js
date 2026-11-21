@@ -138,7 +138,6 @@ const ja = {
         ok: 'OK',
         open: '開く',
         open_in_new_tab: '新しいタブで開く',
-        open_in_new_window: '新しいウィンドウで開く',
         open_with: 'アプリケーションで開く',
         original_name: '元の名前',
         original_path: '元のパス',

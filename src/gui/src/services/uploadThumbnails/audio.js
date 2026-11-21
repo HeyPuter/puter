@@ -1,4 +1,5 @@
 import { AUDIO_COVER_MAX_BYTES, AUDIO_MAX_READ_BYTES } from './config.js';
+import { imageTypeOf } from './images.js';
 import { findBox, textOf } from './isobmff.js';
 import { createReader } from './reader.js';
 
@@ -10,22 +11,6 @@ const MAX_FLAC_BLOCKS = 1024;
 // A size stored seven bits to a byte, so that no byte of it looks like the start of an audio frame.
 const syncsafe = (view, at) => (view.getUint8(at) & 0x7f) << 21 | (view.getUint8(at + 1) & 0x7f) << 14 |
     (view.getUint8(at + 2) & 0x7f) << 7 | view.getUint8(at + 3) & 0x7f;
-
-/**
- * Tell what kind of image some bytes start, from their signature. The type a tag states is not always right.
- *
- * @param {DataView} view At least the image's first 12 bytes.
- * @returns {string | undefined} A MIME type browsers decode, or `undefined`.
- */
-const imageTypeOf = (view) => {
-    if ( view.byteLength < 12 ) return undefined;
-    if ( view.getUint16(0) === 0xffd8 ) return 'image/jpeg';
-    if ( view.getUint32(0) === 0x89504e47 ) return 'image/png';
-    if ( view.getUint32(0) === 0x47494638 ) return 'image/gif';
-    if ( view.getUint32(0) === 0x52494646 && view.getUint32(8) === 0x57454250 ) return 'image/webp';
-    if ( view.getUint16(0) === 0x424d ) return 'image/bmp';
-    return undefined;
-};
 
 /**
  * Make an image file of a stretch of the audio file, without reading it: the slice stays on disk until it is decoded.

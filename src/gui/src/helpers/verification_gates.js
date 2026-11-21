@@ -54,6 +54,13 @@ export async function openVerificationGateWindow (code, { factors } = {}) {
     if ( !pending ) {
         pending = (async () => {
             try {
+                // A gate set mid-session isn't in the cached account yet, and
+                // the window reads it (which number a phone code goes to).
+                try {
+                    await window.refresh_user_data?.(window.auth_token);
+                } catch (_) {
+                    // The window works from what it has.
+                }
                 const window_options = Array.isArray(factors)
                     ? {
                         stay_on_top: true,
@@ -125,6 +132,17 @@ export async function with_verification_gate (fn) {
 export const runVerificationGates = async (user, show_email, reload_on_success, page) => {
     const window_options = page ? { cover_page: true, has_head: false } : {};
     let email_verified = true;
+    // A gate window can clear another (a fallback card clears the phone gate, a
+    // replaced email asks for a phone first), so the gate after it reads the
+    // account again.
+    const refresh = async () => {
+        try {
+            const fresh = await puter.os.user();
+            if ( fresh ) Object.assign(user, fresh);
+        } catch (_) {
+            // The next gate works from what it has.
+        }
+    };
     const emailGate = async () => {
         if ( ! show_email ) return;
         // No ✕: the auth card it replaced is already gone, so there's
@@ -136,6 +154,7 @@ export const runVerificationGates = async (user, show_email, reload_on_success, 
             reload_on_success,
             window_options,
         });
+        await refresh();
     };
     // A user the SMS path keeps failing may take the card fallback instead;
     // that resolves 'card' and clears the card gate along with the phone
@@ -150,10 +169,12 @@ export const runVerificationGates = async (user, show_email, reload_on_success, 
                 stay_on_top: true,
                 has_head: true,
                 card_fallback_available: user.card_fallback_available,
+                phone_on_file: user.phone_on_file,
                 window_options,
             });
         } while ( ! phone_ok );
         card_cleared_by_fallback = phone_ok === 'card';
+        await refresh();
     };
     const cardGate = async () => {
         if ( ! user?.requires_card_verification || card_cleared_by_fallback ) return;
@@ -166,6 +187,7 @@ export const runVerificationGates = async (user, show_email, reload_on_success, 
                 window_options,
             });
         } while ( ! card_ok );
+        await refresh();
     };
     if ( user?.email_gate_last ) {
         await cardGate();

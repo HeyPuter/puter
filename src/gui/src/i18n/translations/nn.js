@@ -84,7 +84,6 @@ const nn = {
         ok: 'OK',
         open: 'Opne',
         open_in_new_tab: 'Opne i ny fane',
-        open_in_new_window: 'Opne i nytt vindauge',
         open_with: 'Opne med',
         password: 'Passord',
         password_changed: 'Passord endra.',
