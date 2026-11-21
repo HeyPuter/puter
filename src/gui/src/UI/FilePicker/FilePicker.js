@@ -161,6 +161,7 @@ export default class FilePicker {
         this.prefs = validPrefs();
         this.prefsReady = Promise.resolve();
         this.liveRefreshTimer = null;
+        this.fitFrame = null;
         this.socketHandlers = [];
         this.isTouch = !! (window.isMobile?.phone || window.isMobile?.tablet || isTouchPrimaryDevice());
     }
@@ -179,6 +180,7 @@ export default class FilePicker {
         this.bindKeyboard();
         this.initRubberBand();
         this.initNativeDrop();
+        this.observeWidth();
         this.subscribeToChanges();
         $(this.el_window).on('remove', () => this.destroy());
 
@@ -825,6 +827,27 @@ export default class FilePicker {
     /** @returns {void} */
     fitRowNames () {
         fitNames(this.$files.find('.row .item-name').toArray(), { list: ! this.isGridView(), nameWidth: null });
+    }
+
+    /**
+     * Fits the names again when the listing's width changes (the window is
+     * resized, or a scrollbar comes or goes), at most once a frame.
+     *
+     * @returns {void}
+     */
+    observeWidth () {
+        if ( typeof ResizeObserver === 'undefined' ) return;
+        const files = this.$files[0];
+        let lastWidth = files.clientWidth;
+        this.resizeObserver = new ResizeObserver(() => {
+            if ( files.clientWidth === lastWidth || ! files.clientWidth ) return;
+            lastWidth = files.clientWidth;
+            this.fitFrame ??= requestAnimationFrame(() => {
+                this.fitFrame = null;
+                this.fitRowNames();
+            });
+        });
+        this.resizeObserver.observe(files);
     }
 
     /**
@@ -1505,7 +1528,8 @@ export default class FilePicker {
     }
 
     /**
-     * Releases what outlives the window: socket listeners and the rubber band.
+     * Releases what outlives the window: socket listeners, the rubber band
+     * and the width observer.
      *
      * @returns {void}
      */
@@ -1518,6 +1542,8 @@ export default class FilePicker {
         this.socketHandlers = [];
         this.rubberBand?.destroy?.();
         this.rubberBand = null;
+        this.resizeObserver?.disconnect();
+        cancelAnimationFrame(this.fitFrame);
         this.renderSeq++;
     }
 }

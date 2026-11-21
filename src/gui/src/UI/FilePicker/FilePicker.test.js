@@ -203,6 +203,34 @@ describe('FilePicker listing', () => {
     });
 });
 
+describe('FilePicker resizing', () => {
+    it('fits the names again when the listing\'s width changes', async () => {
+        let resized;
+        vi.stubGlobal('ResizeObserver', class {
+            constructor (callback) {
+                resized = callback;
+            }
+            observe () {}
+            disconnect () {}
+        });
+        vi.stubGlobal('requestAnimationFrame', (callback) => {
+            callback();
+            return 1;
+        });
+        try {
+            const dialog = await openDialog({ is_openFileDialog: true });
+            const $name = rowNamed(dialog, 'notes.txt').find('.item-name').text('no…txt');
+            Object.defineProperty(dialog.$('.files')[0], 'clientWidth', { configurable: true, value: 500 });
+
+            resized();
+
+            expect($name.text()).toBe('notes.txt');
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+});
+
 describe('FilePicker selection', () => {
     it('keeps one item selected unless the picker takes several', async () => {
         const single = await openDialog({ is_openFileDialog: true });
