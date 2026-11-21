@@ -1296,3 +1296,20 @@ describe('ChatCompletionDriver pricing across a scheduled rate change', () => {
         expect(held).toBeGreaterThanOrEqual(10 * 4000);
     });
 });
+
+describe('ChatCompletionDriver model map build', () => {
+    it('keeps serving when a catalog makes the build fail', async () => {
+        // Not a list, so assembling the map throws.
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue(
+            5 as never,
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const failing = await makeDriver();
+
+        await expect(failing.models()).resolves.toEqual([]);
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('model map build failed'),
+        );
+    });
+});
