@@ -24,6 +24,9 @@ import UIDashboardDialog from '../UI/Dashboard/UIDashboardDialog.js';
 /** Long enough that trashing several things in a row costs one listing. */
 const WORKER_LIST_TTL = 60 * 1000;
 
+/** How long a trash waits for the listing before going ahead without it. */
+const WORKER_LIST_WAIT = 10 * 1000;
+
 /** @type {{ at: number, promise: Promise<Worker[]> } | null} */
 let workerListCache = null;
 
@@ -89,9 +92,9 @@ export const workersUnderPaths = (workers, paths) => {
 /**
  * Before `paths` go to the Trash: if any of them is, or holds, a worker's
  * source file, asks the user and deletes those workers. Resolves `true` when
- * trashing may go ahead. A listing that fails doesn't block trashing. A
- * repeat for the same paths while the first is pending (a second Delete
- * press) resolves `false`: the first call trashes them.
+ * trashing may go ahead. A listing that fails or stalls doesn't block
+ * trashing. A repeat for the same paths while the first is pending (a second
+ * Delete press) resolves `false`: the first call trashes them.
  *
  * @param {string[]} paths
  * @returns {Promise<boolean>}
@@ -115,10 +118,17 @@ export const confirmTrashingWorkers = async (paths) => {
  */
 const askAndDeleteWorkers = async (paths) => {
     let workers;
+    let timer;
     try {
-        workers = workersUnderPaths(await listWorkers(), paths);
+        // A stalled listing would hold the trash with nothing on screen.
+        const deadline = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('worker listing timed out')), WORKER_LIST_WAIT);
+        });
+        workers = workersUnderPaths(await Promise.race([listWorkers(), deadline]), paths);
     } catch {
         return true;
+    } finally {
+        clearTimeout(timer);
     }
     if ( workers.length === 0 ) return true;
 

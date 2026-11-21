@@ -157,6 +157,22 @@ describe('confirmTrashingWorkers', () => {
         expect(dialog().length).toBe(0);
     });
 
+    it('goes ahead without asking when the worker list stalls', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const workers = stubWorkers([API]);
+        workers.list.mockReturnValueOnce(new Promise(() => {}));
+        const result = confirmTrashingWorkers(['/alice/Projects']);
+        let settled = false;
+        result.then(() => {
+            settled = true;
+        });
+        await vi.advanceTimersByTimeAsync(9 * 1000);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1000);
+        await expect(result).resolves.toBe(true);
+        expect(dialog().length).toBe(0);
+    });
+
     it('names the worker and deletes it once the user confirms', async () => {
         const workers = stubWorkers([API, CRON]);
         const result = confirmTrashingWorkers(['/alice/Projects/cron.js']);
