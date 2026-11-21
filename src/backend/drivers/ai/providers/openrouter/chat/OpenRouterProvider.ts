@@ -30,7 +30,10 @@ import type {
 import { BoundedTtlMap } from '../../../../../util/boundedTtlMap.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
 import { servedServiceSpeed } from '../../../interfaces/chat/utils/serviceSpeed.js';
-import { catalogPrice } from '../../../shared/catalogPrice.js';
+import {
+    catalogPrice,
+    catalogTokenLimit,
+} from '../../../shared/catalogPrice.js';
 import { mapOpenRouterPricing } from './pricing.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
@@ -217,7 +220,7 @@ export class OpenRouterProvider extends OpenAICompatProvider {
         const coerced_models: IChatModel[] = [];
         for (const model of models) {
             if (
-                typeof model.id !== 'string' ||
+                typeof model?.id !== 'string' ||
                 model.id.includes('openrouter/auto') ||
                 model.id.endsWith(':batch')
             ) {
@@ -233,19 +236,21 @@ export class OpenRouterProvider extends OpenAICompatProvider {
             const pricing = mapOpenRouterPricing(model.pricing ?? {});
             coerced_models.push({
                 id: `openrouter:${model.id}`,
-                name: `${model.name ?? model.id} (OpenRouter)`,
+                name: `${typeof model.name === 'string' && model.name ? model.name : model.id} (OpenRouter)`,
                 aliases: [
                     model.id,
                     ...(typeof model.name === 'string' ? [model.name] : []),
                     `openrouter/${model.id}`,
                     model.id.split('/').slice(1).join('/'),
                 ],
-                context: model.context_length,
+                context: catalogTokenLimit(model.context_length),
                 // OpenRouter leaves max_completion_tokens null when a model
                 // declares no output cap separate from its context window.
                 max_tokens:
-                    model.top_provider?.max_completion_tokens ??
-                    model.context_length ??
+                    catalogTokenLimit(
+                        model.top_provider?.max_completion_tokens,
+                    ) ??
+                    catalogTokenLimit(model.context_length) ??
                     0,
                 costs_currency: 'usd-cents',
                 input_cost_key: 'prompt',
