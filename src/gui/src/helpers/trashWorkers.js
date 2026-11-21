@@ -108,6 +108,8 @@ export const confirmTrashingWorkers = async (paths) => {
         title: i18n(single ? 'delete_worker_title' : 'delete_workers_title', [], false),
         message,
         tone: 'danger',
+        // Any window can trash, and phones stack every window over a body overlay.
+        aboveWindows: true,
         buttons: [
             { label: i18n('cancel', [], false), value: false, type: 'quiet' },
             { label: i18n('delete', [], false), value: true, type: 'danger' },
@@ -126,6 +128,7 @@ export const confirmTrashingWorkers = async (paths) => {
             message: `<p>${i18n('trash_worker_delete_failed', [workers[failed].name])}</p>`
                 + `<p>${html_encode(reason?.message ?? i18n('error_unknown_cause', [], false))}</p>`,
             tone: 'error',
+            aboveWindows: true,
         });
         return false;
     }

@@ -48,10 +48,12 @@ const BUTTON_TYPES = new Set(['primary', 'danger', 'quiet']);
  *   Turns the dialog into a prompt: Enter presses the primary button and the
  *   result is the trimmed text rather than the button's value.
  * @param {jQuery} [opts.$container] Where the overlay mounts; defaults to body.
+ * @param {boolean} [opts.aboveWindows] Stack over every window, the
+ *   dashboard's included, for a dialog any window can open.
  * @param {HTMLElement} [opts.returnFocusTo] Where focus goes on close.
  * @returns {Promise<unknown>}
  */
-export default function UIDashboardDialog ({ title, message, tone, buttons, input, $container, returnFocusTo }) {
+export default function UIDashboardDialog ({ title, message, tone, buttons, input, $container, aboveWindows, returnFocusTo }) {
     const { html_encode } = window;
     const id = window.uuidv4?.() ?? String(Date.now());
     const toneClass = TONES.has(tone) ? ` dashboard-dialog-${tone}` : '';
@@ -94,6 +96,7 @@ export default function UIDashboardDialog ({ title, message, tone, buttons, inpu
             returnFocusTo,
             onDismiss: () => resolve(false),
         });
+        if ( aboveWindows ) $overlay.addClass('dashboard-dialog-above-windows');
 
         const $input = $overlay.find('.dashboard-dialog-input');
         // A prompt wants the text; anything else, the safest button.

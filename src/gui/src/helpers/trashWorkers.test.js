@@ -162,6 +162,8 @@ describe('confirmTrashingWorkers', () => {
         await settle();
 
         expect(dialog().find('.dashboard-dialog-title').text()).toBe('delete_worker_title');
+        // Any window can trash, so the dialog can't sit under one.
+        expect(dialog().closest('.dashboard-dialog-overlay').hasClass('dashboard-dialog-above-windows')).toBe(true);
         expect(dialog().find('.dashboard-dialog-message').text()).toBe('trash_deletes_worker:cron');
         await press('delete');
 
