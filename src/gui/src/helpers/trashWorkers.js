@@ -117,7 +117,8 @@ export const confirmTrashingWorkers = async (paths) => {
 
     const results = await Promise.allSettled(workers.map(w => puter.workers.delete(w.name)));
     forgetWorkers();
-    const failure = results.find(r => r.status === 'rejected');
+    // A worker deleted elsewhere since the list was read is already gone.
+    const failure = results.find(r => r.status === 'rejected' && r.reason?.code !== 'not_found');
     if ( failure ) {
         const reason = failure.reason;
         await UIDashboardDialog({

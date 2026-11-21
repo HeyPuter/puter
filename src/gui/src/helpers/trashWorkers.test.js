@@ -216,6 +216,20 @@ describe('confirmTrashingWorkers', () => {
         expect(workers.delete).toHaveBeenCalledTimes(1);
     });
 
+    it('goes ahead when a worker was already deleted elsewhere', async () => {
+        const workers = stubWorkers([API, CRON], async (name) => {
+            if ( name === 'cron' ) throw { message: 'Worker not found', code: 'not_found' };
+            return true;
+        });
+        const result = confirmTrashingWorkers(['/alice/Projects']);
+        await settle();
+        await press('delete');
+
+        await expect(result).resolves.toBe(true);
+        expect(workers.delete).toHaveBeenCalledTimes(2);
+        expect($('.dashboard-dialog-error').length).toBe(0);
+    });
+
     it('lists afresh after deleting, so a deleted worker is not asked about again', async () => {
         const workers = stubWorkers([CRON]);
         const result = confirmTrashingWorkers(['/alice/Projects/cron.js']);
