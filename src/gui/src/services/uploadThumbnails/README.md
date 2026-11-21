@@ -217,9 +217,11 @@ preparation deadline of its own.
 Neither kind of file has a page of its own, so `text.js` gives them one: the
 shape of US Letter at well under half its size, which leaves about 24 lines of
 code legible enough to tell one file from another. Only the first 16 KiB of the
-file is read. Text that isn't UTF-8 is read in the Windows code page, which
-Excel saves a CSV in by default. A file with a NUL in that much of it is not
-text, and keeps its normal icon, as does a file with nothing but blank lines.
+file is read. Text that starts with a UTF-16 byte order mark, as Notepad and
+Excel save Unicode text, is read as UTF-16. Other text that isn't UTF-8 is read
+in the Windows code page, which Excel saves a CSV in by default. A file with a
+NUL in that much of it is not text, and keeps its normal icon, as does a file
+with nothing but blank lines.
 
 `code.js` draws a JavaScript or CSS file as an editor shows it: in the
 browser's monospace font, a tab as four spaces, and each line running off the

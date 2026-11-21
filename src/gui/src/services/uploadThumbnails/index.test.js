@@ -1032,6 +1032,18 @@ describe('source code, Markdown and plain text thumbnails', () => {
         expect(latin).toMatchObject({ text: 'hello world', x: 18 });
     });
 
+    it.each([
+        ['little-endian', [0xFF, 0xFE], 'utf16le'],
+        ['big-endian', [0xFE, 0xFF], 'utf16be'],
+    ])('draws text saved as %s UTF-16 with a byte order mark', async (_order, mark, encoding) => {
+        const defaultGenerator = vi.fn(async () => thumbnail);
+        const units = [...'plain words\r\nmore'].map(character => character.charCodeAt(0));
+        const bytes = units.flatMap(unit => encoding === 'utf16le' ? [unit & 0xFF, unit >> 8] : [unit >> 8, unit & 0xFF]);
+        const file = new File([new Uint8Array([...mark, ...bytes])], 'notes.txt', { type: 'text/plain' });
+        expect(await createUploadThumbnailGenerator()(file, { defaultGenerator })).toBe(thumbnail);
+        expect(linesOf(drawn).map(line => line.text)).toEqual(['plain words', 'more']);
+    });
+
     it('draws a CSV file typed as plain text as a sheet', async () => {
         const defaultGenerator = vi.fn(async () => thumbnail);
         const file = new File(['plain,words'], 'table.csv', { type: 'text/plain' });
