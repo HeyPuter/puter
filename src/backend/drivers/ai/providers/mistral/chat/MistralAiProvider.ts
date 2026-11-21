@@ -36,6 +36,7 @@ import {
     unsupportedMediaTextPart,
 } from '../../../interfaces/chat/utils/mediaParts.js';
 import * as OpenAIUtil from '../../../protocols/openaiCompatible/OpenAIUtil.js';
+import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
 import { isMistralInputError } from '../inputError.js';
 import { MISTRAL_MODELS } from './models.js';
 import { shouldPresentAsOpenAI } from '../../../interfaces/chat/utils/normalizeToOpenAI.js';
@@ -102,8 +103,7 @@ const MISTRAL_FINISH_REASON_MAP: Record<string, string> = {
 // totals include cache hits, which must be removed before billing input.
 const coerceMistralUsage = (usage: UsageInfo) => {
     const details = usage.additionalProperties?.prompt_tokens_details as
-        | { cached_tokens?: number }
-        | undefined;
+        { cached_tokens?: number } | undefined;
     const cachedTokens = details?.cached_tokens ?? 0;
     return {
         prompt_tokens: (usage.promptTokens ?? 0) - cachedTokens,
@@ -119,7 +119,7 @@ export class MistralAIProvider implements IChatProvider {
     #meteringService: MeteringService;
 
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
-        const httpClient = new HTTPClient();
+        const httpClient = new HTTPClient({ fetcher: jsonCheckedFetch });
         // The SDK strips service_tier during body serialization.
         httpClient.addHook('beforeRequest', async (request) => {
             const tier = request.headers.get('x-puter-service-tier');

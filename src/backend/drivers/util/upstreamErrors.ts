@@ -20,6 +20,8 @@
 import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 
+import { HttpError } from '../../core/http/HttpError.js';
+
 // -- Transport failures --
 
 // Transport timeouts carry no HTTP status. The Stainless SDKs (OpenAI,
@@ -170,10 +172,11 @@ export const isCreditExhaustion = (
  * routes) can ask for more room.
  */
 export const sanitizeUpstreamMessage = (
-    raw: string,
+    raw: unknown,
     maxLength: number = MAX_UPSTREAM_MESSAGE_LENGTH,
 ): string => {
-    const text = raw
+    // A provider can put an object where its docs promise a message.
+    const text = (typeof raw === 'string' ? raw : '')
         .replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ')
         .replace(/<[^>]*>/g, ' ')
         .replace(/https?:\/\/\S+/gi, ' ')
@@ -295,6 +298,29 @@ export async function upstreamFetch(
         clearTimeout(streamDeadline);
     }
 }
+
+/** A provider answered 2xx with a body the driver can't use. */
+export const malformedUpstreamResponse = (
+    provider: string,
+    providerLabel: string,
+): HttpError =>
+    new HttpError(502, `${providerLabel} returned an unexpected response`, {
+        legacyCode: 'upstream_failed',
+        fields: { provider },
+    });
+
+/** The JSON body of a provider's 2xx answer. */
+export const upstreamJson = async (
+    provider: string,
+    providerLabel: string,
+    response: Response,
+): Promise<unknown> => {
+    try {
+        return await response.json();
+    } catch {
+        throw malformedUpstreamResponse(provider, providerLabel);
+    }
+};
 
 /**
  * A provider's response body as a stream to hand straight to the caller. A

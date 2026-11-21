@@ -27,3 +27,9 @@ import { SDKValidationError } from '@mistralai/mistralai/models/errors/sdkvalida
  */
 export const isMistralInputError = (error: unknown): boolean =>
     error instanceof SDKValidationError && !(error instanceof MistralError);
+
+/** True when Mistral answered 2xx with a body the SDK couldn't use. */
+export const isMistralUnusableAnswer = (error: unknown): boolean =>
+    error instanceof MistralError &&
+    error.statusCode >= 200 &&
+    error.statusCode < 300;
