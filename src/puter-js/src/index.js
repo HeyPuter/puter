@@ -8,7 +8,10 @@ import { isFramedDocument } from './lib/appModeGate.js';
 import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
+    keepLaunchItem,
     requestLaunchFromOpener,
+    takeKeptLaunchItem,
+    tokenTag,
     urlWithoutQueryParams,
 } from './lib/launchToken.js';
 import path from 'path-browserify';
@@ -299,6 +302,14 @@ export class Puter {
      * @type {URLSearchParams | null}
      */
     openerLaunchItem_ = null;
+
+    /**
+     * Fingerprint of the token this tab's launch came with, if any.
+     *
+     * @internal
+     * @type {string | null}
+     */
+    openerLaunchTokenTag_ = null;
 
     /**
      * Whether this is a tab the GUI opened for an app and handed a session
@@ -865,6 +876,18 @@ export class Puter {
                     launchParams.has(name),
                 );
             }
+            if (this.appInstanceID && !openerLaunch) {
+                // A page this tab loaded earlier for the same launch, such as
+                // a private app's sign-in page, may have kept its item.
+                const keptItem = takeKeptLaunchItem({
+                    appInstanceID: this.appInstanceID,
+                    token: this.authToken,
+                });
+                if (keptItem) {
+                    this.openerLaunchItem_ = new URLSearchParams(keptItem);
+                    this.openerLaunchTokenTag_ = tokenTag(this.authToken);
+                }
+            }
             if (openerLaunch) {
                 this.openerLaunch_ = openerLaunch.then((launch) => {
                     this.openerLaunch_ = null;
@@ -874,6 +897,7 @@ export class Puter {
                         );
                     }
                     if (launch?.token) {
+                        this.openerLaunchTokenTag_ = tokenTag(launch.token);
                         this.appTabSession_ = this.isUserSessionToken_(
                             launch.token,
                         );
@@ -1651,6 +1675,32 @@ export class Puter {
             stripSoon();
         } else {
             globalThis.addEventListener?.('load', stripSoon, { once: true });
+        }
+    };
+
+    /**
+     * @internal
+     * For a page that sends this tab on to another page of the same launch
+     * (a private app's sign-in page): waits for the launch the GUI hands the
+     * tab, then keeps its opened item for the next page when that page signs
+     * in with `token` and it's the token the launch came with.
+     *
+     * @param {string} [token]
+     * @returns {Promise<void>}
+     */
+    keepTabLaunchForNextPage_ = async function (token) {
+        await this.openerLaunch_;
+        if (
+            token &&
+            tokenTag(token) === this.openerLaunchTokenTag_ &&
+            this.appInstanceID &&
+            this.openerLaunchItem_
+        ) {
+            keepLaunchItem({
+                appInstanceID: this.appInstanceID,
+                item: Object.fromEntries(this.openerLaunchItem_),
+                token,
+            });
         }
     };
 

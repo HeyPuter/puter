@@ -758,10 +758,10 @@ export function buildAppCenterFallback(
 // -- Login bootstrap HTML --------------------------------------------
 
 /**
- * Minimal HTML page that prompts the visitor to sign in with Puter. Uses
- * puter.js's `auth.signIn` to get a token, then redirects back to the same URL
- * with `?puter.auth.token=…` so the middleware can resolve identity on the next
- * request.
+ * Minimal HTML page that prompts the visitor to sign in with Puter. Takes the
+ * token a desktop-opened tab is handed, a stored one, or one from puter.js's
+ * `auth.signIn`, sends it to the same URL in a header so the middleware sets
+ * its cookie, then loads the URL the tab was opened at.
  *
  * Kept inline (no template engine dependency). Ported from v1's
  * `respondPrivateLoginBootstrap` with non-essential bells removed.
@@ -814,41 +814,94 @@ const status = document.getElementById('status');
 const loginBtn = document.getElementById('loginButton');
 const retryBtn = document.getElementById('retryButton');
 const storageKey = 'puter.privateAppBootstrap.lastAttemptedToken';
+const headerKey = 'puter.privateAppBootstrap.lastHeaderTry';
+// Read before puter.js clears a tab launch's params from the address bar.
+const launchUrl = location.href;
+// In a tab the desktop opened, settles once the desktop has handed over its
+// token. Signing in with that token keeps the opened item for the app's page.
+const keepLaunch = t => Promise.resolve(globalThis.puter?.keepTabLaunchForNextPage_?.(t)).catch(() => {});
+// A URL that differs only in its hash would just scroll, so reload instead.
+const openLaunchUrl = () => {
+if (location.href.split('#')[0] === launchUrl.split('#')[0]) location.reload();
+else location.replace(launchUrl);
+};
+let continuing = false;
 const setStatus = m => { status.textContent = m; };
 const getStored = () => globalThis.puter?.authToken || localStorage.getItem('auth_token') || localStorage.getItem('puter.auth.token');
 const redirectWithToken = t => {
-if (typeof t !== 'string' || !t) throw new Error('missing_auth_token');
-sessionStorage.setItem(storageKey, t);
-const u = new URL(location.href);
+const u = new URL(launchUrl);
 u.searchParams.set('puter.auth.token', t);
 location.replace(u.toString());
 };
-const tryStored = () => {
-const u = new URL(location.href);
+// The token goes in a header, keeping it out of the address bar and history.
+// The response sets this host's cookie, then the app loads. The token goes in
+// the URL instead when the host redirects (no access) or the request fails, so
+// the browser follows it; on a click after a header try with it just now
+// didn't get the app to load; and when the URL already has a token, which the
+// host reads first.
+const launchUrlHasToken = ['puter.auth.token', 'auth_token'].some(k => new URL(launchUrl).searchParams.has(k));
+const viaUrl = t => {
+sessionStorage.setItem(storageKey, t);
+redirectWithToken(t);
+};
+const triedHeaderJustNow = t => {
+try {
+const last = JSON.parse(sessionStorage.getItem(headerKey) || 'null');
+return last?.t === t && Date.now() - last.at < 60000;
+} catch (e) {
+return false;
+}
+};
+const continueWith = async t => {
+if (typeof t !== 'string' || !t) throw new Error('missing_auth_token');
+continuing = true;
+loginBtn.disabled = true;
+await keepLaunch(t);
+if (launchUrlHasToken || triedHeaderJustNow(t)) return viaUrl(t);
+sessionStorage.setItem(headerKey, JSON.stringify({ t, at: Date.now() }));
+let res = null;
+try {
+res = await fetch(launchUrl, { headers: { 'X-Puter-Auth-Token': t }, credentials: 'same-origin', redirect: 'manual', cache: 'no-store' });
+} catch (e) {
+console.error(e);
+}
+if (res && res.type !== 'opaqueredirect') openLaunchUrl();
+else viaUrl(t);
+};
+const tryStored = auto => {
+if (continuing) return true;
+const u = new URL(launchUrl);
 if (u.searchParams.get('puter.auth.token')) return false;
 const t = getStored();
 if (!t) return false;
 const last = sessionStorage.getItem(storageKey);
 if (last === t) return false;
+// Without a click, never fall back to putting the token in the URL.
+if (auto && triedHeaderJustNow(t)) return false;
 setStatus('Using saved Puter session...');
-redirectWithToken(t);
+continueWith(t).catch(e => console.error(e));
 return true;
 };
 loginBtn.addEventListener('click', async () => {
+if (continuing) return;
 loginBtn.disabled = true;
 setStatus('Authenticating with Puter...');
 try {
-if (tryStored()) return;
+// The desktop's token, if it's on its way, rather than an older stored one.
+await keepLaunch();
+if (tryStored(false)) return;
 const r = await globalThis.puter.auth.signIn();
-redirectWithToken(r?.token || getStored());
+await continueWith(r?.token || getStored());
 } catch (e) {
 console.error(e);
 loginBtn.disabled = false;
 setStatus('Sign in was not completed. Click to try again.');
 }
 });
-retryBtn.addEventListener('click', () => location.reload());
-if (tryStored()) return;
+retryBtn.addEventListener('click', openLaunchUrl);
+// A tab the desktop opened is handed a token a moment after load, newer than
+// a stored one.
+keepLaunch().then(() => tryStored(true));
 })();
 </script>
 </body>
