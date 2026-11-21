@@ -22,7 +22,10 @@ import { HttpError } from '../../../../../core/http/HttpError.js';
 import { Context } from '../../../../../core/context.js';
 import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../../meta.js';
-import { upstreamFetch } from '../../../../util/upstreamErrors.js';
+import {
+    upstreamFetch,
+    upstreamJson,
+} from '../../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../shared/testMode.js';
 import type {
     ITTSVoice,
@@ -185,8 +188,12 @@ export class SpeechifyTTSProvider implements ITTSProvider {
                 );
 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const data: any = await response.json();
-                if (!data?.audio_data) {
+                const data: any = await upstreamJson(
+                    'speechify',
+                    'Speechify TTS',
+                    response,
+                );
+                if (typeof data?.audio_data !== 'string' || !data.audio_data) {
                     throw new HttpError(
                         400,
                         'Speechify TTS did not return audio data',
@@ -200,8 +207,12 @@ export class SpeechifyTTSProvider implements ITTSProvider {
                 return {
                     dataType: 'stream',
                     content_type:
-                        CONTENT_TYPES[data.audio_format ?? format] ||
-                        'audio/mpeg',
+                        (Object.hasOwn(
+                            CONTENT_TYPES,
+                            data.audio_format ?? format,
+                        )
+                            ? CONTENT_TYPES[data.audio_format ?? format]
+                            : undefined) || 'audio/mpeg',
                     chunked: true,
                     stream: Readable.from(
                         Buffer.from(data.audio_data, 'base64'),
