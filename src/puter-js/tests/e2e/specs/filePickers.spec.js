@@ -264,6 +264,8 @@ test.describe('file pickers (env=app)', () => {
         await expect(row(picker, TEXT_FILE)).toHaveClass(/item-disabled/);
         await picker.locator('.directorypicker-select-btn').click();
         await expect(logged(appFrame).last()).toHaveText('dir:Desktop');
+        // The answered picker is still closing; the next one is a new window.
+        await expect(picker).toHaveCount(0);
 
         await appFrame.locator('#pick-directory').click();
         await expect(row(picker, FOLDER)).toBeVisible();
