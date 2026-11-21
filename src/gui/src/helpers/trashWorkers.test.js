@@ -41,8 +41,9 @@ const GONE = { name: 'gone', file_path: null };
 const settle = async () => {
     for ( let i = 0; i < 5; i++ ) await new Promise(resolve => setTimeout(resolve, 0));
 };
-// A closed dialog stays in the DOM while it fades out; the newest is on top.
-const dialog = () => $('.dashboard-dialog').last();
+// A closed dialog stays in the DOM while it fades out, without the show
+// class; of the open ones, the newest is on top.
+const dialog = () => $('.dashboard-dialog-overlay.dashboard-dialog-show .dashboard-dialog').last();
 const press = async (label) => {
     dialog().find('.dashboard-dialog-btn').filter((_, el) => $(el).text() === label).trigger('click');
     await settle();
@@ -233,6 +234,45 @@ describe('confirmTrashingWorkers', () => {
         await expect(result).resolves.toBe(true);
         expect(workers.delete).toHaveBeenCalledTimes(2);
         expect($('.dashboard-dialog-error').length).toBe(0);
+    });
+
+    it('asks once when the same items are trashed again before the first answer', async () => {
+        const workers = stubWorkers([CRON]);
+        const first = confirmTrashingWorkers(['/alice/Projects/cron.js']);
+        const repeat = confirmTrashingWorkers(['/alice/Projects/cron.js']);
+        await expect(repeat).resolves.toBe(false);
+        await settle();
+        expect($('.dashboard-dialog-overlay')).toHaveLength(1);
+
+        await press('delete');
+        await expect(first).resolves.toBe(true);
+        expect(workers.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks other items trashed meanwhile on their own', async () => {
+        stubWorkers([API, CRON]);
+        const first = confirmTrashingWorkers(['/alice/Projects/cron.js']);
+        const other = confirmTrashingWorkers(['/alice/Projects/api']);
+        await settle();
+        expect($('.dashboard-dialog-overlay')).toHaveLength(2);
+        await press('cancel');
+        await press('cancel');
+        await expect(first).resolves.toBe(false);
+        await expect(other).resolves.toBe(false);
+    });
+
+    it('checks the same items again once the first check is done', async () => {
+        stubWorkers([CRON]);
+        const first = confirmTrashingWorkers(['/alice/Projects/cron.js']);
+        await settle();
+        await press('cancel');
+        await expect(first).resolves.toBe(false);
+
+        const again = confirmTrashingWorkers(['/alice/Projects/cron.js']);
+        await settle();
+        expect(dialog().find('.dashboard-dialog-message').text()).toBe('trash_deletes_worker:cron');
+        await press('cancel');
+        await expect(again).resolves.toBe(false);
     });
 
     it('lists afresh after deleting, so a deleted worker is not asked about again', async () => {

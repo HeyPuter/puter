@@ -27,6 +27,9 @@ const WORKER_LIST_TTL = 60 * 1000;
 /** @type {{ at: number, promise: Promise<Worker[]> } | null} */
 let workerListCache = null;
 
+/** Path sets whose trashing is waiting on the listing, the user, or a delete. */
+const pendingTrashes = new Set();
+
 /**
  * The user's workers, from a short-lived cache. A listing that failed isn't
  * cached, so the next call tries again.
@@ -86,12 +89,31 @@ export const workersUnderPaths = (workers, paths) => {
 /**
  * Before `paths` go to the Trash: if any of them is, or holds, a worker's
  * source file, asks the user and deletes those workers. Resolves `true` when
- * trashing may go ahead. A listing that fails doesn't block trashing.
+ * trashing may go ahead. A listing that fails doesn't block trashing. A
+ * repeat for the same paths while the first is pending (a second Delete
+ * press) resolves `false`: the first call trashes them.
  *
  * @param {string[]} paths
  * @returns {Promise<boolean>}
  */
 export const confirmTrashingWorkers = async (paths) => {
+    const key = [...paths].sort().join('\n');
+    if ( pendingTrashes.has(key) ) return false;
+    pendingTrashes.add(key);
+    try {
+        return await askAndDeleteWorkers(paths);
+    } finally {
+        pendingTrashes.delete(key);
+    }
+};
+
+/**
+ * The check itself, run once per pending path set.
+ *
+ * @param {string[]} paths
+ * @returns {Promise<boolean>}
+ */
+const askAndDeleteWorkers = async (paths) => {
     let workers;
     try {
         workers = workersUnderPaths(await listWorkers(), paths);
