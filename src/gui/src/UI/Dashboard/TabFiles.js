@@ -1895,7 +1895,10 @@ const TabFiles = {
                 const rows = await _this.restructurableRows(selectedRows);
                 if ( rows.length > 0 ) {
                     $actions.removeClass('visible');
-                    window.move_items(rows, window.trash_path);
+                    await window.move_items(rows, window.trash_path);
+                    // A row still here and not fading out wasn't trashed (the
+                    // user backed out of a dialog): its bar comes back.
+                    if ( rows.some(row => row.isConnected && ! $(row).is(':animated')) ) _this.updateFooterStats();
                 }
             }
         });

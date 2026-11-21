@@ -147,7 +147,6 @@ const he = {
         ok: 'בסדר',
         open: 'פתח',
         open_in_new_tab: 'פתח בלשונית חדשה',
-        open_in_new_window: 'פתח בחלון חדש',
         open_with: 'לפתוח באמצעות',
         original_name: 'שם מקורי',
         original_path: 'מסלול מקורי',

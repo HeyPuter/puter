@@ -180,7 +180,6 @@ const cs = {
         "name_too_long": "Název nesmí být delší než %% znaků.",
         "open": "Otevřít",
         "open_in_new_tab": "Otevřít na nové kartě",
-        "open_in_new_window": "Otevřít v novém okně",
         "new_email": "Nový e-mail",
         "open_desktop": "Otevřít plochu",
         "new_username": "Nové uživatelské jméno",
