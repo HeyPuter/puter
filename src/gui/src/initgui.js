@@ -1548,6 +1548,18 @@ window.showTurnstileChallenge = function (options) {
     });
 };
 
+// A gate window can clear another (a fallback card clears the phone gate, a
+// replaced email asks for a phone first), so the gate after it reads the
+// account again.
+const refreshWhoami = async (whoami) => {
+    try {
+        const fresh = await puter.os.user();
+        if (fresh) Object.assign(whoami, fresh);
+    } catch (_) {
+        // The next gate works from what it has.
+    }
+};
+
 window.initgui = async function (options) {
     const oidcChallenge = takeOidcLoginChallenge();
     const url = new URL(window.location).href;
@@ -2233,11 +2245,14 @@ window.initgui = async function (options) {
                             show_close_button: false,
                             stay_on_top: true,
                             has_head: false,
+                            // The URL's account isn't this browser's session yet.
+                            change_address: false,
                             window_options: {
                                 is_draggable: false,
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             const phoneGate = async () => {
@@ -2256,11 +2271,13 @@ window.initgui = async function (options) {
                             // send window, and no send can report it any more).
                             card_fallback_available:
                                 whoami.card_fallback_available,
+                            phone_on_file: whoami.phone_on_file,
                             window_options: {
                                 is_draggable: false,
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                     card_gate_cleared_by_fallback = is_verified === 'card';
                 }
             };
@@ -2280,6 +2297,7 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             if (whoami.email_gate_last) {
@@ -2557,6 +2575,7 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             const phoneGate = async () => {
@@ -2576,12 +2595,14 @@ window.initgui = async function (options) {
                             // send window, and no send can report it any more).
                             card_fallback_available:
                                 whoami.card_fallback_available,
+                            phone_on_file: whoami.phone_on_file,
                             window_options: {
                                 is_draggable: false,
                                 cover_page: window.is_embedded,
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                     card_gate_cleared_by_fallback = is_verified === 'card';
                 }
             };
@@ -2603,6 +2624,7 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    await refreshWhoami(whoami);
                 }
             };
             if (whoami.email_gate_last) {

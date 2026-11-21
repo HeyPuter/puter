@@ -28,6 +28,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import {
+    assertVerifiedAccount,
     DEFAULT_ADMIN_USERNAMES,
     hasVerifiedCard,
     hasVerifiedPhone,
@@ -59,6 +60,8 @@ import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import type { CardFallbackDeps } from '../../util/cardFallback.js';
 import {
     CARD_FALLBACK_OPEN_TTL_SECONDS,
+    PHONE_ON_FILE_SEND_WINDOW_MS,
+    PHONE_ON_FILE_SENDS_PER_DAY,
     SEND_PHONE_RATE_LIMIT,
     SEND_PHONE_RATE_WINDOW_MS,
     cardFallbackAfterAttempts,
@@ -68,11 +71,19 @@ import {
     isCardFallbackEnabled,
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
-import { isEmailGateLast } from '../../util/verificationOrder.js';
+import {
+    hasPhoneFromBeforeDormancy,
+    isCardOnFileStep,
+    isEmailGateLast,
+    isEmailPending,
+    isPhoneOnFileStep,
+    PHONE_ON_FILE_PROVEN_TTL_SECONDS,
+    phoneOnFileProvenKey,
+} from '../../util/verificationOrder.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
-import { parsePhone } from '../../util/phone.js';
+import { parsePhone, phoneLastDigits } from '../../util/phone.js';
 import { deleteIfEqual } from '../../util/redisLock.js';
 import {
     bonusCodeInvalidError,
@@ -124,7 +135,12 @@ import { PuterController } from '../types.js';
 import type { SignInInput } from '../../services/auth/SignInService.js';
 import { claimOnce } from '../../util/kvClaim.js';
 import { knownDeviceStatus } from './knownDevice.js';
-import { runAfterResponse, startWebSession } from './webSession.js';
+import {
+    rememberProvenDevice,
+    runAfterResponse,
+    signInOf,
+    startWebSession,
+} from './webSession.js';
 import { completeOidcLoginReturn } from './oidcLoginReturn.js';
 
 const FINGERPRINT_MAX_LENGTH = 128;
@@ -1437,6 +1453,8 @@ export class AuthController extends PuterController {
      */
     private async recordPhoneAttemptForFallback(user: {
         id: number;
+        phone?: string | null;
+        card_fingerprint?: string | null;
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         const attempts = await this.bumpPhoneAttempts(user.id);
@@ -1450,9 +1468,13 @@ export class AuthController extends PuterController {
      */
     private async openCardFallback(user: {
         id: number;
+        phone?: string | null;
+        card_fingerprint?: string | null;
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         if (!user.requires_phone_verification) return false;
+        // A number on file can only be stood in for by the card on file.
+        if (isPhoneOnFileStep(user) && !user.card_fingerprint) return false;
         const deps = this.cardFallbackDeps();
         if (!(await isCardFallbackEnabled(this.config, deps))) return false;
         try {
@@ -1534,6 +1556,21 @@ export class AuthController extends PuterController {
                 'Card verification must be completed first.',
                 { legacyCode: 'conflict' },
             );
+        // An account proving the number it already has gets the code there and
+        // can't name another. Losing that number opens the card fallback.
+        const onFile = isPhoneOnFileStep(user);
+        if (onFile && req.body?.lostNumber === true) {
+            if (await this.openCardFallback(user)) {
+                res.json({ card_fallback_available: true });
+                return;
+            }
+            throw new HttpError(
+                409,
+                'Email support@puter.com to verify your account another way.',
+                { legacyCode: 'conflict', code: 'phone_on_file_unavailable' },
+            );
+        }
+
         if (!this.clients.prelude?.isConfigured())
             throw await this.smsSendError(
                 503,
@@ -1546,7 +1583,7 @@ export class AuthController extends PuterController {
         // Parse to E.164 (Prelude's required form + the stored form) and the
         // country, so we can apply the per-country cost cap.
         const parsed = parsePhone(
-            req.body?.phone,
+            onFile ? user.phone : req.body?.phone,
             this.clients.prelude.defaultCountry,
         );
         if (!parsed)
@@ -1581,6 +1618,28 @@ export class AuthController extends PuterController {
                 },
                 { legacyCode: 'phone_country_not_supported' as never },
             );
+
+        // Codes to a number on file are sent without the owner typing it, so
+        // the account gets few of them.
+        if (
+            onFile &&
+            !(await checkRateLimit(
+                `phone-on-file-send:${user.id}`,
+                PHONE_ON_FILE_SENDS_PER_DAY,
+                PHONE_ON_FILE_SEND_WINDOW_MS,
+            ))
+        ) {
+            const fallback = await this.openCardFallback(user);
+            throw new HttpError(
+                429,
+                'Too many codes were sent to this number today. Try again tomorrow.',
+                {
+                    legacyCode: 'too_many_requests',
+                    code: 'phone_on_file_send_limit',
+                    fields: fallback ? { card_fallback_available: true } : {},
+                },
+            );
+        }
 
         // Counted before the abuse / Prelude checks so a blocked attempt still
         // counts toward the fallback threshold.
@@ -1758,6 +1817,9 @@ export class AuthController extends PuterController {
         res.json({
             ...fallbackFields,
             ...(deliveryChannel ? { channel: deliveryChannel } : {}),
+            // Where the code went, for a client that didn't know the account
+            // had a number to prove.
+            ...(onFile ? { phone_on_file: phoneLastDigits(parsed.e164) } : {}),
         });
     }
 
@@ -1797,17 +1859,20 @@ export class AuthController extends PuterController {
         }
         // The number being verified is the one staged at send time (KV
         // pending), not the user row — we don't persist an unverified number.
-        // Fall back to a row value for accounts that already have one on file
-        // (legacy / a number persisted by a prior verified flow).
+        // An account proving the number on file proves only that one.
         const pendingPhoneKey = `phone-verify-pending:${user.id}`;
-        let pendingPhone: string | null = null;
-        try {
-            const { res: staged } = await this.stores.kv.get({
-                key: pendingPhoneKey,
-            });
-            if (typeof staged === 'string' && staged) pendingPhone = staged;
-        } catch (e) {
-            console.warn('[confirm-phone] pending read failed:', e);
+        let pendingPhone: string | null = isPhoneOnFileStep(user)
+            ? (user.phone as string)
+            : null;
+        if (!pendingPhone) {
+            try {
+                const { res: staged } = await this.stores.kv.get({
+                    key: pendingPhoneKey,
+                });
+                if (typeof staged === 'string' && staged) pendingPhone = staged;
+            } catch (e) {
+                console.warn('[confirm-phone] pending read failed:', e);
+            }
         }
         if (!pendingPhone) pendingPhone = user.phone ?? null;
         if (!pendingPhone)
@@ -1840,10 +1905,18 @@ export class AuthController extends PuterController {
         }
 
         // Verified — persist the number now (and only now) and clear the gate.
+        const provedOnFile = isPhoneOnFileStep(user);
+        if (provedOnFile) await this.#beforeProofOnFile(req);
         await this.stores.user.update(user.id, {
             requires_phone_verification: 0,
             phone: pendingPhone,
         });
+        if (provedOnFile) {
+            await this.#afterProofOnFile(req, user, {
+                requires_phone_verification: 1,
+            });
+            await this.#markPhoneOnFileProven(req, user);
+        }
         await this.sendDeferredConfirmation(user.id);
 
         // Run the verified-event listeners synchronously (emitAndWait, not
@@ -2063,13 +2136,28 @@ export class AuthController extends PuterController {
                 { legacyCode: 'conflict' },
             );
 
+        // While a number on file waits to be proven, the only card that
+        // verifies is the one already on file, entered again. A card step on
+        // an account that has a card asks for that card too.
+        const onFileStep = isPhoneOnFileStep(user);
+        if (onFileStep && !user.card_fingerprint) {
+            res.json({ card_verified: false, reason: 'card_not_on_file' });
+            return;
+        }
+        const requiredFingerprint =
+            onFileStep || isCardOnFileStep(user)
+                ? (user.card_fingerprint as string)
+                : null;
+
         const confirmEvent = {
             user_id: user.id,
             user_uid: user.uuid,
             email: user.email!,
             setup_intent_id,
+            required_fingerprint: requiredFingerprint,
             enabled: null as boolean | null,
             verified: false,
+            card_entered: false,
             reason: null as string | null,
             fingerprint: null as string | null,
             funding: null as string | null,
@@ -2111,6 +2199,15 @@ export class AuthController extends PuterController {
             res.json({ card_verified: false, reason: confirmEvent.reason });
             return;
         }
+        // Checked here too, so the rule doesn't rest on the listener alone.
+        if (
+            requiredFingerprint !== null &&
+            (confirmEvent.fingerprint !== requiredFingerprint ||
+                confirmEvent.card_entered !== true)
+        ) {
+            res.json({ card_verified: false, reason: 'card_not_on_file' });
+            return;
+        }
 
         // A fallback card clears the phone gate too — the point of the
         // fallback. `fallbackEligible &&` makes the invariant local instead
@@ -2118,10 +2215,21 @@ export class AuthController extends PuterController {
         // ever clear a phone gate.
         const clearedPhoneGate =
             fallbackEligible && Boolean(user.requires_phone_verification);
+        if (requiredFingerprint !== null) await this.#beforeProofOnFile(req);
         await this.stores.user.update(user.id, {
             requires_card_verification: 0,
             ...(clearedPhoneGate ? { requires_phone_verification: 0 } : {}),
         });
+        // Only the gates this request cleared go back on if it fails.
+        if (requiredFingerprint !== null)
+            await this.#afterProofOnFile(req, user, {
+                ...(user.requires_card_verification
+                    ? { requires_card_verification: 1 }
+                    : {}),
+                ...(clearedPhoneGate ? { requires_phone_verification: 1 } : {}),
+            });
+        if (clearedPhoneGate && onFileStep)
+            await this.#markPhoneOnFileProven(req, user);
         await this.sendDeferredConfirmation(user.id);
 
         // Awaited like `user.phone-verified`, so whatever a listener grants on
@@ -2669,6 +2777,9 @@ export class AuthController extends PuterController {
 
     @Post('/user-protected/change-email', {
         userProtected: true,
+        // A pending email step is checked in the handler; every other gate
+        // still applies there.
+        allowUnconfirmed: true,
         rateLimit: {
             scope: 'change-email-start',
             limit: 10,
@@ -2696,6 +2807,7 @@ export class AuthController extends PuterController {
             throw new HttpError(404, 'User not found', {
                 legacyCode: 'not_found',
             });
+        await this.#assertEmailChangeAllowed(req, user);
         this.#requireAccountTwoFactor(user, req.body?.code);
 
         const { new_email } = req.body ?? {};
@@ -2776,6 +2888,100 @@ export class AuthController extends PuterController {
         }
 
         res.json({});
+    }
+
+    /**
+     * A dormant account whose address was never confirmed can replace it while
+     * the code is pending, so a dead or mistyped one isn't a dead end. The
+     * password alone doesn't prove the account is the caller's: it also takes
+     * the number the account had before, proven again within the hour (by its
+     * code, or by the card on file). Without that the code is still required.
+     */
+    async #assertEmailChangeAllowed(
+        req: Request,
+        user: UserRow,
+    ): Promise<void> {
+        if (!isEmailPending(user)) {
+            assertVerifiedAccount(user);
+            return;
+        }
+        // A second factor can't be enabled before the address is confirmed,
+        // and a provider-only account would lose its sign-in when the change
+        // unlinks its providers.
+        if (user.password === null || !hasPhoneFromBeforeDormancy(user))
+            assertVerifiedAccount(user);
+        assertVerifiedAccount({ ...user, requires_email_confirmation: false });
+
+        let proven = false;
+        try {
+            const { res } = await this.stores.kv.get({
+                key: phoneOnFileProvenKey(user.id),
+            });
+            // The proof counts for the sign-in that gave it, not the account.
+            const proof = res as { phone?: unknown; signIn?: unknown } | null;
+            const signIn = signInOf(req);
+            proven =
+                Boolean(user.phone) &&
+                Boolean(signIn) &&
+                proof?.phone === user.phone &&
+                proof?.signIn === signIn;
+        } catch (e) {
+            console.warn('[change-email] phone proof unreadable:', e);
+        }
+        if (proven) return;
+        // Ask for the number again, where a code can be sent at all.
+        if (!this.clients.prelude?.isConfigured()) assertVerifiedAccount(user);
+        await this.stores.user.update(user.id, {
+            requires_phone_verification: 1,
+        });
+        throw new HttpError(
+            403,
+            'Please verify your phone number to continue',
+            { legacyCode: 'phone_verification_required' },
+        );
+    }
+
+    /**
+     * The phone or card on file was just proven. The gate is on the account, so
+     * clearing it lets every session through: the account's other sign-ins are
+     * signed out first, while the gate still holds them.
+     */
+    async #beforeProofOnFile(req: Request): Promise<void> {
+        await this.services.auth.revokeAllSessions(req.actor!);
+    }
+
+    /**
+     * The gate is clear. Sign-ins made since the first pass are signed out too,
+     * and this one's device is remembered. If they can't be signed out, `gates`
+     * goes back on and the request fails.
+     */
+    async #afterProofOnFile(
+        req: Request,
+        user: UserRow,
+        gates: Record<string, number>,
+    ): Promise<void> {
+        try {
+            await this.services.auth.revokeAllSessions(req.actor!);
+        } catch (e) {
+            await this.stores.user.update(user.id, gates);
+            throw e;
+        }
+        await rememberProvenDevice(req, user.uuid, { kv: this.stores.kv });
+    }
+
+    /** Best effort: a failed write only means the number is asked for again. */
+    async #markPhoneOnFileProven(req: Request, user: UserRow): Promise<void> {
+        try {
+            await this.stores.kv.set({
+                key: phoneOnFileProvenKey(user.id),
+                value: { phone: user.phone, signIn: signInOf(req) },
+                expireAt:
+                    Math.floor(Date.now() / 1000) +
+                    PHONE_ON_FILE_PROVEN_TTL_SECONDS,
+            });
+        } catch (e) {
+            console.warn('[verification] phone proof not recorded:', e);
+        }
     }
 
     @Get('/change_email/confirm', {
@@ -2880,6 +3086,22 @@ export class AuthController extends PuterController {
         }
 
         await this.stores.oidc.unlinkAllByUserId(user.id);
+        // Replacing an address that was never confirmed confirms the account,
+        // once however many times the link is followed at once.
+        if (
+            !user.email_confirmed &&
+            (await claimOnce(
+                this.stores.kv,
+                `change-email-confirmed:${decoded.token}`,
+                60 * 60,
+            ))
+        ) {
+            await this.services.signup.announceEmailConfirmed({
+                ...user,
+                email: newEmail,
+                email_confirmed: true,
+            });
+        }
 
         try {
             this.clients.event?.emit(
@@ -4991,7 +5213,9 @@ export class AuthController extends PuterController {
         ]);
         const spent = !sharedOpen || reservations.some((r) => !r.ok);
         return {
-            locked: spent && !device.known,
+            // An account with no email can't reset its way out, so a lock
+            // would let anyone keep it out of new browsers.
+            locked: spent && !device.known && Boolean(user.email),
             release: async () => {
                 await Promise.all(reservations.map((r) => r.release()));
             },
@@ -5036,7 +5260,9 @@ export class AuthController extends PuterController {
         try {
             this.clients.alarm?.create(
                 `auth:login-locked:${user.uuid}`,
-                'Password sign-in locked after repeated wrong passwords',
+                user.email
+                    ? 'Password sign-in locked after repeated wrong passwords'
+                    : 'Repeated wrong passwords on an account with no email (not locked)',
                 {
                     username: user.username,
                     user_uuid: user.uuid,
@@ -5182,7 +5408,11 @@ export class AuthController extends PuterController {
                   });
         // The row it hands back carries the gates the sign-in just set, so
         // the client opens the right verification flow straight away.
-        const { guiToken: gui_token, user } = await startWebSession(
+        const {
+            guiToken: gui_token,
+            user,
+            orgSeat,
+        } = await startWebSession(
             req,
             res,
             resolvedUser,
@@ -5192,6 +5422,7 @@ export class AuthController extends PuterController {
                 signIn: this.services.signIn,
                 token: this.services.token,
                 kv: this.stores.kv,
+                user: this.stores.user,
             },
             method,
         );
@@ -5206,7 +5437,7 @@ export class AuthController extends PuterController {
                 stores: this.stores,
                 services: this.services,
             },
-            { isUser: true },
+            { isUser: true, orgSeat },
         );
         scrubSensitive(details);
 

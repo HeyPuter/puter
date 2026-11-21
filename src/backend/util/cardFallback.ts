@@ -41,6 +41,10 @@ import { BoundedTtlMap } from './boundedTtlMap';
 export const SEND_PHONE_RATE_LIMIT = 10;
 export const SEND_PHONE_RATE_WINDOW_MS = 60 * 60_000;
 
+/** Codes sent to a number on file, per account and day. */
+export const PHONE_ON_FILE_SENDS_PER_DAY = 2;
+export const PHONE_ON_FILE_SEND_WINDOW_MS = 24 * 60 * 60_000;
+
 /**
  * How long the fallback stays open once it opens. Deliberately much longer than
  * the attempt counter's window: the counter exists to detect exhaustion, and
@@ -60,6 +64,8 @@ export const cardFallbackFlagKey = (userId: number): string =>
 /** The user fields the rule reads. */
 export interface PhoneGatedUser {
     id?: number | null;
+    phone?: string | null;
+    card_fingerprint?: string | null;
     requires_phone_verification?: boolean | number | null;
 }
 
@@ -201,6 +207,8 @@ export async function isCardFallbackEligible(
 ): Promise<boolean> {
     if (!user.requires_phone_verification) return false;
     if (typeof user.id !== 'number') return false;
+    // A number on file is stood in for only by the card on file.
+    if (user.phone && !user.card_fingerprint) return false;
     if (!(await isCardFallbackEnabled(config, deps))) return false;
     try {
         return (await readFlag(cardFallbackFlagKey(user.id))) === true;
