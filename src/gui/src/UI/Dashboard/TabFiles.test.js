@@ -413,6 +413,41 @@ describe('TabFiles opening a folder that fails to list', () => {
     });
 });
 
+describe('TabFiles beside a file picker', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.shared_path = 'puter://shared';
+        window.puter = { fs: { readdir: vi.fn(async () => []) } };
+        window.dashboard_nav_history = ['/alice/Documents'];
+        window.dashboard_nav_history_current_position = 0;
+        $.fn.droppable ??= function () {
+            return this;
+        };
+    });
+
+    it('leaves the picker\'s crumbs and selection alone, though they share its markup', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+        $('.window').first().find('.files-tab').prepend('<div class="path-breadcrumbs"></div>');
+        $('body').append(`
+            <div class="window window-filedialog">
+                <div class="files-tab">
+                    <div class="path-breadcrumbs">picker crumbs</div>
+                    <div class="files"><div class="row item selected" data-uid="p1"></div></div>
+                </div>
+            </div>`);
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+
+        await TabFiles.renderDirectory('/alice/Pictures');
+
+        expect($('.window-filedialog .path-breadcrumbs').text()).toBe('picker crumbs');
+        expect($('.window-filedialog .row').hasClass('selected')).toBe(true);
+        expect($('.window').first().find('.path-breadcrumbs .dirname').last().text()).toBe('Pictures');
+    });
+});
+
 describe('TabFiles opening a folder during a refresh', () => {
     beforeEach(() => {
         window.user = { username: 'alice', directories: {} };
