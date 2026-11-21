@@ -254,7 +254,8 @@ export default class FilePicker {
         if ( ! target ) return;
         const seq = ++this.renderSeq;
         const isRefresh = target === this.currentPath;
-        this.closePathEditor();
+        // A re-listing (a change made elsewhere) leaves a path being typed alone.
+        if ( ! isRefresh ) this.closePathEditor();
         const keptUids = keepSelection ? new Set(this.selectedRows().map(row => row.getAttribute('data-uid'))) : null;
         const scrollTop = isRefresh ? this.$files.scrollTop() : 0;
         if ( ! isRefresh ) {

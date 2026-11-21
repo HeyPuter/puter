@@ -174,6 +174,19 @@ describe('FilePicker listing', () => {
         expect(rowNamed(dir, 'Kids').hasClass('item-disabled')).toBe(false);
     });
 
+    it('leaves a path being typed alone when the folder is listed again', async () => {
+        const dialog = await openDialog({ is_openFileDialog: true });
+        dialog.$('.files')[0].focus();
+        dialog.$('.files').trigger(jQuery.Event('keydown', { key: '/', which: 191 }));
+        const editor = dialog.$('.path-editor').val('/alice/Desk')[0];
+
+        await dialog.picker.refresh();
+
+        expect(dialog.$('.header .path').hasClass('path-editing')).toBe(true);
+        expect(editor.value).toBe('/alice/Desk');
+        expect(document.activeElement).toBe(editor);
+    });
+
     it('says so when a folder can\'t be listed', async () => {
         const dialog = await openDialog({ is_openFileDialog: true, path: '/alice/Missing' });
         expect(dialog.$('.files-notice').text()).toBe('folder_open_failed');
