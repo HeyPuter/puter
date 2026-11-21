@@ -170,8 +170,8 @@ export function initFilePickerDialog (el_window, options) {
     let answered = false;
     let cancelled = false;
 
-    // Before the first listing arrives, a save goes to the folder it opens in.
-    const saveFolder = () => picker.currentPath ?? options.path;
+    // A save goes to the folder the user asked for, even before its listing arrives.
+    const saveFolder = () => picker.pendingPath ?? picker.currentPath;
     const updateSaveButton = () => {
         setEnabled($save, $filename.val() !== '' && folderAcceptsNewItems(saveFolder()));
     };

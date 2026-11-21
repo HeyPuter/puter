@@ -370,6 +370,25 @@ describe('save picker', () => {
         expect($save.prop('disabled')).toBe(true);
     });
 
+    it('saves into a folder that was just opened, before its listing arrives', async () => {
+        const onSaveFileDialogSave = vi.fn();
+        const dialog = await openDialog({ is_saveFileDialog: true, saveFileDialog_default_filename: 'draft.txt', onSaveFileDialogSave });
+        const readdir = window.puter.fs.readdir.getMockImplementation();
+        let list;
+        window.puter.fs.readdir.mockImplementation(args => new Promise((resolve) => {
+            list = () => resolve(readdir(args));
+        }));
+
+        rowNamed(dialog, 'Kids').trigger('dblclick');
+        dialog.$('.savefiledialog-save-btn').trigger('click');
+        expect(onSaveFileDialogSave).toHaveBeenCalledWith(`${DESKTOP}/Kids/draft.txt`, dialog.el_window);
+
+        list();
+        await settle();
+        dialog.$('.savefiledialog-save-btn').trigger('click');
+        expect(onSaveFileDialogSave).toHaveBeenLastCalledWith(`${DESKTOP}/Kids/draft.txt`, dialog.el_window);
+    });
+
     it('doesn\'t save over a double-clicked file where nothing can be saved', async () => {
         const onSaveFileDialogSave = vi.fn();
         const dialog = await openDialog({ is_saveFileDialog: true, saveFileDialog_default_filename: 'draft.txt', path: '/alice/Trash', onSaveFileDialogSave });

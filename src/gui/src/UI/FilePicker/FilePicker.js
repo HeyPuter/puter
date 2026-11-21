@@ -147,6 +147,8 @@ export default class FilePicker {
         this.onActivate = onActivate ?? (() => {});
 
         this.currentPath = null;
+        // The folder a listing is on its way for; null once it's on screen.
+        this.pendingPath = null;
         this.loading = false;
         this.renderSeq = 0;
         this.history = [];
@@ -258,6 +260,7 @@ export default class FilePicker {
             this.showSpinner();
         }
         this.loading = true;
+        this.pendingPath = target;
         this.onChange();
 
         let entries;
@@ -283,6 +286,7 @@ export default class FilePicker {
 
         if ( push && ! isRefresh ) this.pushHistory(target);
         this.currentPath = target;
+        this.pendingPath = null;
         this.failedPath = failed ? target : null;
         this.loading = false;
         this.anchor = null;
