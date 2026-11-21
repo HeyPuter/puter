@@ -455,6 +455,70 @@ describe('ChatCompletionDriver credit gate against real metering', () => {
         completeSpy.mockRestore();
     });
 
+    describe('a balance that changes while the gate reads it', () => {
+        const okCompletion = {
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'ok' }],
+            },
+            usage: { input_tokens: 1, output_tokens: 1 },
+            finish_reason: 'stop',
+        };
+        const complete = (actor: never) =>
+            withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'priced',
+                        messages: [{ role: 'user', content: 'hello' }],
+                    }),
+                actor,
+            );
+
+        it('is read again, beyond the tries a lost headroom gets', async () => {
+            const actor = freeUser() as never;
+            const completeSpy = vi
+                .spyOn(FakeChatProvider.prototype, 'complete')
+                .mockResolvedValue(okCompletion as never);
+            const reserve = vi.spyOn(server.stores.creditHold, 'reserve');
+            reserve
+                .mockResolvedValueOnce({ outcome: 'stale' })
+                .mockResolvedValueOnce({ outcome: 'stale' })
+                .mockResolvedValueOnce({ outcome: 'stale' });
+
+            await complete(actor);
+
+            expect(reserve).toHaveBeenCalledTimes(4);
+            expect(completeSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('refuses without naming holds once it never holds still', async () => {
+            const actor = freeUser() as never;
+            const completeSpy = vi.spyOn(
+                FakeChatProvider.prototype,
+                'complete',
+            );
+            const reserve = vi
+                .spyOn(server.stores.creditHold, 'reserve')
+                .mockResolvedValue({ outcome: 'stale' });
+
+            const error = await complete(actor).then(
+                () => null,
+                (e) => e,
+            );
+
+            expect(error).toMatchObject({
+                statusCode: 429,
+                legacyCode: 'too_many_requests',
+            });
+            expect(error.code).not.toBe('credits_reserved');
+            expect(reserve).toHaveBeenCalledTimes(5);
+            expect(completeSpy).not.toHaveBeenCalled();
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0);
+        });
+    });
+
     it('caps output to the balance left, so one call cannot run away with the month', async () => {
         const actor = freeUser() as never;
         const metering = server.services.metering;

@@ -4414,7 +4414,7 @@ describe('MeteringService', () => {
 
             expect(
                 await target.reserveCredits(actor, 1000, { within: headroom }),
-            ).toBeNull();
+            ).toBe('stale');
             expect(await target.getOutstandingHolds(actor)).toBe(0);
         });
 
