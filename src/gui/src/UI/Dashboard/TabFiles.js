@@ -3089,7 +3089,9 @@ const TabFiles = {
 
         // Rebuilding the crumbs drops a focused one; keyboard focus stays on
         // the same folder's crumb, else on the folder now open.
-        const focusedCrumb = document.activeElement?.matches('.path-breadcrumbs .dirname:focus-visible')
+        // Its own crumb only: a file picker's crumbs share this markup.
+        const focusedCrumb = this.$el_window[0]?.contains(document.activeElement)
+            && document.activeElement.matches('.path-breadcrumbs .dirname:focus-visible')
             ? document.activeElement.getAttribute('data-path')
             : undefined;
         this.$el_window.find('.path-breadcrumbs').html(this.renderPath(this.currentPath, window.user.username));

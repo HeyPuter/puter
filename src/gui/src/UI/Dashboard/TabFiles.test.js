@@ -446,6 +446,26 @@ describe('TabFiles beside a file picker', () => {
         expect($('.window-filedialog .row').hasClass('selected')).toBe(true);
         expect($('.window').first().find('.path-breadcrumbs .dirname').last().text()).toBe('Pictures');
     });
+
+    it('leaves the keyboard on the picker\'s crumb when the Files tab lists its folder again', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+        $('.window').first().find('.files-tab').prepend('<div class="path-breadcrumbs"></div>');
+        $('body').append(`
+            <div class="window window-filedialog">
+                <div class="files-tab">
+                    <div class="path-breadcrumbs"><span class="dirname" tabindex="0" data-path="/alice/Desktop">Desktop</span></div>
+                </div>
+            </div>`);
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        const pickerCrumb = $('.window-filedialog .dirname')[0];
+        pickerCrumb.focus();
+        expect(pickerCrumb.matches(':focus-visible')).toBe(true);
+
+        await TabFiles.renderDirectory('/alice/Pictures');
+
+        expect(document.activeElement).toBe(pickerCrumb);
+    });
 });
 
 describe('TabFiles opening a folder during a refresh', () => {
