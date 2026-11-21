@@ -67,7 +67,19 @@ export interface PhoneGatedUser {
     phone?: string | null;
     card_fingerprint?: string | null;
     requires_phone_verification?: boolean | number | null;
+    requires_card_verification?: boolean | number | null;
 }
+
+/**
+ * Whether a card can stand in for this account's phone gate at all. A number on
+ * file is stood in for only by the card on file. Without one, an account that
+ * owes or has verified a card owes its phone as well.
+ */
+export const canCardReplacePhone = (user: PhoneGatedUser): boolean => {
+    if (!user.requires_phone_verification) return false;
+    if (user.phone) return Boolean(user.card_fingerprint);
+    return !user.requires_card_verification && !user.card_fingerprint;
+};
 
 /** Reads one system-KV key; resolves whatever was stored (or null/undefined). */
 export type ReadKvFlag = (key: string) => Promise<unknown>;
@@ -224,10 +236,8 @@ export async function isCardFallbackEligible(
     readFlag: ReadKvFlag,
     deps: CardFallbackDeps,
 ): Promise<boolean> {
-    if (!user.requires_phone_verification) return false;
+    if (!canCardReplacePhone(user)) return false;
     if (typeof user.id !== 'number') return false;
-    // A number on file is stood in for only by the card on file.
-    if (user.phone && !user.card_fingerprint) return false;
     if (!(await isCardFallbackEnabled(config, deps))) return false;
     try {
         return (await readFlag(cardFallbackFlagKey(user.id))) === true;
