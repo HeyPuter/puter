@@ -25,7 +25,7 @@ import path from '../../lib/path.js';
 import open_item from '../../helpers/openItem.js';
 import UIContextMenu from '../UIContextMenu.js';
 import UIWindowProgress from '../UIWindowProgress.js';
-import UIAlert from '../UIAlert.js';
+import UIDashboardDialog from './UIDashboardDialog.js';
 import generate_file_context_menu from '../../helpers/generateFileContextMenu.js';
 import update_title_based_on_uploads from '../../helpers/updateTitleBasedOnUploads.js';
 import item_icon from '../../helpers/itemIcon.js';
@@ -81,8 +81,7 @@ export function rebasePath (p, from, to) {
 
 /**
  * The alert for an upload some of whose items failed, one item per line,
- * or null when the error names none. Unencoded: UIAlert encodes the message
- * itself, apart from <p>, <strong> and <br>.
+ * or null when the error names none. Encoded HTML.
  *
  * @param {{ failedItems?: Array<{ path?: string, name?: string, requestIndex?: number, message?: string }> }} err
  * @returns {string|null}
@@ -95,10 +94,19 @@ export function failedUploadsMessage (err) {
         const failedMessage = typeof item?.message === 'string' && item.message.length > 0
             ? ` (${item.message})`
             : '';
-        return `- ${failedPath}${failedMessage}`;
+        return html_encode(`- ${failedPath}${failedMessage}`);
     });
-    return [i18n('upload_some_failed', [], false), ...lines].join('<br>');
+    return [i18n('upload_some_failed'), ...lines].join('<br>');
 }
+
+/**
+ * A failure's message as encoded HTML. A network failure rejects with no
+ * message of its own.
+ *
+ * @param {{ message?: string }} [err]
+ * @returns {string}
+ */
+const errorMessage = (err) => err?.message ? html_encode(err.message) : i18n('error_unknown_cause');
 
 export { typeSelectTarget };
 
@@ -982,12 +990,7 @@ const TabFiles = {
                 if ( this.pathLookup !== lookup ) return;
                 if ( ! entry ) {
                     input.setAttribute('aria-invalid', 'true');
-                    // Settled on close: Escape closes the alert without
-                    // settling what UIAlert returns.
-                    await new Promise(resolve => UIAlert({
-                        message: i18n('path_not_found', [typed], false),
-                        window_options: { on_close: resolve },
-                    }));
+                    await this.showError(i18n('path_not_found', [typed]));
                     input.focus();
                     input.select();
                     return;
@@ -1904,14 +1907,16 @@ const TabFiles = {
      */
     async deleteRowsPermanently (rows) {
         const list = Array.from(rows);
-        const confirmed = await UIAlert({
-            message: i18n(list.length === 1 ? 'confirm_delete_single_item' : 'confirm_delete_multiple_items', [], false),
+        const confirmed = await UIDashboardDialog({
+            message: i18n(list.length === 1 ? 'confirm_delete_single_item' : 'confirm_delete_multiple_items'),
+            tone: 'danger',
             buttons: [
-                { label: i18n('delete', [], false), value: 'delete', type: 'primary' },
-                { label: i18n('cancel', [], false), value: 'cancel' },
+                { label: i18n('cancel', [], false), value: false, type: 'quiet' },
+                { label: i18n('delete', [], false), value: true, type: 'danger' },
             ],
+            $container: this.$el_window,
         });
-        if ( confirmed !== 'delete' ) return;
+        if ( confirmed !== true ) return;
         // The phone selection bar acts on rows that are going away.
         this.$el_window.find('.files-selection-actions').removeClass('visible');
         // A few at a time rather than one after another: a few hundred items
@@ -2800,9 +2805,9 @@ const TabFiles = {
                 _this.renderEmptyPlaceholderIfNeeded();
                 _this.updateFooterStats();
                 // A network failure rejects with no message to show.
-                UIAlert(err?.code === 'directory_depth_limit_exceeded'
-                    ? i18n('directory_depth_limit_exceeded', [], false)
-                    : err?.message || i18n('error_unknown_cause', [], false));
+                _this.showError(err?.code === 'directory_depth_limit_exceeded'
+                    ? i18n('directory_depth_limit_exceeded')
+                    : errorMessage(err));
             } finally {
                 _this.doneCreating();
                 if ( detached ) window.UIDashboardFileItem(detached);
@@ -3755,11 +3760,8 @@ const TabFiles = {
             // or it's empty,
             // or editable was not even active at all
             if ( old_name === new_name || !new_name || new_name === '.' || new_name === '..' || !$(el_item_name_editor).hasClass('item-name-editor-active') ) {
-                if ( new_name === '.' ) {
-                    UIAlert(i18n('reserved_name_not_allowed', { name: '.' }, false));
-                }
-                else if ( new_name === '..' ) {
-                    UIAlert(i18n('reserved_name_not_allowed', { name: '..' }, false));
+                if ( new_name === '.' || new_name === '..' ) {
+                    _this.showError(i18n('reserved_name_not_allowed', { name: new_name }));
                 }
                 $(el_item_name).show();
                 _this.fitItemNames($(el_item_name));
@@ -4373,7 +4375,7 @@ const TabFiles = {
                 if ( await this.restoreItem(row, conflict) ) restored.push(row);
             } catch ( err ) {
                 console.error('Failed to restore item:', err);
-                UIAlert(err?.message || i18n('error_unknown_cause', [], false));
+                this.showError(errorMessage(err));
             }
         }
         await $(restored).fadeOut(150).promise();
@@ -4390,16 +4392,31 @@ const TabFiles = {
      * @param {boolean} multiple - Part of a batch: offer Replace all and Skip
      * @returns {Promise<'replace' | 'replace_all' | 'keep_both' | 'skip' | 'cancel'>}
      */
-    askNameConflict (name, multiple) {
-        return UIAlert({
-            message: i18n('item_already_exists', [name], false),
+    async askNameConflict (name, multiple) {
+        const choice = await UIDashboardDialog({
+            message: i18n('item_already_exists', [name]),
             buttons: [
-                { label: i18n('replace', [], false), type: 'primary', value: 'replace' },
-                ... multiple ? [{ label: i18n('replace_all', [], false), value: 'replace_all' }] : [],
-                { label: i18n('keep_both', [], false), value: 'keep_both' },
-                ... multiple ? [{ label: i18n('skip', [], false), value: 'skip' }] : [{ label: i18n('cancel', [], false), value: 'cancel' }],
+                multiple
+                    ? { label: i18n('skip', [], false), value: 'skip', type: 'quiet' }
+                    : { label: i18n('cancel', [], false), value: 'cancel', type: 'quiet' },
+                { label: i18n('keep_both', [], false), value: 'keep_both', type: 'quiet' },
+                ... multiple ? [{ label: i18n('replace_all', [], false), value: 'replace_all', type: 'quiet' }] : [],
+                { label: i18n('replace', [], false), value: 'replace', type: 'primary' },
             ],
+            $container: this.$el_window,
         });
+        // Dismissing the dialog leaves the item where it is.
+        return choice || (multiple ? 'skip' : 'cancel');
+    },
+
+    /**
+     * Shows a message in a dialog over the dashboard.
+     *
+     * @param {string} message - HTML the caller has already encoded
+     * @returns {Promise<unknown>} Settles when the dialog closes
+     */
+    showError (message) {
+        return UIDashboardDialog({ message, tone: 'error', $container: this.$el_window });
     },
 
     /**
@@ -4499,8 +4516,7 @@ const TabFiles = {
                     } else {
                         console.error('Failed to move item:', err);
                         const item_name = String(item.path || source).split('/').pop();
-                        // UIAlert encodes the message itself, apart from <p>, <strong> and <br>.
-                        UIAlert(`<p>${i18n('moving_file', [`<strong>${item_name}</strong>`], false)}</p>${err?.message || i18n('error_unknown_cause', [], false)}`);
+                        this.showError(`<p>${i18n('moving_file', [item_name])}</p><p>${errorMessage(err)}</p>`);
                     }
                 }
             } while ( retry );
@@ -5336,7 +5352,7 @@ const TabFiles = {
                                 }
                             }
                         } catch ( err ) {
-                            UIAlert(err?.message || i18n('error_unknown_cause', [], false));
+                            _this.showError(errorMessage(err));
                         } finally {
                             createFileInterceptors.splice(createFileInterceptors.indexOf(createFile), 1);
                             window.create_file = createFileInterceptors.at(-1) ?? realCreateFile;
@@ -5768,7 +5784,7 @@ const TabFiles = {
         let opid;
 
         if ( destPath === window.trash_path ) {
-            UIAlert(i18n('upload_to_trash_not_allowed', [], false));
+            this.showError(i18n('upload_to_trash_not_allowed'));
             return;
         }
 
@@ -5829,7 +5845,7 @@ const TabFiles = {
             },
             error: async function (err) {
                 const failedMessage = failedUploadsMessage(err);
-                if ( failedMessage ) UIAlert(failedMessage);
+                if ( failedMessage ) _this.showError(failedMessage);
                 upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
                 delete window.active_uploads[opid];
                 if ( destPath === _this.currentPath ) _this.renderDirectory(destPath, { consistency: 'strong' });

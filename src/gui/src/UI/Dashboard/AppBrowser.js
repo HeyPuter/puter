@@ -585,7 +585,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                     await revokeAppSessions(appUid);
                 } catch ( e ) {
                     console.error('Uninstalled the app but could not end its sessions:', e);
-                    showAlert(i18n('uninstall_sessions_failed', [displayName], false));
+                    showAlert(i18n('uninstall_sessions_failed', [displayName]), $el_window);
                 }
             }).catch(async err => {
                 console.error('Failed to uninstall app:', err);
@@ -599,7 +599,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                     self._apps.splice(Math.min(removedIndex, self._apps.length), 0, removedApp);
                     self.renderApps($el_window, { preservePage: true, instant: true });
                 }
-                showAlert(i18n('uninstall_failed', { name: displayName }, false));
+                showAlert(i18n('uninstall_failed', { name: displayName }), $el_window);
             });
         });
     }
@@ -762,7 +762,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                     launched = outcome?.launchResult?.launched !== false;
                 }).catch(err => {
                     console.error(`Failed to launch ${appName}:`, err);
-                    showAlert(i18n('something_went_wrong', [], false));
+                    showAlert(i18n('something_went_wrong'), $el_window);
                 }).finally(() => {
                     browser.settleDeepLinkLaunch(appName, tile, launched);
                 });
@@ -1166,7 +1166,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                         })
                         .catch((err) => {
                             console.error(`Failed to launch ${appName}:`, err);
-                            showAlert(i18n('something_went_wrong', [], false));
+                            showAlert(i18n('something_went_wrong'), $el_window);
                         })
                         .finally(() => {
                             self._launchingApps.delete(appName);
