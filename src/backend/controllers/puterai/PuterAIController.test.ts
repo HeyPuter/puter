@@ -1824,6 +1824,84 @@ describe('PuterAIController.openaiResponses streaming + edges', () => {
         expect(out).toContain('"id":"fc_upstream"');
     });
 
+    it('puts the streamed arguments on the finished function_call items', async () => {
+        stubChatComplete({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+            stream: ndjsonStreamFrom([
+                { type: 'tool_use_start', id: 'call_a', name: 'lookup' },
+                {
+                    type: 'tool_input_delta',
+                    id: 'call_a',
+                    partialJson: '{"q":',
+                },
+                { type: 'tool_use_start', id: 'call_b', name: 'fetch' },
+                {
+                    type: 'tool_input_delta',
+                    id: 'call_a',
+                    partialJson: '"hi"}',
+                },
+                {
+                    type: 'tool_input_delta',
+                    id: 'call_b',
+                    partialJson: '{"n":2}',
+                },
+                {
+                    type: 'tool_use',
+                    id: 'call_a',
+                    name: 'lookup',
+                    input: { q: 'hi' },
+                },
+                {
+                    type: 'tool_use',
+                    id: 'call_b',
+                    name: 'fetch',
+                    input: { n: 2 },
+                },
+                {
+                    type: 'usage',
+                    usage: { prompt_tokens: 1, completion_tokens: 1 },
+                    finish_reason: 'tool_calls',
+                },
+            ]),
+        });
+
+        const { res, captured } = makeRes();
+        await controller.openaiResponses(
+            makeReq({
+                body: { model: 'gpt-test', input: 'tool me', stream: true },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+        await vi.waitFor(() =>
+            expect(captured.written.join('')).toContain('response.completed'),
+        );
+
+        const events = captured.written
+            .join('')
+            .split('\n\n')
+            .map((frame) =>
+                frame.split('\n').find((l) => l.startsWith('data: ')),
+            )
+            .filter((line) => line && line !== 'data: [DONE]')
+            .map((line) => JSON.parse(line!.slice('data: '.length)));
+        const argumentsOf = (items: { arguments: string }[]) =>
+            items.map((item) => item.arguments);
+        const done = events
+            .filter((event) => event.type === 'response.output_item.done')
+            .map((event) => event.item);
+        const completed = events.find(
+            (event) => event.type === 'response.completed',
+        );
+
+        expect(argumentsOf(done)).toEqual(['{"q":"hi"}', '{"n":2}']);
+        expect(argumentsOf(completed.response.output)).toEqual([
+            '{"q":"hi"}',
+            '{"n":2}',
+        ]);
+    });
+
     it('emits a `response.error`-shaped SSE frame when the source stream errors', async () => {
         const errStream = new Readable({
             read() {
