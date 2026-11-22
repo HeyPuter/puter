@@ -22,6 +22,10 @@ import type { EventClient } from '../clients/event/EventClient';
 import type { EventMetadata } from '../clients/event/types';
 import { HttpError } from '../core/http/HttpError';
 import type { SubdomainStore } from '../stores/subdomain/SubdomainStore';
+import {
+    getPuterHostedDomains,
+    type HostedDomainConfig as HostingDomainKeys,
+} from './hosts';
 import type { PrivateLaunchDecision } from './privateLaunchAccess';
 
 /**
@@ -47,17 +51,13 @@ import type { PrivateLaunchDecision } from './privateLaunchAccess';
  * re-deriving it per producer.
  */
 
-export const HOSTED_BACKING_UNAVAILABLE_REASON = 'hosted_backing_unavailable';
+const HOSTED_BACKING_UNAVAILABLE_REASON = 'hosted_backing_unavailable';
 
 /** Inside some owner's top-level Trash, which is where Delete puts things. */
 export const isTrashedPath = (path: string): boolean =>
     /^\/[^/]+\/Trash(\/|$)/u.test(path);
 
-interface HostedDomainConfig {
-    static_hosting_domain?: unknown;
-    static_hosting_domain_alt?: unknown;
-    private_app_hosting_domain?: unknown;
-    private_app_hosting_domain_alt?: unknown;
+interface HostedDomainConfig extends HostingDomainKeys {
     protocol?: unknown;
 }
 
@@ -72,44 +72,6 @@ interface BackingRow {
 }
 
 type TrashLookup = Partial<Pick<SubdomainStore, 'trashedRootDirIds'>>;
-
-function normalizeHostedDomainValue(domainValue: unknown): string | null {
-    if (typeof domainValue !== 'string') return null;
-    const normalizedDomain = domainValue
-        .trim()
-        .toLowerCase()
-        .replace(/^\./, '');
-    return normalizedDomain || null;
-}
-
-function normalizeConfiguredHostedDomain(domainValue: unknown): string | null {
-    const normalizedDomain = normalizeHostedDomainValue(domainValue);
-    if (!normalizedDomain) return null;
-    return normalizedDomain.split(':')[0] || null;
-}
-
-function configuredHostedDomainValues(
-    config: HostedDomainConfig | undefined | null,
-): unknown[] {
-    const cfg = config ?? {};
-    return [
-        cfg.static_hosting_domain,
-        cfg.static_hosting_domain_alt,
-        cfg.private_app_hosting_domain,
-        cfg.private_app_hosting_domain_alt,
-    ];
-}
-
-export function getPuterHostedDomains(
-    config: HostedDomainConfig | undefined | null,
-): string[] {
-    const domains = new Set<string>();
-    for (const configuredDomain of configuredHostedDomainValues(config)) {
-        const normalized = normalizeConfiguredHostedDomain(configuredDomain);
-        if (normalized) domains.add(normalized);
-    }
-    return [...domains];
-}
 
 /**
  * Every `index_url` string that resolves to `subdomain` on one of our hosting
@@ -127,16 +89,10 @@ export function buildHostedSubdomainIndexUrlCandidates(
         typeof subdomain === 'string' ? subdomain.trim().toLowerCase() : '';
     if (!name) return [];
 
-    const hosts = new Set<string>();
-    for (const configuredDomain of configuredHostedDomainValues(config)) {
-        // Keep the configured form and a port-stripped one: dev configs carry
-        // a `:4100`-style port and stored index_urls exist in both shapes.
-        const withPort = normalizeHostedDomainValue(configuredDomain);
-        if (withPort) hosts.add(`${name}.${withPort}`);
-        const bare = normalizeConfiguredHostedDomain(configuredDomain);
-        if (bare) hosts.add(`${name}.${bare}`);
-    }
-    if (hosts.size === 0) return [];
+    const hosts = getPuterHostedDomains(config, { withPorts: true }).map(
+        (domain) => `${name}.${domain}`,
+    );
+    if (hosts.length === 0) return [];
 
     const configuredProtocol =
         typeof config?.protocol === 'string'
@@ -278,45 +234,12 @@ const rootIsTrashed = (row: BackingRow | null, trashed: Set<number>) =>
     row?.root_dir_id != null && trashed.has(Number(row.root_dir_id));
 
 /**
- * True when the app's puter-hosted subdomain is missing, is currently owned by
- * a different user than the app's owner (it was reclaimed — launching would
- * leak the token to the new owner), or is rooted in Trash. Non-hosted
- * index_urls return false.
- */
-export async function hostedIndexUrlBackingIsUnavailable({
-    app,
-    subdomainStore,
-    config,
-}: {
-    app: AppBackingRow;
-    subdomainStore: Pick<SubdomainStore, 'getBySubdomain'> & TrashLookup;
-    config: HostedDomainConfig | undefined | null;
-}): Promise<boolean> {
-    const subdomain = extractPuterHostedSubdomain(app.index_url, config);
-    if (!subdomain) return false;
-
-    const cachedMisses = new Set<string>();
-    let row = await subdomainStore.getBySubdomain(subdomain, { cachedMisses });
-    if (!row && !cachedMisses.has(subdomain)) {
-        // A freshly-created subdomain may not have reached a replica or the
-        // local cache yet; confirm against the primary before treating the
-        // backing as gone (mirrors the create/update ownership check in
-        // `AppDriver#ensurePuterSiteSubdomainIsOwned`). A negative-cache hit
-        // needs no second look: creating a site clears and tombstones it.
-        row = await subdomainStore.getBySubdomain(subdomain, {
-            primary: true,
-        });
-    }
-    if (backingRowIsUnavailable(app, row)) return true;
-    return rootIsTrashed(row, await trashedRootsOf([row], subdomainStore));
-}
-
-/**
- * Batched sibling of {@link hostedIndexUrlBackingIsUnavailable} — one
- * `getBySubdomains` call (plus a single primary follow-up for whatever's still
- * missing and not negative-cached) instead of per-app round trips. Returns a
- * boolean per `apps` entry, in input order, with the same semantics as the
- * single-app function above.
+ * Per app, whether its puter-hosted subdomain is missing, is now owned by a
+ * different user than the app's owner (it was reclaimed: launching would leak
+ * the token to the new owner), or is rooted in Trash. Non-hosted index_urls are
+ * false. One `getBySubdomains` call, plus one primary follow-up for names still
+ * missing and not negative-cached (a fresh site may not have reached a replica
+ * yet). Results are in input order.
  */
 export async function hostedIndexUrlBackingsAreUnavailable({
     apps,

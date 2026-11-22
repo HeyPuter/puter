@@ -292,25 +292,6 @@ export function verifySignature(
     });
 }
 
-/**
- * Non-throwing variant that returns whether the signature is valid for the
- * given action. Useful when callers want to attempt `write` auth and fall back
- * to `read` without triggering error propagation.
- */
-export function isSignatureValid(
-    query: SignedQuery,
-    action: SignAction,
-    config: SigningConfig,
-    ownerUserId: number | null,
-): boolean {
-    try {
-        verifySignature(query, action, config, ownerUserId);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
 // Where mime-types' preferred type differs from what this has always reported.
 const MIME_OVERRIDES: Record<string, string> = {
     ico: 'image/x-icon',

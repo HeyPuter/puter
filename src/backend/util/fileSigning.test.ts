@@ -20,12 +20,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type { FSEntry } from '../stores/fs/FSEntry.js';
-import {
-    isSignatureValid,
-    mimeFromName,
-    signFile,
-    verifySignature,
-} from './fileSigning.js';
+import { mimeFromName, signFile, verifySignature } from './fileSigning.js';
 
 // Pass-through spy, to count how often a key is derived from the raw secret.
 const { hmacKeys } = vi.hoisted(() => ({ hmacKeys: [] as unknown[] }));
@@ -58,6 +53,17 @@ const makeEntry = (): FSEntry =>
         created: 0,
         userId: OWNER_ID,
     }) as unknown as FSEntry;
+
+const isSignatureValid = (
+    ...args: Parameters<typeof verifySignature>
+): boolean => {
+    try {
+        verifySignature(...args);
+        return true;
+    } catch {
+        return false;
+    }
+};
 
 const queryFromUrl = (url: string) => {
     const u = new URL(url);
@@ -284,9 +290,9 @@ describe('fileSigning legacy signature visibility', () => {
                     .update(`${uid}/read/${CONFIG.secret}/${expires}`)
                     .digest('hex'),
             };
-            expect(
-                fresh.isSignatureValid(legacy, 'read', CONFIG, OWNER_ID),
-            ).toBe(true);
+            expect(() =>
+                fresh.verifySignature(legacy, 'read', CONFIG, OWNER_ID),
+            ).not.toThrow();
             expect(warn).toHaveBeenCalledTimes(1);
             // The log is operational, not forensic — no uid or signature in it.
             expect(warn.mock.calls[0]?.[0]).not.toContain(uid);

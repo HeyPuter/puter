@@ -19,10 +19,7 @@
 
 import type { Actor } from '../core/actor.js';
 import { HttpError } from '../core/http/HttpError.js';
-import {
-    RENTED_UNITS_PER_USER,
-    limitFor,
-} from '../controllers/events/limits.js';
+import { RENTED_UNITS_PER_USER, limitFor } from '../services/events/limits.js';
 import {
     actorPlanId,
     type SubscriptionMetering,
@@ -56,11 +53,8 @@ export const assertRentedUnitRoom = async (
 ): Promise<void> => {
     const userId = actor.user?.id;
     if (userId === undefined) return;
-    const cap = limitFor(
-        RENTED_UNITS_PER_USER,
-        await actorPlanId(deps.metering, actor),
-    );
-    const [workers, scopes, owned] = await Promise.all([
+    const [planId, workers, scopes, owned] = await Promise.all([
+        actorPlanId(deps.metering, actor),
         deps.stores.subdomain.countByUserIdAndPrefix(
             userId,
             WORKER_SUBDOMAIN_PREFIX,
@@ -68,6 +62,7 @@ export const assertRentedUnitRoom = async (
         deps.stores.eventHandler.countUserScopesWithHandlersForUser(userId),
         deps.stores.eventHandler.countAppsWithHandlersForOwner(userId),
     ]);
+    const cap = limitFor(RENTED_UNITS_PER_USER, planId);
     if (Number(workers) + scopes + owned >= cap)
         throw new HttpError(403, `Worker limit reached (max ${cap})`, {
             legacyCode: 'forbidden',

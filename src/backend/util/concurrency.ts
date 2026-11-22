@@ -55,44 +55,20 @@ export async function runWithConcurrencyLimitSettled<TInput, TOutput>(
     concurrency: number,
     worker: (value: TInput, index: number) => Promise<TOutput>,
 ): Promise<PromiseSettledResult<TOutput>[]> {
-    if (values.length === 0) {
-        return [];
-    }
-
-    const limit = Math.max(1, concurrency);
-    const results = new Array<PromiseSettledResult<TOutput>>(values.length);
-    let nextIndex = 0;
-
-    const runWorker = async () => {
-        while (true) {
-            const index = nextIndex;
-            if (index >= values.length) {
-                return;
-            }
-            nextIndex++;
-            const value = values[index];
-            if (value === undefined) {
-                throw new Error(`Missing value at index ${index}`);
-            }
-
+    return runWithConcurrencyLimit(
+        values,
+        concurrency,
+        async (value, index): Promise<PromiseSettledResult<TOutput>> => {
             try {
-                const output = await worker(value, index);
-                results[index] = {
+                return {
                     status: 'fulfilled',
-                    value: output,
+                    value: await worker(value, index),
                 };
-            } catch (error) {
-                results[index] = {
-                    status: 'rejected',
-                    reason: error,
-                };
+            } catch (reason) {
+                return { status: 'rejected', reason };
             }
-        }
-    };
-
-    const workerCount = Math.min(limit, values.length);
-    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-    return results;
+        },
+    );
 }
 
 /**
@@ -138,4 +114,50 @@ export async function settleWithin(
     } finally {
         clearTimeout(timer);
     }
+}
+
+/**
+ * `promise`, or a rejection once `ms` passes first: `makeError()` when given,
+ * else the `TimeoutError` `AbortSignal.timeout` rejects with. A non-finite `ms`
+ * sets no deadline. The timer doesn't hold the process open.
+ */
+export async function withTimeout<T>(
+    promise: Promise<T>,
+    ms: number,
+    makeError?: () => unknown,
+): Promise<T> {
+    if (!Number.isFinite(ms)) return promise;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(
+                    () =>
+                        reject(
+                            makeError
+                                ? makeError()
+                                : new DOMException(
+                                      'The operation was aborted due to timeout',
+                                      'TimeoutError',
+                                  ),
+                        ),
+                    Math.max(0, ms),
+                );
+                timer.unref?.();
+            }),
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/** `items` split into consecutive slices of at most `size` (at least 1). */
+export function chunk<T>(items: readonly T[], size: number): T[][] {
+    const step = size >= 1 ? Math.floor(size) : 1;
+    const out: T[][] = [];
+    for (let i = 0; i < items.length; i += step) {
+        out.push(items.slice(i, i + step));
+    }
+    return out;
 }

@@ -26,8 +26,6 @@ import {
     buildHostedBackingDenial,
     buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
-    getPuterHostedDomains,
-    hostedIndexUrlBackingIsUnavailable,
     hostedIndexUrlBackingsAreUnavailable,
     resolveCustomHostSubdomain,
 } from './hostedAppBacking.js';
@@ -44,35 +42,48 @@ const CONFIG = {
     private_app_hosting_domain: 'private.puter.localhost',
 };
 
-const fakeStore = (
-    impl: (
-        subdomain: string,
-        opts?: { primary?: boolean },
-    ) => Promise<Record<string, unknown> | null>,
-) => ({ getBySubdomain: vi.fn(impl) }) as never;
+type Lookup = (
+    subdomain: string,
+    opts?: { primary?: boolean; cachedMisses?: Set<string> },
+) => Promise<Record<string, unknown> | null>;
 
-describe('getPuterHostedDomains', () => {
-    it('collects, normalizes, and dedupes the configured domains', () => {
-        expect(
-            getPuterHostedDomains({
-                static_hosting_domain: '  .Puter.Site  ',
-                static_hosting_domain_alt: 'puter.site',
-                private_app_hosting_domain: 'private.puter.localhost:4100',
-            }).sort(),
-        ).toEqual(['private.puter.localhost', 'puter.site']);
-    });
+/** A store whose batched lookup answers each name through `lookup`. */
+const batchStore = (lookup: Lookup, extra: Record<string, unknown> = {}) =>
+    ({
+        getBySubdomains: async (
+            names: string[],
+            opts?: { primary?: boolean; cachedMisses?: Set<string> },
+        ) => {
+            const rows = new Map<string, Record<string, unknown>>();
+            for (const name of names) {
+                const row = await lookup(name, opts);
+                if (row) rows.set(name, row);
+            }
+            return rows;
+        },
+        ...extra,
+    }) as never;
 
-    it('ignores absent and non-string config values', () => {
-        expect(getPuterHostedDomains(undefined)).toEqual([]);
-        expect(getPuterHostedDomains(null)).toEqual([]);
-        expect(
-            getPuterHostedDomains({
-                static_hosting_domain: '',
-                static_hosting_domain_alt: 42 as unknown as string,
-            }),
-        ).toEqual([]);
-    });
-});
+const fakeStore = (impl: Lookup) => batchStore(vi.fn(impl));
+
+/** One app through the batched check. */
+const backingIsUnavailable = async (
+    args: Omit<
+        Parameters<typeof hostedIndexUrlBackingsAreUnavailable>[0],
+        'apps'
+    > & {
+        app: Parameters<
+            typeof hostedIndexUrlBackingsAreUnavailable
+        >[0]['apps'][number];
+    },
+) =>
+    (
+        await hostedIndexUrlBackingsAreUnavailable({
+            apps: [args.app],
+            subdomainStore: args.subdomainStore,
+            config: args.config,
+        })
+    )[0];
 
 describe('buildHostedSubdomainIndexUrlCandidates', () => {
     it('covers every hosting domain, protocol and path variant', () => {
@@ -192,28 +203,25 @@ describe('extractPuterHostedSubdomain', () => {
     });
 });
 
-describe('hostedIndexUrlBackingIsUnavailable', () => {
+describe('hostedIndexUrlBackingsAreUnavailable (one app)', () => {
     it('is false for a non-hosted index_url without touching the store', async () => {
-        const store = fakeStore(async () => null);
+        const lookup = vi.fn(async () => null);
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://example.com/',
                     owner_user_id: 1,
                 },
-                subdomainStore: store,
+                subdomainStore: batchStore(lookup),
                 config: CONFIG,
             }),
         ).toBe(false);
-        expect(
-            (store as unknown as { getBySubdomain: ReturnType<typeof vi.fn> })
-                .getBySubdomain,
-        ).not.toHaveBeenCalled();
+        expect(lookup).not.toHaveBeenCalled();
     });
 
     it('is false when the subdomain is still owned by the app owner', async () => {
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://mine.puter.site/',
                     owner_user_id: 7,
@@ -226,7 +234,7 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
 
     it('is true when the subdomain no longer exists', async () => {
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://gone.puter.site/',
                     owner_user_id: 7,
@@ -239,7 +247,7 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
 
     it('is true when the subdomain was reclaimed by another user', async () => {
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://taken.puter.site/',
                     owner_user_id: 7,
@@ -259,12 +267,12 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
                 opts?.primary ? { user_id: 7 } : null,
         );
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://fresh.puter.site/',
                     owner_user_id: 7,
                 },
-                subdomainStore: { getBySubdomain } as never,
+                subdomainStore: batchStore(getBySubdomain),
                 config: CONFIG,
             }),
         ).toBe(false);
@@ -282,12 +290,12 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
             },
         );
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://gone.puter.site/',
                     owner_user_id: 7,
                 },
-                subdomainStore: { getBySubdomain } as never,
+                subdomainStore: batchStore(getBySubdomain),
                 config: CONFIG,
             }),
         ).toBe(true);
@@ -296,13 +304,13 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
 
     it('is true when the site root is in Trash, and false once it is not', async () => {
         const trashed = new Set([5]);
-        const subdomainStore = {
-            getBySubdomain: async () => ({ user_id: 7, root_dir_id: 5 }),
-            trashedRootDirIds: vi.fn(async () => trashed),
-        } as never;
+        const subdomainStore = batchStore(
+            async () => ({ user_id: 7, root_dir_id: 5 }),
+            { trashedRootDirIds: vi.fn(async () => trashed) },
+        );
         const app = { index_url: 'https://mine.puter.site/', owner_user_id: 7 };
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app,
                 subdomainStore,
                 config: CONFIG,
@@ -310,7 +318,7 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
         ).toBe(true);
         trashed.clear();
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app,
                 subdomainStore,
                 config: CONFIG,
@@ -320,20 +328,19 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
 
     it('counts the site as served when the Trash lookup fails', async () => {
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://mine.puter.site/',
                     owner_user_id: 7,
                 },
-                subdomainStore: {
-                    getBySubdomain: async () => ({
-                        user_id: 7,
-                        root_dir_id: 5,
-                    }),
-                    trashedRootDirIds: async () => {
-                        throw new Error('fs down');
+                subdomainStore: batchStore(
+                    async () => ({ user_id: 7, root_dir_id: 5 }),
+                    {
+                        trashedRootDirIds: async () => {
+                            throw new Error('fs down');
+                        },
                     },
-                } as never,
+                ),
                 config: CONFIG,
             }),
         ).toBe(false);
@@ -343,7 +350,7 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
         // `undefined` and non-numeric strings coerce to NaN, so neither
         // side can be compared — withhold rather than guess.
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: { index_url: 'https://orphan.puter.site/' },
                 subdomainStore: fakeStore(async () => ({ user_id: 7 })),
                 config: CONFIG,
@@ -351,7 +358,7 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
         ).toBe(true);
 
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://orphan.puter.site/',
                     owner_user_id: 7,
@@ -370,7 +377,7 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
         // outcome is right for a non-obvious reason: if the comparison
         // were ever loosened, this case would silently start passing.
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://orphan.puter.site/',
                     owner_user_id: null,
@@ -385,7 +392,7 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
         // MySQL and sqlite disagree on whether ids come back as strings;
         // the guard must not read that as a reclaim.
         expect(
-            await hostedIndexUrlBackingIsUnavailable({
+            await backingIsUnavailable({
                 app: {
                     index_url: 'https://mine.puter.site/',
                     owner_user_id: '7',
@@ -398,7 +405,7 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
 
     it('propagates store errors so callers decide the fail-closed policy', async () => {
         await expect(
-            hostedIndexUrlBackingIsUnavailable({
+            backingIsUnavailable({
                 app: {
                     index_url: 'https://boom.puter.site/',
                     owner_user_id: 7,

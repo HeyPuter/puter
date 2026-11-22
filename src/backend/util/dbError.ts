@@ -61,3 +61,22 @@ export function isMissingParentViolation(err: unknown): boolean {
     }
     return errno === 1216 || errno === 1452; // mysql; 1452 is the InnoDB form
 }
+
+/**
+ * True when a query failed because its table doesn't exist: MySQL
+ * `ER_NO_SUCH_TABLE` (1146), Postgres `42P01`, or SQLite's `no such table`.
+ * Other "does not exist" errors (a missing column, say) don't count.
+ */
+export function isMissingTable(err: unknown): boolean {
+    const { code, errno, message } = (err ?? {}) as {
+        code?: unknown;
+        errno?: unknown;
+        message?: unknown;
+    };
+    if (code === 'ER_NO_SUCH_TABLE' || errno === 1146 || code === '42P01') {
+        return true;
+    }
+    return /no such table|Table '[^']+' doesn't exist|relation "[^"]+" does not exist/i.test(
+        String(message ?? err),
+    );
+}

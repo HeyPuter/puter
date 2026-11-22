@@ -20,6 +20,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     createGracefulShutdown,
+    FINAL_FLUSH_TIMEOUT_MS,
+    finalFlush,
     type ShutdownTarget,
 } from './gracefulShutdown.js';
 import { registerTelemetryShutdown } from './telemetryShutdown.js';
@@ -238,5 +240,46 @@ describe('createGracefulShutdown', () => {
 
         await trigger('SIGTERM');
         expect(events).toEqual(['prepare', 'shutdown', 'telemetry', 'exit:0']);
+    });
+});
+
+describe('finalFlush', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    it('hands the flush its deadline and logs nothing on success', async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000_000);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        let seen: number | undefined;
+        await finalFlush('test', async (deadline) => {
+            seen = deadline;
+        });
+        expect(seen).toBe(1_000_000 + FINAL_FLUSH_TIMEOUT_MS);
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('logs a failed flush instead of throwing', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        await expect(
+            finalFlush('test', async () => {
+                throw new Error('store down');
+            }),
+        ).resolves.toBeUndefined();
+        expect(warn).toHaveBeenCalledWith(
+            '[test] final flush failed',
+            expect.any(Error),
+        );
+    });
+
+    it('gives up and logs once the budget runs out', async () => {
+        vi.useFakeTimers();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const done = finalFlush('test', () => new Promise(() => {}));
+        await vi.advanceTimersByTimeAsync(FINAL_FLUSH_TIMEOUT_MS);
+        await done;
+        expect(warn).toHaveBeenCalledWith('[test] final flush timed out');
     });
 });

@@ -155,18 +155,22 @@ export async function provisionUser(
     group: string | null | undefined,
 ): Promise<UserRow> {
     const created = await deps.userStore.create(fields);
-    if (group) {
+    const joinGroup = async () => {
+        if (!group) return;
         try {
             await deps.groupStore.addUsers(group, [created.username]);
         } catch (e) {
             console.warn('[provision] group assignment failed:', e);
         }
-    }
-    try {
-        await generateDefaultFsentries(deps.db, deps.userStore, created);
-    } catch (e) {
-        console.warn('[provision] generateDefaultFsentries failed:', e);
-    }
+    };
+    const createFolders = async () => {
+        try {
+            await generateDefaultFsentries(deps.db, deps.userStore, created);
+        } catch (e) {
+            console.warn('[provision] generateDefaultFsentries failed:', e);
+        }
+    };
+    await Promise.all([joinGroup(), createFolders()]);
     return (
         (await deps.userStore.getById(created.id, { force: true })) ?? created
     );

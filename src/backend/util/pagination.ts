@@ -209,6 +209,49 @@ export const normalizeOffset = (
     return floored;
 };
 
+/**
+ * A page size for internal callers that default rather than refuse: missing,
+ * zero or unreadable reads as `fallback`; the result is floored and kept in
+ * `[1, cap]`.
+ */
+export const clampLimit = (
+    limit: unknown,
+    { fallback, cap }: { fallback: number; cap: number },
+): number => Math.min(Math.max(1, Math.floor(Number(limit) || fallback)), cap);
+
+/** The `limit`, `cursor` and `includeTotal` query parameters of a list route. */
+export interface PageQuery {
+    limit: number | undefined;
+    cursor: string | undefined;
+    includeTotal: boolean;
+}
+
+/**
+ * Read a list route's page parameters: `limit` through {@link normalizeLimit} (a
+ * bad one is a 400), a string `cursor`, and `includeTotal=true`.
+ */
+export const parsePageQuery = (
+    query: Record<string, unknown> | undefined | null,
+    { cap }: { cap?: number } = {},
+): PageQuery => ({
+    limit: normalizeLimit(query?.limit, { cap }),
+    cursor: typeof query?.cursor === 'string' ? query.cursor : undefined,
+    includeTotal: query?.includeTotal === 'true',
+});
+
+/**
+ * The response envelope for `page`: its items (through `mapItem` when given),
+ * plus `cursor` and `total` only when set.
+ */
+export const pageEnvelope = <T, U = T>(
+    page: { items: T[]; cursor?: string | null; total?: number },
+    mapItem?: (item: T) => U,
+): PageResult<U> => ({
+    items: mapItem ? page.items.map(mapItem) : (page.items as unknown as U[]),
+    ...(page.cursor ? { cursor: page.cursor } : {}),
+    ...(page.total !== undefined ? { total: page.total } : {}),
+});
+
 // -- Keyset pages -----------------------------------------------------
 
 /**

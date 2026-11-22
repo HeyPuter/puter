@@ -18,7 +18,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { isMissingParentViolation, isUniqueViolation } from './dbError.js';
+import {
+    isMissingParentViolation,
+    isMissingTable,
+    isUniqueViolation,
+} from './dbError.js';
 
 describe('isUniqueViolation', () => {
     it('matches UNIQUE / PRIMARY KEY violations across the supported drivers', () => {
@@ -89,5 +93,33 @@ describe('isMissingParentViolation', () => {
         expect(isMissingParentViolation(undefined)).toBe(false);
         expect(isMissingParentViolation('boom')).toBe(false);
         expect(isMissingParentViolation({})).toBe(false);
+    });
+});
+
+describe('isMissingTable', () => {
+    it('matches a missing table across the supported drivers', () => {
+        expect(isMissingTable({ code: 'ER_NO_SUCH_TABLE' })).toBe(true);
+        expect(isMissingTable({ errno: 1146 })).toBe(true);
+        expect(isMissingTable({ code: '42P01' })).toBe(true);
+        expect(
+            isMissingTable(new Error('SQLITE_ERROR: no such table: feedback')),
+        ).toBe(true);
+        expect(
+            isMissingTable(new Error("Table 'puter.feedback' doesn't exist")),
+        ).toBe(true);
+        expect(
+            isMissingTable(new Error('relation "feedback" does not exist')),
+        ).toBe(true);
+    });
+
+    it('ignores other missing things and other errors', () => {
+        expect(
+            isMissingTable(new Error('column "foo" does not exist')),
+        ).toBe(false);
+        expect(isMissingTable({ code: 'ER_DUP_ENTRY', errno: 1062 })).toBe(
+            false,
+        );
+        expect(isMissingTable(null)).toBe(false);
+        expect(isMissingTable(undefined)).toBe(false);
     });
 });

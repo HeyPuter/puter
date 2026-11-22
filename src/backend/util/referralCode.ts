@@ -35,7 +35,7 @@
  *   un-normalized, `AB12CD34` and `Ab12cd34` are one code to the lookup and two
  *   to the counters, which is a free way around any per-code cap.
  */
-import crypto from 'crypto';
+import { randomCode } from './randomCode.js';
 
 /** `user.referral_code` is `varchar(16)`; a longer value can't be stored. */
 export const REFERRAL_CODE_MAX_LENGTH = 16;
@@ -48,7 +48,7 @@ export const REFERRAL_CODE_LENGTH = 8;
  * codes minted by earlier versions of the program drew from the full
  * alphanumeric set, and they must keep resolving.
  */
-export const REFERRAL_CODE_SHAPE = new RegExp(
+const REFERRAL_CODE_SHAPE = new RegExp(
     `^[A-Z0-9]{4,${REFERRAL_CODE_MAX_LENGTH}}$`,
 );
 
@@ -79,10 +79,5 @@ export const normalizeReferralCode = (value: unknown): string | null => {
  * an account id (as an earlier seeded-RNG version could) lets anyone
  * reconstruct another user's code and spend their referral allowance for them.
  */
-export const generateReferralCode = (length = REFERRAL_CODE_LENGTH): string => {
-    let code = '';
-    for (let i = 0; i < length; i++) {
-        code += MINT_ALPHABET[crypto.randomInt(0, MINT_ALPHABET.length)];
-    }
-    return code;
-};
+export const generateReferralCode = (length = REFERRAL_CODE_LENGTH): string =>
+    randomCode(length, MINT_ALPHABET);
