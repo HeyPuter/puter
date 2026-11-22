@@ -21,10 +21,12 @@ import { assertImagePrompt } from '../../../interfaces/image/imageValidation.js'
 import { expandAspectRatio } from '../../../interfaces/image/imageDimensions.js';
 import { imageDataUri } from '../../../interfaces/image/imageOutput.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import { Context } from '../../../../../core/context.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
-import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import {
+    type AiMeteringService,
+    withAiCreditHold,
+} from '../../../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageModel,
@@ -39,11 +41,10 @@ import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import { fetchCloudflareImageCatalog } from './catalog.js';
 import {
     assertInputImageString,
-    fetchImageBytes,
-    isHttpUrl,
     resolveSingleInputImage,
-    parseDataUri,
 } from '../../../interfaces/image/inputImage.js';
+import { inputImageBytes } from '../../../shared/imageInput.js';
+import { SAMPLE_IMAGE_URL } from '../../../shared/testMode.js';
 
 // One synchronous call covers the whole generation.
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
@@ -128,7 +129,7 @@ export class CloudflareImageProvider implements IImageProvider {
             : this.#normalizeRatio(options, selectedModel);
 
         if (test_mode) {
-            return 'https://puter-sample-data.puter.site/image_example.png';
+            return SAMPLE_IMAGE_URL;
         }
 
         assertImagePrompt(prompt);
@@ -161,18 +162,10 @@ export class CloudflareImageProvider implements IImageProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            if (isHttpUrl(singleInput))
-                inputImage = await fetchImageBytes(singleInput);
-            else {
-                const data = parseDataUri(singleInput);
-                inputImage = {
-                    bytes: Buffer.from(data?.base64 ?? singleInput, 'base64'),
-                    mime:
-                        data?.mime ??
-                        options.input_image_mime_type ??
-                        'image/png',
-                };
-            }
+            inputImage = await inputImageBytes(
+                singleInput,
+                options.input_image_mime_type,
+            );
             if (inputImage.bytes.length === 0) {
                 throw new HttpError(
                     400,
@@ -203,9 +196,7 @@ export class CloudflareImageProvider implements IImageProvider {
                     },
                 );
             }
-            maskBytes = isHttpUrl(mask)
-                ? (await fetchImageBytes(mask)).bytes
-                : Buffer.from(parseDataUri(mask)?.base64 ?? mask, 'base64');
+            maskBytes = (await inputImageBytes(mask)).bytes;
             if (!maskBytes.length) {
                 throw new HttpError(400, 'maskImage must contain image data', {
                     legacyCode: 'bad_request',
@@ -224,43 +215,38 @@ export class CloudflareImageProvider implements IImageProvider {
             0,
         );
         const usagePrefix = `cloudflare:${this.#getMeteringModelKey(selectedModel)}`;
-        const hold = await this.#meteringService.reserveAiCredits(
+        return withAiCreditHold(
+            this.#meteringService,
             actor,
             usagePrefix,
             totalCostInMicroCents,
+            async () => {
+                const response = await this.#runModel(selectedModel, {
+                    ...options,
+                    ratio,
+                    steps,
+                    inputImage,
+                    maskBytes,
+                });
+
+                this.#meteringService.batchIncrementUsages(
+                    actor,
+                    costComponents
+                        .filter(
+                            (component) =>
+                                component.usageAmount > 0 &&
+                                component.totalCostMicroCents > 0,
+                        )
+                        .map((component) => ({
+                            usageType: `${usagePrefix}:${component.key}`,
+                            usageAmount: component.usageAmount,
+                            costOverride: component.totalCostMicroCents,
+                        })),
+                );
+
+                return response;
+            },
         );
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
-
-        try {
-            const response = await this.#runModel(selectedModel, {
-                ...options,
-                ratio,
-                steps,
-                inputImage,
-                maskBytes,
-            });
-
-            this.#meteringService.batchIncrementUsages(
-                actor,
-                costComponents
-                    .filter(
-                        (component) =>
-                            component.usageAmount > 0 &&
-                            component.totalCostMicroCents > 0,
-                    )
-                    .map((component) => ({
-                        usageType: `${usagePrefix}:${component.key}`,
-                        usageAmount: component.usageAmount,
-                        costOverride: component.totalCostMicroCents,
-                    })),
-            );
-
-            return response;
-        } finally {
-            await hold.release();
-        }
     }
 
     #getModel(model?: string): CloudflareImageModel {

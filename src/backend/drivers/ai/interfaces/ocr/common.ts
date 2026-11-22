@@ -17,13 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { Actor } from '../../../../core/actor.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
-import type { CreditHold } from '../../../../services/metering/types.js';
 import { mimeFromName } from '../../../../util/fileSigning.js';
 import type { LoadedFile, ResolvedFileInput } from '../../../util/fileInput.js';
-import type { AiMeteringService } from '../../../../util/aiCostFactor.js';
 import { OCR_MAX_PAGES, type OcrProviderId } from './models.js';
 import { countPdfPages } from './pdfPages.js';
 
@@ -77,21 +73,4 @@ export const estimateOcrPages = async (
         1,
         Math.min(counted ?? maxPages, maxPages, selected || Infinity),
     );
-};
-
-/**
- * Refuse a call the balance can't cover, and hold its cost while the provider
- * runs so the account's concurrent calls see it. Usage is still metered from
- * the pages the provider reports.
- */
-export const holdOcrCredits = async (
-    metering: AiMeteringService,
-    actor: Actor,
-    usageType: string,
-    cost: number,
-): Promise<CreditHold> => {
-    // Priced at the cost factor usage is recorded at.
-    const hold = await metering.reserveAiCredits(actor, usageType, cost);
-    if (!hold) throw insufficientCreditsError();
-    return hold;
 };

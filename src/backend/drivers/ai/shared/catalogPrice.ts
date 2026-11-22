@@ -47,6 +47,12 @@ export const catalogTokenLimit = (value: unknown): number | undefined =>
         ? value
         : undefined;
 
+/** A token count a vendor reports, zero included, if the field holds one. */
+export const catalogTokenCount = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : undefined;
+
 // A plain USD decimal, e.g. "0.0000160000".
 const USD_PATTERN = /^(\d+)(?:\.(\d+))?$/;
 const UCENTS_PER_USD_DIGITS = 8;

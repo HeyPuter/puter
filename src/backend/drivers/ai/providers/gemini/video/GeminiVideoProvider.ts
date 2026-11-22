@@ -21,7 +21,6 @@ import { randomUUID } from 'node:crypto';
 import type { Actor } from '../../../../../core/actor.js';
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import type { UsageInput } from '../../../../../services/metering/types.js';
 import { normalizeRawBase64ImageString } from '../../../../../util/appIcon.js';
 import {
@@ -29,14 +28,17 @@ import {
     sniffImageMime,
     sniffVideoMime,
 } from '../../../../../util/mediaSniff.js';
-import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import {
+    type AiMeteringService,
+    withAiCreditHold,
+} from '../../../../../util/aiCostFactor.js';
 import { loadFileInput } from '../../../../util/fileInput.js';
 import {
     geminiUpstreamFailure,
     postGeminiJson,
     type StreamedBase64,
-    geminiTokenCount as tokenCount,
 } from '../geminiRest.js';
+import { catalogTokenCount as tokenCount } from '../../../shared/catalogPrice.js';
 import { fetchImageBytes, isHttpUrl } from '../../../shared/imageInput.js';
 import { openVideoInput } from '../../../shared/mediaInput.js';
 import type {
@@ -357,70 +359,71 @@ export class GeminiVideoProvider extends VideoProvider {
             TEXT_RESERVATION_ALLOWANCE * costs.outputText;
         const metering = this.#deps.metering;
         const usagePrefix = `gemini-video-generation:${request.model}`;
-        const hold = await metering.reserveAiCredits(
+        return withAiCreditHold(
+            metering,
             actor,
             usagePrefix,
             holdAmount,
+            async () => {
+                // Opened only once credit is held, and streamed, never held whole.
+                const sourceVideo =
+                    request.inputVideo === undefined
+                        ? undefined
+                        : await this.#openVideo(
+                              actor,
+                              request.inputVideo,
+                              signal,
+                          );
+                const interaction = await this.#postInteraction(
+                    this.#interactionRequest(request, image, sourceVideo),
+                    sourceVideo,
+                    signal,
+                );
+                const videoBlock = this.#findVideo(interaction);
+
+                // Usage the reply reports is charged before the reply is checked,
+                // so a failed or videoless generation still pays for its tokens.
+                const billed = billedTokens(
+                    interaction.usage,
+                    videoBlock !== undefined,
+                );
+                if (billed) {
+                    const usages: UsageInput[] = [
+                        {
+                            usageType: `${usagePrefix}:input`,
+                            usageAmount: billed.input,
+                            costOverride: billed.input * costs.input,
+                        },
+                        {
+                            usageType: `${usagePrefix}:output:video`,
+                            usageAmount: billed.video,
+                            costOverride: billed.video * costs.outputVideo,
+                        },
+                        {
+                            usageType: `${usagePrefix}:output:text`,
+                            usageAmount: billed.text,
+                            costOverride: billed.text * costs.outputText,
+                        },
+                    ].filter((usage) => usage.usageAmount > 0);
+                    await metering.batchIncrementUsages(actor, usages);
+                }
+
+                if (interaction.status !== 'completed') {
+                    throw geminiUpstreamFailure(
+                        'Gemini video generation did not complete the request',
+                    );
+                }
+                const video = await this.#readVideo(videoBlock);
+                if (!billed) {
+                    throw geminiUpstreamFailure(
+                        'Gemini video generation returned unusable usage',
+                    );
+                }
+
+                return `data:video/mp4;base64,${video}`;
+            },
             { ttlMs: GEMINI_OMNI_HOLD_TTL_MS },
         );
-        if (!hold) throw insufficientCreditsError();
-
-        try {
-            // Opened only once credit is held, and streamed, never held whole.
-            const sourceVideo =
-                request.inputVideo === undefined
-                    ? undefined
-                    : await this.#openVideo(actor, request.inputVideo, signal);
-            const interaction = await this.#postInteraction(
-                this.#interactionRequest(request, image, sourceVideo),
-                sourceVideo,
-                signal,
-            );
-            const videoBlock = this.#findVideo(interaction);
-
-            // Usage the reply reports is charged before the reply is checked,
-            // so a failed or videoless generation still pays for its tokens.
-            const billed = billedTokens(
-                interaction.usage,
-                videoBlock !== undefined,
-            );
-            if (billed) {
-                const usages: UsageInput[] = [
-                    {
-                        usageType: `${usagePrefix}:input`,
-                        usageAmount: billed.input,
-                        costOverride: billed.input * costs.input,
-                    },
-                    {
-                        usageType: `${usagePrefix}:output:video`,
-                        usageAmount: billed.video,
-                        costOverride: billed.video * costs.outputVideo,
-                    },
-                    {
-                        usageType: `${usagePrefix}:output:text`,
-                        usageAmount: billed.text,
-                        costOverride: billed.text * costs.outputText,
-                    },
-                ].filter((usage) => usage.usageAmount > 0);
-                await metering.batchIncrementUsages(actor, usages);
-            }
-
-            if (interaction.status !== 'completed') {
-                throw geminiUpstreamFailure(
-                    'Gemini video generation did not complete the request',
-                );
-            }
-            const video = await this.#readVideo(videoBlock);
-            if (!billed) {
-                throw geminiUpstreamFailure(
-                    'Gemini video generation returned unusable usage',
-                );
-            }
-
-            return `data:video/mp4;base64,${video}`;
-        } finally {
-            await hold.release();
-        }
     }
 
     /** Validates every option before any I/O, test mode included. */

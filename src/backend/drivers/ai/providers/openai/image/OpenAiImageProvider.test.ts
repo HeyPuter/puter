@@ -84,14 +84,14 @@ vi.mock('openai', () => {
     };
 });
 
-// Stub the URL→base64 fetch so URL inputs stay offline; keep the rest real.
-const { fetchImageAsBase64Mock } = vi.hoisted(() => ({
-    fetchImageAsBase64Mock: vi.fn(),
+// Keep URL inputs offline at the network boundary; the rest stays real.
+const { secureFetchMock } = vi.hoisted(() => ({
+    secureFetchMock: vi.fn(),
 }));
 
-vi.mock('../../../interfaces/image/inputImage.js', async (orig) => ({
-    ...(await orig<typeof import('../../../interfaces/image/inputImage.js')>()),
-    fetchImageAsBase64: fetchImageAsBase64Mock,
+vi.mock('../../../../../util/secureHttp.js', async (orig) => ({
+    ...(await orig<typeof import('../../../../../util/secureHttp.js')>()),
+    secureFetch: secureFetchMock,
 }));
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ const makeProvider = () =>
 beforeEach(() => {
     generateMock.mockReset();
     editMock.mockReset();
-    fetchImageAsBase64Mock.mockReset();
+    secureFetchMock.mockReset();
     openAICtor.mockReset();
     admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     batchIncrementUsagesSpy = vi.spyOn(
@@ -525,10 +525,11 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
     it('fetches an http(s) URL input and sends the bytes to images.edit', async () => {
         const provider = makeProvider();
         editMock.mockResolvedValueOnce(editResponse);
-        fetchImageAsBase64Mock.mockResolvedValueOnce({
-            base64: 'iVBORw0KGgo=',
-            mime: 'image/png',
-        });
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(Buffer.from('iVBORw0KGgo=', 'base64'), {
+                headers: { 'content-type': 'image/png' },
+            }),
+        );
 
         await withTestActor(() =>
             provider.generate({
@@ -539,8 +540,9 @@ describe('OpenAiImageProvider.generate input_images (edit endpoint)', () => {
             }),
         );
 
-        expect(fetchImageAsBase64Mock).toHaveBeenCalledWith(
+        expect(secureFetchMock).toHaveBeenCalledWith(
             'https://example.com/in.png',
+            { signal: expect.any(AbortSignal) },
         );
         expect(generateMock).not.toHaveBeenCalled();
         expect(editMock).toHaveBeenCalledTimes(1);

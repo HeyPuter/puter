@@ -152,6 +152,17 @@ describe('MistralAIProvider construction', () => {
         expect(mistralCtor).toHaveBeenCalledWith(
             expect.objectContaining({ apiKey: 'test-key' }),
         );
+        expect(mistralCtor.mock.calls[0]![0]).not.toHaveProperty('serverURL');
+    });
+
+    it('points the SDK at a configured apiBaseUrl', () => {
+        new MistralAIProvider(
+            { apiKey: 'test-key', apiBaseUrl: 'https://mistral-proxy.test' },
+            server.services.metering,
+        );
+        expect(mistralCtor).toHaveBeenCalledWith(
+            expect.objectContaining({ serverURL: 'https://mistral-proxy.test' }),
+        );
     });
 });
 
@@ -427,7 +438,7 @@ describe('MistralAIProvider.complete request shape', () => {
         expect('tools' in args).toBe(false);
     });
 
-    it('passes tool definitions through unchanged when supplied', async () => {
+    it('passes function tool definitions through when supplied', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce(baseCompletion);
 
@@ -449,8 +460,34 @@ describe('MistralAIProvider.complete request shape', () => {
         );
 
         const [args] = completeMock.mock.calls[0]!;
-        // Reference equality after the `tools as any[]` cast.
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
+    });
+
+    it('strips Claude-only tool fields and drops Anthropic server tools', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+
+        const fn = {
+            name: 'lookup',
+            parameters: { type: 'object', properties: {} },
+        };
+        await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: fn,
+                        cache_control: { type: 'ephemeral' },
+                    },
+                    { type: 'web_search_20250305', name: 'web_search' },
+                ],
+            }),
+        );
+
+        const [args] = completeMock.mock.calls[0]!;
+        expect(args.tools).toEqual([{ type: 'function', function: fn }]);
     });
 
     it('rewrites tool_calls/tool_call_id on assistant messages to camelCase before sending', async () => {

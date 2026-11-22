@@ -23,14 +23,15 @@ import { HttpError } from '../../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import type { CreditHold } from '../../../../../services/metering/types.js';
 import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
-import { readBoundedBody } from '../../../../util/fileInput.js';
 import { toUrlOrDataUri } from '../../../shared/imageInput.js';
 import {
+    fetchBoundedJson,
     isTransientUpstreamError,
     malformedUpstreamResponse,
     sanitizeUpstreamMessage,
 } from '../../../../util/upstreamErrors.js';
 import { capSecondsToRemainingCredits } from '../../../interfaces/video/creditCap.js';
+import { snapAspectRatio } from '../../../interfaces/video/videoParams.js';
 import type {
     IGenerateVideoParams,
     IVideoModel,
@@ -283,7 +284,7 @@ export class MiniMaxVideoProvider extends VideoProvider {
         const requestedSeconds =
             this.#coerceSeconds(seconds ?? duration) ??
             model.durationSeconds![0];
-        const aspectRatio = this.#aspectRatio(width, height);
+        const aspectRatio = snapAspectRatio(width, height, ASPECT_RATIOS);
         const images = { firstFrame, endFrame, references };
 
         if (spec.api === 'v2') {
@@ -623,27 +624,23 @@ export class MiniMaxVideoProvider extends VideoProvider {
         path: string,
         body?: Record<string, unknown>,
     ): Promise<T> {
-        const response = await fetch(`${this.#baseUrl}${path}`, {
-            method,
-            headers: {
-                Authorization: `Bearer ${this.#apiKey}`,
-                ...(body ? { 'Content-Type': 'application/json' } : {}),
+        const { response, payload } = await fetchBoundedJson<MiniMaxEnvelope>(
+            `${this.#baseUrl}${path}`,
+            {
+                method,
+                headers: {
+                    Authorization: `Bearer ${this.#apiKey}`,
+                    ...(body ? { 'Content-Type': 'application/json' } : {}),
+                },
+                ...(body ? { body: JSON.stringify(body) } : {}),
             },
-            ...(body ? { body: JSON.stringify(body) } : {}),
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        });
-        const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES, () =>
-            minimaxError(undefined, 'MiniMax response too large', 502),
+            {
+                timeoutMs: REQUEST_TIMEOUT_MS,
+                maxBytes: MAX_RESPONSE_BYTES,
+                tooLarge: () =>
+                    minimaxError(undefined, 'MiniMax response too large', 502),
+            },
         );
-        let payload: MiniMaxEnvelope = {};
-        try {
-            const parsed: unknown = JSON.parse(raw.toString('utf8'));
-            if (parsed && typeof parsed === 'object') {
-                payload = parsed as MiniMaxEnvelope;
-            }
-        } catch {
-            // Not JSON; the status alone decides.
-        }
         // A v1 reply carries its verdict in `base_resp` under HTTP 200; a v2
         // reply uses the HTTP status and an OpenAI-style `error`.
         const v1Code = payload.base_resp?.status_code;
@@ -713,27 +710,5 @@ export class MiniMaxVideoProvider extends VideoProvider {
             numeric > 0
             ? Math.round(numeric)
             : undefined;
-    }
-
-    /** Snap width/height to one of MiniMax's aspect ratios. */
-    #aspectRatio(width?: number, height?: number): string | undefined {
-        if (
-            typeof width !== 'number' ||
-            typeof height !== 'number' ||
-            !Number.isFinite(width) ||
-            !Number.isFinite(height) ||
-            width <= 0 ||
-            height <= 0
-        ) {
-            return undefined;
-        }
-        const gcd = (a: number, b: number): number =>
-            b === 0 ? a : gcd(b, a % b);
-        const w = Math.round(width);
-        const h = Math.round(height);
-        const d = gcd(w, h) || 1;
-        const candidate = `${w / d}:${h / d}`;
-        // Other ratios are left to the 16:9 default.
-        return ASPECT_RATIOS.includes(candidate) ? candidate : undefined;
     }
 }

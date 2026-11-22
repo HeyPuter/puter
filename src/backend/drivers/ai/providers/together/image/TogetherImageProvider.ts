@@ -26,7 +26,10 @@ import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
 import { imageEntryUrl } from '../../../interfaces/image/imageOutput.js';
 import { Together } from 'together-ai';
 import { Context } from '../../../../../core/context.js';
-import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import {
+    type AiMeteringService,
+    withAiCreditHold,
+} from '../../../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageProvider,
@@ -43,7 +46,7 @@ import {
     toUrlOrDataUri,
 } from '../../../interfaces/image/inputImage.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
+import { SAMPLE_IMAGE_URL } from '../../../shared/testMode.js';
 
 const TOGETHER_DEFAULT_RATIO = { w: 1024, h: 1024 };
 type TogetherGenerateParams = IGenerateParams & {
@@ -100,7 +103,7 @@ export class TogetherImageProvider implements IImageProvider {
         const selectedModel = this.#getModel(model);
 
         if (test_mode) {
-            return 'https://puter-sample-data.puter.site/image_example.png';
+            return SAMPLE_IMAGE_URL;
         }
 
         assertImagePrompt(prompt);
@@ -239,75 +242,69 @@ export class TogetherImageProvider implements IImageProvider {
                 ? (selectedModel.costs.input_image ?? 0) * 1_000_000
                 : 0;
 
-        const hold = await this.#meteringService.reserveAiCredits(
+        return withAiCreditHold(
+            this.#meteringService,
             actor,
             usageType,
             costInMicroCents + inputImageCost,
-        );
-
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
-
-        try {
-            const request = this.#buildRequest(
-                prompt,
-                {
-                    ...options,
-                    ratio,
-                    model: selectedModel.id.replace('togetherai:', ''),
-                },
-                selectedModel,
-            ) as unknown as Together.Images.ImageGenerateParams;
-
-            // Let SDK errors bubble — together-ai SDK errors carry `.status`
-            // which the driver-boundary `translateProviderError` maps to
-            // `upstream_*` HttpErrors. Re-wrapping in `new Error(...)` would
-            // strip the status field and cause these to surface as 500s.
-            const response = await this.#client.images.generate(request);
-            if (!response?.data?.length) {
-                throw new HttpError(
-                    400,
-                    'Together AI response did not include image data',
+            async () => {
+                const request = this.#buildRequest(
+                    prompt,
                     {
-                        legacyCode: 'upstream_bad_request',
-                        fields: { provider: 'together' },
+                        ...options,
+                        ratio,
+                        model: selectedModel.id.replace('togetherai:', ''),
                     },
-                );
-            }
+                    selectedModel,
+                ) as unknown as Together.Images.ImageGenerateParams;
 
-            this.#meteringService.incrementUsage(
-                actor,
-                usageType,
-                usageAmount,
-                costInMicroCents,
-            );
-            if (inputImageCost > 0) {
+                // Let SDK errors bubble — together-ai SDK errors carry `.status`
+                // which the driver-boundary `translateProviderError` maps to
+                // `upstream_*` HttpErrors. Re-wrapping in `new Error(...)` would
+                // strip the status field and cause these to surface as 500s.
+                const response = await this.#client.images.generate(request);
+                if (!response?.data?.length) {
+                    throw new HttpError(
+                        400,
+                        'Together AI response did not include image data',
+                        {
+                            legacyCode: 'upstream_bad_request',
+                            fields: { provider: 'together' },
+                        },
+                    );
+                }
+
                 this.#meteringService.incrementUsage(
                     actor,
-                    `${selectedModel.id}:input_image`,
-                    1,
-                    inputImageCost,
+                    usageType,
+                    usageAmount,
+                    costInMicroCents,
                 );
-            }
+                if (inputImageCost > 0) {
+                    this.#meteringService.incrementUsage(
+                        actor,
+                        `${selectedModel.id}:input_image`,
+                        1,
+                        inputImageCost,
+                    );
+                }
 
-            const url = imageEntryUrl(response?.data?.[0]);
+                const url = imageEntryUrl(response?.data?.[0]);
 
-            if (!url) {
-                throw new HttpError(
-                    400,
-                    'Together AI response did not include an image URL',
-                    {
-                        legacyCode: 'upstream_bad_request',
-                        fields: { provider: 'together' },
-                    },
-                );
-            }
+                if (!url) {
+                    throw new HttpError(
+                        400,
+                        'Together AI response did not include an image URL',
+                        {
+                            legacyCode: 'upstream_bad_request',
+                            fields: { provider: 'together' },
+                        },
+                    );
+                }
 
-            return url;
-        } finally {
-            await hold.release();
-        }
+                return url;
+            },
+        );
     }
 
     #getModel(model?: string) {

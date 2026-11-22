@@ -28,7 +28,6 @@ import type {
 import {
     badRequest,
     estimateOcrPages,
-    holdOcrCredits,
     inputMimeType,
     isDocumentInput,
 } from '../../../interfaces/ocr/common.js';
@@ -49,6 +48,7 @@ import type {
 import {
     aiModelKey,
     type AiMeteringService,
+    withAiCreditHold,
 } from '../../../../../util/aiCostFactor.js';
 
 interface MistralOcrResponse {
@@ -196,30 +196,34 @@ export class MistralOcrProvider implements IOcrProvider {
             if (pages < OCR_MAX_PAGES[model.provider])
                 payload.pages = Array.from({ length: pages }, (_, i) => i);
         }
-        const hold = await holdOcrCredits(
+        return withAiCreditHold(
             this.metering,
             actor,
             model.pageUsageType,
             costPerPage * pages,
+            async () => {
+                try {
+                    const response = await this.#client.ocr.process(payload);
+                    this.#recordUsage(response, model, actor, annotations);
+                    return this.#normalizeResponse(response, model);
+                } catch (e) {
+                    if (isMistralInputError(e)) {
+                        throw new HttpError(
+                            400,
+                            'invalid request for Mistral OCR',
+                            { legacyCode: 'bad_request' },
+                        );
+                    }
+                    if (isMistralUnusableAnswer(e)) {
+                        throw malformedUpstreamResponse(
+                            'mistral',
+                            'Mistral OCR',
+                        );
+                    }
+                    throw e;
+                }
+            },
         );
-
-        try {
-            const response = await this.#client.ocr.process(payload);
-            this.#recordUsage(response, model, actor, annotations);
-            return this.#normalizeResponse(response, model);
-        } catch (e) {
-            if (isMistralInputError(e)) {
-                throw new HttpError(400, 'invalid request for Mistral OCR', {
-                    legacyCode: 'bad_request',
-                });
-            }
-            if (isMistralUnusableAnswer(e)) {
-                throw malformedUpstreamResponse('mistral', 'Mistral OCR');
-            }
-            throw e;
-        } finally {
-            await hold.release();
-        }
     }
 
     #buildChunk(loaded: LoadedFile): Record<string, unknown> {

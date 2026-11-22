@@ -35,6 +35,7 @@ import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
 import { meterChatUsage } from '../../../interfaces/chat/utils/meterChatUsage.js';
 import { modelLookupNames } from '../../../interfaces/chat/utils/modelRouting.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
+import { toolsToWire } from '../../../protocols/openaiCompatible/openaiParams.js';
 
 export class XAIProvider implements IChatProvider {
     #openai: OpenAI;
@@ -43,10 +44,14 @@ export class XAIProvider implements IChatProvider {
 
     #catalog: () => Promise<IChatModel[]>;
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiKey: string; apiBaseUrl?: string },
+        meteringService: MeteringService,
+    ) {
+        const baseUrl = config.apiBaseUrl ?? XAI_BASE_URL;
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
-            baseURL: XAI_BASE_URL,
+            baseURL: baseUrl,
             ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
@@ -54,7 +59,7 @@ export class XAIProvider implements IChatProvider {
             name: 'xAI catalog',
             fallback: XAI_CHAT_MODELS,
             fetch: (signal, previous) =>
-                fetchXaiCatalog(config.apiKey, signal, previous),
+                fetchXaiCatalog(config.apiKey, signal, previous, baseUrl),
         });
     }
 
@@ -92,30 +97,23 @@ export class XAIProvider implements IChatProvider {
         // a catalog refresh mid-request can't change what this call bills.
         const modelUsed = resolved ?? (await this.#resolveModel(model));
         messages = await OpenAIUtil.process_input_messages(messages);
-        let completion;
-        try {
-            completion = await this.#openai.chat.completions.create(
-                {
-                    messages,
-                    model: modelUsed.id,
-                    ...(service_tier !== undefined ? { service_tier } : {}),
-                    ...(tools ? { tools } : {}),
-                    ...(max_tokens !== undefined ? { max_tokens } : {}),
-                    stream,
-                    ...(stream
-                        ? {
-                              stream_options: { include_usage: true },
-                          }
-                        : {}),
-                } as ChatCompletionCreateParams,
-                { signal: Context.get('upstreamSignal') },
-            );
-        } catch (e) {
-            if (!Context.get('upstreamSignal')?.aborted) {
-                console.log('XAI AI process_input_messages error: ', e);
-            }
-            throw e;
-        }
+        const wireTools = tools ? toolsToWire(tools, 'chat') : undefined;
+        const completion = await this.#openai.chat.completions.create(
+            {
+                messages,
+                model: modelUsed.id,
+                ...(service_tier !== undefined ? { service_tier } : {}),
+                ...(wireTools?.length ? { tools: wireTools } : {}),
+                ...(max_tokens !== undefined ? { max_tokens } : {}),
+                stream,
+                ...(stream
+                    ? {
+                          stream_options: { include_usage: true },
+                      }
+                    : {}),
+            } as unknown as ChatCompletionCreateParams,
+            { signal: Context.get('upstreamSignal') },
+        );
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({

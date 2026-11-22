@@ -442,28 +442,12 @@ export class ClaudeProvider implements IChatProvider {
                 safeguard_results?: unknown[];
                 context_management?: Record<string, unknown> | null;
             };
-            const { usage, costs, details, advisorModel } = this.#meter(
-                (msg as Message).usage,
-                modelUsed,
-                {
-                    reason: nativeMsg.stop_reason,
-                    details: nativeMsg.stop_details,
-                },
-            );
-            this.#meteringService.utilRecordUsageObject(
-                usage.executor,
-                Context.get('actor'),
-                this.meteringModelKey(modelUsed.id),
-                costs.executor,
-            );
-            if (usage.advisor) {
-                this.#meteringService.utilRecordUsageObject(
-                    usage.advisor,
-                    Context.get('actor'),
-                    this.meteringModelKey((advisorModel ?? modelUsed).id),
-                    costs.advisor,
-                );
-            }
+            const metered = this.#meter((msg as Message).usage, modelUsed, {
+                reason: nativeMsg.stop_reason,
+                details: nativeMsg.stop_details,
+            });
+            const { usage, costs, details } = metered;
+            this.#record(metered, modelUsed, Context.get('actor'));
 
             // A rerun of a declined request uploads the files again.
             if (nativeMsg.stop_reason === 'refusal') restoreUploads();
@@ -1409,25 +1393,9 @@ export class ClaudeProvider implements IChatProvider {
         // Metered before `end`: handing usage to `end` is what tells the
         // driver this completion has been charged for, so anything that
         // throws between the two would leave it charged to nobody.
-        const { usage, costs, details, advisorModel } = this.#meter(
-            finalUsage ?? {},
-            modelUsed,
-            stop,
-        );
-        this.#meteringService.utilRecordUsageObject(
-            usage.executor,
-            actor,
-            this.meteringModelKey(modelUsed.id),
-            costs.executor,
-        );
-        if (usage.advisor) {
-            this.#meteringService.utilRecordUsageObject(
-                usage.advisor,
-                actor,
-                this.meteringModelKey((advisorModel ?? modelUsed).id),
-                costs.advisor,
-            );
-        }
+        const metered = this.#meter(finalUsage ?? {}, modelUsed, stop);
+        const { usage, costs, details } = metered;
+        this.#record(metered, modelUsed, actor);
         chatStream.setUsageDetails(details);
         chatStream.setUsageCosts({
             ...costs.executor,
@@ -1457,6 +1425,42 @@ export class ClaudeProvider implements IChatProvider {
      *
      * A refusal Anthropic does not bill keeps its usage and costs nothing.
      */
+    /** Records the executor's usage, and the advisor's when one was consulted. */
+    #record(
+        {
+            usage,
+            costs,
+            advisorModel,
+        }: {
+            usage: {
+                executor: Record<string, number>;
+                advisor?: Record<string, number>;
+            };
+            costs: {
+                executor: Record<string, number>;
+                advisor?: Record<string, number>;
+            };
+            advisorModel?: IChatModel;
+        },
+        modelUsed: IChatModel,
+        actor: Parameters<MeteringService['utilRecordUsageObject']>[1],
+    ): void {
+        this.#meteringService.utilRecordUsageObject(
+            usage.executor,
+            actor,
+            this.meteringModelKey(modelUsed.id),
+            costs.executor,
+        );
+        if (usage.advisor) {
+            this.#meteringService.utilRecordUsageObject(
+                usage.advisor,
+                actor,
+                this.meteringModelKey((advisorModel ?? modelUsed).id),
+                costs.advisor,
+            );
+        }
+    }
+
     #meter(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         raw: any,

@@ -22,8 +22,7 @@
  * Foundry).
  *
  * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
- * constructs the provider against the live wired `MeteringService`, `stores`,
- * and `FSService`. The OpenAI SDK is mocked at the module boundary — that's the
+ * constructs the provider against the live wired `MeteringService`. The OpenAI SDK is mocked at the module boundary — that's the
  * real network egress point. The companion integration test
  * (AzureChatProvider.integration.test.ts) exercises the real Azure endpoint.
  *
@@ -57,6 +56,7 @@ import {
     withTestActor,
 } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
+import { SDK_TIMEOUT_MS } from '../../../interfaces/chat/utils/sdkClient.js';
 import { AzureChatProvider } from './AzureChatProvider.js';
 import { AZURE_MODELS } from './models.js';
 
@@ -105,8 +105,6 @@ afterAll(async () => {
 const makeProvider = () =>
     new AzureChatProvider(
         server.services.metering,
-        { fsEntry: server.stores.fsEntry, s3Object: server.stores.s3Object },
-        server.services.fs,
         {
             apiKey: 'azure-key',
             apiURL: 'https://example-foundry.test/openai/v1',
@@ -169,6 +167,8 @@ describe('AzureChatProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'azure-key',
             baseURL: 'https://example-foundry.test/openai/v1',
+            maxRetries: 0,
+            timeout: SDK_TIMEOUT_MS,
         });
     });
 });

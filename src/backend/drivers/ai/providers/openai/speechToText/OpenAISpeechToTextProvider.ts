@@ -19,7 +19,7 @@
 
 import OpenAI, { toFile } from 'openai';
 import { HttpError } from '../../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
+import { withAiCreditHold } from '../../../../../util/aiCostFactor.js';
 import { loadFileInput } from '../../../../util/fileInput.js';
 import { SPEECH_TO_TEXT_COSTS } from './costs.js';
 import type {
@@ -133,14 +133,6 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
 
         const actor = this.requireActor();
 
-        const loaded = await loadFileInput(
-            this.deps.stores,
-            this.deps.fs,
-            actor,
-            args.file,
-            { maxBytes: MAX_AUDIO_FILE_SIZE, acceptWebInput: true },
-        );
-
         const selectedModel = args.model || DEFAULT_TRANSCRIBE_MODEL;
         const caps = Object.hasOwn(MODEL_CAPS, selectedModel)
             ? MODEL_CAPS[selectedModel]
@@ -182,6 +174,14 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             );
         }
 
+        const loaded = await loadFileInput(
+            this.deps.stores,
+            this.deps.fs,
+            actor,
+            args.file,
+            { maxBytes: MAX_AUDIO_FILE_SIZE, acceptWebInput: true },
+        );
+
         // The hold estimates seconds from bytes at 128 kbps: compact audio is
         // under-held rather than refused, and usage is metered from the
         // duration OpenAI reports.
@@ -192,92 +192,89 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
         const usageType = `openai:${selectedModel}:second`;
         const ucentsPerSecond = SPEECH_TO_TEXT_COSTS[usageType] ?? 0;
         const estimatedCost = ucentsPerSecond * estimatedSeconds;
-        const hold = await this.deps.metering.reserveAiCredits(
+        return withAiCreditHold(
+            this.deps.metering,
             actor,
             usageType,
             estimatedCost,
-        );
-        if (!hold) throw insufficientCreditsError();
+            async () => {
+                const openaiFile = await toFile(
+                    loaded.buffer,
+                    loaded.filename,
+                    loaded.mimeType ? { type: loaded.mimeType } : undefined,
+                );
 
-        try {
-            const openaiFile = await toFile(
-                loaded.buffer,
-                loaded.filename,
-                loaded.mimeType ? { type: loaded.mimeType } : undefined,
-            );
-
-            const payload: Record<string, unknown> = {
-                file: openaiFile,
-                model: selectedModel,
-            };
-            // A `text` response carries no usage, so json is asked for and
-            // its text returned.
-            if (args.response_format)
-                payload.response_format =
-                    args.response_format === 'text'
-                        ? 'json'
-                        : args.response_format;
-            if (args.language) payload.language = args.language;
-            if (typeof args.temperature === 'number')
-                payload.temperature = args.temperature;
-            if (args.prompt && caps.canPrompt) payload.prompt = args.prompt;
-            // The API ignores a bare `logprobs` flag; it only honors `include`.
-            if (args.logprobs && caps.canLogprobs)
-                payload.include = ['logprobs'];
-            if (args.extra_body && typeof args.extra_body === 'object') {
-                // Billing reads usage off the response; these can strip it.
-                const extra = {
-                    ...(args.extra_body as Record<string, unknown>),
+                const payload: Record<string, unknown> = {
+                    file: openaiFile,
+                    model: selectedModel,
                 };
-                delete extra.response_format;
-                delete extra.stream;
-                payload.extra_body = extra;
-            }
+                // A `text` response carries no usage, so json is asked for and
+                // its text returned.
+                if (args.response_format)
+                    payload.response_format =
+                        args.response_format === 'text'
+                            ? 'json'
+                            : args.response_format;
+                if (args.language) payload.language = args.language;
+                if (typeof args.temperature === 'number')
+                    payload.temperature = args.temperature;
+                if (args.prompt && caps.canPrompt) payload.prompt = args.prompt;
+                // The API ignores a bare `logprobs` flag; it only honors `include`.
+                if (args.logprobs && caps.canLogprobs)
+                    payload.include = ['logprobs'];
+                if (args.extra_body && typeof args.extra_body === 'object') {
+                    // Billing reads usage off the response; these can strip it.
+                    const extra = {
+                        ...(args.extra_body as Record<string, unknown>),
+                    };
+                    delete extra.response_format;
+                    delete extra.stream;
+                    payload.extra_body = extra;
+                }
 
-            const result = await this.#openai.audio.transcriptions
-                .create(
-                    payload as unknown as Parameters<
-                        OpenAI['audio']['transcriptions']['create']
-                    >[0],
-                )
-                .catch((error: unknown) => {
-                    // The SDK can't write a null inside a list or an object
-                    // into the form it sends.
-                    if (
-                        error instanceof TypeError &&
-                        error.message.startsWith('Received null for')
-                    ) {
-                        throw new HttpError(
-                            400,
-                            'language and extra_body must not contain null',
-                            { legacyCode: 'bad_request' },
-                        );
-                    }
-                    throw error;
-                });
+                const result = await this.#openai.audio.transcriptions
+                    .create(
+                        payload as unknown as Parameters<
+                            OpenAI['audio']['transcriptions']['create']
+                        >[0],
+                    )
+                    .catch((error: unknown) => {
+                        // The SDK can't write a null inside a list or an object
+                        // into the form it sends.
+                        if (
+                            error instanceof TypeError &&
+                            error.message.startsWith('Received null for')
+                        ) {
+                            throw new HttpError(
+                                400,
+                                'language and extra_body must not contain null',
+                                { legacyCode: 'bad_request' },
+                            );
+                        }
+                        throw error;
+                    });
 
-            const billedSeconds = billableAudioSeconds(
-                reportedSeconds(result),
-                estimatedSeconds,
-                loaded.buffer.byteLength,
-            );
-            this.deps.metering.incrementUsage(
-                actor,
-                usageType,
-                billedSeconds,
-                ucentsPerSecond * billedSeconds,
-            );
+                const billedSeconds = billableAudioSeconds(
+                    reportedSeconds(result),
+                    estimatedSeconds,
+                    loaded.buffer.byteLength,
+                );
+                this.deps.metering.incrementUsage(
+                    actor,
+                    usageType,
+                    billedSeconds,
+                    ucentsPerSecond * billedSeconds,
+                );
 
-            // Text response_format: return raw string; otherwise forward the OpenAI object.
-            if (args.response_format === 'text') {
-                return typeof result === 'string'
-                    ? result
-                    : ((result as { text?: string } | null)?.text ?? '');
-            }
-            return result;
-        } finally {
-            await hold.release();
-        }
+                // Text response_format: return raw string; otherwise forward the OpenAI object.
+                if (args.response_format === 'text') {
+                    return typeof result === 'string'
+                        ? result
+                        : ((result as { text?: string } | null)?.text ?? '');
+                }
+                return result;
+            },
+        );
     }
 }
 

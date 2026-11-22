@@ -46,6 +46,8 @@ const CALLER_HEADER = 'Speechify-Caller';
 const CALLER_VALUE = 'puter';
 
 const DEFAULT_MODEL = 'simba-3.2';
+/** The clip arrives as base64 inside the JSON reply. */
+const MAX_AUDIO_REPLY_BYTES = 64 * 1024 * 1024;
 const DEFAULT_VOICE = 'geffen_32';
 
 const SPEECHIFY_TTS_MODELS = [{ id: 'simba-3.2', name: 'Simba 3.2' }];
@@ -59,6 +61,15 @@ const SPEECHIFY_TTS_VOICES = [
     { id: 'hugh_32', name: 'Hugh', description: 'Calm, professional' },
     { id: 'imogen_32', name: 'Imogen', description: 'Clear, neutral' },
 ];
+
+/**
+ * Plain text goes inside `<speak>`, so a bare `&` and a `<` that opens no tag
+ * are escaped.
+ */
+const escapeSsmlText = (text: string): string =>
+    text
+        .replace(/&(?!(?:[a-z]+|#\d+|#x[\da-f]+);)/gi, '&amp;')
+        .replace(/<(?![a-z/!?])/gi, '&lt;');
 
 const CONTENT_TYPES: Record<string, string> = {
     mp3: 'audio/mpeg',
@@ -155,7 +166,7 @@ export class SpeechifyTTSProvider implements ITTSProvider {
         // callers can keep passing bare strings like every other provider.
         const input = /<speak[\s>]/i.test(text)
             ? text
-            : `<speak>${text}</speak>`;
+            : `<speak>${escapeSsmlText(text)}</speak>`;
 
         return meterPerCharacter(
             this.meteringService,
@@ -192,6 +203,7 @@ export class SpeechifyTTSProvider implements ITTSProvider {
                     'speechify',
                     'Speechify TTS',
                     response,
+                    MAX_AUDIO_REPLY_BYTES,
                 );
                 if (typeof data?.audio_data !== 'string' || !data.audio_data) {
                     throw new HttpError(

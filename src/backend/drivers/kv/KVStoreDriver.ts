@@ -232,6 +232,15 @@ const outsideRegion = (): HttpError =>
 const viaHandle = (args?: KvCallArgs): boolean =>
     args?.optConfig?.handle !== undefined && args.optConfig.handle !== null;
 
+/** `pathAndAmountMap` and `pathAndValueMap` must be objects. */
+const assertObjectArg = (name: string, value: unknown): void => {
+    if (!value || typeof value !== 'object') {
+        throw new HttpError(400, `Missing or invalid \`${name}\``, {
+            legacyCode: 'bad_request',
+        });
+    }
+};
+
 /** `onlyIfAbsent` as a boolean, refusing anything else a raw body sends. */
 const parseOnlyIfAbsent = (value: unknown): boolean => {
     if (value === undefined || value === null || value === false) return false;
@@ -828,6 +837,29 @@ export class KVStoreDriver extends PuterDriver {
         }
     }
 
+    /**
+     * A call on one key: the key checked, then `validate`, then the options and
+     * gates, then `call` with the key as stored. Its usage is metered.
+     */
+    async #singleKey<T>(
+        method: string,
+        args: KvCallArgs & { key: unknown },
+        call: (
+            storeKey: string,
+            opts: DriverKvOpts,
+        ) => Promise<{ res: T; usage: KVUsage }>,
+        validate?: () => void,
+    ): Promise<{ res: T; opts: DriverKvOpts }> {
+        const key = this.#coerceKey(args.key, args);
+        validate?.();
+        const opts = await this.#opts(method, args);
+        const { res, usage } = await this.#inRegion(opts, [key], () =>
+            call(this.#storeKey(key, opts), opts),
+        );
+        this.#meter(opts, usage);
+        return { res, opts };
+    }
+
     async get(args: {
         key: unknown;
         optConfig?: KvOptConfig;
@@ -975,12 +1007,9 @@ export class KVStoreDriver extends PuterDriver {
         key: unknown;
         optConfig?: KvOptConfig;
     }): Promise<boolean> {
-        const coerced = this.#coerceKey(args.key, args);
-        const opts = await this.#opts('del', args);
-        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
-            this.stores.kv.del({ key: this.#storeKey(coerced, opts) }, opts),
+        const { res } = await this.#singleKey('del', args, (key, opts) =>
+            this.stores.kv.del({ key }, opts),
         );
-        this.#meter(opts, usage);
         return res;
     }
 
@@ -1053,26 +1082,16 @@ export class KVStoreDriver extends PuterDriver {
         pathAndAmountMap: Record<string, number>;
         optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key, args);
-        if (
-            !args.pathAndAmountMap ||
-            typeof args.pathAndAmountMap !== 'object'
-        ) {
-            throw new HttpError(400, 'Missing or invalid `pathAndAmountMap`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const opts = await this.#opts('incr', args);
-        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
-            this.stores.kv.incr(
-                {
-                    key: this.#storeKey(coerced, opts),
-                    pathAndAmountMap: args.pathAndAmountMap,
-                },
-                opts,
-            ),
+        const { res } = await this.#singleKey(
+            'incr',
+            args,
+            (key, opts) =>
+                this.stores.kv.incr(
+                    { key, pathAndAmountMap: args.pathAndAmountMap },
+                    opts,
+                ),
+            () => assertObjectArg('pathAndAmountMap', args.pathAndAmountMap),
         );
-        this.#meter(opts, usage);
         return res;
     }
 
@@ -1081,26 +1100,16 @@ export class KVStoreDriver extends PuterDriver {
         pathAndAmountMap: Record<string, number>;
         optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key, args);
-        if (
-            !args.pathAndAmountMap ||
-            typeof args.pathAndAmountMap !== 'object'
-        ) {
-            throw new HttpError(400, 'Missing or invalid `pathAndAmountMap`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const opts = await this.#opts('decr', args);
-        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
-            this.stores.kv.decr(
-                {
-                    key: this.#storeKey(coerced, opts),
-                    pathAndAmountMap: args.pathAndAmountMap,
-                },
-                opts,
-            ),
+        const { res } = await this.#singleKey(
+            'decr',
+            args,
+            (key, opts) =>
+                this.stores.kv.decr(
+                    { key, pathAndAmountMap: args.pathAndAmountMap },
+                    opts,
+                ),
+            () => assertObjectArg('pathAndAmountMap', args.pathAndAmountMap),
         );
-        this.#meter(opts, usage);
         return res;
     }
 
@@ -1109,23 +1118,22 @@ export class KVStoreDriver extends PuterDriver {
         timestamp: number;
         optConfig?: KvOptConfig;
     }): Promise<boolean> {
-        const coerced = this.#coerceKey(args.key, args);
-        if (typeof args.timestamp !== 'number') {
-            throw new HttpError(400, '`timestamp` must be a number', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const opts = await this.#opts('expireAt', args);
-        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
-            this.stores.kv.expireAt(
-                {
-                    key: this.#storeKey(coerced, opts),
-                    timestamp: args.timestamp,
-                },
-                opts,
-            ),
+        const { res } = await this.#singleKey(
+            'expireAt',
+            args,
+            (key, opts) =>
+                this.stores.kv.expireAt(
+                    { key, timestamp: args.timestamp },
+                    opts,
+                ),
+            () => {
+                if (typeof args.timestamp !== 'number') {
+                    throw new HttpError(400, '`timestamp` must be a number', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+            },
         );
-        this.#meter(opts, usage);
         return res;
     }
 
@@ -1134,20 +1142,20 @@ export class KVStoreDriver extends PuterDriver {
         ttl: number;
         optConfig?: KvOptConfig;
     }): Promise<boolean> {
-        const coerced = this.#coerceKey(args.key, args);
-        if (typeof args.ttl !== 'number') {
-            throw new HttpError(400, '`ttl` must be a number (seconds)', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const opts = await this.#opts('expire', args);
-        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
-            this.stores.kv.expire(
-                { key: this.#storeKey(coerced, opts), ttl: args.ttl },
-                opts,
-            ),
+        const { res } = await this.#singleKey(
+            'expire',
+            args,
+            (key, opts) => this.stores.kv.expire({ key, ttl: args.ttl }, opts),
+            () => {
+                if (typeof args.ttl !== 'number') {
+                    throw new HttpError(
+                        400,
+                        '`ttl` must be a number (seconds)',
+                        { legacyCode: 'bad_request' },
+                    );
+                }
+            },
         );
-        this.#meter(opts, usage);
         return res;
     }
 
@@ -1157,24 +1165,20 @@ export class KVStoreDriver extends PuterDriver {
         ttl?: number | null;
         optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key, args);
-        if (!args.pathAndValueMap || typeof args.pathAndValueMap !== 'object') {
-            throw new HttpError(400, 'Missing or invalid `pathAndValueMap`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const opts = await this.#opts('update', args);
-        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
-            this.stores.kv.update(
-                {
-                    key: this.#storeKey(coerced, opts),
-                    pathAndValueMap: args.pathAndValueMap,
-                    ttl: args.ttl,
-                },
-                opts,
-            ),
+        const { res } = await this.#singleKey(
+            'update',
+            args,
+            (key, opts) =>
+                this.stores.kv.update(
+                    {
+                        key,
+                        pathAndValueMap: args.pathAndValueMap,
+                        ttl: args.ttl,
+                    },
+                    opts,
+                ),
+            () => assertObjectArg('pathAndValueMap', args.pathAndValueMap),
         );
-        this.#meter(opts, usage);
         return res;
     }
 
@@ -1183,23 +1187,16 @@ export class KVStoreDriver extends PuterDriver {
         pathAndValueMap: Record<string, unknown>;
         optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key, args);
-        if (!args.pathAndValueMap || typeof args.pathAndValueMap !== 'object') {
-            throw new HttpError(400, 'Missing or invalid `pathAndValueMap`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const opts = await this.#opts('add', args);
-        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
-            this.stores.kv.add(
-                {
-                    key: this.#storeKey(coerced, opts),
-                    pathAndValueMap: args.pathAndValueMap,
-                },
-                opts,
-            ),
+        const { res } = await this.#singleKey(
+            'add',
+            args,
+            (key, opts) =>
+                this.stores.kv.add(
+                    { key, pathAndValueMap: args.pathAndValueMap },
+                    opts,
+                ),
+            () => assertObjectArg('pathAndValueMap', args.pathAndValueMap),
         );
-        this.#meter(opts, usage);
         return res;
     }
 
@@ -1208,20 +1205,19 @@ export class KVStoreDriver extends PuterDriver {
         paths: string[];
         optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key, args);
-        if (!Array.isArray(args.paths) || args.paths.length === 0) {
-            throw new HttpError(400, 'Missing or invalid `paths`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const opts = await this.#opts('remove', args);
-        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
-            this.stores.kv.remove(
-                { key: this.#storeKey(coerced, opts), paths: args.paths },
-                opts,
-            ),
+        const { res, opts } = await this.#singleKey(
+            'remove',
+            args,
+            (key, opts) =>
+                this.stores.kv.remove({ key, paths: args.paths }, opts),
+            () => {
+                if (!Array.isArray(args.paths) || args.paths.length === 0) {
+                    throw new HttpError(400, 'Missing or invalid `paths`', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+            },
         );
-        this.#meter(opts, usage);
         // The result is the entry's value, so a delete-only grant gets none. A
         // handle's `write` level reads too.
         if (

@@ -22,6 +22,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
+import { notifSubject } from '../../services/events/subjects.js';
 import { findNotificationType } from '../../services/notification/notificationTypes.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
@@ -721,10 +722,7 @@ describe('app.message with the events fold-in on', () => {
             }),
         ]);
         expect(
-            findNotificationType('app.message')!.subject({
-                userUuid: holder.user.uuid!,
-                appUid: app.uid,
-            }),
+            notifSubject(app.uid, findNotificationType('app.message')!.audience),
         ).toBe(`notif:${app.uid}:app-user`);
     });
 

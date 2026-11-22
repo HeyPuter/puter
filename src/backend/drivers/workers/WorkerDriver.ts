@@ -39,9 +39,14 @@ import {
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
+import { appDataRootPath } from '../../services/permission/appDataScopes.js';
 import { PuterDriver } from '../types.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
-import { awaitLater, runWithConcurrencyLimit } from '../../util/concurrency.js';
+import {
+    awaitLater,
+    runWithConcurrencyLimit,
+    withTimeout,
+} from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { assertRentedUnitRoom } from '../../util/rentedUnits.js';
 import { loadFileInput } from '../util/fileInput.js';
@@ -147,23 +152,6 @@ const isEdgeTransportError = (err: unknown): boolean =>
     err instanceof TypeError ||
     (err instanceof Error &&
         (err.name === 'TimeoutError' || err.name === 'AbortError'));
-
-const withDeadline = <T>(promise: Promise<T>, ms: number): Promise<T> => {
-    let timer: NodeJS.Timeout | undefined;
-    const deadline = new Promise<never>((_, reject) => {
-        timer = setTimeout(
-            () =>
-                reject(
-                    new DOMException(
-                        'The operation was aborted due to timeout',
-                        'TimeoutError',
-                    ),
-                ),
-            ms,
-        );
-    });
-    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
-};
 
 export interface InternalDeployTarget {
     /** Script name to deploy under, in place of `workerName`. */
@@ -467,13 +455,27 @@ export class WorkerDriver extends PuterDriver {
         // Authorization runs ahead of the infrastructure check so "you may not
         // target that app" / "that name is taken" don't hide behind a 503 on
         // installs without Cloudflare configured. Both are reads — nothing is
-        // written before #requireCfConfig.
-        const boundApp = await this.#resolveWorkerAppBinding(actor, appId);
+        // written before #requireCfConfig. Started together; awaited in order
+        // so the errors keep their precedence.
         // A deploy target names its own script, so `workerName` never becomes a
         // subdomain and cannot collide with one somebody else owns.
-        const existingSub = deployTarget
-            ? null
-            : await this.stores.subdomain.getBySubdomain(subdomainName);
+        const pendingExistingSub = awaitLater(
+            deployTarget
+                ? Promise.resolve(null)
+                : this.stores.subdomain.getBySubdomain(subdomainName),
+        );
+        const pendingWorkerCount = awaitLater(
+            this.config.events?.userHandlers === true ||
+                skipAdmission ||
+                deployTarget
+                ? Promise.resolve(0)
+                : this.stores.subdomain.countByUserIdAndPrefix(
+                      actor.user.id,
+                      WORKER_SUBDOMAIN_PREFIX,
+                  ),
+        );
+        const boundApp = await this.#resolveWorkerAppBinding(actor, appId);
+        const existingSub = await pendingExistingSub;
         if (existingSub) {
             await this.#checkWorkerWriteAccess(
                 existingSub,
@@ -500,14 +502,7 @@ export class WorkerDriver extends PuterDriver {
                 );
             }
         } else {
-            const existingWorkers =
-                skipAdmission || deployTarget
-                    ? []
-                    : await this.stores.subdomain.listByUserIdAndPrefix(
-                          actor.user.id,
-                          WORKER_SUBDOMAIN_PREFIX,
-                      );
-            if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
+            if ((await pendingWorkerCount) >= MAX_WORKERS_PER_USER) {
                 throw new HttpError(
                     403,
                     `Worker limit reached (max ${MAX_WORKERS_PER_USER})`,
@@ -657,7 +652,7 @@ export class WorkerDriver extends PuterDriver {
         // to hold when the source did not come from a file.
         if (boundApp && loaded) {
             await this.services.fs.mkdir(actor.user.id!, {
-                path: `/${actor.user.username}/AppData/${boundApp.uid}`,
+                path: appDataRootPath(actor.user.username, boundApp.uid),
                 createMissingParents: true,
             });
         }
@@ -1108,7 +1103,7 @@ export class WorkerDriver extends PuterDriver {
     /** Edge delete: success or code 10007 resolves, anything else refuses. */
     async #cfDelete(workerName: string): Promise<Record<string, unknown>> {
         if (this.#useLocalWorkerd) {
-            return withDeadline(
+            return withTimeout(
                 this.services.localworkerservice.cfDeleteLocal(workerName),
                 CF_DELETE_TIMEOUT_MS,
             );
@@ -1303,7 +1298,7 @@ export class WorkerDriver extends PuterDriver {
             };
         }
 
-        if (!app || !(await this.#appIsOwnedByActorApp(app.id, actor))) {
+        if (!app || !this.#isChildAppOfActor(app, actor)) {
             throw new HttpError(403, 'Cannot deploy worker for another app', {
                 legacyCode: 'forbidden',
             });
@@ -1311,19 +1306,27 @@ export class WorkerDriver extends PuterDriver {
         return { uid: app.uid, id: app.id, name: app.name ?? null };
     }
 
-    /**
-     * Whether `appId` is an app the actor's app created for this same user.
-     * Mirrors `AppDriver.#checkWriteAccess` — both halves matter: `app_owner`
-     * alone would let an app reach a namesake row owned by a different user.
-     */
+    /** {@link #isChildAppOfActor} for an app known only by id. */
     async #appIsOwnedByActorApp(
         appId: number,
         actor: Actor & { user: { id: number } },
     ): Promise<boolean> {
+        if (!actor.effectiveApp?.id) return false;
+        const app = await this.stores.app.getById(appId);
+        return !!app && this.#isChildAppOfActor(app, actor);
+    }
+
+    /**
+     * Whether `app` is one the actor's app created for this same user. Mirrors
+     * `AppDriver.#checkWriteAccess` — both halves matter: `app_owner` alone
+     * would let an app reach a namesake row owned by a different user.
+     */
+    #isChildAppOfActor(
+        app: { app_owner?: unknown; owner_user_id?: unknown },
+        actor: Actor & { user: { id: number } },
+    ): boolean {
         const ownApp = actor.effectiveApp;
         if (!ownApp?.id) return false;
-        const app = await this.stores.app.getById(appId);
-        if (!app) return false;
         return (
             Number(app.app_owner) === Number(ownApp.id) &&
             Number(app.owner_user_id) === Number(actor.user.id)
@@ -1634,20 +1637,14 @@ export class WorkerDriver extends PuterDriver {
         const matched = await this.#listWorkerRowsForEntry(entry);
         if (matched.length === 0) return;
 
-        for (const row of matched) {
-            const workerFullName = String(row.subdomain ?? '');
-            if (!workerFullName.startsWith(WORKER_SUBDOMAIN_PREFIX)) continue;
-            const workerName = workerFullName.slice(
-                WORKER_SUBDOMAIN_PREFIX.length,
-            );
-            // Null until resolved, and for a worker bound to no app at all.
-            let appUid: string | null = null;
-
-            try {
+        // Every row deploys the same file as the same owner, so both are read
+        // once. A failure here is reported against each row below.
+        const pendingSource = awaitLater(
+            (async () => {
                 const ownerUser = await this.stores.user.getById(entry.userId);
                 // A write by someone the file is shared with must not bring a
                 // suspended owner's script back.
-                if (!ownerUser || ownerUser.suspended) continue;
+                if (!ownerUser || ownerUser.suspended) return null;
                 const ownerActor = makeActor({ user: ownerUser });
 
                 // Read the updated file content. `ownerActor` is the file's
@@ -1663,7 +1660,27 @@ export class WorkerDriver extends PuterDriver {
                     entry.path ?? entry.uuid, // prefer path, fall back to uuid
                     { maxBytes: MAX_SOURCE_SIZE },
                 );
-                const sourceCode = loaded.buffer.toString('utf-8');
+                return {
+                    ownerUser,
+                    ownerActor,
+                    sourceCode: loaded.buffer.toString('utf-8'),
+                };
+            })(),
+        );
+
+        for (const row of matched) {
+            const workerFullName = String(row.subdomain ?? '');
+            if (!workerFullName.startsWith(WORKER_SUBDOMAIN_PREFIX)) continue;
+            const workerName = workerFullName.slice(
+                WORKER_SUBDOMAIN_PREFIX.length,
+            );
+            // Null until resolved, and for a worker bound to no app at all.
+            let appUid: string | null = null;
+
+            try {
+                const source = await pendingSource;
+                if (!source) continue;
+                const { ownerUser, ownerActor, sourceCode } = source;
 
                 // Mint a worker token for the redeploy. Idempotent on
                 // (user, app_uid, worker_name) so a hot-reload reuses
@@ -1872,16 +1889,7 @@ export class WorkerDriver extends PuterDriver {
         const workerName = workerFullName.slice(WORKER_SUBDOMAIN_PREFIX.length);
 
         try {
-            await this.#cfDelete(workerName);
-            if (row.uuid) {
-                await this.stores.subdomain.deleteByUuid(String(row.uuid), {
-                    userId,
-                });
-            }
-            await this.services.auth.deleteWorkerSessionsByName(
-                workerName,
-                Number(row.user_id),
-            );
+            await this.#teardown(row, { userId });
         } catch (err) {
             console.warn(
                 `[workers] source cleanup failed for ${workerName}`,

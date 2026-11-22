@@ -43,11 +43,7 @@ import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
-import {
-    mapNeuralwattApiModel,
-    NEURALWATT_DEFAULT_MODEL,
-    stripNeuralwattPrefix,
-} from './models.js';
+import { mapNeuralwattApiModel, NEURALWATT_DEFAULT_MODEL } from './models.js';
 import { NeuralwattProvider } from './NeuralwattProvider.js';
 import { modelLookupNames } from '../../../interfaces/chat/utils/modelRouting.js';
 
@@ -239,15 +235,6 @@ afterEach(() => {
 // ── Mapping helpers ─────────────────────────────────────────────────
 
 describe('Neuralwatt model mapping helpers', () => {
-    it('strips the neuralwatt: prefix for upstream ids', () => {
-        expect(stripNeuralwattPrefix('neuralwatt:deepseek-v4-flash')).toBe(
-            'deepseek-v4-flash',
-        );
-        expect(stripNeuralwattPrefix('deepseek-v4-flash')).toBe(
-            'deepseek-v4-flash',
-        );
-    });
-
     it('maps catalog pricing into usd-cents cost keys and skips pricing_tbd', () => {
         const mapped = mapNeuralwattApiModel(SAMPLE_API_MODELS[0]!);
         expect(mapped).toMatchObject({

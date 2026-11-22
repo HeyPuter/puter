@@ -271,6 +271,24 @@ describe('SpeechifyTTSProvider.synthesize request shape', () => {
         expect(body.input).toBe('<speak>already SSML</speak>');
     });
 
+    it('escapes a bare ampersand and a `<` that opens no tag in plain text', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await withTestActor(() =>
+            provider.synthesize({
+                text: 'Tom & Jerry <3 <break time="1s"/> &amp; more',
+            }),
+        );
+
+        const body = JSON.parse(
+            (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
+        );
+        expect(body.input).toBe(
+            '<speak>Tom &amp; Jerry &lt;3 <break time="1s"/> &amp; more</speak>',
+        );
+    });
+
     it('decodes base64 audio_data into a readable byte stream', async () => {
         const provider = makeProvider();
         const raw = Buffer.from('AAA-BBB');
@@ -393,6 +411,27 @@ describe('SpeechifyTTSProvider.synthesize error paths', () => {
         await expect(
             withTestActor(() => provider.synthesize({ text: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 400 });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses a reply over 64 MiB with 502 and charges nothing', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            new Response('{}', {
+                status: 200,
+                headers: {
+                    'content-type': 'application/json',
+                    'content-length': String(64 * 1024 * 1024 + 1),
+                },
+            }),
+        );
+
+        await expect(
+            withTestActor(() => provider.synthesize({ text: 'hi' })),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+        });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 

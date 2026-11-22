@@ -41,9 +41,8 @@ import {
 } from '../../services/notification/appMessage.js';
 import {
     APP_READABLE_AUDIENCES,
-    canViewNotification,
     notificationRowScope,
-    ownedAppUids,
+    visibleNotificationRows,
 } from '../../services/notification/notificationAudience.js';
 import {
     assertNotificationValueFits,
@@ -383,7 +382,9 @@ export class NotificationDriver extends PuterDriver {
             query,
         );
         const visible =
-            scope === null ? rows : await this.#visibleRows(actor, rows);
+            scope === null
+                ? rows
+                : await visibleNotificationRows(this.stores.app, actor, rows);
         return visible.map((r) => this.#toClient(r));
     }
 
@@ -810,28 +811,6 @@ export class NotificationDriver extends PuterDriver {
         return { audiences: APP_READABLE_AUDIENCES, appUid };
     }
 
-    /** The audience predicate over a page, with the developer fact resolved. */
-    async #visibleRows(
-        actor: Actor,
-        rows: Array<Record<string, unknown>>,
-    ): Promise<Array<Record<string, unknown>>> {
-        if (rows.length === 0) return rows;
-        const scopes = rows.map(notificationRowScope);
-        const owned = await ownedAppUids(
-            this.stores.app,
-            Number(actor.user.id),
-            scopes.flatMap((s) =>
-                s.audience === 'developer' && s.appUid ? [s.appUid] : [],
-            ),
-        );
-
-        return rows.filter((_row, i) =>
-            canViewNotification(scopes[i], actor, {
-                recipientOwnsApp: owned.has(scopes[i].appUid ?? ''),
-            }),
-        );
-    }
-
     /**
      * Whether one row may be shown. A `null` scope is the holder asking for
      * their own mailbox with nothing named — all of it is theirs, and the
@@ -844,7 +823,10 @@ export class NotificationDriver extends PuterDriver {
     ): Promise<boolean> {
         if (scope === null) return true;
         if (!inScope(row, scope)) return false;
-        return (await this.#visibleRows(actor, [row])).length === 1;
+        return (
+            (await visibleNotificationRows(this.stores.app, actor, [row]))
+                .length === 1
+        );
     }
 
     /**

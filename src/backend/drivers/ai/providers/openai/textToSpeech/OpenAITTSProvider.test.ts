@@ -50,6 +50,7 @@ import {
     readStreamResult,
     withTestActor,
 } from '../../../shared/integrationTestUtil.js';
+import { TTS_UPSTREAM_TIMEOUT_MS } from '../../../interfaces/textToSpeech/common.js';
 import { OpenAITTSProvider } from './OpenAITTSProvider.js';
 import { OPENAI_TTS_COSTS, OPENAI_TTS_TOKEN_COSTS } from './costs.js';
 
@@ -119,10 +120,14 @@ afterEach(() => {
 // ── Construction ────────────────────────────────────────────────────
 
 describe('OpenAITTSProvider construction', () => {
-    it('constructs the OpenAI SDK with the configured api key', () => {
+    it('constructs the OpenAI SDK with the key and the TTS timeout, no retries', () => {
         makeProvider();
         expect(openAICtor).toHaveBeenCalledTimes(1);
-        expect(openAICtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(openAICtor).toHaveBeenCalledWith({
+            apiKey: 'test-key',
+            timeout: TTS_UPSTREAM_TIMEOUT_MS,
+            maxRetries: 0,
+        });
     });
 });
 

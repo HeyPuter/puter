@@ -246,6 +246,22 @@ describe('ChatCompletionDriver provider registration', () => {
         expect(providers).toContain('claude');
     });
 
+    it('reads keys from the same fields as the other AI drivers', async () => {
+        const driver = await makeDriver({
+            providers: {
+                deepseek: { api_key: 'k' },
+                // An empty `apiKey` falls through to the next field.
+                meta: { apiKey: '', key: 'k' },
+                ollama: { enabled: false },
+            },
+        });
+        const providers = new Set(
+            (await driver.models()).map((m) => m.provider),
+        );
+        expect(providers).toContain('deepseek');
+        expect(providers).toContain('meta');
+    });
+
     it('registers ollama when the config does not disable it', async () => {
         const driver = await makeDriver({
             providers: {

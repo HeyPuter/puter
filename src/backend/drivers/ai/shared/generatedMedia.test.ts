@@ -178,7 +178,7 @@ describe('saveGeneratedMediaToFS', () => {
         );
         expect(secureFetchMock).toHaveBeenCalledWith(
             'https://cdn.example/clip.mp4',
-            { skipProxy: true },
+            { skipProxy: true, signal: expect.any(AbortSignal) },
         );
         expect(write.mock.calls[0]![1].fileMetadata).toMatchObject({
             size: 9,
@@ -189,8 +189,16 @@ describe('saveGeneratedMediaToFS', () => {
 
     it('surfaces a failed download as a 502 and writes nothing', async () => {
         const write = vi.spyOn(server.services.fs, 'write');
+        let cancelled = false;
         secureFetchMock.mockResolvedValueOnce(
-            new Response(null, { status: 404 }),
+            new Response(
+                new ReadableStream({
+                    cancel() {
+                        cancelled = true;
+                    },
+                }),
+                { status: 404 },
+            ),
         );
         await expect(
             saveGeneratedMediaToFS(
@@ -204,8 +212,53 @@ describe('saveGeneratedMediaToFS', () => {
             statusCode: 502,
             message: 'Failed to fetch generated video for FS write: 404',
         });
+        expect(cancelled).toBe(true);
         expect(write).not.toHaveBeenCalled();
         write.mockRestore();
+    });
+
+    it('refuses a download over the size cap and writes nothing', async () => {
+        const write = vi.spyOn(server.services.fs, 'write');
+        secureFetchMock.mockResolvedValueOnce(
+            new Response('x', {
+                headers: { 'content-length': String(512 * 1024 * 1024) },
+            }),
+        );
+        await expect(
+            saveGeneratedMediaToFS(
+                server.services.fs,
+                actor,
+                'https://cdn.example/huge.mp4',
+                '/alice/huge.mp4',
+                { noun: 'video', defaultType: 'video/mp4' },
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            message: expect.stringContaining('Generated video exceeds'),
+        });
+        expect(write).not.toHaveBeenCalled();
+        write.mockRestore();
+    });
+
+    it('reports a download that runs out of time as a 504', async () => {
+        secureFetchMock.mockRejectedValueOnce(
+            new DOMException(
+                'The operation was aborted due to timeout',
+                'TimeoutError',
+            ),
+        );
+        await expect(
+            saveGeneratedMediaToFS(
+                server.services.fs,
+                actor,
+                'https://cdn.example/slow.mp4',
+                '/alice/slow.mp4',
+                { noun: 'video', defaultType: 'video/mp4' },
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
     });
 
     it('refuses a result that is not a URL or data URI', async () => {
