@@ -176,6 +176,13 @@ export const sessionlessSocketRoom = (userId: number | string): string =>
     `u${userId}:nosess`;
 
 /**
+ * Every socket in a session's room or the sessionless one. An account socket
+ * outside it joined neither, so a session revoke drops it with the account.
+ */
+export const sessionScopedSocketRoom = (userId: number | string): string =>
+    `u${userId}:scoped`;
+
+/**
  * Which rooms a socket joins. An app socket gets its own per-(user, app) room
  * and never the user room, which carries the whole `outer.gui.*` fan and is the
  * reason app actors were refused outright. Scoped on the app the socket acts
@@ -186,14 +193,19 @@ export const socketRoomsFor = (actor: Actor): string[] => {
     const userId = String(actor.user!.id);
     const appUid = actor.effectiveApp?.uid;
     const tokenUid = actor.accessToken?.uid;
-    const sessionUid = actor.session?.uid;
+    const session = actor.session;
     return [
         appUid ? appSocketRoom(userId, appUid) : userId,
         accountSocketRoom(userId),
         ...(tokenUid ? [accessTokenSocketRoom(tokenUid)] : []),
-        sessionUid
-            ? sessionSocketRoom(sessionUid)
-            : sessionlessSocketRoom(userId),
+        // A first-party page's session also goes with the sign-in it was
+        // handed out under.
+        ...(session?.uid
+            ? [session.uid, session.parentUid]
+                  .filter((uid): uid is string => !!uid)
+                  .map(sessionSocketRoom)
+            : [sessionlessSocketRoom(userId)]),
+        sessionScopedSocketRoom(userId),
     ];
 };
 
@@ -1046,10 +1058,10 @@ export class SocketService extends PuterService {
 
     /**
      * Close the connections of revoked sessions, plus the account's sockets
-     * that name no session. Cluster-wide: `disconnectSockets` publishes through
-     * the adapter, so a revoke handled on one node reaches sockets terminated
-     * on another. Without a list of sessions, every connection on the account
-     * goes.
+     * that name no session or joined no session room. Cluster-wide:
+     * `disconnectSockets` publishes through the adapter, so a revoke handled on
+     * one node reaches sockets terminated on another. Without a list of
+     * sessions, every connection on the account goes.
      */
     async #evictSessionSockets(
         userId: number,
@@ -1057,15 +1069,24 @@ export class SocketService extends PuterService {
     ): Promise<void> {
         const io = this.#io;
         if (!io || !userId) return;
-        const rooms = Array.isArray(sessionUids)
-            ? [
-                  sessionlessSocketRoom(userId),
-                  ...sessionUids
-                      .filter((uid): uid is string => typeof uid === 'string')
-                      .map(sessionSocketRoom),
-              ]
-            : accountSocketRoom(userId);
-        await io.in(rooms).disconnectSockets(true);
+        if (!Array.isArray(sessionUids)) {
+            await io.in(accountSocketRoom(userId)).disconnectSockets(true);
+            return;
+        }
+        await Promise.all([
+            io
+                .in([
+                    sessionlessSocketRoom(userId),
+                    ...sessionUids
+                        .filter((uid): uid is string => typeof uid === 'string')
+                        .map(sessionSocketRoom),
+                ])
+                .disconnectSockets(true),
+            io
+                .in(accountSocketRoom(userId))
+                .except(sessionScopedSocketRoom(userId))
+                .disconnectSockets(true),
+        ]);
     }
 
     /** Close one revoked token's connections; the account's others stay up. */

@@ -173,6 +173,13 @@ const DEFAULT_BROADCAST_FLUSH_MS = 2_000;
 const REBASED_INVALIDATION_MAX = 100_000;
 
 /**
+ * Where a child named `name` of `parent` is stored: under the parent's stored
+ * path, which may be spelled differently from the path a request used.
+ */
+const storedChildPath = (parent: FSEntry, name: string): string =>
+    parent.path === '/' ? `/${name}` : `${parent.path}/${name}`;
+
+/**
  * Store backing the `fsentries` table. Owns DB CRUD over filesystem entries,
  * Redis caching keyed by uuid/path/id, and pending-upload-session state in the
  * system KV store. Constructed by the store registry; depends on `kv`.
@@ -971,7 +978,12 @@ export class FSEntryStore extends PuterStore {
                         parentEntry ? parentEntry.id : null,
                         parentEntry ? parentEntry.uuid : null,
                         pathPosix.basename(dirPath),
-                        dirPath,
+                        parentEntry
+                            ? storedChildPath(
+                                  parentEntry,
+                                  pathPosix.basename(dirPath),
+                              )
+                            : dirPath,
                         now,
                         now,
                         now,
@@ -1122,7 +1134,9 @@ export class FSEntryStore extends PuterStore {
                     parentEntry ? parentEntry.id : null,
                     parentEntry ? parentEntry.uuid : null,
                     dirName,
-                    normalizedPath,
+                    parentEntry
+                        ? storedChildPath(parentEntry, dirName)
+                        : normalizedPath,
                     now,
                     now,
                     now,
@@ -2182,10 +2196,20 @@ export class FSEntryStore extends PuterStore {
             // in another case or normalization form, and its children are
             // written under its stored path.
             const parentByPath = new Map<string, FSEntry>();
+            const storedPaths = new Set<string>();
             userEntries.forEach((entry, i) => {
                 const parentEntry = parentEntries[i]!;
                 parentByPath.set(entry.parentPath, parentEntry);
-                entry.storedPath = `${parentEntry.path}/${entry.fileName}`;
+                entry.storedPath = storedChildPath(parentEntry, entry.fileName);
+                // Two spellings of one folder reach the same destination.
+                if (storedPaths.has(entry.storedPath)) {
+                    throw new HttpError(
+                        409,
+                        `Batch contains duplicate target path: ${entry.fileName}`,
+                        { legacyCode: 'conflict' },
+                    );
+                }
+                storedPaths.add(entry.storedPath);
             });
 
             const existingEntriesByPath = await this.#readEntriesByPathsForUser(

@@ -262,13 +262,28 @@ describe('socketRoomsFor', () => {
                 user: { id: 7, uuid: 'u-7', username: 'u' },
                 session: { uid: 'sess-1' },
             }),
-        ).toEqual(['7', accountSocketRoom(7), 'sess:sess-1']);
+        ).toEqual(['7', accountSocketRoom(7), 'sess:sess-1', 'u7:scoped']);
+    });
+
+    it('puts a first-party page session in its sign-in room too', () => {
+        expect(
+            socketRoomsFor({
+                user: { id: 7, uuid: 'u-7', username: 'u' },
+                session: { uid: 'page-1', kind: 'web', parentUid: 'sign-in-1' },
+            }),
+        ).toEqual([
+            '7',
+            accountSocketRoom(7),
+            'sess:page-1',
+            'sess:sign-in-1',
+            'u7:scoped',
+        ]);
     });
 
     it('puts an actor without a session in the sessionless room', () => {
         expect(
             socketRoomsFor({ user: { id: 7, uuid: 'u-7', username: 'u' } }),
-        ).toEqual(['7', accountSocketRoom(7), 'u7:nosess']);
+        ).toEqual(['7', accountSocketRoom(7), 'u7:nosess', 'u7:scoped']);
     });
 
     it('gives an access token a room of its own to be revoked by', () => {
@@ -287,6 +302,7 @@ describe('socketRoomsFor', () => {
             accountSocketRoom(7),
             'tok:tok-9',
             'u7:nosess',
+            'u7:scoped',
         ]);
     });
 
@@ -301,6 +317,7 @@ describe('socketRoomsFor', () => {
             'u7:aapp-1',
             accountSocketRoom(7),
             'u7:nosess',
+            'u7:scoped',
         ]);
         expect(rooms).not.toContain('7');
     });

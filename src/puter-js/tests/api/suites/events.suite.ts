@@ -191,8 +191,9 @@ const signIn = async (t: TestContext): Promise<string> => {
 };
 
 /**
- * Ends a session by its own token — `/logout` evicts every socket on the
- * account. Both routes are root-origin only, like `/login`.
+ * Ends a session by its own token — `/logout` drops that session's sockets and
+ * the account's sockets that belong to no session, such as a full-access
+ * token's. Both routes are root-origin only, like `/login`.
  */
 const signOut = async (t: TestContext, token: string): Promise<void> => {
     const csrfRes = await fetch(`${t.env.origin}/get-anticsrf-token`, {
@@ -470,33 +471,68 @@ export default suite('events', {
         }
     },
 
-    'resubscribes after another session on the account signs out': async (t) => {
+    'resubscribes after the server drops the connection': async (t) => {
         const dir = await makeDir(t, 'events-server-evict');
         const seen: Delivered[] = [];
         const lapses: unknown[] = [];
 
-        const sub = await t.puter.events.onLocal(`fs:${dir}`, ({ event }) => seen.push(event as Delivered), {
-            timeout: SUBSCRIBE_TIMEOUT_MS,
+        // A full-access token belongs to no session, so signing any session on
+        // the account out drops its socket while the token stays valid.
+        t.puter.setAuthToken(t.env.users.user.apiToken);
+        try {
+            const sub = await open(t, `fs:${dir}`, (event) => seen.push(event), {
+                onError: (error) => lapses.push(error),
+            });
+            if (!sub) return;
+
+            try {
+                const before = sub.subId;
+                const otherToken = await signIn(t);
+                await signOut(t, otherToken);
+
+                const back = await waitFor(
+                    () => sub.subId !== null && sub.subId !== before,
+                    DELIVERY_TIMEOUT_MS,
+                );
+                t.assert.ok(back, 'the subscription reconnected after the server dropped it');
+                t.assert.deepEqual(lapses, [], 'a server hang-up that reconnects does not lapse');
+
+                const file = `${dir}/after-evict.txt`;
+                await t.puter.fs.write(file, 'still listening');
+                await waitFor(
+                    () => seen.some((event) => event.path === file),
+                    DELIVERY_TIMEOUT_MS,
+                );
+                t.assert.ok(
+                    seen.some((event) => event.path === file),
+                    'the same handler keeps receiving events after the server-side eviction',
+                );
+            } finally {
+                await sub.off();
+            }
+        } finally {
+            // The eviction leaves the shared instance's other sockets (e.g.
+            // the filesystem one) dead too; this rebuilds them.
+            t.puter.setAuthToken(t.env.users.user.token);
+        }
+    },
+
+    'stays subscribed when another session on the account signs out': async (t) => {
+        const dir = await makeDir(t, 'events-other-session-out');
+        const seen: Delivered[] = [];
+        const lapses: unknown[] = [];
+
+        const sub = await open(t, `fs:${dir}`, (event) => seen.push(event), {
             onError: (error) => lapses.push(error),
         });
         if (!sub) return;
 
         try {
             const before = sub.subId;
-
-            // Signing another session on this account out evicts every socket
-            // on the account, this one included.
             const otherToken = await signIn(t);
             await signOut(t, otherToken);
 
-            const back = await waitFor(
-                () => sub.subId !== null && sub.subId !== before,
-                DELIVERY_TIMEOUT_MS,
-            );
-            t.assert.ok(back, 'the subscription reconnected after the server dropped it');
-            t.assert.deepEqual(lapses, [], 'a server hang-up that reconnects does not lapse');
-
-            const file = `${dir}/after-evict.txt`;
+            const file = `${dir}/after-other-signout.txt`;
             await t.puter.fs.write(file, 'still listening');
             await waitFor(
                 () => seen.some((event) => event.path === file),
@@ -504,13 +540,12 @@ export default suite('events', {
             );
             t.assert.ok(
                 seen.some((event) => event.path === file),
-                'the same handler keeps receiving events after the server-side eviction',
+                'events kept arriving after the other session signed out',
             );
+            t.assert.equal(sub.subId, before, 'the subscription was never dropped');
+            t.assert.deepEqual(lapses, [], 'nothing lapsed');
         } finally {
             await sub.off();
-            // The eviction leaves the shared instance's other sockets (e.g.
-            // the filesystem one) dead too; this rebuilds them.
-            t.puter.setAuthToken(t.env.users.user.token);
         }
     },
 
@@ -909,7 +944,7 @@ export default suite('events', {
         });
     },
 
-    'keeps running a persistent handler here after the server drops the connection': async (t) => {
+    'keeps running a persistent handler here when another session on the account signs out': async (t) => {
         const dir = await makeDir(t, 'events-durable-evict');
         const appUid = await makeApp(t);
         await t.puter.events.handlers.publish('ingestEvict', RECORDING_HANDLER, {
@@ -920,9 +955,7 @@ export default suite('events', {
 
         const before = recorded().length;
         await asApp(t, appUid, async () => {
-            // A session subscription first, as proof the connection is up —
-            // and its own reconnect is what shows the server-side drop
-            // happened and was recovered from.
+            // A session subscription first, as proof the connection stays up.
             const live = await open(t, `fs:${dir}`, () => {});
             if (! live) return;
 
@@ -937,17 +970,16 @@ export default suite('events', {
                 const otherToken = await signIn(t);
                 await signOut(t, otherToken);
 
-                const reconnected = await waitFor(
-                    () => live.subId !== null && live.subId !== beforeSubId,
-                    DELIVERY_TIMEOUT_MS,
-                );
-                t.assert.ok(reconnected, 'the session subscription shows the connection came back');
-
                 await t.puter.fs.write(`${dir}/after-evict.txt`, 'still here');
                 await waitFor(() => recorded().length > before, DELIVERY_TIMEOUT_MS);
                 t.assert.ok(
                     recorded().length > before,
-                    'the persistent handler kept running in this client across the eviction',
+                    'the persistent handler kept running in this client',
+                );
+                t.assert.equal(
+                    live.subId,
+                    beforeSubId,
+                    'the app connection was not dropped',
                 );
             } finally {
                 await sub.off!();

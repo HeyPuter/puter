@@ -3664,7 +3664,16 @@ describe('AuthService (integration)', () => {
                 const jwt = await authService.createAccessToken(appActor, [
                     [`fs:${fileEntry.uuid}:read`],
                 ]);
-                expect(typeof jwt).toBe('string');
+                const { actor: tokenActor } =
+                    await authService.authenticate(jwt);
+                const acl = server.services.acl;
+                expect(
+                    await acl.check(
+                        tokenActor!,
+                        acl.fsDescriptor(fileEntry.path),
+                        'read',
+                    ),
+                ).toBe(true);
                 await expect(
                     authService.createAccessToken(appActor, [
                         [`fs:${fileEntry.uuid}:write`],
@@ -3698,7 +3707,16 @@ describe('AuthService (integration)', () => {
                     recipientActor,
                     [[`fs:${fileEntry.uuid}:read`]],
                 );
-                expect(typeof jwt).toBe('string');
+                const { actor: tokenActor } =
+                    await authService.authenticate(jwt);
+                const acl = server.services.acl;
+                expect(
+                    await acl.check(
+                        tokenActor!,
+                        acl.fsDescriptor(fileEntry.path),
+                        'read',
+                    ),
+                ).toBe(true);
             });
         });
 

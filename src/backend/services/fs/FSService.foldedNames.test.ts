@@ -412,6 +412,47 @@ describe.each(engines.filter((engine) => !engine.skip))(
             expect(await readBack(replaced)).toBe('three');
         });
 
+        it('creates a missing folder under a respelled folder at its stored path', async () => {
+            const dir = await freshDir();
+            await fs.mkdir(userId, { path: `${dir}/Photos` });
+
+            const written = await write(`${dir}/photos/New/deep.txt`, 'one', {
+                createMissingParents: true,
+            });
+            expect(written.path).toBe(`${dir}/Photos/New/deep.txt`);
+            expect((await at(`${dir}/Photos/New`))?.path).toBe(
+                `${dir}/Photos/New`,
+            );
+        });
+
+        it('refuses a batch that reaches one file through two spellings of its folder', async () => {
+            const dir = await freshDir();
+            await fs.mkdir(userId, { path: `${dir}/Photos` });
+
+            const error = await caught(() =>
+                fs.batchWrites(userId, [
+                    {
+                        fileMetadata: {
+                            path: `${dir}/Photos/a.txt`,
+                            size: 1,
+                            contentType: 'text/plain',
+                        },
+                        fileContent: 'A',
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${dir}/photos/a.txt`,
+                            size: 1,
+                            contentType: 'text/plain',
+                        },
+                        fileContent: 'B',
+                    },
+                ]),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(await names(`${dir}/Photos`)).toEqual([]);
+        });
+
         it('overwrites an NFD spelling of a stored name in place, signed or not', async () => {
             const dir = await freshDir();
             const nfc = `${dir}/r\u00e9sum\u00e9.txt`;

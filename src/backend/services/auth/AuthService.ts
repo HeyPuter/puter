@@ -2470,14 +2470,13 @@ export class AuthService extends PuterService {
             ),
         ];
         if (requestedPerms.length > 0) {
-            // `fs:` scopes are asked of ACL, which the token's reads go
-            // through, so access held through a parent folder counts.
-            const viaAcl = requestedPerms.filter((p) =>
-                aclAnswerableFsPermission(p),
+            // `fs:<uid>:<mode>` is asked of ACL, which the token's reads go
+            // through, so access held through a parent folder counts. The
+            // path form keeps the scan: reads match a token's grants by uid.
+            const viaAcl = requestedPerms.filter(
+                (p) => aclAnswerableFsPermission(p)?.uid,
             );
-            const viaScan = requestedPerms.filter(
-                (p) => !aclAnswerableFsPermission(p),
-            );
+            const viaScan = requestedPerms.filter((p) => !viaAcl.includes(p));
             const [granted, reached] = await Promise.all([
                 viaScan.length > 0
                     ? this.services.permission.checkMany(actor, viaScan)
