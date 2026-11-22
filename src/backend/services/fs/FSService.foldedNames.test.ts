@@ -797,9 +797,18 @@ describe.each(engines.filter((engine) => !engine.skip))(
             const dir = await freshDir();
             const folder = await fs.mkdir(userId, { path: `${dir}/Photos` });
             const nested = await fs.mkdir(userId, {
-                path: `${dir}/photos/2024/trip`,
+                path: `${dir}/Photos/2024/trip`,
                 createMissingParents: true,
             });
+            // Rows written before folders resolved to their stored spelling.
+            for (const sub of ['2024', '2024/trip']) {
+                const entry = (await at(`${dir}/Photos/${sub}`))!;
+                await server.clients.db.write(
+                    'UPDATE fsentries SET path = ? WHERE uuid = ?',
+                    [`${dir}/photos/${sub}`, entry.uuid],
+                );
+            }
+            await server.clients.redis.flushall();
             expect(await storedPath(nested)).toBe(`${dir}/photos/2024/trip`);
 
             await runWithContext({ actor }, () =>
