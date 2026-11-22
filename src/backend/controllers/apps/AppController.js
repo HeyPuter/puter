@@ -101,10 +101,7 @@ export class AppController extends PuterController {
         const ts = Math.floor(Date.now() / 1000);
         const work = (async () => {
             try {
-                await this.clients.db.write(
-                    'INSERT INTO `app_opens` (`app_uid`, `user_id`, `ts`) VALUES (?, ?, ?)',
-                    [appUid, userId, ts],
-                );
+                await this.stores.app.recordOpen(appUid, userId, ts);
             } catch (e) {
                 console.warn('[rao] insert failed:', e);
             }
@@ -466,7 +463,7 @@ export class AppController extends PuterController {
                 (icon.startsWith('data:') || !/^https?:\/\//i.test(icon));
             if (!isInline) {
                 const redirectUrl =
-                    await this.services.appIcon?.resolveIconRedirectUrl?.(
+                    await this.services.appIcon.resolveIconRedirectUrl(
                         appUid,
                         size,
                     );

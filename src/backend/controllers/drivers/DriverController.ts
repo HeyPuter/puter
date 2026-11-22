@@ -32,16 +32,16 @@ import {
 } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { LifecycleRejectStatus } from '../../clients/event/types.js';
-import type { DriverMeta } from '../../drivers/meta.js';
+import type { DriverRegistry } from '../../drivers/meta.js';
 import {
     isCreditExhaustion,
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
 } from '../../drivers/util/upstreamErrors.js';
 import {
+    driverRegistry,
     isDriverStreamResult,
     resolveCallableMethods,
-    resolveDriverMeta,
     resolvePerMethod,
 } from '../../drivers/meta.js';
 import { pipeStreamResult } from '../../drivers/util/pipeStreamResult.js';
@@ -183,14 +183,14 @@ export const translateProviderError = (err: unknown): unknown => {
 @Controller('/drivers')
 export class DriverController extends PuterController {
     /** Iface → Map<driverName, driverInstance> */
-    #drivers = new Map<string, Map<string, DriverInstance>>();
+    #drivers: DriverRegistry['drivers'];
     /** Iface → default driver name */
-    #defaults = new Map<string, string>();
+    #defaults: DriverRegistry['defaults'];
     /**
      * Driver instance → resolved meta. Cached so the per-call rate-limit lookup
      * doesn't have to walk prototype chains on every request.
      */
-    #meta = new WeakMap<DriverInstance, DriverMeta>();
+    #meta: DriverRegistry['meta'];
     /**
      * Driver instance → the set of method names callable via `/drivers/call`.
      * Resolved once at registration (server startup) via
@@ -202,7 +202,18 @@ export class DriverController extends PuterController {
 
     constructor(...args: ConstructorParameters<typeof PuterController>) {
         super(...args);
-        this.#buildIfaceMap();
+        const registry = driverRegistry(
+            this.drivers as unknown as Record<string, DriverInstance>,
+        );
+        this.#drivers = registry.drivers;
+        this.#defaults = registry.defaults;
+        this.#meta = registry.meta;
+        for (const instance of registry.meta.keys()) {
+            this.#callableMethods.set(
+                instance,
+                resolveCallableMethods(instance),
+            );
+        }
     }
 
     // -- Lookup API (used by tests / internals) ----------------------
@@ -615,55 +626,4 @@ export class DriverController extends PuterController {
         }
         res.json(out);
     };
-
-    // -- Internals ---------------------------------------------------
-
-    #buildIfaceMap(): void {
-        const bag = this.drivers as unknown as Record<string, DriverInstance>;
-        for (const instance of Object.values(bag)) {
-            const meta = resolveDriverMeta(instance);
-            if (meta) this.#registerDriver(meta, instance);
-        }
-    }
-
-    #registerDriver(meta: DriverMeta, instance: DriverInstance): void {
-        let ifaceMap = this.#drivers.get(meta.interfaceName);
-        if (!ifaceMap) {
-            ifaceMap = new Map();
-            this.#drivers.set(meta.interfaceName, ifaceMap);
-        }
-        if (ifaceMap.has(meta.driverName)) {
-            console.warn(
-                `[driver-controller] overwriting driver ${meta.interfaceName}:${meta.driverName}`,
-            );
-        }
-        ifaceMap.set(meta.driverName, instance);
-        // Cache the resolved meta so the request hot-path can read the
-        // per-method rate-limit spec without re-walking the prototype.
-        this.#meta.set(instance, meta);
-        // Resolve the callable RPC surface once, at startup. The request
-        // path checks membership against this set instead of reflecting on
-        // the live instance, so lifecycle hooks / inherited framework
-        // methods can never be dispatched.
-        this.#callableMethods.set(instance, resolveCallableMethods(instance));
-        // Register each alias pointing at the same instance. Calls that pass
-        // a provider id in the `driver` slot (e.g. `aws-polly` or
-        // `openai-tts` instead of the unified `ai-tts`, as SDK bundles
-        // predating the unified drivers do) resolve here; the handler sets
-        // Context.driverName to the alias so the method can route to the
-        // right internal provider.
-        for (const alias of meta.aliases) {
-            if (alias === meta.driverName) continue;
-            if (ifaceMap.has(alias)) {
-                console.warn(
-                    `[driver-controller] alias collision on ${meta.interfaceName}:${alias} — keeping first registration`,
-                );
-                continue;
-            }
-            ifaceMap.set(alias, instance);
-        }
-        if (meta.isDefault || !this.#defaults.has(meta.interfaceName)) {
-            this.#defaults.set(meta.interfaceName, meta.driverName);
-        }
-    }
 }

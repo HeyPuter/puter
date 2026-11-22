@@ -17,20 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Writable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Context, runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
 import {
-    asRecord,
     contextBoundStream,
     fsEntryMimeType,
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
-    rangeForEntry,
     resolveReadRange,
+    sendDownload,
     signEntry,
     signEntryThumbnail,
     signingConfigFromAppConfig,
@@ -118,23 +117,6 @@ describe('loadLegacyAssociatedApps associated_app redaction', () => {
         expect(app.protected).toBe(1);
         expect(app.index_url).toBeNull();
         expect(app.godmode).toBe(0);
-    });
-});
-
-describe('asRecord', () => {
-    it.each([
-        ['null', null],
-        ['undefined', undefined],
-        ['a number', 42],
-        ['a string', 'nope'],
-        ['an array', [1, 2]],
-    ])('returns an empty record for %s', (_label, value) => {
-        expect(asRecord(value)).toEqual({});
-    });
-
-    it('passes an object through unchanged', () => {
-        const source = { a: 1 };
-        expect(asRecord(source)).toBe(source);
     });
 });
 
@@ -710,11 +692,86 @@ describe('resolveReadRange', () => {
     });
 });
 
-describe('rangeForEntry', () => {
-    it('drops the range for an empty file only', () => {
-        const entry = (size: number) => ({ size }) as FSEntry;
-        expect(rangeForEntry(entry(0), 'bytes=0-511')).toBeUndefined();
-        expect(rangeForEntry(entry(10), 'bytes=0-4')).toBe('bytes=0-4');
+describe('sendDownload', () => {
+    const downloadRes = () => {
+        const headers = new Map<string, string>();
+        const chunks: Buffer[] = [];
+        const sink = new Writable({
+            write(chunk, _encoding, callback) {
+                chunks.push(Buffer.from(chunk as Buffer));
+                callback();
+            },
+        });
+        let statusCode = 200;
+        const res = Object.assign(sink, {
+            setHeader: (key: string, value: string) => {
+                headers.set(key.toLowerCase(), String(value));
+                return res;
+            },
+            status: (code: number) => {
+                statusCode = code;
+                return res;
+            },
+        });
+        return {
+            res: res as unknown as Parameters<typeof sendDownload>[0],
+            headers,
+            status: () => statusCode,
+            text: () => Buffer.concat(chunks).toString('utf8'),
+        };
+    };
+    const download = (
+        overrides: Partial<Parameters<typeof sendDownload>[2]> = {},
+    ): Parameters<typeof sendDownload>[2] => ({
+        body: Readable.from([Buffer.from('abcd')]),
+        contentLength: 4,
+        contentType: 'text/html',
+        contentRange: null,
+        etag: '"e"',
+        lastModified: new Date(0),
+        ...overrides,
+    });
+
+    it('answers 206 only when the store returned a range', async () => {
+        const whole = downloadRes();
+        await sendDownload(whole.res, { name: 'a.txt' }, download(), {
+            disposition: 'inline',
+            contentType: 'text/plain',
+        });
+        expect(whole.status()).toBe(200);
+        expect(whole.headers.has('content-range')).toBe(false);
+        expect(whole.text()).toBe('abcd');
+
+        const ranged = downloadRes();
+        await sendDownload(
+            ranged.res,
+            { name: 'a.txt' },
+            download({ contentRange: 'bytes 0-3/10' }),
+            { disposition: 'inline', contentType: 'text/plain' },
+        );
+        expect(ranged.status()).toBe(206);
+        expect(ranged.headers.get('content-range')).toBe('bytes 0-3/10');
+    });
+
+    it('names the file and sandboxes active types only when asked', async () => {
+        const sandboxed = downloadRes();
+        await sendDownload(sandboxed.res, { name: 'a b.html' }, download(), {
+            disposition: 'attachment',
+            contentType: 'text/html',
+            sandbox: true,
+        });
+        expect(sandboxed.headers.get('content-disposition')).toBe(
+            'attachment; filename="a%20b.html"',
+        );
+        expect(sandboxed.headers.get('content-type')).toBe('text/html');
+        expect(sandboxed.headers.has('content-security-policy')).toBe(true);
+
+        const plain = downloadRes();
+        await sendDownload(plain.res, { name: 'a.html' }, download(), {
+            disposition: 'inline',
+            contentType: 'text/html',
+        });
+        expect(plain.headers.has('content-security-policy')).toBe(false);
     });
 });
 

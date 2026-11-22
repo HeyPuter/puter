@@ -17,9 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { Readable } from 'node:stream';
 import type { FSEntryWriteInput } from '../../stores/fs/FSEntry.js';
-import type { WriteGuiMetadata } from './requestTypes.js';
+import type { WriteGuiMetadata } from '../../services/fs/types.js';
 
 export interface AbortWriteRequest {
     uploadId: string;
@@ -57,11 +56,4 @@ export interface ThumbnailUploadPrepareItem {
 
 export interface ThumbnailUploadPreparePayload {
     items: ThumbnailUploadPrepareItem[];
-}
-
-export interface MultipartBatchFilePart {
-    fieldName: string;
-    stream: Readable;
-    filename?: string;
-    mimeType?: string;
 }

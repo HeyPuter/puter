@@ -50,6 +50,16 @@ describe('legacy fs', () => {
         });
     });
 
+    env.scenario('sign several entries at once', async () => {
+        await env.request('/sign', {
+            json: {
+                items: ['Documents', 'Desktop', 'Pictures', 'Videos'].map(
+                    (name) => ({ path: `${home()}/${name}`, action: 'read' }),
+                ),
+            },
+        });
+    });
+
     env.scenario('read my storage usage', async () => {
         await env.request('/df', { json: {} });
     });

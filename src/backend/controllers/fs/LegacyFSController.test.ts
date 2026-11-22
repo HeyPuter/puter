@@ -509,6 +509,56 @@ describe('LegacyFSController.stat', () => {
         }
     });
 
+    it("sizes a shared folder by its owner's files, for a caller who can list it", async () => {
+        const { actor: owner, userId } = await makeUser();
+        const username = owner.user!.username!;
+        const dir = `/${username}/Documents/legacy-shared-sized`;
+        await withActor(owner, () =>
+            controller.mkdir(
+                makeReq({ body: { path: dir }, actor: owner }),
+                makeRes().res,
+            ),
+        );
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: `${dir}/inner.txt`,
+                size: 10,
+                contentType: 'text/plain',
+            },
+            fileContent: '1234567890',
+        } as never);
+
+        const { actor: viewer } = await makeUser();
+        const statAsViewer = async () => {
+            const { res, captured } = makeRes();
+            await withActor(viewer, () =>
+                controller.stat(
+                    makeReq({
+                        body: { path: dir, return_size: true },
+                        actor: viewer,
+                    }),
+                    res,
+                ),
+            );
+            return captured.body as { size?: number };
+        };
+
+        await server.services.permission.grantUserUserPermission(
+            owner,
+            viewer.user!.username!,
+            `fs:${dir}:see`,
+        );
+        // The directory row's own size, never the sum of what is under it.
+        expect((await statAsViewer()).size).toBe(0);
+
+        await server.services.permission.grantUserUserPermission(
+            owner,
+            viewer.user!.username!,
+            `fs:${dir}:list`,
+        );
+        expect((await statAsViewer()).size).toBe(10);
+    });
+
     it('surfaces an earlier failure ahead of a failed subtree size, with nothing left unhandled', async () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;

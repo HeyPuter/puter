@@ -85,19 +85,26 @@ import {
     phoneOnFileProvenKey,
 } from '../../util/verificationOrder.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import {
+    generateEmailConfirmCode,
+    hashPassword,
+} from '../../util/credentials.js';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { parsePhone, phoneLastDigits } from '../../util/phone.js';
 import { deleteIfEqual } from '../../util/redisLock.js';
+import { requestIp } from '../../util/requestIp.js';
 import {
     bonusCodeInvalidError,
     checkSignupBonus,
     isAbsentBonusCode,
     normalizeBonusCode,
 } from '../../util/signupBonus.js';
+import { activeSubdomain } from '../../util/subdomains.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import {
     buildUserDetails,
+    isTemporaryAccount,
     passwordTag,
     scrubSensitive,
 } from '../../util/userDetails.js';
@@ -117,6 +124,7 @@ import {
 } from '../../services/kvShare/kvShares.js';
 import {
     APP_DATA_PERMISSION_PREFIX,
+    appDataRootPath,
     appDataSharingAllowed,
     parseAppDataPermission,
 } from '../../services/permission/appDataScopes.js';
@@ -798,47 +806,8 @@ export class AuthController extends PuterController {
         ],
     })
     async handleLoginOtp(req: Request, res: Response): Promise<void> {
-        const { token, code } = req.body ?? {};
-        if (!token)
-            throw new HttpError(400, 'token is required.', {
-                legacyCode: 'bad_request',
-            });
-        if (!code)
-            throw new HttpError(400, 'code is required.', {
-                legacyCode: 'bad_request',
-            });
-
-        let decoded;
-        try {
-            decoded = this.services.token.verify<{
-                user_uid: string;
-                purpose: string;
-                auth_id?: string;
-                oidcContinuation?: unknown;
-            }>('otp', token);
-        } catch {
-            throw new HttpError(400, 'Invalid token.', {
-                legacyCode: 'bad_request',
-            });
-        }
-        if (!decoded.user_uid || decoded.purpose !== 'otp-login') {
-            throw new HttpError(400, 'Invalid token.', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user)
-            throw new HttpError(404, 'User not found.', {
-                legacyCode: 'not_found',
-            });
-        if (user.suspended) {
-            throw new HttpError(401, 'This account is suspended.', {
-                legacyCode: 'account_suspended',
-            });
-        }
-
-        await this.#assertSecondFactorAttemptsRemain(user.uuid);
+        const { token, code, decoded, user } =
+            await this.#beginSecondFactor(req);
         if (!verifyOtp(user.username, user.otp_secret, code)) {
             await this.#recordSecondFactorFailure(user.uuid);
             res.json({ proceed: false });
@@ -875,6 +844,59 @@ export class AuthController extends PuterController {
         ],
     })
     async handleLoginRecoveryCode(req: Request, res: Response): Promise<void> {
+        const { token, code, decoded, user } =
+            await this.#beginSecondFactor(req);
+        if (typeof code !== 'string') {
+            throw new HttpError(400, 'code must be a string.', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const hashed = hashRecoveryCode(code);
+        const codes = ((user.otp_recovery_codes as string) || '')
+            .split(',')
+            .filter(Boolean);
+        const idx = codes.indexOf(hashed);
+        if (idx === -1) {
+            await this.#recordSecondFactorFailure(user.uuid);
+            res.json({ proceed: false });
+            return;
+        }
+        await this.#consumeOtpLoginToken(token);
+
+        if (!(await this.stores.user.consumeOtpRecoveryCode(user.id, hashed))) {
+            await this.#recordSecondFactorFailure(user.uuid);
+            res.json({ proceed: false });
+            return;
+        }
+        dropUsedCredentials(req, 'token', 'code');
+
+        await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
+
+        await this.#completeLogin(
+            req,
+            res,
+            user,
+            'recovery_code',
+            decoded.oidcContinuation,
+        );
+    }
+
+    /**
+     * The checks both second-factor legs open with: the `otp-login` token from
+     * `/login` is valid, its account exists, isn't suspended, and has
+     * wrong-code budget left.
+     */
+    async #beginSecondFactor(req: Request): Promise<{
+        token: string;
+        code: string;
+        decoded: {
+            user_uid: string;
+            purpose: string;
+            auth_id?: string;
+            oidcContinuation?: unknown;
+        };
+        user: UserRow;
+    }> {
         const { token, code } = req.body ?? {};
         if (!token)
             throw new HttpError(400, 'token is required.', {
@@ -916,39 +938,7 @@ export class AuthController extends PuterController {
         }
 
         await this.#assertSecondFactorAttemptsRemain(user.uuid);
-        if (typeof code !== 'string') {
-            throw new HttpError(400, 'code must be a string.', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const hashed = hashRecoveryCode(code);
-        const codes = ((user.otp_recovery_codes as string) || '')
-            .split(',')
-            .filter(Boolean);
-        const idx = codes.indexOf(hashed);
-        if (idx === -1) {
-            await this.#recordSecondFactorFailure(user.uuid);
-            res.json({ proceed: false });
-            return;
-        }
-        await this.#consumeOtpLoginToken(token);
-
-        if (!(await this.stores.user.consumeOtpRecoveryCode(user.id, hashed))) {
-            await this.#recordSecondFactorFailure(user.uuid);
-            res.json({ proceed: false });
-            return;
-        }
-        dropUsedCredentials(req, 'token', 'code');
-
-        await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
-
-        await this.#completeLogin(
-            req,
-            res,
-            user,
-            'recovery_code',
-            decoded.oidcContinuation,
-        );
+        return { token, code, decoded, user };
     }
 
     // -- Signup ------------------------------------------------------
@@ -1159,7 +1149,7 @@ export class AuthController extends PuterController {
                 ? req.body.fingerprint
                 : null;
         const checkEvent = await checkSignupBonus(this.clients.event, code, {
-            ip: (req.ip || req.socket?.remoteAddress || null) as string | null,
+            ip: requestIp(req),
             fingerprint,
         });
 
@@ -1216,7 +1206,7 @@ export class AuthController extends PuterController {
             const user = await this.stores.user.getByUuid(
                 req.actor.user.uuid as string,
             );
-            if (user && user.password === null && user.email === null) {
+            if (user && isTemporaryAccount(user)) {
                 this.#cascadeDeleteUser(user.id).catch((e) => {
                     console.warn('[logout] temp-user cleanup failed:', e);
                 });
@@ -1256,7 +1246,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const code = String(crypto.randomInt(100000, 1000000));
+        const code = generateEmailConfirmCode();
         await this.stores.user.update(user.id, {
             email_confirm_code: code,
         });
@@ -2004,7 +1994,7 @@ export class AuthController extends PuterController {
             user_id: user.id,
             email: user.email!,
             user_uid: user.uuid,
-            ip: (req.ip || req.socket?.remoteAddress || null) as string | null,
+            ip: requestIp(req),
             device_fingerprint: req.deviceFingerprint ?? null,
             purpose,
             enabled: null as boolean | null,
@@ -2386,7 +2376,7 @@ export class AuthController extends PuterController {
      * so one source retrying is one incident.
      */
     #adminRecoveryAttempted(req: Request, target: string): void {
-        const ip = req.ip || req.socket?.remoteAddress || null;
+        const ip = requestIp(req);
         try {
             this.clients.alarm?.create(
                 `auth:admin-pass-recovery-attempt:${ip ?? 'unknown'}`,
@@ -2526,7 +2516,7 @@ export class AuthController extends PuterController {
         }
 
         // Atomic check: only update if the recovery token still matches
-        const password_hash = await bcrypt.hash(password, 8);
+        const password_hash = await hashPassword(password);
         let result;
         try {
             result = await this.stores.user.update(
@@ -2608,7 +2598,7 @@ export class AuthController extends PuterController {
 
         const user = req.userProtected!.user;
 
-        const password_hash = await bcrypt.hash(new_pass, 8);
+        const password_hash = await hashPassword(new_pass);
         // Clearing the forced-change gate is what lets a team seat back
         // in; nothing else writes these two columns to their cleared state.
         await this.stores.user.update(user.id, {
@@ -3199,8 +3189,8 @@ export class AuthController extends PuterController {
         }
 
         // Promote: set username/email/password on the existing row
-        const password_hash = await bcrypt.hash(password, 8);
-        const email_confirm_code = String(crypto.randomInt(100000, 1000000));
+        const password_hash = await hashPassword(password);
+        const email_confirm_code = generateEmailConfirmCode();
         const email_confirm_token = uuidv4();
 
         // bcrypt above is slow enough for someone else to take the address in
@@ -3563,7 +3553,7 @@ export class AuthController extends PuterController {
         const userId = actor.user?.id;
         if ((parsed.store === 'fs' || !parsed.store) && username && userId) {
             await this.services.fs.mkdir(userId, {
-                path: `/${username}/AppData/${parsed.targetAppUid}`,
+                path: appDataRootPath(username, parsed.targetAppUid),
                 createMissingParents: true,
             } as never);
         }
@@ -3949,21 +3939,27 @@ export class AuthController extends PuterController {
         );
         const viaScan = answerable.filter((p) => !viaAcl.has(p));
 
-        let granted: Map<string, boolean>;
-        try {
-            granted = await this.services.permission.checkMany(actor, viaScan);
-        } catch {
-            granted = new Map<string, boolean>();
-        }
+        // Together: the GUI gives up on this after five seconds and prompts.
+        const [granted, reached] = await Promise.all([
+            (async () => {
+                try {
+                    return await this.services.permission.checkMany(
+                        actor,
+                        viaScan,
+                    );
+                } catch {
+                    return new Map<string, boolean>();
+                }
+            })(),
+            Promise.all(
+                [...viaAcl].map((perm) =>
+                    this.services.acl.checkFsScope(actor, perm),
+                ),
+            ),
+        ]);
         for (const perm of viaScan) {
             result[perm] = granted.get(perm) ?? false;
         }
-        // Together: the GUI gives up on this after five seconds and prompts.
-        const reached = await Promise.all(
-            [...viaAcl].map((perm) =>
-                this.services.acl.checkFsScope(actor, perm),
-            ),
-        );
         [...viaAcl].forEach((perm, i) => {
             result[perm] = reached[i]!;
         });
@@ -4171,69 +4167,31 @@ export class AuthController extends PuterController {
         rateLimit: AUTH_LIST_LIMIT,
     })
     async handleListPermissions(req: Request, res: Response): Promise<void> {
-        const userId = req.actor!.user.id;
-        const db = this.clients.db;
-
-        const [appPerms, userPermsOut, userPermsIn] = await Promise.all([
-            db.read(
-                // The permissions table stores the numeric `app_id` FK; the
-                // public shape exposes the app's `uid`.
-                'SELECT a.`uid` AS app_uid, p.`permission`, p.`extra` ' +
-                    'FROM `user_to_app_permissions` p ' +
-                    'JOIN `apps` a ON a.`id` = p.`app_id` ' +
-                    'WHERE p.`user_id` = ?',
-                [userId],
-            ),
-            db.read(
-                'SELECT u.`username`, p.`permission`, p.`extra` FROM `user_to_user_permissions` p ' +
-                    'JOIN `user` u ON u.`id` = p.`holder_user_id` WHERE p.`issuer_user_id` = ?',
-                [userId],
-            ),
-            db.read(
-                'SELECT u.`username`, p.`permission`, p.`extra` FROM `user_to_user_permissions` p ' +
-                    'JOIN `user` u ON u.`id` = p.`issuer_user_id` WHERE p.`holder_user_id` = ?',
-                [userId],
-            ),
-        ]);
-
-        type Row = {
-            app_uid?: string;
-            username?: string;
-            permission: string;
-            extra?: string | Record<string, unknown> | null;
-        };
+        const { toApps, toUsers, fromUsers } =
+            await this.stores.permission.listGrantsForUser(req.actor!.user.id!);
 
         res.json({
-            myself_to_app: (appPerms as Row[]).map((r) => ({
-                app_uid: r.app_uid,
+            myself_to_app: toApps.map((r) => ({
+                app_uid: r.appUid,
                 permission: r.permission,
-                extra:
-                    typeof r.extra === 'string'
-                        ? JSON.parse(r.extra)
-                        : (r.extra ?? {}),
+                extra: r.extra,
             })),
-            myself_to_user: (userPermsOut as Row[]).map((r) => ({
+            myself_to_user: toUsers.map((r) => ({
                 user: r.username,
                 permission: r.permission,
-                extra:
-                    typeof r.extra === 'string'
-                        ? JSON.parse(r.extra)
-                        : (r.extra ?? {}),
+                extra: r.extra,
             })),
             // A key-value share grant names its owner's uuid and the exact
             // key prefix it covers. The handle is the only name its holder is
             // meant to have for that region, so the grant behind it is not
             // part of what they are shown. The owner still sees their own side
             // above, and in `GET /events/kv-handles`.
-            user_to_myself: (userPermsIn as Row[])
+            user_to_myself: fromUsers
                 .filter((r) => !isKvSharePermission(r.permission))
                 .map((r) => ({
                     user: r.username,
                     permission: r.permission,
-                    extra:
-                        typeof r.extra === 'string'
-                            ? JSON.parse(r.extra)
-                            : (r.extra ?? {}),
+                    extra: r.extra,
                 })),
         });
     }
@@ -4289,31 +4247,13 @@ export class AuthController extends PuterController {
                 await this.services.auth.subdomainOwnerIdFromOrigin(
                     canonicalOrigin,
                 );
-            app = await this.stores.app.createFromOrigin(
+            // Throws rather than issue a token when the sweep of a reused
+            // uid's old grants fails.
+            app = await this.services.app.ensureOriginApp(
                 app_uid,
                 canonicalOrigin,
                 { ownerUserId },
             );
-            // An origin's uid is a deterministic uuidv5, so a deleted app
-            // reappears here under the identical uid. Withdraw any cross-app
-            // data grants left pointing at it before this new row can inherit
-            // consent the user gave its predecessor. Only `createFromOrigin`
-            // reuses a uid, here or wherever else an origin app is bootstrapped:
-            // `AppStore.create` mints a random uuid4, which no deleted app can
-            // ever hold again.
-            //
-            // Called directly rather than through `app.changed`: the token is
-            // issued below, so this has to be able to stop that, and
-            // `emitAndWait` swallows listener errors. Letting it throw is the
-            // point — a sweep that failed leaves the old grants live against an
-            // app whoever controls the origin now has just claimed.
-            await this.services.appPermission.withdrawAppDataGrants(
-                app_uid,
-                'uid reused by a new app',
-            );
-            // Key-value shares the predecessor left read as gone already,
-            // being older than this row; this only cleans them up.
-            this.services.kvShare.retireSharesOlderThanApp(app);
         }
         if (!app) {
             throw new HttpError(404, `App ${app_uid} does not exist`, {
@@ -4362,7 +4302,7 @@ export class AuthController extends PuterController {
             const userId = req.actor!.user?.id;
             if (username && userId) {
                 await this.services.fs.mkdir(userId, {
-                    path: `/${username}/AppData/${app_uid}`,
+                    path: appDataRootPath(username, app_uid),
                     createMissingParents: true,
                     thumbnail: (app as { icon?: string | null }).icon ?? null,
                 } as never);
@@ -5021,7 +4961,7 @@ export class AuthController extends PuterController {
         }
 
         const token = signStepUpToken(this.services.token, user as never);
-        const isApiHost = req.subdomains?.at(-1) === 'api';
+        const isApiHost = activeSubdomain(req) === 'api';
         if (!isApiHost) {
             res.cookie(
                 STEP_UP_COOKIE_NAME,
@@ -5237,7 +5177,7 @@ export class AuthController extends PuterController {
                 {
                     username: user.username,
                     user_uuid: user.uuid,
-                    ip: req.ip || req.socket?.remoteAddress || null,
+                    ip: requestIp(req),
                 },
                 'warning',
                 { dedup: true },

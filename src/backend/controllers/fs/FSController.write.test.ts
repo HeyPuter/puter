@@ -31,11 +31,11 @@ import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSController } from './FSController.js';
 import { FS_BATCH_WRITE_MAX_ITEMS, FS_MULTIPART_MAX_PARTS } from './limits.js';
 import type {
-    ClientSignedWriteResponse,
     CompleteWriteRequest,
     SignedWriteRequest,
     WriteRequest,
-} from './requestTypes.js';
+} from '../../services/fs/types.js';
+import type { ClientSignedWriteResponse } from './requestTypes.js';
 import type { AbortWriteRequest, SignMultipartPartsRequest } from './types.js';
 
 // The write-side of `/fs/*`: `/write`, `/batchWrite` (JSON and multipart),

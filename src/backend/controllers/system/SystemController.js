@@ -24,6 +24,7 @@ import {
     attachmentSummary,
     readContactSubmission,
 } from '../../util/contactAttachments.js';
+import { driverRegistry } from '../../drivers/meta.js';
 import { PuterController } from '../types.js';
 
 /**
@@ -166,12 +167,7 @@ export class SystemController extends PuterController {
             '/healthcheck',
             { subdomain: '*', rateLimit: HEALTHCHECK_LIMIT },
             async (req, res) => {
-                const health = this.services.health;
-                if (!health || typeof health.getStatus !== 'function') {
-                    // Fallback for boot ordering / missing service.
-                    return res.send('ok');
-                }
-                const status = await health.getStatus({
+                const status = await this.services.health.getStatus({
                     ignore: parseNames(req.query.ignore),
                     degrade: parseNames(req.query['marked-degraded']),
                 });
@@ -337,20 +333,17 @@ export class SystemController extends PuterController {
         });
 
         // -- GET|POST /lsmod -----------------------------------------
-        // Enumerates driver interfaces and their implementors. POST is
-        // also routed because puter.js `drivers.list()` sends POST.
+        // Enumerates driver interfaces and their implementors, as
+        // `/drivers/call` resolves them. POST is also routed because puter.js
+        // `drivers.list()` sends POST.
 
         const lsmod = (_req, res) => {
+            const { defaults, meta } = driverRegistry(this.drivers);
             const interfaces = {};
-            for (const [key, driver] of Object.entries(this.drivers)) {
-                const ifaceName = driver?.driverInterface;
-                if (!ifaceName) continue;
-                const driverName = driver.driverName ?? key;
-                if (!interfaces[ifaceName]) {
-                    interfaces[ifaceName] = { implementors: {} };
-                }
-                interfaces[ifaceName].implementors[driverName] = {
-                    isDefault: Boolean(driver.isDefault),
+            for (const { interfaceName, driverName } of meta.values()) {
+                interfaces[interfaceName] ??= { implementors: {} };
+                interfaces[interfaceName].implementors[driverName] = {
+                    isDefault: defaults.get(interfaceName) === driverName,
                 };
             }
             res.json({ interfaces });
@@ -368,8 +361,6 @@ export class SystemController extends PuterController {
     }
 
     onServerStart() {}
-    onServerPrepareShutdown() {
-        globalThis.__puter_draining = true;
-    }
+    onServerPrepareShutdown() {}
     onServerShutdown() {}
 }
