@@ -26,6 +26,7 @@ import {
     isOutputCostKey,
     listedCosts,
     longContextMultipliers,
+    scheduledChangeTimes,
     trackedInputTokens,
     trackedOutputTokens,
     usageCost,
@@ -627,5 +628,35 @@ describe('listedCosts', () => {
         };
         // The same object, so unaffected listings are unchanged.
         expect(listedCosts(conditional, after)).toBe(conditional.costs);
+    });
+});
+
+describe('scheduledChangeTimes', () => {
+    const withOverrides = (
+        pricingOverrides: IChatModel['pricingOverrides'],
+    ): IChatModel => ({ ...model({ prompt_tokens: 100 }), pricingOverrides });
+
+    it('is empty for a model with no scheduled change', () => {
+        expect(scheduledChangeTimes(model({ prompt_tokens: 100 }))).toEqual([]);
+    });
+
+    it('gives the instant of each change listedCosts applies', () => {
+        expect(
+            scheduledChangeTimes(
+                withOverrides([
+                    {
+                        startsAt: '2026-12-01T00:00:00Z',
+                        costs: { prompt_tokens: 400 },
+                    },
+                    // Depends on the request, so it never changes a listing.
+                    {
+                        startsAt: '2027-01-01T00:00:00Z',
+                        utcDays: [0],
+                        costs: { prompt_tokens: 900 },
+                    },
+                    { startsAt: 'not a date', costs: { prompt_tokens: 1 } },
+                ]),
+            ),
+        ).toEqual([Date.parse('2026-12-01T00:00:00Z')]);
     });
 });

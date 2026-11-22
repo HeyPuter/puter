@@ -119,6 +119,7 @@ import {
     isFreeModel,
     listedCosts,
     longContextMultipliers,
+    scheduledChangeTimes,
     trackedOutputTokens,
     usageCost,
     usageDetailsFromUsage,
@@ -622,6 +623,62 @@ const withClaudeThinkingTokens = (
     }
 };
 
+/** What the model routes serve, built when the model map is swapped. */
+interface ModelListing {
+    models: readonly IChatModel[];
+    /** Ids as `list()` reports them, sorted. */
+    names: readonly string[];
+    /** The listed rates hold from `validFrom` until `validUntil`. */
+    validFrom: number;
+    validUntil: number;
+}
+
+/** Never in force, so the first call builds the listing from the map. */
+const UNBUILT_LISTING: ModelListing = {
+    models: [],
+    names: [],
+    validFrom: Infinity,
+    validUntil: -Infinity,
+};
+
+/**
+ * One entry per model id, by provider then id, at the rates listed at `now`. A
+ * bucket is reachable from each of its names, so it is walked once.
+ */
+const buildModelListing = (
+    modelIdMap: Record<string, IChatModel[]>,
+    now = Date.now(),
+): ModelListing => {
+    const at = new Date(now);
+    const seen = new Set<string>();
+    const models: IChatModel[] = [];
+    let validFrom = -Infinity;
+    let validUntil = Infinity;
+    for (const bucket of new Set(Object.values(modelIdMap))) {
+        for (const model of bucket) {
+            if (seen.has(model.id)) continue;
+            seen.add(model.id);
+            for (const change of scheduledChangeTimes(model)) {
+                if (change <= now) validFrom = Math.max(validFrom, change);
+                else validUntil = Math.min(validUntil, change);
+            }
+            const costs = listedCosts(model, at);
+            models.push(costs === model.costs ? model : { ...model, costs });
+        }
+    }
+    models.sort((a, b) => {
+        if (a.provider === b.provider) return a.id.localeCompare(b.id);
+        return a.provider!.localeCompare(b.provider!);
+    });
+
+    return {
+        models: Object.freeze(models),
+        names: Object.freeze(models.map((m) => m.puterId || m.id).sort()),
+        validFrom,
+        validUntil,
+    };
+};
+
 /**
  * Driver implementing the `puter-chat-completion` interface.
  *
@@ -645,6 +702,8 @@ export class ChatCompletionDriver extends PuterDriver {
     #modelIdMap: Record<string, IChatModel[]> = Object.create(null);
     /** Each bucket entry's own catalog entry, which keeps the vendor's casing. */
     #catalogEntries = new WeakMap<IChatModel, IChatModel>();
+    /** What the model routes serve; replaced with the map it is built from. */
+    #listing = UNBUILT_LISTING;
     #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
     /** The first model-map build, finished once every catalog is in. */
     #modelMapBuilt: Promise<void> = Promise.resolve();
@@ -684,28 +743,23 @@ export class ChatCompletionDriver extends PuterDriver {
 
     // -- Interface methods -------------------------------------------
 
-    async models() {
+    async models(): Promise<readonly IChatModel[]> {
         await this.#modelMapBuilt;
-        const seen = new Set<string>();
-        return Object.values(this.#modelIdMap)
-            .flat()
-            .filter((model) => {
-                if (seen.has(model.id)) return false;
-                seen.add(model.id);
-                return true;
-            })
-            .map((model) => {
-                const costs = listedCosts(model);
-                return costs === model.costs ? model : { ...model, costs };
-            })
-            .sort((a, b) => {
-                if (a.provider === b.provider) return a.id.localeCompare(b.id);
-                return a.provider!.localeCompare(b.provider!);
-            });
+        return this.#currentListing().models;
     }
 
-    async list() {
-        return (await this.models()).map((m) => m.puterId || m.id).sort();
+    async list(): Promise<readonly string[]> {
+        await this.#modelMapBuilt;
+        return this.#currentListing().names;
+    }
+
+    /** A scheduled price change relists without waiting for a map rebuild. */
+    #currentListing(): ModelListing {
+        const now = Date.now();
+        if (now < this.#listing.validFrom || now >= this.#listing.validUntil) {
+            this.#listing = buildModelListing(this.#modelIdMap, now);
+        }
+        return this.#listing;
     }
 
     override getReportedCosts(): Record<string, unknown>[] {
@@ -2356,11 +2410,22 @@ export class ChatCompletionDriver extends PuterDriver {
                     return;
                 }
                 if (publishEachCatalog) {
-                    this.#modelIdMap = this.#assembleModelMap(names, catalogs);
+                    this.#publish(this.#assembleModelMap(names, catalogs));
                 }
             }),
         );
-        this.#modelIdMap = this.#assembleModelMap(names, catalogs);
+        this.#publish(this.#assembleModelMap(names, catalogs));
+    }
+
+    /** The map and its listing change together, so they never disagree. */
+    #publish(modelIdMap: Record<string, IChatModel[]>) {
+        this.#modelIdMap = modelIdMap;
+        try {
+            this.#listing = buildModelListing(modelIdMap);
+        } catch {
+            // Routing keeps the new map; each listing call reports the error.
+            this.#listing = UNBUILT_LISTING;
+        }
     }
 
     /**
