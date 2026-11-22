@@ -30,8 +30,18 @@ import {
 } from '../../core/actor';
 import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
-import { closedAppDataOwners } from '../permission/appDataScopes';
-import { aclAnswerableFsPermission } from '../permission/fsPathPermission';
+import {
+    FS_MODES_ABOVE,
+    aclAnswerableFsPermission,
+    fsEntryPermission,
+    fsEntryPrefixes,
+    fsPermissionsFor,
+    parseFsEntryPermission,
+} from '../permission/fsPathPermission.js';
+import {
+    appDataRootPath,
+    closedAppDataOwners,
+} from '../permission/appDataScopes';
 import { HttpError } from '../../core/http/HttpError.js';
 import { actorHasSubscription } from '../metering/enforcement';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
@@ -113,26 +123,15 @@ export const aclRefusal = (
     });
 };
 
-interface StatPermissionsResult {
-    [path: string]: string[];
-}
-
 /** Who a node grant goes to: one user, or every member of a group. */
 interface AclHolder {
     /** Lock key segment after the issuer id. */
     lockKey: string;
-    query: (prefix: string) => Promise<string[]>;
+    /** What the issuer granted this holder under any of `prefixes`. */
+    query: (prefixes: string[]) => Promise<string[]>;
     grant: (permission: string) => Promise<unknown>;
-    revoke: (permission: string) => Promise<unknown>;
+    revoke: (permissions: string[]) => Promise<unknown>;
 }
-
-const MODES_ABOVE: Record<AclMode, AclMode[]> = {
-    see: ['see', 'list', 'read', 'write'],
-    list: ['list', 'read', 'write'],
-    read: ['read', 'write'],
-    write: ['write'],
-    [MANAGE_PERM_PREFIX]: [MANAGE_PERM_PREFIX],
-};
 
 const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze([
     'read',
@@ -159,8 +158,7 @@ const SET_USER_LOCK_ATTEMPTS = 25;
  *   path, resolveAncestors() }`). This lets ACL live as a service without
  *   pulling in the filesystem layer (which would create a circular
  *   dependency).
- * - **No route registration.** The service is pure; a controller exposes
- *   `/acl/stat-user-user` and `/acl/set-user-user`.
+ * - **No route registration.** The service is pure.
  *
  * Tree-walks are done via `resolveAncestors()`, which returns a pre-resolved
  * ancestor chain from the caller's FS layer.
@@ -213,7 +211,7 @@ export class ACLService extends PuterService {
             const username = actor.user.username;
             const appUid = actor.effectiveApp!.uid;
             if (username) {
-                const appDataPath = `/${username}/AppData/${appUid}`;
+                const appDataPath = appDataRootPath(username, appUid);
                 if (
                     resource.path === appDataPath ||
                     resource.path.startsWith(`${appDataPath}/`)
@@ -274,7 +272,7 @@ export class ACLService extends PuterService {
             return this.stores.permission.hasAnyAccessTokenPerm(
                 actor.accessToken.uid,
                 (await ancestors()).flatMap((ancestor) =>
-                    this.permissionsFor(ancestor.uid, mode),
+                    fsPermissionsFor(ancestor.uid, mode),
                 ),
             );
         }
@@ -311,7 +309,7 @@ export class ACLService extends PuterService {
         const holds = async (ancestor: { uid: string }) => {
             const reading = await this.services.permission.scan(
                 actor,
-                this.permissionsFor(ancestor.uid, mode),
+                fsPermissionsFor(ancestor.uid, mode),
             );
             return PermissionUtil.readingToOptions(reading).length > 0;
         };
@@ -349,7 +347,7 @@ export class ACLService extends PuterService {
             userId,
             appId,
             ancestors.flatMap((ancestor) =>
-                this.permissionsFor(ancestor.uid, mode),
+                fsPermissionsFor(ancestor.uid, mode),
             ),
         );
         if (rows.length === 0) return false;
@@ -357,7 +355,7 @@ export class ACLService extends PuterService {
         const granted = new Set(rows.map((row) => row.permission));
         const userActor: Actor = { user: actor.user, effectiveApp: null };
         for (const [depth, ancestor] of ancestors.entries()) {
-            const grantedHere = this.permissionsFor(ancestor.uid, mode).some(
+            const grantedHere = fsPermissionsFor(ancestor.uid, mode).some(
                 (permission) => granted.has(permission),
             );
             if (!grantedHere) continue;
@@ -394,7 +392,7 @@ export class ACLService extends PuterService {
             ancestors.map((ancestor) => ancestor.uid),
         );
         const covering = links.find((link) =>
-            MODES_ABOVE[mode].some((above) => above === link.mode),
+            FS_MODES_ABOVE[mode].some((above) => above === link.mode),
         );
         if (!covering) return false;
         return this.#planCoversLinkSharing(covering.ownerUserId);
@@ -417,32 +415,24 @@ export class ACLService extends PuterService {
         );
     }
 
-    /**
-     * Permissions on `uid` that satisfy `mode`. `manage` sits above the whole
-     * family — it answers any mode, but nothing answers it.
-     *
-     * Public because it also answers the reverse question: given a grant that
-     * was just withdrawn, which stored checks did it hold up?
-     */
+    /** See {@link fsPermissionsFor}. */
     permissionsFor(uid: string, mode: AclMode): string[] {
-        const manage = PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid);
-        if (mode === MANAGE_PERM_PREFIX) return [manage];
-        return [
-            ...MODES_ABOVE[mode].map((m) => PermissionUtil.join('fs', uid, m)),
-            manage,
-        ];
+        return fsPermissionsFor(uid, mode);
     }
 
     /**
-     * When a check fails, return a user-safe error: 404 if the actor can't even
-     * `see` the resource (don't leak existence), 403 otherwise.
+     * When `check` has refused `mode`, return a user-safe error: 404 if the
+     * actor can't even `see` the resource (don't leak existence), 403
+     * otherwise. A refused `see` is already that answer, so it isn't checked
+     * again.
      */
     async getSafeAclError(
         actor: Actor,
         resource: ResourceDescriptor,
-        _mode: AclMode,
+        mode: AclMode,
     ): Promise<AclError> {
-        const canSee = await this.check(actor, resource, 'see');
+        const canSee =
+            mode !== 'see' && (await this.check(actor, resource, 'see'));
         if (!canSee) {
             return {
                 status: 404,
@@ -549,28 +539,6 @@ export class ACLService extends PuterService {
     }
 
     /**
-     * Stat user-to-user permissions on a resource, walking up the ancestor
-     * chain. Returns a map from ancestor path → permissions the issuer has
-     * granted the holder on that ancestor.
-     */
-    async statUserUser(
-        issuer: Actor,
-        holder: Actor,
-        resource: ResourceDescriptor,
-    ): Promise<StatPermissionsResult> {
-        return this.#stat(this.#userHolder(issuer, holder), resource);
-    }
-
-    /** The group analogue of `statUserUser`; no holder actor to validate. */
-    async statUserGroup(
-        issuer: Actor,
-        groupUid: string,
-        resource: ResourceDescriptor,
-    ): Promise<StatPermissionsResult> {
-        return this.#stat(this.#groupHolder(issuer, groupUid), resource);
-    }
-
-    /**
      * Grant `mode` on `resource` from `issuer` to `holder`, clearing any
      * existing different-mode grants on the same node. No-op if the same mode
      * (or, with `onlyIfHigher`, a higher mode) is already present.
@@ -624,16 +592,16 @@ export class ACLService extends PuterService {
         const username = () => holder.user.username as string;
         return {
             lockKey: String(holder.user.id),
-            query: (prefix) =>
-                permission.queryIssuerHolderPermissionsByPrefix(
+            query: (prefixes) =>
+                permission.queryIssuerHolderPermissionsByPrefixes(
                     issuer,
                     holder,
-                    prefix,
+                    prefixes,
                 ),
             grant: (perm) =>
                 permission.grantUserUserPermission(issuer, username(), perm),
-            revoke: (perm) =>
-                permission.revokeUserUserPermission(issuer, username(), perm),
+            revoke: (perms) =>
+                permission.revokeUserUserPermissions(issuer, username(), perms),
         };
     }
 
@@ -645,42 +613,17 @@ export class ACLService extends PuterService {
         const permission = this.services.permission;
         return {
             lockKey: `group:${groupUid}`,
-            query: (prefix) =>
-                permission.queryIssuerGroupPermissionsByPrefix(
+            query: (prefixes) =>
+                permission.queryIssuerGroupPermissionsByPrefixes(
                     issuer,
                     groupUid,
-                    prefix,
+                    prefixes,
                 ),
             grant: (perm) =>
                 permission.grantUserGroupPermission(issuer, groupUid, perm),
-            revoke: (perm) =>
-                permission.revokeUserGroupPermission(issuer, groupUid, perm),
+            revoke: (perms) =>
+                permission.revokeUserGroupPermissions(issuer, groupUid, perms),
         };
-    }
-
-    async #stat(
-        holder: AclHolder,
-        resource: ResourceDescriptor,
-    ): Promise<StatPermissionsResult> {
-        const out: StatPermissionsResult = {};
-        const ancestors = await resource.resolveAncestors();
-        for (const ancestor of ancestors) {
-            // Both namespaces: a `manage:fs:<uid>` grant lives outside the
-            // `fs:<uid>` prefix, and `#set` relies on seeing it — otherwise
-            // downgrading a manage share to a weaker mode leaves the manage
-            // grant in place.
-            const prefixes = [
-                PermissionUtil.join('fs', ancestor.uid),
-                PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid),
-            ];
-            const perms = (
-                await Promise.all(
-                    prefixes.map((prefix) => holder.query(prefix)),
-                )
-            ).flat();
-            if (perms.length > 0) out[ancestor.path] = perms;
-        }
-        return out;
     }
 
     async #set(
@@ -691,7 +634,7 @@ export class ACLService extends PuterService {
         options: { onlyIfHigher?: boolean },
     ): Promise<boolean> {
         // Resolved up front so the whole read-modify-write runs under one
-        // lock. Descriptors cache the chain, so `#stat` reuses this.
+        // lock.
         const ancestors = await resource.resolveAncestors();
         const self = ancestors[0];
         if (!self)
@@ -703,7 +646,7 @@ export class ACLService extends PuterService {
 
         return this.#withNodeLock(
             `${issuer.user.id}:${holder.lockKey}:${self.uid}`,
-            () => this.#setLocked(holder, resource, mode, self.uid, options),
+            () => this.#setLocked(holder, mode, self.uid, options),
         );
     }
 
@@ -714,18 +657,17 @@ export class ACLService extends PuterService {
      */
     async #setLocked(
         holder: AclHolder,
-        resource: ResourceDescriptor,
         mode: AclMode,
         uid: string,
         options: { onlyIfHigher?: boolean },
     ): Promise<boolean> {
-        const stat = await this.#stat(holder, resource);
-        const existing = stat[resource.path] ?? [];
+        // Both namespaces: a `manage:fs:<uid>` grant lives outside the
+        // `fs:<uid>` prefix, and a downgrade from manage has to see it to clear
+        // it.
+        const existing = await holder.query(fsEntryPrefixes(uid));
 
         const modeOf = (perm: string) =>
-            PermissionUtil.isManage(perm)
-                ? MANAGE_PERM_PREFIX
-                : PermissionUtil.split(perm).at(-1);
+            parseFsEntryPermission(perm)?.mode ?? null;
         const existingModes = existing.map(modeOf);
         const superseded = existing.filter((perm) => modeOf(perm) !== mode);
         const already = existingModes.includes(mode);
@@ -734,7 +676,7 @@ export class ACLService extends PuterService {
         if (already && superseded.length === 0) return false;
 
         if (options.onlyIfHigher) {
-            const higher = MODES_ABOVE[mode] ?? [mode];
+            const higher = FS_MODES_ABOVE[mode] ?? [mode];
             if (
                 existingModes.some(
                     (m) =>
@@ -747,16 +689,10 @@ export class ACLService extends PuterService {
         }
 
         // Unconditional: the read above can be a stale replica.
-        const newPerm =
-            mode === MANAGE_PERM_PREFIX
-                ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
-                : PermissionUtil.join('fs', uid, mode);
-        await holder.grant(newPerm);
+        await holder.grant(fsEntryPermission(uid, mode));
 
         // One mode per node per issuer/holder — higher modes supersede lower.
-        for (const perm of superseded) {
-            await holder.revoke(perm);
-        }
+        if (superseded.length > 0) await holder.revoke(superseded);
         return true;
     }
 
@@ -783,20 +719,5 @@ export class ACLService extends PuterService {
                 },
             },
         );
-    }
-
-    /**
-     * The highest mode currently in the ACL hierarchy. Callers that gate on
-     * "top-level" access (e.g., share-everything) should use this instead of
-     * hardcoding 'write', so additions (e.g., a future 'config' mode) don't
-     * require sweeping call-site changes.
-     */
-    getHighestMode(): AclMode {
-        return 'write';
-    }
-
-    /** Modes that imply `mode`. */
-    higherModes(mode: AclMode): AclMode[] {
-        return MODES_ABOVE[mode] ?? [mode];
     }
 }

@@ -217,6 +217,43 @@ describe('the addressed peer queue', () => {
         ).toEqual(['b']);
     });
 
+    it('splits what built up behind a slow send into bounded batches', async () => {
+        let release: (() => void) | null = null;
+        const sent: ForwardItem[][] = [];
+        const itemBytes = JSON.stringify(delivery('s-0')).length;
+        const { queue } = makeQueue({
+            maxItems: 5,
+            maxBytes: itemBytes * 3,
+            send: async (_peerId, items) => {
+                sent.push(items);
+                if (sent.length === 1)
+                    await new Promise<void>((resolve) => {
+                        release = resolve;
+                    });
+            },
+        });
+
+        queue.push('east', delivery('s-0'));
+        void queue.flush('east');
+        await vi.waitFor(() => expect(release).not.toBeNull());
+        for (let i = 1; i <= 20; i++) queue.push('east', delivery(`s-${i}`));
+        release!();
+
+        await vi.waitFor(() =>
+            expect(sent.flat().map((item) => (item as { subId: string }).subId))
+                .toHaveLength(21),
+        );
+        for (const batch of sent) {
+            expect(batch.length).toBeLessThanOrEqual(3);
+            expect(JSON.stringify(batch).length).toBeLessThanOrEqual(
+                itemBytes * 3 + 2 + batch.length,
+            );
+        }
+        expect(
+            sent.flat().map((item) => (item as { subId: string }).subId),
+        ).toEqual(Array.from({ length: 21 }, (_, i) => `s-${i}`));
+    });
+
     it.each([false, true])(
         'waits for an active send and ships its tail after failure %s',
         async (failFirst) => {

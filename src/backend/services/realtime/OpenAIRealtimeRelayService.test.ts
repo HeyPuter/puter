@@ -2416,6 +2416,9 @@ describe('OpenAIRealtimeRelayService relay', () => {
         vi.spyOn(server.clients.redis, 'get').mockRejectedValue(
             new Error('lookup down'),
         );
+        vi.spyOn(server.clients.redis, 'pipeline').mockImplementation(() => {
+            throw new Error('lookup down');
+        });
         vi.spyOn(server.clients.db, 'read').mockRejectedValue(
             new Error('lookup down'),
         );

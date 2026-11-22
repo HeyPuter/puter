@@ -89,6 +89,30 @@ export class AppService extends PuterService {
     }
 
     /**
+     * The app for an origin's deterministic `uid`, created when missing. A
+     * deleted app's uid comes back with its origin, so the data grants and
+     * key-value shares its predecessor left are withdrawn before anyone can use
+     * the new row; a failed withdrawal throws.
+     */
+    async ensureOriginApp(
+        uid: string,
+        origin: string,
+        { ownerUserId = null }: { ownerUserId?: number | null } = {},
+    ): Promise<AppRow> {
+        const existing = (await this.stores.app.getByUid(uid)) as AppRow | null;
+        if (existing) return existing;
+        const app = (await this.stores.app.createFromOrigin(uid, origin, {
+            ownerUserId,
+        })) as AppRow & { uid: string };
+        await this.services.appPermission.withdrawAppDataGrants(
+            uid,
+            'uid reused by a new app',
+        );
+        this.services.kvShare.retireSharesOlderThanApp(app);
+        return app;
+    }
+
+    /**
      * Client views for `apps`, aligned with the input, with the launch gates
      * resolved for `actor`. Every lookup is batched across the list.
      */

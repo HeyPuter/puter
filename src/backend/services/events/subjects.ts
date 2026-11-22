@@ -205,6 +205,15 @@ export const notifMatchOn = (
     audience: NotificationAudience | string,
 ): string => `${ref}${NOTIF_MATCH_SEPARATOR}${audience}`;
 
+/**
+ * The wire subject of a mailbox slice: `ref` is the app the rows are about, or
+ * the recipient when they name none.
+ */
+export const notifSubject = (
+    ref: string,
+    audience: NotificationAudience | string,
+): string => `notif:${ref}:${audience}`;
+
 /** Whether a notif filter spans every app: a session's generic slice. */
 export const notifMatchSpansEveryApp = (match: string | null): boolean =>
     match?.startsWith(`*${NOTIF_MATCH_SEPARATOR}`) === true;

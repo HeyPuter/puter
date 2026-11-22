@@ -1036,6 +1036,86 @@ describe('OIDCService.getUserInfo — userinfo endpoint providers', () => {
     it('returns null for a provider with neither userinfo nor an id_token', async () => {
         expect(await oidc().getUserInfo('apple', 'access-token')).toBeNull();
     });
+
+    it('reads a string-encoded email_verified from userinfo as a boolean', async () => {
+        stubbedResponses.set(CUSTOM_USERINFO, () => ({
+            ok: true,
+            json: async () => ({
+                sub: 'custom-sub',
+                email: 'u@idp.example',
+                email_verified: 'false',
+            }),
+        }));
+        try {
+            const info = await oidc().getUserInfo('custom', 'access-token');
+            expect(info?.email_verified).toBe(false);
+        } finally {
+            stubbedResponses.delete(CUSTOM_USERINFO);
+        }
+    });
+
+    it('passes a timeout signal to every provider call', async () => {
+        const signals: unknown[] = [];
+        stubbedResponses.set(CUSTOM_USERINFO, () => ({
+            ok: true,
+            json: async () => ({ sub: 'custom-sub' }),
+        }));
+        const original = globalThis.fetch;
+        vi.stubGlobal('fetch', (async (url: unknown, init?: RequestInit) => {
+            signals.push(init?.signal);
+            return original(url as string, init);
+        }) as typeof fetch);
+        try {
+            await oidc().getUserInfo('custom', 'access-token');
+            expect(signals).toHaveLength(1);
+            expect(signals[0]).toBeInstanceOf(AbortSignal);
+        } finally {
+            vi.stubGlobal('fetch', original);
+            stubbedResponses.delete(CUSTOM_USERINFO);
+        }
+    });
+});
+
+describe('OIDCService.getUserInfo (apple)', () => {
+    const APPLE_JWKS_URI = 'https://appleid.apple.com/auth/keys';
+    const signAppleIdToken = (payload: Record<string, unknown>): string =>
+        jwt.sign({ email: 'someone@icloud.example', ...payload }, privateKey, {
+            algorithm: 'RS256',
+            keyid: KID,
+            subject: 'apple-sub-1',
+            audience: 'apple-client',
+            issuer: 'https://appleid.apple.com',
+            expiresIn: '5m',
+        });
+
+    beforeAll(() => {
+        stubbedResponses.set(APPLE_JWKS_URI, () => ({
+            ok: true,
+            json: async () => ({ keys: [jwk] }),
+        }));
+    });
+    afterAll(() => {
+        stubbedResponses.delete(APPLE_JWKS_URI);
+    });
+
+    // Apple sends `email_verified` as the string "true" or "false".
+    it('reads email_verified "false" as unverified', async () => {
+        const info = await oidc().getUserInfo(
+            'apple',
+            'access-token',
+            signAppleIdToken({ email_verified: 'false' }),
+        );
+        expect(info?.email_verified).toBe(false);
+    });
+
+    it('reads email_verified "true" as verified', async () => {
+        const info = await oidc().getUserInfo(
+            'apple',
+            'access-token',
+            signAppleIdToken({ email_verified: 'true' }),
+        );
+        expect(info?.email_verified).toBe(true);
+    });
 });
 
 // -- User lookup / creation -------------------------------------------

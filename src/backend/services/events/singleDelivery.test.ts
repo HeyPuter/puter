@@ -27,7 +27,7 @@ import {
     EVENTS_SOCKET_LEASE_MS,
     EVENTS_WORKER_INVOCATION_LIMIT,
     deliveryBackoffMs,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import type { Actor } from '../../core/actor.js';
 import { EventSubscriptionStore } from '../../stores/events/EventSubscriptionStore.js';
 import { PendingDeliveryStore } from '../../stores/events/PendingDeliveryStore.js';

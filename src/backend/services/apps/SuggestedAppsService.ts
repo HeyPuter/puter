@@ -19,7 +19,11 @@
 
 import { posix as pathPosix } from 'node:path';
 import { toAppSummary } from '../../util/appView.js';
-import { hostedIndexUrlBackingIsUnavailable } from '../../util/hostedAppBacking.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
+import {
+    extractPuterHostedSubdomain,
+    hostedIndexUrlBackingsAreUnavailable,
+} from '../../util/hostedAppBacking.js';
 import { PuterService } from '../types.js';
 
 // -- Extension → suggested app names mapping -------------------------
@@ -173,11 +177,8 @@ function suggestionsForExtension(ext: string): {
 // is a few minutes before a new filetype association surfaces — not worth a
 // Redis round-trip per lookup on a hot path (readdir fans out per-child).
 const SUGGESTION_CACHE_TTL_MS = 5 * 60 * 1000;
-
-type SuggestionsEntry = {
-    promise: Promise<Array<Record<string, unknown>>>;
-    expiresAt: number;
-};
+// File names are user input, so the extensions seen per process are unbounded.
+const SUGGESTION_CACHE_MAX_ENTRIES = 1000;
 
 function extractExtension(entry: { name?: string; path?: string }): string {
     const name =
@@ -198,7 +199,13 @@ export class SuggestedAppsService extends PuterService {
     // Keyed by the normalized extension (lowercase, no leading dot). The
     // cached value is the promise — in-flight lookups coalesce, and the
     // same promise is reused for every entry that shares an extension.
-    #extensionCache = new Map<string, SuggestionsEntry>();
+    #extensionCache = new BoundedTtlMap<
+        string,
+        Promise<Array<Record<string, unknown>>>
+    >({
+        maxEntries: SUGGESTION_CACHE_MAX_ENTRIES,
+        ttlMs: SUGGESTION_CACHE_TTL_MS,
+    });
 
     async getSuggestedApps(entry: {
         name?: string;
@@ -231,24 +238,22 @@ export class SuggestedAppsService extends PuterService {
     }
 
     #getByExtension(ext: string): Promise<Array<Record<string, unknown>>> {
-        const now = Date.now();
         const cached = this.#extensionCache.get(ext);
-        if (cached && cached.expiresAt > now) {
-            return cached.promise;
-        }
+        if (cached) return cached;
 
-        const promise = this.#resolveForExtension(ext).catch((error) => {
-            // Failure must not poison the cache — drop the entry so the
-            // next caller retries.
-            if (this.#extensionCache.get(ext)?.promise === promise) {
-                this.#extensionCache.delete(ext);
+        const promise = (async () => {
+            try {
+                return await this.#resolveForExtension(ext);
+            } catch (error) {
+                // Failure must not poison the cache — drop the entry so the
+                // next caller retries.
+                if (this.#extensionCache.get(ext) === promise) {
+                    this.#extensionCache.delete(ext);
+                }
+                throw error;
             }
-            throw error;
-        });
-        this.#extensionCache.set(ext, {
-            promise,
-            expiresAt: now + SUGGESTION_CACHE_TTL_MS,
-        });
+        })();
+        this.#extensionCache.set(ext, promise);
         return promise;
     }
 
@@ -260,17 +265,19 @@ export class SuggestedAppsService extends PuterService {
 
         const apiBaseUrl = this.config.api_base_url as string | undefined;
 
-        // Built-in apps, looked up by their stable app name. Parallel-safe
-        // because order is imposed below via `builtinNames`.
-        const builtinApps = await Promise.all(
-            builtinNames.map((appName) => this.stores.app.getByName(appName)),
+        // Built-in apps, looked up by their stable app name, beside the apps
+        // registered for the extension. Order is imposed below.
+        const [builtinApps, registeredApps] = await Promise.all([
+            Promise.all(
+                builtinNames.map((appName) =>
+                    this.stores.app.getByName(appName),
+                ),
+            ),
+            ext ? this.stores.app.getAppsByFiletype(ext) : [],
+        ]);
+        const thirdPartyApps = registeredApps.filter(
+            (app) => app.approved_for_opening_items,
         );
-
-        const thirdPartyApps = ext
-            ? (await this.stores.app.getAppsByFiletype(ext)).filter(
-                  (app) => app.approved_for_opening_items,
-              )
-            : [];
 
         // Order decides the default opener: `suggested[0]` feeds the GUI's
         // double-click path and `/open_item`. Intentionally mapped built-ins
@@ -301,21 +308,23 @@ export class SuggestedAppsService extends PuterService {
         //
         // Built-ins never hit the DB here: their index_urls aren't on a
         // hosting domain, so the check short-circuits on the URL alone.
-        const availability = await Promise.all(
-            candidates.map((app) =>
-                hostedIndexUrlBackingIsUnavailable({
-                    app,
-                    subdomainStore: this.stores.subdomain,
-                    config: this.config,
-                }).catch(() => {
-                    // A subdomain lookup failure must not silently widen the
-                    // guard into "suggest nothing" — but it must not open it
-                    // either. Treat the backing as unavailable: the app is
-                    // unlaunchable for this window, not deleted.
-                    return true;
-                }),
-            ),
-        );
+        let availability: boolean[];
+        try {
+            availability = await hostedIndexUrlBackingsAreUnavailable({
+                apps: candidates,
+                subdomainStore: this.stores.subdomain,
+                config: this.config,
+            });
+        } catch {
+            // A failed lookup must not open the guard. Treat the hosted
+            // backings as unavailable: those apps are unlaunchable for this
+            // window, not deleted.
+            availability = candidates.map(
+                (app) =>
+                    extractPuterHostedSubdomain(app.index_url, this.config) !==
+                    null,
+            );
+        }
 
         return candidates
             .filter((_app, index) => !availability[index])

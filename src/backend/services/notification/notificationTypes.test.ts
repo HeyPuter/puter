@@ -62,34 +62,6 @@ describe('NOTIFICATION_TYPES', () => {
             appScoped: false,
         });
     });
-
-    it('projects a subject naming the app, or the recipient when there is none', () => {
-        const account = findNotificationType('share.received')!;
-        expect(account.subject({ userUuid: 'user-uuid', appUid: null })).toBe(
-            'notif:user-uuid:account',
-        );
-
-        const developer = findNotificationType('app.events.suspended')!;
-        expect(
-            developer.subject({ userUuid: 'user-uuid', appUid: 'app-1' }),
-        ).toBe('notif:app-1:developer');
-
-        const holder = findNotificationType('app.events.ended')!;
-        expect(holder.subject({ userUuid: 'user-uuid', appUid: 'app-1' })).toBe(
-            'notif:app-1:app-user',
-        );
-
-        const message = findNotificationType('app.message')!;
-        expect(
-            message.subject({ userUuid: 'user-uuid', appUid: 'app-1' }),
-        ).toBe('notif:app-1:app-user');
-
-        // A worker bound to no app has no app to name.
-        const worker = findNotificationType('app.worker.deployed')!;
-        expect(worker.subject({ userUuid: 'user-uuid', appUid: null })).toBe(
-            'notif:user-uuid:developer',
-        );
-    });
 });
 
 describe('resolveNotificationWrite', () => {

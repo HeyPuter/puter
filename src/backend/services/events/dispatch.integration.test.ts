@@ -30,7 +30,7 @@ import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import type { DeliveryEnvelope } from './EventsService.js';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import { EVENTS_COALESCE_WINDOW_MS } from './limits.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const SOCKET_ID = 'integration-socket';

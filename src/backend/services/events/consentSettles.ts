@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
+
 /**
  * Paces the settles a delivery starts when it finds background consent
  * withdrawn. A settle ends rows for good, so a permission check that wrongly
@@ -36,20 +38,17 @@ export type ConsentCheckStart = 'start' | 'skip' | 'spent';
 
 export class ConsentSettles {
     readonly #inFlight = new Set<string>();
-    /** Insertion order is time order: re-confirming moves a key to the tail. */
-    readonly #confirmedAt = new Map<string, number>();
+    readonly #confirmed = new BoundedTtlMap<string, true>({
+        maxEntries: CONSENT_CONFIRMED_MAX_ENTRIES,
+        ttlMs: CONSENT_CONFIRMED_TTL_MS,
+    });
     #windowStart = 0;
     #taken = 0;
 
     /** Whether to check `key` now; `start` must be paired with `end`. */
     begin(key: string): ConsentCheckStart {
         if (this.#inFlight.has(key)) return 'skip';
-        const confirmedAt = this.#confirmedAt.get(key);
-        if (confirmedAt !== undefined) {
-            if (Date.now() - confirmedAt <= CONSENT_CONFIRMED_TTL_MS)
-                return 'skip';
-            this.#confirmedAt.delete(key);
-        }
+        if (this.#confirmed.has(key)) return 'skip';
         if (this.#left() === 0) return 'spent';
         this.#inFlight.add(key);
         return 'start';
@@ -61,9 +60,7 @@ export class ConsentSettles {
 
     /** A fresh read found the consent standing. */
     confirm(key: string): void {
-        this.#confirmedAt.delete(key);
-        this.#confirmedAt.set(key, Date.now());
-        this.#prune();
+        this.#confirmed.set(key, true);
     }
 
     /** One settle from this window's budget; false once it is spent. */
@@ -79,16 +76,5 @@ export class ConsentSettles {
             this.#taken = 0;
         }
         return CONSENT_SETTLES_PER_WINDOW - this.#taken;
-    }
-
-    #prune(): void {
-        for (const [key, confirmedAt] of this.#confirmedAt) {
-            const overCap =
-                this.#confirmedAt.size > CONSENT_CONFIRMED_MAX_ENTRIES;
-            const headExpired =
-                Date.now() - confirmedAt > CONSENT_CONFIRMED_TTL_MS;
-            if (!overCap && !headExpired) break;
-            this.#confirmedAt.delete(key);
-        }
     }
 }

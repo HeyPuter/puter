@@ -45,7 +45,10 @@ import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { resolveCustomHostSubdomain } from '../../util/hostedAppBacking.js';
+import { normalizeHost, type HostedDomainConfig } from '../../util/hosts.js';
 import { Span } from '../../util/span.js';
+import { nowSeconds } from '../../util/time.js';
+import { isTemporaryAccount } from '../../util/userDetails.js';
 import type { puterServices } from '../index';
 import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS, PERMISSION_MAX_LEN } from '../permission/consts';
@@ -79,16 +82,10 @@ const SESSION_PURGE_PAUSE_MS = 50;
 /** Ranges walked between saves of the cursor. */
 const SESSION_PURGE_SAVE_EVERY = 10;
 
-const nowSeconds = (): number => Math.floor(Date.now() / 1000);
-
-/**
- * Whether an account can sign back in, so its idle sessions end: it has a
- * password or an email. Temp accounts have neither. Reads an actor's
- * `hasPassword` as well as a row's `password`.
- */
+/** Whether an account can sign back in, so its idle sessions end. */
 const canSignInAgain = (
     user: { password?: unknown; hasPassword?: boolean; email?: unknown } | null,
-): boolean => !!user && (!!user.email || (user.hasPassword ?? !!user.password));
+): boolean => !!user && !isTemporaryAccount(user, { blankIsMissing: true });
 
 const positiveUserId = (value: unknown): number | null => {
     const id = typeof value === 'string' ? Number(value) : value;
@@ -658,12 +655,11 @@ export class AuthService extends PuterService {
         return this.services.token.sign(
             'auth',
             {
-                type: 'app-under-user',
-                version: '2',
-                user_uid: actor.user.uuid,
-                app_uid: appUid,
-                session_uid: session.uuid,
-                auth_id,
+                ...this.#appUnderUserClaims(
+                    actor.user as UserRow,
+                    appUid,
+                    session.uuid,
+                ),
                 worker: true,
                 worker_name: workerName,
                 ...(options.workerUid ? { worker_uid: options.workerUid } : {}),
@@ -685,6 +681,36 @@ export class AuthService extends PuterService {
 
     #authIdFor(user: UserRow): string {
         return user.uuid;
+    }
+
+    #appUnderUserClaims(
+        user: UserRow,
+        appUid: string,
+        sessionUid: string | undefined,
+    ): Record<string, unknown> {
+        return {
+            type: 'app-under-user',
+            version: '2',
+            user_uid: user.uuid,
+            app_uid: appUid,
+            session_uid: sessionUid,
+            auth_id: this.#authIdFor(user),
+        };
+    }
+
+    #accessTokenClaims(
+        user: UserRow,
+        tokenUid: string,
+        sessionUid: string,
+    ): Record<string, unknown> {
+        return {
+            type: 'access-token',
+            version: '2',
+            token_uid: tokenUid,
+            user_uid: user.uuid,
+            session_uid: sessionUid,
+            auth_id: this.#authIdFor(user),
+        };
     }
 
     /**
@@ -835,9 +861,7 @@ export class AuthService extends PuterService {
             (sessionPayload.session_uid as string | undefined) ??
             sessionPayload.uuid;
         if (!sessionUuid) return;
-        this.#announceRevocation(
-            await this.stores.session.revokeCascade(sessionUuid),
-        );
+        await this.revokeSession(sessionUuid);
     }
 
     /**
@@ -972,9 +996,7 @@ export class AuthService extends PuterService {
             uuid,
         )) as string[];
         this.#announceRevocation(await this.stores.session.revokeCascade(uuid));
-        for (const tokenUid of tokenUids) {
-            await this.#dropAccessTokenGrants(tokenUid);
-        }
+        await this.#dropAccessTokenGrants(tokenUids);
     }
 
     /**
@@ -1050,20 +1072,42 @@ export class AuthService extends PuterService {
     async revokeAllSessionsForUserIds(userIds: number[]): Promise<void> {
         const ids = [...new Set(userIds.filter(Boolean))];
         for (let offset = 0; offset < ids.length; offset += 200) {
-            const rows = await this.stores.session.getByUserIds(
+            const rows = (await this.stores.session.getByUserIds(
                 ids.slice(offset, offset + 200),
                 { primary: true },
+            )) as SessionRow[];
+            await this.#revokeCascades(
+                rows.map((row) => row.uuid),
+                rows,
             );
-            await this.#revokeCascades(rows.map((row) => row.uuid as string));
         }
     }
 
-    async #revokeCascades(rootUuids: string[]): Promise<void> {
+    /**
+     * Revoke `rootUuids` and the rows derived from them, then drop the grants
+     * of the access tokens among them. `rows` holds every live row of the users
+     * involved.
+     */
+    async #revokeCascades(
+        rootUuids: string[],
+        rows: SessionRow[],
+    ): Promise<void> {
         if (rootUuids.length === 0) return;
+        const roots = new Set(rootUuids);
+        const tokenUids = rows
+            .filter(
+                (row) =>
+                    row.kind === 'access_token' &&
+                    (roots.has(row.uuid) ||
+                        roots.has(row.parent_session_id ?? '')),
+            )
+            .map((row) => row.access_token_uid ?? row.legacy_token_uid)
+            .filter((uid): uid is string => !!uid);
         const revoked = (await this.stores.session.revokeCascades(
             rootUuids,
         )) as { userId: number; uuids: string[] }[];
         for (const entry of revoked) this.#announceRevocation(entry);
+        await this.#dropAccessTokenGrants(tokenUids);
     }
 
     /**
@@ -1145,10 +1189,12 @@ export class AuthService extends PuterService {
                 ...(byUser.get(row.userId) ?? []),
                 row.uuid,
             ]);
-            if (row.accessTokenUid) {
-                await this.#dropAccessTokenGrants(row.accessTokenUid);
-            }
         }
+        await this.#dropAccessTokenGrants(
+            deleted
+                .map((row) => row.accessTokenUid)
+                .filter((uid): uid is string => !!uid),
+        );
         for (const [userId, uuids] of byUser) {
             this.#announceRevocation({ userId, uuids });
         }
@@ -1164,9 +1210,9 @@ export class AuthService extends PuterService {
      */
     async revokeInteractiveSessionsForUserId(userId: number): Promise<void> {
         if (!userId) return;
-        const rows = await this.stores.session.getByUserId(userId, {
+        const rows = (await this.stores.session.getByUserId(userId, {
             primary: true,
-        });
+        })) as SessionRow[];
         await this.#revokeCascades(
             rows
                 .filter(
@@ -1175,7 +1221,8 @@ export class AuthService extends PuterService {
                         row.kind === 'app' ||
                         row.kind === DEBUG_APP_SESSION_KIND,
                 )
-                .map((row) => row.uuid as string),
+                .map((row) => row.uuid),
+            rows,
         );
     }
 
@@ -1208,7 +1255,8 @@ export class AuthService extends PuterService {
                           )
                         : row.kind === 'app' && opts.includeApps,
                 )
-                .map((row) => row.uuid as string),
+                .map((row) => row.uuid),
+            rows,
         );
     }
 
@@ -1586,17 +1634,19 @@ export class AuthService extends PuterService {
         return this.#hostedSubdomainForHost(
             parsed.host.toLowerCase(),
             parsed.hostname.toLowerCase(),
-            this.#getHostingDomains(),
         );
     }
+
+    #originAliasGroups: string[][] | null = null;
 
     /**
      * Read `app_origin_aliases` from config and return normalized groups — each
      * group is a deduped list of lowercased, trimmed host strings. Malformed
      * entries are skipped silently so a bad config row doesn't brick UID
-     * resolution for everyone else.
+     * resolution for everyone else. Built once.
      */
     #getOriginAliasGroups(): string[][] {
+        if (this.#originAliasGroups) return this.#originAliasGroups;
         const config = this.config as { app_origin_aliases?: unknown };
         const raw = config.app_origin_aliases;
         if (!Array.isArray(raw)) return [];
@@ -1614,6 +1664,7 @@ export class AuthService extends PuterService {
             ];
             if (normalized.length > 0) groups.push(normalized);
         }
+        this.#originAliasGroups = groups;
         return groups;
     }
 
@@ -1683,14 +1734,12 @@ export class AuthService extends PuterService {
         } catch {
             return null;
         }
-        const hostingDomains = this.#getHostingDomains();
         const subdomain = this.#hostedSubdomainForHost(
             parsed.host.toLowerCase(),
             parsed.hostname.toLowerCase(),
-            hostingDomains,
         );
         if (!subdomain) return null;
-        const canonicalDomain = hostingDomains[0];
+        const canonicalDomain = this.#hostingDomains().all[0];
         if (!canonicalDomain) return null;
         const config = this.config as { protocol?: string };
         const protocol =
@@ -1708,33 +1757,33 @@ export class AuthService extends PuterService {
         return this.#canonicalizeHostedOrigin(aliased) ?? aliased;
     }
 
+    #hostingDomainsMemo: { all: string[]; byLength: string[] } | null = null;
+
     /**
-     * Configured hosting domains (`static_hosting_domain(_alt)` +
-     * `private_app_hosting_domain(_alt)`), normalized, each in both raw
-     * (possibly `host:port`) and port-stripped form.
+     * Configured hosting domains as configured (possibly `host:port`), then
+     * port-stripped; built once. The order matters: hosted origins canonicalize
+     * onto the first, and app uids hash the canonical origin.
      */
-    #getHostingDomains(): string[] {
-        const config = this.config as {
-            static_hosting_domain?: string;
-            static_hosting_domain_alt?: string;
-            private_app_hosting_domain?: string;
-            private_app_hosting_domain_alt?: string;
-        };
-
-        const normalizeDomainValue = (v: unknown): string | null => {
-            if (typeof v !== 'string') return null;
-            const trimmed = v.trim().toLowerCase().replace(/^\./, '');
-            return trimmed || null;
-        };
-        const stripPort = (v: string): string => v.split(':')[0] || v;
-
-        const raw = [
-            normalizeDomainValue(config.static_hosting_domain),
-            normalizeDomainValue(config.static_hosting_domain_alt),
-            normalizeDomainValue(config.private_app_hosting_domain),
-            normalizeDomainValue(config.private_app_hosting_domain_alt),
-        ].filter((d): d is string => !!d);
-        return [...new Set([...raw, ...raw.map(stripPort)])];
+    #hostingDomains(): { all: string[]; byLength: string[] } {
+        if (!this.#hostingDomainsMemo) {
+            const config = this.config as HostedDomainConfig;
+            const configured = [
+                config.static_hosting_domain,
+                config.static_hosting_domain_alt,
+                config.private_app_hosting_domain,
+                config.private_app_hosting_domain_alt,
+            ];
+            const forms = (keepPort: boolean) =>
+                configured
+                    .map((value) => normalizeHost(value, { keepPort }))
+                    .filter((domain): domain is string => domain !== null);
+            const all = [...new Set([...forms(true), ...forms(false)])];
+            this.#hostingDomainsMemo = {
+                all,
+                byLength: [...all].sort((a, b) => b.length - a.length),
+            };
+        }
+        return this.#hostingDomainsMemo;
     }
 
     /**
@@ -1745,10 +1794,8 @@ export class AuthService extends PuterService {
     #hostedSubdomainForHost(
         hostRaw: string,
         hostStripped: string,
-        hostingDomains: string[],
     ): string | null {
-        const sorted = [...hostingDomains].sort((a, b) => b.length - a.length);
-        for (const d of sorted) {
+        for (const d of this.#hostingDomains().byLength) {
             const suffix = `.${d}`;
             if (hostRaw === d || hostStripped === d) return null;
             for (const host of [hostRaw, hostStripped]) {
@@ -1776,20 +1823,15 @@ export class AuthService extends PuterService {
         }
 
         const config = this.config as { protocol?: string };
-        const hostingDomains = this.#getHostingDomains();
 
         const hostRaw = parsed.host.toLowerCase();
         const hostStripped = parsed.hostname.toLowerCase();
 
-        const subdomain = this.#hostedSubdomainForHost(
-            hostRaw,
-            hostStripped,
-            hostingDomains,
-        );
+        const subdomain = this.#hostedSubdomainForHost(hostRaw, hostStripped);
 
         const hostCandidates = new Set<string>([hostRaw, hostStripped]);
         if (subdomain) {
-            for (const d of hostingDomains) {
+            for (const d of this.#hostingDomains().all) {
                 hostCandidates.add(`${subdomain}.${d}`);
             }
         }
@@ -1949,12 +1991,11 @@ export class AuthService extends PuterService {
         // An events handler minting for its own app gets a token as deep as
         // its own and no longer-lived, so minting can't restart its chain.
         return this.services.token.sign('auth', {
-            type: 'app-under-user',
-            version: '2',
-            user_uid: actor.user.uuid,
-            app_uid: appUid,
-            session_uid: appSession?.uuid,
-            auth_id: this.#authIdFor(actor.user as UserRow),
+            ...this.#appUnderUserClaims(
+                actor.user as UserRow,
+                appUid,
+                appSession?.uuid,
+            ),
             ...(actor.handlerDepth
                 ? {
                       handler_depth: actor.handlerDepth,
@@ -1992,14 +2033,7 @@ export class AuthService extends PuterService {
         });
         const token = this.services.token.sign(
             'auth',
-            {
-                type: 'app-under-user',
-                version: '2',
-                user_uid: user.uuid,
-                app_uid: app.uid,
-                session_uid: session.uuid,
-                auth_id: authId,
-            },
+            this.#appUnderUserClaims(user, app.uid, session.uuid),
             { expiresIn: opts.ttlSeconds },
         );
         return {
@@ -2056,12 +2090,11 @@ export class AuthService extends PuterService {
         if (minted?.replaced) await this.#retireGodmodeToken(minted.replaced);
 
         const token = this.services.token.sign('auth', {
-            type: 'access-token',
-            version: '2',
-            token_uid: row.access_token_uid,
-            user_uid: actor.user.uuid,
-            session_uid: row.uuid,
-            auth_id: authId,
+            ...this.#accessTokenClaims(
+                actor.user as UserRow,
+                row.access_token_uid,
+                row.uuid,
+            ),
             full_access: true,
             godmode_app_uid: app.uid,
         });
@@ -2076,13 +2109,13 @@ export class AuthService extends PuterService {
         uuid: string;
         access_token_uid?: string | null;
     }): Promise<void> {
+        // Not announced as a session revocation: that closes every socket of
+        // the account, and the desktop that asked is still signed in.
         const tokenUids = (await this.stores.session.accessTokenUidsForCascade(
             row.uuid,
         )) as string[];
         await this.stores.session.revokeCascade(row.uuid);
-        for (const tokenUid of tokenUids) {
-            await this.#dropAccessTokenGrants(tokenUid);
-        }
+        await this.#dropAccessTokenGrants(tokenUids);
         if (row.access_token_uid) {
             this.clients.event?.emit(
                 'outer.auth.access-token.revoked',
@@ -2549,14 +2582,11 @@ export class AuthService extends PuterService {
             },
         );
 
-        const jwtPayload: Record<string, unknown> = {
-            type: 'access-token',
-            version: '2',
-            token_uid: tokenUid,
-            user_uid: actor.user.uuid,
-            session_uid: tokenSession.uuid,
-            auth_id,
-        };
+        const jwtPayload = this.#accessTokenClaims(
+            actor.user as UserRow,
+            tokenUid,
+            tokenSession.uuid,
+        );
         if (issuingApp) {
             jwtPayload.app_uid = issuingApp.uid;
         }
@@ -2763,8 +2793,8 @@ export class AuthService extends PuterService {
      * later need grant history for audit, that becomes a `revoked_at` column on
      * this table, not a behavior change here.
      */
-    async #dropAccessTokenGrants(tokenUid: string): Promise<void> {
-        await this.stores.permission.deleteAccessTokenPerms(tokenUid);
+    async #dropAccessTokenGrants(tokenUids: string[]): Promise<void> {
+        await this.stores.permission.deleteAccessTokenPermsMany(tokenUids);
     }
 
     /**
@@ -2779,7 +2809,7 @@ export class AuthService extends PuterService {
         sessionRow: SessionRow | null,
         opts: { mayBeFullAccess?: boolean } = {},
     ): Promise<void> {
-        await this.#dropAccessTokenGrants(tokenUid);
+        await this.#dropAccessTokenGrants([tokenUid]);
 
         // A v1 JWT carries no `session_uid`, so the row still has to be found
         // by token identity here.
@@ -2804,9 +2834,7 @@ export class AuthService extends PuterService {
                 await this.stores.session.revokeCascade(rowUuid);
             }
         }
-        for (const childUid of childTokenUids) {
-            await this.#dropAccessTokenGrants(childUid);
-        }
+        await this.#dropAccessTokenGrants(childTokenUids);
 
         // Only a token the handshake admits has a socket to drop.
         if (mayBeFullAccess) {
@@ -2982,9 +3010,7 @@ export class AuthService extends PuterService {
         // uid returns with the next app on that origin. A session older than
         // the app was made for the earlier one. Checked before `touch()` so a
         // rejected token doesn't slide the old session's expiry.
-        const notBefore = appGenerationStart(app);
-        const createdAt = Number(session.created_at);
-        if (notBefore !== null && createdAt > 0 && createdAt < notBefore) {
+        if (this.#createdBefore(session, appGenerationStart(app))) {
             return { reauth: { reason: 'session_revoked' } };
         }
         if (!(await deployed)) return { invalid: true };

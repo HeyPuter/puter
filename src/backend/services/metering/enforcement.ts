@@ -118,12 +118,6 @@ export const insufficientCreditsError = (): HttpError =>
         { legacyCode: 'insufficient_funds' },
     );
 
-/** Whether `error` is the refusal `insufficientCreditsError` makes. */
-export const isInsufficientCreditsError = (error: unknown): boolean => {
-    const { statusCode, legacyCode } = (error ?? {}) as Partial<HttpError>;
-    return statusCode === 402 && legacyCode === 'insufficient_funds';
-};
-
 /**
  * Tells listeners an actor is about to be refused for lack of credit. True when
  * one of them added credit, so the refused work is worth one more try.

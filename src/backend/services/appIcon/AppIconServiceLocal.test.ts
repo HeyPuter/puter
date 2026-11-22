@@ -110,61 +110,21 @@ describe('AppIconService', () => {
         );
     };
 
-    describe('canonical URLs', () => {
-        it('serves sized and original icons off the app-icons subdomain', () => {
-            expect(appIcon.getIconUrl('app-abc', 64)).toBe(
-                'http://puter-app-icons.site.puter.localhost/app-abc-64.png',
-            );
-            expect(appIcon.getOriginalIconUrl('app-abc')).toBe(
-                'http://puter-app-icons.site.puter.localhost/app-abc.png',
-            );
-        });
-
-        it('normalizes a uid that is missing the app- prefix', () => {
-            expect(appIcon.getIconUrl('abc', 16)).toBe(
-                'http://puter-app-icons.site.puter.localhost/app-abc-16.png',
-            );
-            expect(appIcon.getOriginalIconUrl('abc')).toBe(
-                'http://puter-app-icons.site.puter.localhost/app-abc.png',
-            );
-        });
-
-        it('appends a non-standard public port and omits 80/443', () => {
-            const cfg = (
-                appIcon as unknown as { config: Record<string, unknown> }
-            ).config;
-            cfg.pub_port = 8080;
-            expect(appIcon.getIconUrl('app-abc', 32)).toContain(
-                'site.puter.localhost:8080/',
-            );
-            cfg.pub_port = 443;
-            expect(appIcon.getIconUrl('app-abc', 32)).toContain(
-                'site.puter.localhost/',
-            );
-            delete cfg.pub_port;
-        });
-
-        it('falls back to the alternate hosting domain, and gives up without either', async () => {
-            const cfg = (
-                appIcon as unknown as { config: Record<string, unknown> }
-            ).config;
-            const primary = cfg.static_hosting_domain;
-            cfg.static_hosting_domain = undefined;
-            expect(appIcon.getIconUrl('app-abc', 32)).toBe(
-                'http://puter-app-icons.host.puter.localhost/app-abc-32.png',
-            );
-
-            const alt = cfg.static_hosting_domain_alt;
-            cfg.static_hosting_domain_alt = undefined;
-            expect(appIcon.getIconUrl('app-abc', 32)).toBeNull();
-            expect(appIcon.getOriginalIconUrl('app-abc')).toBeNull();
+    it('resolves no redirect without a hosting domain', async () => {
+        const cfg = (appIcon as unknown as { config: Record<string, unknown> })
+            .config;
+        const primary = cfg.static_hosting_domain;
+        const alt = cfg.static_hosting_domain_alt;
+        cfg.static_hosting_domain = undefined;
+        cfg.static_hosting_domain_alt = undefined;
+        try {
             expect(
                 await appIcon.resolveIconRedirectUrl('app-abc', 32),
             ).toBeNull();
-
+        } finally {
             cfg.static_hosting_domain = primary;
             cfg.static_hosting_domain_alt = alt;
-        });
+        }
     });
 
     describe('resolveIconRedirectUrl', () => {
@@ -408,6 +368,45 @@ describe('AppIconService', () => {
             );
             const fresh = await server.stores.app.getByUid(app.uid);
             expect(fresh?.icon).toBe('https://cdn.example/icon.png');
+        });
+
+        it('reads no app row for a deletion or a notice that carries the row', async () => {
+            const app = await makeApp(PNG_DATA_URL);
+            const getByUid = vi.spyOn(server.stores.app, 'getByUid');
+            try {
+                await server.clients.event.emitAndWait(
+                    'app.changed',
+                    { app_uid: app.uid, action: 'deleted', old_app: app },
+                    {},
+                );
+                await server.clients.event.emitAndWait(
+                    'app.changed',
+                    {
+                        app_uid: app.uid,
+                        action: 'updated',
+                        app: { ...app, icon: 'https://cdn.example/icon.png' },
+                    },
+                    {},
+                );
+                expect(getByUid).not.toHaveBeenCalled();
+            } finally {
+                getByUid.mockRestore();
+            }
+            const fresh = await server.stores.app.getByUid(app.uid);
+            expect(fresh?.icon).toBe(PNG_DATA_URL);
+        });
+
+        it('migrates a data URL icon carried on the notice', async () => {
+            const app = await makeApp(PNG_DATA_URL);
+            await server.clients.event.emitAndWait(
+                'app.changed',
+                { app_uid: app.uid, action: 'updated', app },
+                {},
+            );
+            const fresh = await server.stores.app.getByUid(app.uid);
+            expect(fresh?.icon).toBe(
+                `http://api.puter.localhost:4100/app-icon/${app.uid}`,
+            );
         });
 
         it('skips a payload with no uid, no data, an unparsable data URL, or empty bytes', async () => {

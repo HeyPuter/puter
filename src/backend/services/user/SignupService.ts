@@ -17,14 +17,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import bcrypt from 'bcrypt';
 import type { Request } from 'express';
-import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import type { EventMetadata } from '../../clients/event/types.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
+import {
+    generateEmailConfirmCode,
+    hashPassword,
+} from '../../util/credentials.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { isPuterEmailAddress } from '../email/mailbox.js';
 import {
@@ -32,7 +34,9 @@ import {
     checkSignupBonus,
     validateSignupBonus,
 } from '../../util/signupBonus.js';
+import { requestIp } from '../../util/requestIp.js';
 import { isUsernameTaken } from '../../util/username.js';
+import { isTemporaryAccount } from '../../util/userDetails.js';
 import { isEmailGateLast } from '../../util/verificationOrder.js';
 import {
     generateDefaultFsentries,
@@ -112,10 +116,6 @@ export interface SignupResult {
     /** Whether the transport accepted a confirmation email sent at signup. */
     confirmationEmailSent?: boolean;
 }
-
-/** The trusted client address; `req.ip` honors `trust proxy`. */
-export const signupClientIp = (req: Request): string | null =>
-    req.ip || req.socket?.remoteAddress || null;
 
 const OIDC_ONLY_MESSAGE =
     'New accounts can only be created with a sign-in provider right now.';
@@ -209,7 +209,7 @@ export class SignupService extends PuterService {
      */
     async runSignupGate(input: SignupGateInput): Promise<SignupGateOutcome> {
         const { req, email, isTemp, bonusCode } = input;
-        const clientIp = signupClientIp(req);
+        const clientIp = requestIp(req);
         const fingerprint = input.fingerprint ?? null;
 
         // Only form and temp signups carry no source; OIDC and team
@@ -377,7 +377,25 @@ export class SignupService extends PuterService {
             }
         }
 
-        if (await this.stores.user.getByUsername(body.username)) {
+        // Independent reads, issued together; their errors keep this order.
+        // The early email check spares an obvious duplicate the validate hook
+        // and a bcrypt round. It runs again against the primary right before
+        // the write, and the unique index catches whatever still slips through.
+        const [usernameOwner, homePathConflict, emailClaim] =
+            await Promise.allSettled([
+                this.stores.user.getByUsername(body.username),
+                this.stores.fsEntry.findHomePathConflict(
+                    body.username,
+                    undefined,
+                    { includeDescendants: true },
+                ),
+                isTemp ? null : this.#resolveSignupEmailClaim(body.email),
+            ]);
+        const settled = <T>(result: PromiseSettledResult<T>): T => {
+            if (result.status === 'rejected') throw result.reason;
+            return result.value;
+        };
+        if (settled(usernameOwner)) {
             throw new HttpError(
                 400,
                 'This username already exists in our database. Please use another one.',
@@ -386,28 +404,15 @@ export class SignupService extends PuterService {
         }
         // A free username whose home path is occupied would provision a
         // second root there.
-        if (
-            await this.stores.fsEntry.findHomePathConflict(
-                body.username,
-                undefined,
-                { includeDescendants: true },
-            )
-        ) {
+        if (settled(homePathConflict)) {
             throw new HttpError(400, 'This username is not available.', {
                 legacyCode: 'bad_request',
             });
         }
+        let pseudoUser = settled(emailClaim);
 
-        const clientIp = signupClientIp(req);
+        const clientIp = requestIp(req);
         const proxyIpChain = req.headers['x-forwarded-for'];
-
-        // The cheap early email check, so an obvious duplicate doesn't pay for
-        // the validate hook and a bcrypt round. It runs again against the
-        // primary right before the write, and the unique index catches
-        // whatever still slips through.
-        let pseudoUser = isTemp
-            ? null
-            : await this.#resolveSignupEmailClaim(body.email);
 
         const gate = await this.runSignupGate({
             req,
@@ -448,11 +453,9 @@ export class SignupService extends PuterService {
         }
 
         const userUuid = uuidv4();
-        const emailConfirmCode = String(crypto.randomInt(100000, 1000000));
+        const emailConfirmCode = generateEmailConfirmCode();
         const emailConfirmToken = uuidv4();
-        const passwordHash = isTemp
-            ? null
-            : await bcrypt.hash(body.password, 8);
+        const passwordHash = isTemp ? null : await hashPassword(body.password);
         const signupSqlTs = new Date()
             .toISOString()
             .slice(0, 19)
@@ -636,7 +639,7 @@ export class SignupService extends PuterService {
             bonusCode,
             fingerprint,
             // The created/claimed row: a claimed placeholder has credentials.
-            isTemp: user.password === null && user.email === null,
+            isTemp: isTemporaryAccount(user),
             saveAccount: !isTemp,
         });
         return {
@@ -726,7 +729,7 @@ export class SignupService extends PuterService {
                 ? user.email_confirm_code
                 : null;
         if (!code) {
-            code = String(crypto.randomInt(100000, 1000000));
+            code = generateEmailConfirmCode();
             await this.stores.user.update(user.id, {
                 email_confirm_code: code,
             });
@@ -897,20 +900,32 @@ export class SignupService extends PuterService {
         email: string,
         opts: { force?: boolean; releaseSeat?: boolean } = {},
     ): Promise<UserRow | null> {
+        return (await this.#emailHolder(email, opts)).holder;
+    }
+
+    /** `seated`: an unconfirmed holder that still holds a team seat. */
+    async #emailHolder(
+        email: string,
+        opts: { force?: boolean; releaseSeat?: boolean },
+    ): Promise<{ holder: UserRow | null; seated: boolean }> {
         let force = opts.force;
         for (;;) {
             const holder = await this.stores.user.findEmailOwner(email, {
                 force,
             });
-            if (!holder || holder.email_confirmed) return holder;
-            if (!(await this.stores.team?.getOrgSeat(holder.id))) return holder;
-            if (!opts.releaseSeat) return null;
+            if (!holder || holder.email_confirmed) {
+                return { holder, seated: false };
+            }
+            if (!(await this.stores.team?.getOrgSeat(holder.id))) {
+                return { holder, seated: false };
+            }
+            if (!opts.releaseSeat) return { holder: null, seated: false };
             if (
                 !(await this.services.team?.releaseUnconfirmedSeatEmail(
                     holder.id,
                 ))
             )
-                return holder;
+                return { holder, seated: true };
             force = true;
         }
     }
@@ -924,17 +939,14 @@ export class SignupService extends PuterService {
         email: string,
         opts: { force?: boolean; releaseSeat?: boolean } = {},
     ): Promise<UserRow | null> {
-        const existing = await this.signupEmailHolder(email, opts);
+        const { holder: existing, seated } = await this.#emailHolder(
+            email,
+            opts,
+        );
         if (!existing) return null;
         // A provisioned account looks exactly like a claimable placeholder,
         // but claiming it hands a stranger that team's membership.
-        const orgSeat =
-            (await this.stores.team?.getOrgSeat(existing.id)) ?? null;
-        if (
-            existing.email_confirmed ||
-            existing.password !== null ||
-            orgSeat !== null
-        ) {
+        if (existing.email_confirmed || existing.password !== null || seated) {
             throw new HttpError(
                 400,
                 'This email already exists in our database. Please use another one.',

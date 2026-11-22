@@ -695,17 +695,6 @@ describe('ACLService.check — stronger modes imply weaker ones', () => {
             ),
         ).toBe(true);
     });
-
-    it('exposes the mode hierarchy it enforces', () => {
-        const { service } = makeService();
-        expect(service.getHighestMode()).toBe('write');
-        expect(service.higherModes('read')).toEqual(['read', 'write']);
-        expect(service.higherModes(MANAGE_PERM_PREFIX)).toEqual([
-            MANAGE_PERM_PREFIX,
-        ]);
-        // Unknown modes fall back to themselves rather than throwing.
-        expect(service.higherModes('bogus' as never)).toEqual(['bogus']);
-    });
 });
 
 describe('ACLService.check — ancestor scans', () => {
@@ -918,16 +907,20 @@ describe('ACLService.check — scoped tokens and manage', () => {
 
 // -- Group holders ----------------------------------------------------
 
-describe('ACLService.setUserGroup / statUserGroup', () => {
+describe('ACLService.setUserGroup', () => {
     const withGroupGrants = (existing: string[]) => {
         const made = makeService();
         const permission = Object.assign(made.services.permission, {
-            queryIssuerGroupPermissionsByPrefix: vi.fn(
-                async (_issuer: Actor, _group: string, prefix: string) =>
-                    existing.filter((perm) => perm.startsWith(`${prefix}:`)),
+            queryIssuerGroupPermissionsByPrefixes: vi.fn(
+                async (_issuer: Actor, _group: string, prefixes: string[]) =>
+                    existing.filter((perm) =>
+                        prefixes.some((prefix) =>
+                            perm.startsWith(`${prefix}:`),
+                        ),
+                    ),
             ),
             grantUserGroupPermission: vi.fn().mockResolvedValue(undefined),
-            revokeUserGroupPermission: vi.fn().mockResolvedValue(true),
+            revokeUserGroupPermissions: vi.fn().mockResolvedValue([]),
         });
         return { service: made.service, permission };
     };
@@ -949,23 +942,37 @@ describe('ACLService.setUserGroup / statUserGroup', () => {
             'g-1',
             `${node}:write`,
         );
-        expect(permission.revokeUserGroupPermission).toHaveBeenCalledWith(
+        expect(permission.revokeUserGroupPermissions).toHaveBeenCalledWith(
             issuerActor,
             'g-1',
-            `${node}:read`,
+            [`${node}:read`],
         );
     });
 
-    it('reports the group grants per ancestor, and refuses a non-user issuer', async () => {
+    it('reads only the node, not the folders above it', async () => {
+        const { service, permission } = withGroupGrants([]);
+
+        await service.setUserGroup(
+            issuerActor,
+            'g-1',
+            resource('/issuer/projects/a.txt'),
+            'read',
+        );
+        expect(
+            permission.queryIssuerGroupPermissionsByPrefixes,
+        ).toHaveBeenCalledTimes(1);
+        expect(
+            permission.queryIssuerGroupPermissionsByPrefixes,
+        ).toHaveBeenCalledWith(issuerActor, 'g-1', [
+            'fs:uid\\C/issuer/projects/a.txt',
+            'manage:fs:uid\\C/issuer/projects/a.txt',
+        ]);
+        expect(permission.revokeUserGroupPermissions).not.toHaveBeenCalled();
+    });
+
+    it('refuses a non-user issuer', async () => {
         const { service } = withGroupGrants([`${node}:read`]);
 
-        expect(
-            await service.statUserGroup(
-                issuerActor,
-                'g-1',
-                resource('/issuer/projects/a.txt'),
-            ),
-        ).toEqual({ '/issuer/projects': [`${node}:read`] });
         await expect(
             service.setUserGroup(
                 scopedTokenActor(),
@@ -995,6 +1002,19 @@ describe('ACLService.getSafeAclError', () => {
         });
     });
 
+    it('answers a refused `see` with a 404 without checking again', async () => {
+        const { service, services, stores } = makeService();
+        await expect(
+            service.getSafeAclError(
+                issuerActor,
+                resource('/victim/secret'),
+                'see',
+            ),
+        ).resolves.toMatchObject({ status: 404 });
+        expect(services.permission.scan).not.toHaveBeenCalled();
+        expect(stores.share.listAnyoneReaching).not.toHaveBeenCalled();
+    });
+
     it('returns 403 when the actor can see it but not do the operation', async () => {
         const { service, services } = makeService();
         services.permission.scan.mockImplementation(
@@ -1017,9 +1037,9 @@ describe('ACLService.getSafeAclError', () => {
     });
 });
 
-// -- statUserUser / setUserUser against a real PermissionService --------
+// -- setUserUser against a real PermissionService ------------------------
 
-describe('ACLService.statUserUser / setUserUser (integration)', () => {
+describe('ACLService.setUserUser (integration)', () => {
     let server: PuterServer;
     let acl: ACLService;
 
@@ -1072,7 +1092,15 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         };
     };
 
-    it('refuses to stat or set with a non-user issuer or holder', async () => {
+    /** What `issuer` has granted `holder` on `res`, as `setUserUser` reads it. */
+    const grantsOn = (issuer: Actor, holder: Actor, res: { uid: string }) =>
+        server.services.permission.queryIssuerHolderPermissionsByPrefixes(
+            issuer,
+            holder,
+            [`fs:${res.uid}`, `manage:fs:${res.uid}`],
+        );
+
+    it('refuses to set with a non-user issuer or holder', async () => {
         const issuer = await makeUser();
         const holder = await makeUser();
         const asApp: Actor = makeActor({
@@ -1082,13 +1110,11 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         const res = await ownedResource(issuer);
 
         await expect(
-            acl.statUserUser(asApp, holder, res),
-        ).rejects.toMatchObject({ statusCode: 403 });
-        await expect(
-            acl.statUserUser(
+            acl.setUserUser(
                 issuer,
                 makeActor({ ...holder, app: { uid: 'a', id: 1 } }),
                 res,
+                'read',
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
         await expect(
@@ -1122,16 +1148,14 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         const res = await ownedResource(issuer);
         const uid = res.uid;
 
-        expect(await acl.statUserUser(issuer, holder, res)).toEqual({});
+        expect(await grantsOn(issuer, holder, res)).toEqual([]);
 
         const wrote = await runWithContext({ actor: issuer }, () =>
             acl.setUserUser(issuer, holder, res, 'read'),
         );
         expect(wrote).toBe(true);
 
-        expect(await acl.statUserUser(issuer, holder, res)).toEqual({
-            [res.path]: [`fs:${uid}:read`],
-        });
+        expect(await grantsOn(issuer, holder, res)).toEqual([`fs:${uid}:read`]);
         // The holder can now actually read it.
         expect(await acl.check(holder, res, 'read')).toBe(true);
         expect(await acl.check(holder, res, 'write')).toBe(false);
@@ -1160,9 +1184,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         ).toBe(true);
 
         // One mode per node per issuer/holder — the read grant is gone.
-        expect(await acl.statUserUser(issuer, holder, res)).toEqual({
-            [res.path]: [`fs:${uid}:write`],
-        });
+        expect(await grantsOn(issuer, holder, res)).toEqual([`fs:${uid}:write`]);
         expect(await acl.check(holder, res, 'read')).toBe(true);
     });
 
@@ -1183,9 +1205,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                 `fs:${uid}:read`,
             ),
         );
-        expect(
-            (await acl.statUserUser(issuer, holder, res))[res.path],
-        ).toHaveLength(2);
+        expect(await grantsOn(issuer, holder, res)).toHaveLength(2);
 
         // Asking for the same mode again is what finishes it.
         expect(
@@ -1193,9 +1213,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                 acl.setUserUser(issuer, holder, res, 'read'),
             ),
         ).toBe(true);
-        expect(await acl.statUserUser(issuer, holder, res)).toEqual({
-            [res.path]: [`fs:${uid}:read`],
-        });
+        expect(await grantsOn(issuer, holder, res)).toEqual([`fs:${uid}:read`]);
     });
 
     it("does not release the next holder's lock when its own TTL lapses mid-release", async () => {
@@ -1266,9 +1284,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                 }),
             ),
         ).toBe(false);
-        expect(await acl.statUserUser(issuer, holder, res)).toEqual({
-            [res.path]: [`fs:${uid}:write`],
-        });
+        expect(await grantsOn(issuer, holder, res)).toEqual([`fs:${uid}:write`]);
     });
 
     it('onlyIfHigher treats an existing manage grant as covering every mode', async () => {
@@ -1280,9 +1296,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         await runWithContext({ actor: issuer }, () =>
             acl.setUserUser(issuer, holder, res, MANAGE_PERM_PREFIX),
         );
-        expect(await acl.statUserUser(issuer, holder, res)).toEqual({
-            [res.path]: [`manage:fs:${uid}`],
-        });
+        expect(await grantsOn(issuer, holder, res)).toEqual([`manage:fs:${uid}`]);
         expect(
             await runWithContext({ actor: issuer }, () =>
                 acl.setUserUser(issuer, holder, res, 'write', {
@@ -1814,8 +1828,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
             ),
         ]);
 
-        const stat = await acl.statUserUser(issuer, holder, res);
-        expect(stat[res.path] ?? []).toHaveLength(1);
+        expect(await grantsOn(issuer, holder, res)).toHaveLength(1);
     });
 
     it('downgrading a manage share to read revokes the manage grant', async () => {
@@ -1836,9 +1849,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
         // Regression: the manage grant lives outside the `fs:<uid>` prefix,
         // so a stat that only looked there left it behind and the holder kept
         // the right to re-share after being downgraded to read.
-        expect(await acl.statUserUser(issuer, holder, res)).toEqual({
-            [res.path]: [`fs:${uid}:read`],
-        });
+        expect(await grantsOn(issuer, holder, res)).toEqual([`fs:${uid}:read`]);
         expect(await acl.check(holder, res, MANAGE_PERM_PREFIX)).toBe(false);
     });
 

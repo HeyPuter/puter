@@ -20,6 +20,7 @@
 import { Readable } from 'node:stream';
 import type { LayerInstances } from '../../types';
 import { APP_ICON_SIZES, getAppIconsBaseUrl } from '../../util/appIcon.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { awaitLater } from '../../util/concurrency.js';
 import {
     APP_ICONS_SUBDOMAIN,
@@ -69,9 +70,12 @@ export class AppIconService extends PuterService {
         string,
         { next?: Record<string, unknown>; done: Promise<void> }
     >();
-    // Per-uid timestamp of the last attempt (success or failure), gating
-    // read-triggered retries during `ICON_RETRY_COOLDOWN_MS`.
-    #lastAttempt = new Map<string, number>();
+    // Uids attempted (success or failure) within `ICON_RETRY_COOLDOWN_MS`,
+    // gating read-triggered retries.
+    #recentAttempts = new BoundedTtlMap<string, true>({
+        maxEntries: ICON_ATTEMPTS_MAX_KEYS,
+        ttlMs: ICON_RETRY_COOLDOWN_MS,
+    });
 
     override async onServerStart(): Promise<void> {
         try {
@@ -104,11 +108,19 @@ export class AppIconService extends PuterService {
             async (_key: string, data: unknown) => {
                 const d = data as Record<string, unknown> | undefined;
                 if (!d?.app_uid) return;
-                if (d.action === 'icon-migrated') return;
-                const app = await this.stores.app.getByUid(String(d.app_uid));
-                const icon = (app as Record<string, unknown> | null)?.icon as
-                    | string
-                    | undefined;
+                if (d.action === 'icon-migrated' || d.action === 'deleted')
+                    return;
+                // Emitters that carry the written row save the read.
+                const carried = (d.app as Record<string, unknown> | undefined)
+                    ?.icon;
+                const icon =
+                    typeof carried === 'string'
+                        ? carried
+                        : ((
+                              (await this.stores.app.getByUid(
+                                  String(d.app_uid),
+                              )) as Record<string, unknown> | null
+                          )?.icon as string | undefined);
                 if (icon?.startsWith('data:')) {
                     await this.#scheduleIcon(
                         { app_uid: d.app_uid, data_url: icon },
@@ -140,28 +152,6 @@ export class AppIconService extends PuterService {
         } finally {
             clearTimeout(timer);
         }
-    }
-
-    /**
-     * Public: canonical URL for an app's icon at a given size
-     * (CDN/subdomain-backed).
-     */
-    getIconUrl(appUid: string, size: number): string | null {
-        const base = this.#iconsBaseUrl();
-        if (!base) return null;
-        const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
-        return `${base}/${SIZED_ICON_FILENAME(normalized, size)}`;
-    }
-
-    /**
-     * Public: URL of the un-resized original PNG (no size suffix) on the
-     * subdomain.
-     */
-    getOriginalIconUrl(appUid: string): string | null {
-        const base = this.#iconsBaseUrl();
-        if (!base) return null;
-        const normalized = appUid.startsWith('app-') ? appUid : `app-${appUid}`;
-        return `${base}/${ORIGINAL_ICON_FILENAME(normalized)}`;
     }
 
     /**
@@ -237,15 +227,7 @@ export class AppIconService extends PuterService {
             return inFlight.done;
         }
 
-        if (fromRead) {
-            const lastAttempt = this.#lastAttempt.get(uid);
-            if (
-                lastAttempt !== undefined &&
-                Date.now() - lastAttempt < ICON_RETRY_COOLDOWN_MS
-            ) {
-                return;
-            }
-        }
+        if (fromRead && this.#recentAttempts.has(uid)) return;
 
         // Registered before the first await so concurrent callers join it.
         const state: { next?: Record<string, unknown>; done: Promise<void> } = {
@@ -259,7 +241,7 @@ export class AppIconService extends PuterService {
                 while (state.next) {
                     const payload = state.next;
                     state.next = undefined;
-                    this.#noteAttempt(runningUid);
+                    this.#recentAttempts.set(runningUid, true);
                     try {
                         await this.#processIcon(payload);
                     } catch (err) {
@@ -271,17 +253,6 @@ export class AppIconService extends PuterService {
             }
         })();
         return state.done;
-    }
-
-    #noteAttempt(uid: string): void {
-        // Re-inserting moves the key to the end, so eviction below is FIFO
-        // by last-attempt order, not insertion order.
-        this.#lastAttempt.delete(uid);
-        if (this.#lastAttempt.size >= ICON_ATTEMPTS_MAX_KEYS) {
-            const oldest = this.#lastAttempt.keys().next().value;
-            if (oldest !== undefined) this.#lastAttempt.delete(oldest);
-        }
-        this.#lastAttempt.set(uid, Date.now());
     }
 
     async #processIcon(data: Record<string, unknown>): Promise<void> {

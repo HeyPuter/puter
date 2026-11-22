@@ -29,6 +29,7 @@ import {
     kvAnchorToken,
     notifAnchorToken,
     notifMatchOn,
+    notifSubject,
     type FsOp,
     type ParsedSubject,
 } from './subjects.js';
@@ -303,7 +304,7 @@ export function resolveNotifAnchor(
         ref,
         audience: anchorRef.audience,
         match: notifMatchOn(anyApp ? '*' : ref, anchorRef.audience),
-        subject: `notif:${ref}:${anchorRef.audience}`,
+        subject: notifSubject(ref, anchorRef.audience),
         appScoped,
         anyApp,
     };

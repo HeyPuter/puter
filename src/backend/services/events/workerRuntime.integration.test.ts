@@ -47,7 +47,7 @@ import {
 import {
     EVENTS_CONSECUTIVE_FAILURES,
     deliveryBackoffMs,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import { EVENTS_INVOKE_PATH } from '../../clients/events/EventsWorkerInvokerClient.js';
 import { runWithContext } from '../../core/context.js';
 import { appSocketRoom, SocketService } from '../socket/SocketService.js';

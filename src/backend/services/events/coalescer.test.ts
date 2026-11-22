@@ -18,7 +18,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import { EVENTS_COALESCE_WINDOW_MS } from './limits.js';
 import { DeliveryCoalescer } from './coalescer.js';
 
 let released: Array<[string, string]>;

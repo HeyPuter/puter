@@ -35,7 +35,7 @@ import {
     EVENTS_KV_HANDLES_PER_APP,
     EVENTS_KV_HANDLES_PER_HOLDER,
     EVENTS_KV_HANDLES_PER_USER,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
@@ -506,16 +506,6 @@ describe('subscribing through a handle', () => {
         expect(JSON.stringify(guestSub)).not.toContain(owner.uuid);
         expect(JSON.stringify(guestSub)).not.toContain('os-global');
         expect(JSON.stringify(guestSub)).not.toContain(PREFIX);
-
-        // The listing: the same row read back later reports the same anchor.
-        const [listed] = await events().listSubscriptions(
-            guest.actor,
-            SOCKET_ID,
-        );
-        expect(listed.anchor).toEqual({ uid: handle, path: '' });
-        expect(JSON.stringify(listed)).not.toContain(owner.uuid);
-        expect(JSON.stringify(listed)).not.toContain('os-global');
-        expect(JSON.stringify(listed)).not.toContain(PREFIX);
     });
 
     it('keeps the stored filter on the handle, whatever shape the grantee wrote', async () => {
@@ -535,12 +525,6 @@ describe('subscribing through a handle', () => {
             expect(JSON.stringify(sub)).not.toContain(PREFIX);
             expect(JSON.stringify(sub)).not.toContain(owner.uuid);
             if (sub.match !== null) expect(sub.match).toBe(pattern);
-
-            const [listed] = await events().listSubscriptions(
-                guest.actor,
-                SOCKET_ID,
-            );
-            expect(JSON.stringify(listed)).not.toContain(PREFIX);
             await clearRows();
         }
     });
@@ -586,11 +570,7 @@ describe('subscribing through a handle', () => {
                     SOCKET_ID,
                     { subject: `kv:${handle}:${pattern}` },
                 );
-                const [listed] = await events().listSubscriptions(
-                    guest.actor,
-                    SOCKET_ID,
-                );
-                views.push(sub.match, listed.match);
+                views.push(sub.match);
                 await events().reapSocket(guest.id, SOCKET_ID);
             }
             expect(new Set(views).size).toBe(1);

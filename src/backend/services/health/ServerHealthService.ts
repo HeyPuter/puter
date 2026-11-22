@@ -23,10 +23,9 @@ import { kv } from '../../util/kvSingleton';
 import { PUTER_KV_STORE_TABLE_NAME } from '../../stores/systemKv/tableDefinition';
 
 /**
- * Periodic liveness monitor for the backend. Other services register checks via
- * `addCheck`; the internal loop runs them every `CHECK_INTERVAL_MS`, raises an
- * alarm on first failure, fires `onFail` handlers (for self-heal hooks), and
- * exposes `getStatus()` for the `/healthcheck` route.
+ * Periodic liveness monitor for the backend. Checks are registered via
+ * `addCheck`; the internal loop runs them every `CHECK_INTERVAL_MS`, logs
+ * failures, and exposes `getStatus()` for the `/healthcheck` route.
  *
  * Default checks registered on server start:
  *
@@ -143,11 +142,6 @@ const describeStalls = ({ totalMs, longestMs }: LoopStalls): string =>
     `event loop blocked ${totalMs}ms total, longest ${longestMs}ms`;
 
 type CheckFn = () => Promise<unknown> | unknown;
-type FailHandler = (err: unknown) => Promise<void> | void;
-
-interface Chainable {
-    onFail(handler: FailHandler): Chainable;
-}
 
 export interface AddCheckOptions {
     /**
@@ -166,7 +160,6 @@ export interface AddCheckOptions {
 interface RegisteredCheck {
     name: string;
     fn: CheckFn;
-    onFailHandlers: FailHandler[];
     groups: string[];
     minIntervalMs: number;
     lastRunAt: number;
@@ -237,19 +230,13 @@ export class ServerHealthService extends PuterService {
     }
 
     /**
-     * Register a named health check. The returned chainable exposes
-     * `onFail(fn)` so callers can hook self-heal logic (e.g., recreating a
-     * pooled DB client after a liveness drop).
-     *
-     * A check named in `config.server_health.disabled_checks` is dropped here
-     * and never runs — the chainable still works, its handlers just never
-     * fire.
+     * Register a named health check. A check named in
+     * `config.server_health.disabled_checks` is dropped here and never runs.
      */
-    addCheck(name: string, fn: CheckFn, opts: AddCheckOptions = {}): Chainable {
+    addCheck(name: string, fn: CheckFn, opts: AddCheckOptions = {}): void {
         const registered: RegisteredCheck = {
             name,
             fn,
-            onFailHandlers: [],
             groups: opts.groups ?? [],
             minIntervalMs: opts.intervalMs ?? 0,
             lastRunAt: 0,
@@ -259,14 +246,6 @@ export class ServerHealthService extends PuterService {
         };
         const disabled = this.config.server_health?.disabled_checks ?? [];
         if (!disabled.includes(name)) this.#checks.push(registered);
-
-        const chainable: Chainable = {
-            onFail: (handler) => {
-                registered.onFailHandlers.push(handler);
-                return chainable;
-            },
-        };
-        return chainable;
     }
 
     /**
@@ -613,25 +592,9 @@ export class ServerHealthService extends PuterService {
             });
             check.failing = false;
         } catch (err) {
-            const alreadyFailing = check.failing;
+            // Logged, not alarmed: external uptime monitors cover this and
+            // the internal threshold flaps under normal load.
             check.failing = true;
-            if (!alreadyFailing) {
-                // Intentionally do not page PagerDuty for health-check
-                // failures — external uptime monitors cover this and the
-                // internal threshold flaps under normal load. Failures
-                // are still logged below and still trigger self-heal
-                // onFail handlers.
-                for (const handler of check.onFailHandlers) {
-                    try {
-                        await handler(err);
-                    } catch (hErr) {
-                        console.error(
-                            `[server-health] onFail handler for ${check.name} threw:`,
-                            hErr,
-                        );
-                    }
-                }
-            }
             console.error(`[server-health] check "${check.name}" failed:`, err);
         } finally {
             stopWatch();

@@ -24,6 +24,7 @@ import { Context } from '../../core/context.js';
 import type { NotifEventContext } from '../events/registry.js';
 import { PuterService } from '../types.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import { sweepInBatches } from '../../util/batchSweep.js';
 import {
     NOTIF_HANDLED_EVENT,
     NOTIF_HANDLED_PER_MINUTE,
@@ -481,19 +482,17 @@ export class NotificationService extends PuterService {
         const days = this.#retentionDays();
         if (days <= 0) return 0;
 
-        let removed = 0;
-        for (let pass = 0; pass < RETENTION_MAX_BATCHES; pass++) {
-            if (signal?.aborted) break;
-            const batch = await this.stores.notification.deleteCreatedBefore(
-                days,
-                RETENTION_BATCH_SIZE,
-            );
-            removed += batch;
-            // A short batch means the window is clean; the next sweep picks up
-            // whatever aged into it meanwhile.
-            if (batch < RETENTION_BATCH_SIZE) break;
-        }
-        return removed;
+        // A short batch means the window is clean; the next sweep picks up
+        // whatever aged into it meanwhile.
+        return sweepInBatches(
+            (batchSize) =>
+                this.stores.notification.deleteCreatedBefore(days, batchSize),
+            {
+                batchSize: RETENTION_BATCH_SIZE,
+                maxBatches: RETENTION_MAX_BATCHES,
+                signal,
+            },
+        );
     }
 
     // -- Internals ---------------------------------------------------

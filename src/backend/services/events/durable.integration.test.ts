@@ -34,7 +34,7 @@ import {
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP,
     EVENTS_SUBSCRIBE_LIMIT,
     EVENTS_UNSUBSCRIBE_LIMIT,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import { makeActor } from '../../core/actor.js';
 import { DURABLE_CONTEXT_MAX_BYTES } from '../../stores/events/DurableSubscriptionStore.js';

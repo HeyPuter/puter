@@ -20,8 +20,8 @@
 // Constants for the metering service, including prefixes for keys and default subscription IDs.
 export const GLOBAL_APP_KEY = 'os-global';
 /**
- * Only used for `metering:lastGlobalUsageCheck` and the September claim shim's
- * v1 key now — every other read/write is `METRICS_V2_PREFIX`.
+ * Only used for `metering:lastGlobalUsageCheck` now — every other read/write is
+ * `METRICS_V2_PREFIX`.
  */
 export const METRICS_PREFIX = 'metering';
 /** Every metering record's prefix since the v1→v2 key switch. */
@@ -39,14 +39,6 @@ export const MONTHLY_CHARGE_CLAIM = 'monthlyChargesApplied';
 export const DEFAULT_FREE_SUBSCRIPTION = 'user_free';
 export const DEFAULT_TEMP_SUBSCRIPTION = 'temp_free';
 export const ORG_SEAT_FREE_SUBSCRIPTION = 'org_seat_free';
-
-/**
- * Last month whose recurring-charge claim was ever taken under the v1 key
- * format — every claim through September, including from a node mid-deploy,
- * landed there, so `claimAndCharge` keeps reading it through this month before
- * switching to `METRICS_V2_PREFIX`. Delete once September has passed.
- */
-export const V1_CLAIM_THROUGH_MONTH = '2026-09';
 
 /**
  * How many detail items an actor's (or an actor-app's) per-model breakdown is

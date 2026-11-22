@@ -27,7 +27,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import { EVENTS_COALESCE_WINDOW_MS } from './limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';

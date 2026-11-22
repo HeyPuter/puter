@@ -295,3 +295,31 @@ describe('verifyOidcIdToken with a {tenantid} issuer template', () => {
         expect(claims?.xms_edov).toBe(true);
     });
 });
+
+describe('verifyOidcIdToken email_verified', () => {
+    it.each([
+        ['false', false],
+        ['true', true],
+        [false, false],
+        [true, true],
+        ['yes', undefined],
+    ])('reads %j as %j', async (value, expected) => {
+        const { fetchImpl } = makeFetch([jwk]);
+        const claims = await verifyOidcIdToken(
+            signToken({ payload: { email_verified: value } }),
+            opts,
+            deps(fetchImpl),
+        );
+        expect(claims?.email_verified).toBe(expected);
+    });
+
+    it('fetches the JWKS with a timeout signal', async () => {
+        let signal: unknown;
+        const fetchImpl = (async (_url: unknown, init?: RequestInit) => {
+            signal = init?.signal;
+            return { ok: true, json: async () => ({ keys: [jwk] }) } as Response;
+        }) as unknown as typeof fetch;
+        await verifyOidcIdToken(signToken(), opts, deps(fetchImpl));
+        expect(signal).toBeInstanceOf(AbortSignal);
+    });
+});

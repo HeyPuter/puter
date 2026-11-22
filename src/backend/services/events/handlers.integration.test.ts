@@ -43,7 +43,7 @@ import {
     EVENTS_HANDLER_SOURCE_MAX_BYTES,
     EVENTS_SUSPENDED_PENDING_CAP,
     EVENTS_WORKER_SOURCE_MAX_BYTES,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import {
     appHandlerScope,

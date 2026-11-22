@@ -193,19 +193,6 @@ export class ProfileService extends PuterService {
         });
     }
 
-    /** Where a profile is served from, or null with no hosting domain. */
-    getPublicUrl(user: Pick<UserRow, 'uuid'>): string | null {
-        const host =
-            this.config.static_hosting_domain ??
-            this.config.static_hosting_domain_alt;
-        if (!host) return null;
-        const protocol = this.config.protocol ?? 'https';
-        const port = this.config.pub_port;
-        const portSuffix =
-            port && port !== 80 && port !== 443 ? `:${port}` : '';
-        return `${protocol}://${PROFILES_SUBDOMAIN}.${host}${portSuffix}/${profileFileName(user.uuid)}`;
-    }
-
     /** The profile as stored, with every field present. */
     async getProfile(user: Pick<UserRow, 'uuid'>): Promise<UserProfile> {
         return (await (await this.openProfile(user)).read()).profile;

@@ -29,7 +29,7 @@ import {
     KV_SHARE_NOTIFY_LIMITS,
     limitFor,
     type TieredQuota,
-} from '../../controllers/events/limits.js';
+} from '../events/limits.js';
 import {
     isAccessTokenActor,
     isAccountContext,
@@ -61,6 +61,8 @@ import type { UserRow } from '../../stores/user/UserStore.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import type { PageResult } from '../../util/pagination.js';
 import { withRedisLock } from '../../util/redisLock.js';
+import { doublingBackoffMs } from '../../util/retryBackoff.js';
+import { nowSeconds } from '../../util/time.js';
 import { appGenerationStart, predatesApp } from '../../util/appGeneration.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import {
@@ -508,8 +510,6 @@ const JOB_CLAIM_CONDITION = [
     '(#home = :home OR (#tc < :adopt AND #ra < :adopt))',
 ].join(' AND ');
 
-const nowSeconds = (): number => Math.floor(Date.now() / 1000);
-
 const ownerView = (
     row: KvShareHandle,
     holderUsername: string | null,
@@ -620,8 +620,7 @@ export class KvShareService extends PuterService {
      * reads like a retired one everywhere a handle is resolved.
      */
     async purgeRevokedHandles(signal: AbortSignal): Promise<number> {
-        const cutoff =
-            Math.floor(Date.now() / 1000) - KV_SHARE_REVOKED_RETENTION_SECONDS;
+        const cutoff = nowSeconds() - KV_SHARE_REVOKED_RETENTION_SECONDS;
         let purged = 0;
         for (let i = 0; i < PURGE_MAX_BATCHES && !signal.aborted; i++) {
             const batch = await this.stores.kvShareHandle.deleteRevokedBefore(
@@ -973,10 +972,10 @@ export class KvShareService extends PuterService {
                           attempts,
                           runAfter:
                               Date.now() +
-                              Math.min(
-                                  JOB_RETRY_BASE_MS * 2 ** (attempts - 1),
-                                  JOB_RETRY_MAX_MS,
-                              ),
+                              doublingBackoffMs(attempts, {
+                                  baseMs: JOB_RETRY_BASE_MS,
+                                  maxMs: JOB_RETRY_MAX_MS,
+                              }),
                       },
             );
         } catch {
@@ -1306,17 +1305,17 @@ export class KvShareService extends PuterService {
                 'cannot grant permissions to yourself',
                 'bad_request',
             );
-        if (await this.stores.kvShareHandle.hasLiveCaseVariant(region))
-            throw kvSharePrefixCaseConflict();
-        if (
-            await refusesSharesFrom(this.stores.userBlock, grantee, ownerUserId)
-        )
-            throw recipientNotAcceptingShares();
-        const held =
-            await this.stores.kvShareHandle.countLiveForOwnerAndGrantee(
+        // Read together, refused in this order.
+        const [caseVariant, refuses, held] = await Promise.all([
+            this.stores.kvShareHandle.hasLiveCaseVariant(region),
+            refusesSharesFrom(this.stores.userBlock, grantee, ownerUserId),
+            this.stores.kvShareHandle.countLiveForOwnerAndGrantee(
                 ownerUserId,
                 grantee.id,
-            );
+            ),
+        ]);
+        if (caseVariant) throw kvSharePrefixCaseConflict();
+        if (refuses) throw recipientNotAcceptingShares();
         if (held >= EVENTS_KV_HANDLES_PER_HOLDER)
             throw handleQuotaReached(EVENTS_KV_HANDLES_PER_HOLDER, 'holder');
     }

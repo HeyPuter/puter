@@ -111,18 +111,6 @@ export const PermissionUtil = {
         return components.map(escape_permission_component).join(':');
     },
 
-    permission_scan_cache_prefix_for_app_under_user(
-        user_uuid: string,
-        app_uid: string,
-    ): string {
-        const actor_uid = `app-under-user:${user_uuid}:${app_uid}`;
-        return PermissionUtil.join(
-            'permission-scan',
-            actor_uid,
-            'options-list',
-        );
-    },
-
     readingToOptions(
         reading: ReadingNode[],
         _parameters: Record<string, unknown> = {},

@@ -27,7 +27,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import { EVENTS_COALESCE_WINDOW_MS } from './limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import * as rateLimit from '../../core/http/middleware/rateLimit.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
@@ -62,7 +62,7 @@ const subscribe = async (socketId: string, subject: string) =>
     (await events().subscribe(user.actor, socketId, { subject })).sub;
 
 const held = (socketId: string) =>
-    events().listSubscriptions(user.actor, socketId);
+    env.server.stores.eventSubscription.listForSocket(user.id, socketId);
 
 const settled = (count = 1) =>
     vi.waitFor(() => expect(delivered.length).toBeGreaterThanOrEqual(count), {
@@ -88,7 +88,7 @@ const anchoredAt = (socketId: string, subId: string, path: string) =>
             const row = (await held(socketId)).find(
                 (sub) => sub.subId === subId,
             );
-            expect(row?.anchor.path).toBe(path);
+            expect(row?.anchorPath).toBe(path);
             return row!;
         },
         { timeout: 5_000, interval: 25 },

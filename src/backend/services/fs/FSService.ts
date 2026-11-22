@@ -24,18 +24,6 @@ import { finished, Readable, Transform } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
 import type { EventKey, EventMap } from '../../clients/event/types.js';
 import {
-    BinaryPayload,
-    CompleteWriteRequest,
-    CompleteWriteResponse,
-    SignedWriteRequest,
-    SignedWriteResponse,
-    SignMultipartPartsRequest,
-    SignMultipartPartsResponse,
-    UploadMode,
-    WriteRequest,
-    WriteResponse,
-} from '../../controllers/fs/requestTypes.js';
-import {
     Actor,
     handlerDepthOf,
     isAccountContext,
@@ -80,11 +68,16 @@ import {
     APP_DATA_FS_MODE_CLASSES,
     appDataOwnerOf,
     appDataPermission,
+    appDataRootPath,
     appDataSharingAllowed,
     carriesClosedAppData,
     closedAppDataOwners,
 } from '../permission/appDataScopes.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
+import {
+    fsEntryPermission,
+    parseFsPathPermission,
+} from '../permission/fsPathPermission.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { PuterService } from '../types.js';
 import {
@@ -94,13 +87,23 @@ import {
 } from './resolveNode.js';
 import type {
     BatchWritePrepareRequest,
+    BinaryPayload,
+    CompleteWriteRequest,
+    CompleteWriteResponse,
     NormalizedWriteInput,
     PreparedBatchWrite,
+    SignedWriteRequest,
+    SignedWriteResponse,
+    SignMultipartPartsRequest,
+    SignMultipartPartsResponse,
     UploadByteBudget,
     UploadedBatchWriteItem,
+    UploadMode,
     UploadPayload,
     UploadPreparedBatchItemInput,
     UploadProgressTrackerLike,
+    WriteRequest,
+    WriteResponse,
 } from './types.js';
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
@@ -239,12 +242,6 @@ const isAppDataRootPath = (path: string): boolean => {
 
 /** Ends a subtree removal whose `proceed` check said to stop. */
 class RemovalStopped extends Error {}
-
-const isNoSuchKeyError = (err: unknown): boolean => {
-    if (!err || typeof err !== 'object') return false;
-    const e = err as { name?: unknown; Code?: unknown };
-    return e.name === 'NoSuchKey' || e.Code === 'NoSuchKey';
-};
 
 const isInvalidRangeError = (err: unknown): boolean => {
     if (!err || typeof err !== 'object') return false;
@@ -407,25 +404,12 @@ export class FSService extends PuterService {
         // front.
         permissions.registerRewriter({
             id: 'fs-path-to-uid',
-            matches: (permission: string) => {
-                if (
-                    !permission.startsWith('fs:') &&
-                    !permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`)
-                )
-                    return false;
-                // Parse on component boundaries: a path can contain `fs:` (e.g. a home dir named `…fs`), which a raw split mistakes for the mode delimiter.
-                const parts = PermissionUtil.split(permission);
-                const fsIndex = parts[0] === MANAGE_PERM_PREFIX ? 1 : 0;
-                const specifier = parts[fsIndex + 1];
-                return Boolean(specifier && specifier.startsWith('/'));
-            },
+            matches: (permission: string) =>
+                parseFsPathPermission(permission) !== null,
             rewrite: async (permission: string): Promise<string> => {
-                const parts = PermissionUtil.split(permission);
-                const hasManage = parts[0] === MANAGE_PERM_PREFIX;
-                const fsIndex = hasManage ? 1 : 0;
-                const path = parts[fsIndex + 1];
-                const rest = parts.slice(fsIndex + 2);
-                if (!path) return permission;
+                const parsed = parseFsPathPermission(permission);
+                if (!parsed) return permission;
+                const { hasManage, path, rest } = parsed;
                 const entry = await fsEntryStore.getEntryByPath(path);
                 if (!entry) {
                     throw new HttpError(404, `Entry not found: path=${path}`, {
@@ -436,6 +420,20 @@ export class FSService extends PuterService {
                 return hasManage ? `${MANAGE_PERM_PREFIX}:${joined}` : joined;
             },
         });
+
+        // The rules below see the same uid once per scan option; the scan's
+        // memo keeps that to one entry lookup per scan.
+        const entryFor = (
+            uid: string,
+            memo: Map<string, unknown> | undefined,
+        ): Promise<FSEntry | null> => {
+            const key = `fs-entry:${uid}`;
+            const known = memo?.get(key) as Promise<FSEntry | null> | undefined;
+            if (known) return known;
+            const lookup = fsEntryStore.getEntryByUuid(uid);
+            memo?.set(key, lookup);
+            return lookup;
+        };
 
         // -- is-owner --------------------------------------------------
         // For user actors, `fs:<uuid>:*` resolves iff the actor owns the
@@ -455,7 +453,7 @@ export class FSService extends PuterService {
                     )
                 );
             },
-            check: async ({ actor, permission }): Promise<unknown> => {
+            check: async ({ actor, permission, memo }): Promise<unknown> => {
                 if (!isPlainUserActor(actor)) return undefined;
                 if (!actor.user?.id) return undefined;
 
@@ -464,7 +462,7 @@ export class FSService extends PuterService {
                 const uid = parts[1];
                 if (!uid) return undefined;
 
-                const entry = await fsEntryStore.getEntryByUuid(uid);
+                const entry = await entryFor(uid, memo);
                 if (!entry) return undefined;
                 if (entry.userId === actor.user.id) return {};
                 return undefined;
@@ -487,7 +485,7 @@ export class FSService extends PuterService {
             shortcut: true,
             matches: (permission: string): boolean =>
                 permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`),
-            check: async ({ actor, permission }): Promise<unknown> => {
+            check: async ({ actor, permission, memo }): Promise<unknown> => {
                 // Apps are bounded by their user through a separate path;
                 // widening them here would let one outrun that bound.
                 if (!isPlainUserActor(actor)) return undefined;
@@ -497,7 +495,7 @@ export class FSService extends PuterService {
                 const uid = PermissionUtil.split(stripped)[1];
                 if (!uid) return undefined;
 
-                const entry = await fsEntryStore.getEntryByUuid(uid);
+                const entry = await entryFor(uid, memo);
                 // Owning the entry is `is-owner`'s answer to give, and it runs
                 // first — there is nothing to inherit on your own tree.
                 if (!entry || entry.userId === actor.user.id) return undefined;
@@ -507,7 +505,7 @@ export class FSService extends PuterService {
                 ).slice(1);
                 if (ancestors.length === 0) return undefined;
                 const wanted = ancestors.map((ancestor) =>
-                    PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid),
+                    fsEntryPermission(ancestor.uid, MANAGE_PERM_PREFIX),
                 );
 
                 // Read the stores rather than re-entering `scan`, which would
@@ -557,23 +555,20 @@ export class FSService extends PuterService {
                     )
                 );
             },
-            check: async ({ actor, permission }): Promise<unknown> => {
+            check: async ({ actor, permission, memo }): Promise<unknown> => {
                 if (!isAppActor(actor)) return undefined;
                 const username = actor.user?.username;
                 const appUid = actor.effectiveApp!.uid;
                 if (!username || !appUid) return undefined;
 
-                const stripped = permission.replaceAll(
-                    `${MANAGE_PERM_PREFIX}:`,
-                    '',
-                );
+                const stripped = PermissionUtil.stripManageArms(permission);
                 const uid = PermissionUtil.split(stripped)[1];
                 if (!uid) return undefined;
 
-                const entry = await fsEntryStore.getEntryByUuid(uid);
+                const entry = await entryFor(uid, memo);
                 if (!entry) return undefined;
 
-                const root = `/${username}/AppData/${appUid}`;
+                const root = appDataRootPath(username, appUid);
                 if (entry.path === root || entry.path.startsWith(`${root}/`)) {
                     return {};
                 }
@@ -3757,11 +3752,15 @@ export class FSService extends PuterService {
             writeRequest.fileMetadata,
             homeRegion,
         );
-        const [resolvedTarget] = await this.#resolveWriteTargets(userId, [
-            {
-                index: 0,
-                normalizedInput,
-            },
+        // The owner is read off the home segment, which deduping never changes.
+        const [[resolvedTarget], storageOwner] = await Promise.all([
+            this.#resolveWriteTargets(userId, [
+                {
+                    index: 0,
+                    normalizedInput,
+                },
+            ]),
+            this.#storageOwnerOf(normalizedInput.path, userId),
         ]);
         if (!resolvedTarget) {
             throw new Error('Failed to resolve write target');
@@ -3773,10 +3772,6 @@ export class FSService extends PuterService {
         normalizedInput.thumbnail = null;
 
         const existingSize = existingEntry?.size ?? 0;
-        const storageOwner = await this.#storageOwnerOf(
-            normalizedInput.path,
-            userId,
-        );
         const ownerAllowanceMax = this.#allowanceOverrideFor(
             storageOwner,
             userId,
@@ -4178,7 +4173,7 @@ export class FSService extends PuterService {
                 this.stores.s3Object.resolveRegion(entry.bucketRegion),
             );
         } catch (err) {
-            if (isNoSuchKeyError(err)) {
+            if (isMissingObjectError(err)) {
                 await this.#handleGhostFile(entry, objectKey);
                 throw new HttpError(404, 'File contents are missing', {
                     legacyCode: 'subject_does_not_exist',
@@ -4928,7 +4923,7 @@ export class FSService extends PuterService {
         try {
             const username = (await this.stores.user.getById(userId))?.username;
             if (!username) return;
-            const path = `/${username}/AppData/${appUid}`;
+            const path = appDataRootPath(username, appUid);
             const root = await this.stores.fsEntry.getEntryByPath(path, {
                 lineage: false,
                 skipCache: true,
@@ -5904,7 +5899,7 @@ export class FSService extends PuterService {
         // A ghost file — DB row present with a non-null bucket but its backing
         // S3 object gone. Mirror `readContent`: clean up the orphan and surface
         // a 404 instead of the copy's NoSuchKey.
-        if (isNoSuchKeyError(reason)) {
+        if (isMissingObjectError(reason)) {
             await this.#handleGhostFile(
                 failed.item.source,
                 failed.item.source.uuid,
