@@ -2137,6 +2137,7 @@ export class FSEntryStore extends PuterStore {
                     input: entryInput,
                     userId: entryInput.userId,
                     targetPath,
+                    storedPath: targetPath,
                     parentPath,
                     fileName: pathPosix.basename(targetPath),
                     metadataJson: this.#serializeMetadata(entryInput),
@@ -2177,10 +2178,15 @@ export class FSEntryStore extends PuterStore {
                     createPaths: entry.createPaths,
                 })),
             );
+            // Keyed by the requested spelling: the folder found may be stored
+            // in another case or normalization form, and its children are
+            // written under its stored path.
             const parentByPath = new Map<string, FSEntry>();
-            for (const parentEntry of parentEntries) {
-                parentByPath.set(parentEntry.path, parentEntry);
-            }
+            userEntries.forEach((entry, i) => {
+                const parentEntry = parentEntries[i]!;
+                parentByPath.set(entry.parentPath, parentEntry);
+                entry.storedPath = `${parentEntry.path}/${entry.fileName}`;
+            });
 
             const existingEntriesByPath = await this.#readEntriesByPathsForUser(
                 userId,
@@ -2247,7 +2253,7 @@ export class FSEntryStore extends PuterStore {
                         thumbnail: entry.input.thumbnail ?? null,
                         immutable: Boolean(entry.input.immutable),
                         name: entry.fileName,
-                        path: entry.targetPath,
+                        path: entry.storedPath,
                         metadata: entry.metadataJson,
                         modified: now,
                         accessed: now,
@@ -2289,7 +2295,7 @@ export class FSEntryStore extends PuterStore {
                                     Boolean(entry.input.immutable),
                                 ),
                                 entry.fileName,
-                                entry.targetPath,
+                                entry.storedPath,
                                 entry.metadataJson,
                                 now,
                                 now,
@@ -2576,7 +2582,7 @@ export class FSEntryStore extends PuterStore {
                         thumbnail: entry.input.thumbnail ?? null,
                         immutable: Boolean(entry.input.immutable),
                         name: entry.fileName,
-                        path: entry.targetPath,
+                        path: entry.storedPath,
                         metadata: entry.metadataJson,
                         modified: now,
                         accessed: now,
@@ -2615,7 +2621,7 @@ export class FSEntryStore extends PuterStore {
                                 Boolean(entry.input.immutable),
                             ),
                             entry.fileName,
-                            entry.targetPath,
+                            entry.storedPath,
                             entry.metadataJson,
                             now,
                             now,
@@ -2732,7 +2738,7 @@ export class FSEntryStore extends PuterStore {
             size: entry.size,
             symlink_path: null,
             is_symlink: 0,
-            path: entry.targetPath,
+            path: entry.storedPath,
             // A row this new has no subdomains.
             subdomains_agg: null,
         };

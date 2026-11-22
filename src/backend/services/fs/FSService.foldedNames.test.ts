@@ -385,6 +385,33 @@ describe.each(engines.filter((engine) => !engine.skip))(
             expect(await names(dir)).toEqual(['notes.txt']);
         });
 
+        it('writes into a folder spelled in another case or form, under its stored path', async () => {
+            const dir = await freshDir();
+            await fs.mkdir(userId, { path: `${dir}/Café` });
+            const respelled = `${dir}/café`.replace(
+                'é',
+                'é',
+            );
+
+            const written = await write(`${respelled}/plain.txt`, 'one');
+            expect(written.path).toBe(`${dir}/Café/plain.txt`);
+            expect(await names(`${dir}/Café`)).toEqual(['plain.txt']);
+
+            const signed = await signedWrite(`${respelled}/signed.txt`, 'two');
+            expect(signed.fsEntry.path).toBe(`${dir}/Café/signed.txt`);
+
+            const replaced = await write(`${respelled}/plain.txt`, 'three', {
+                overwrite: true,
+            });
+            expect(replaced.uuid).toBe(written.uuid);
+            expect(replaced.path).toBe(`${dir}/Café/plain.txt`);
+            expect(await names(`${dir}/Café`)).toEqual([
+                'plain.txt',
+                'signed.txt',
+            ]);
+            expect(await readBack(replaced)).toBe('three');
+        });
+
         it('overwrites an NFD spelling of a stored name in place, signed or not', async () => {
             const dir = await freshDir();
             const nfc = `${dir}/r\u00e9sum\u00e9.txt`;
