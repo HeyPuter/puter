@@ -268,14 +268,9 @@ describe('AppStore hosted-site app lookup cache', () => {
         const after = await appStore.listOwnedByIndexUrlCandidates(
             owner,
             candidatesFor(app),
-            { requirePrivate: true },
         );
         expect(after.map((r) => r.uid)).toEqual([app.uid]);
-        const unfiltered = await appStore.listOwnedByIndexUrlCandidates(
-            owner,
-            candidatesFor(app),
-        );
-        expect(Number(unfiltered[0].is_private)).toBe(1);
+        expect(Number(after[0].is_private)).toBe(1);
     });
 
     it('finds an app created after a cached miss', async () => {
@@ -323,20 +318,13 @@ describe('AppStore hosted-site app lookup cache', () => {
         expect(await redis.keys(`apps:hosted:v1:${owner}:*`)).toEqual([]);
     });
 
-    it('keys entries by owner, candidate set and requirePrivate', async () => {
+    it('keys entries by owner and candidate set', async () => {
         const owner = freshOwner();
         const app = await createApp(owner);
         await endChangeWindow();
         await appStore.listOwnedByIndexUrlCandidates(owner, candidatesFor(app));
         await settle();
 
-        expect(
-            await appStore.listOwnedByIndexUrlCandidates(
-                owner,
-                candidatesFor(app),
-                { requirePrivate: true },
-            ),
-        ).toEqual([]);
         expect(
             await appStore.listOwnedByIndexUrlCandidates(
                 freshOwner(),
@@ -413,5 +401,59 @@ describe('AppStore filetype associations on the cached row', () => {
         expect(
             JSON.parse((await redis.get(`apps:uid:${app.uid}`)) ?? 'null'),
         ).toBeNull();
+    });
+});
+
+describe('AppStore single-column writes and a lagging replica', () => {
+    it('serves the new owner right after a claim, not the replica copy', async () => {
+        const owner = freshOwner();
+        const app = await appStore.createFromOrigin(
+            `app-${crypto.randomUUID()}`,
+            `https://${slug()}.example.com`,
+        );
+        await endChangeWindow();
+        const [staleRow] = await db.read(
+            'SELECT * FROM `apps` WHERE `id` = ?',
+            [app.id],
+        );
+        expect(staleRow.owner_user_id).toBeNull();
+
+        expect(await appStore.claimOwnership(app.id, owner)).toBe(true);
+        const row = await withLaggingReplica(
+            { apps: [staleRow], filetypes: [] },
+            async () => {
+                const read = await appStore.getByUid(app.uid);
+                await settle();
+                return read;
+            },
+        );
+        expect(row.owner_user_id).toBe(owner);
+        const cached = JSON.parse(
+            (await redis.get(`apps:uid:${app.uid}`)) ?? 'null',
+        );
+        expect(cached?.owner_user_id ?? owner).toBe(owner);
+    });
+
+    it('serves the new icon right after an inline icon is replaced', async () => {
+        const app = await createApp(freshOwner(), {
+            icon: 'data:image/png;base64,AAAA',
+        });
+        await endChangeWindow();
+        expect((await appStore.getByUid(app.uid)).icon).toMatch(/^data:/);
+        const [staleRow] = await db.read(
+            'SELECT * FROM `apps` WHERE `id` = ?',
+            [app.id],
+        );
+
+        await appStore.replaceDataUrlIcon(app.uid, 'https://api/app-icon/x');
+        const row = await withLaggingReplica(
+            { apps: [staleRow], filetypes: [] },
+            async () => {
+                const read = await appStore.getByUid(app.uid);
+                await settle();
+                return read;
+            },
+        );
+        expect(row.icon).toBe('https://api/app-icon/x');
     });
 });

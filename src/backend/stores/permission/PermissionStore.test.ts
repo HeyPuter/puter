@@ -766,6 +766,47 @@ describe('PermissionStore', () => {
             ).toBe(true);
         });
 
+        it('drops the cached grant of a row a lagging replica has not seen', async () => {
+            const user = await makeUser();
+            const app = await makeApp(user.id);
+            await store.upsertUserAppPerm(user.id, app.id, 'app-data:lag', {});
+            for (const key of await server.clients.redis.keys('*:deleted')) {
+                await server.clients.redis.del(key);
+            }
+            expect(
+                await store.hasUserAppPerm(user.id, app.id, 'app-data:lag'),
+            ).toBe(true);
+            await new Promise((r) => setTimeout(r, 20));
+
+            const db = server.clients.db;
+            const realRead = db.read.bind(db);
+            // SQLite's `pread` goes through `read`; keep it on the real one.
+            const preadSpy = vi.spyOn(db, 'pread').mockImplementation(realRead);
+            const readSpy = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql: string, params?: unknown[]) =>
+                    /FROM `(user|dev)_to_app_permissions`/.test(sql)
+                        ? []
+                        : realRead(sql, params),
+                );
+            let removed: Awaited<
+                ReturnType<typeof store.deleteAppGrantsByPermissionPrefix>
+            >;
+            try {
+                removed =
+                    await store.deleteAppGrantsByPermissionPrefix(
+                        'app-data:lag',
+                    );
+            } finally {
+                readSpy.mockRestore();
+                preadSpy.mockRestore();
+            }
+            expect(removed.map((r) => r.permission)).toEqual(['app-data:lag']);
+            expect(
+                await store.hasUserAppPerm(user.id, app.id, 'app-data:lag'),
+            ).toBe(false);
+        });
+
         it('treats LIKE wildcards in the permission as literal text', async () => {
             const user = await makeUser();
             const app = await makeApp(user.id);
@@ -1350,10 +1391,9 @@ describe('PermissionStore', () => {
                 { group_id: groupId, permission: `fs:${node}:read` },
             ]);
             expect(
-                await store.queryIssuerGroupPermsByPrefix(
-                    issuer.id,
-                    groupId,
-                    `fs:${node}`,
+                await store.queryIssuerGroupPermsByPrefixes(
+                    [{ issuerUserId: issuer.id, groupId }],
+                    [`fs:${node}`],
                 ),
             ).toEqual([]);
         });
@@ -1587,6 +1627,43 @@ describe('PermissionStore', () => {
             }
         });
 
+        it("deletes several of one issuer's group grants at once and reports which were there", async () => {
+            const issuer = await makeUser();
+            const rival = await makeUser();
+            const { member, groupId } = await seedMember(
+                issuer.id,
+                'fs:many:read',
+            );
+            await seedGroupPerm(issuer.id, groupId, 'manage:fs:many');
+            await seedGroupPerm(rival.id, groupId, 'fs:many:write');
+
+            const result = await store.deleteUserGroupPerms(
+                groupId,
+                issuer.id,
+                ['fs:many:read', 'fs:many:write', 'manage:fs:many'],
+            );
+            expect(result.removed.sort()).toEqual([
+                'fs:many:read',
+                'manage:fs:many',
+            ]);
+            expect(result.members).toEqual([
+                { id: member.id, uuid: expect.any(String) },
+            ]);
+            // Another issuer's grant of the same node stays.
+            expect(
+                (
+                    await store.readUserGroupPerms(member.id, [
+                        'fs:many:read',
+                        'fs:many:write',
+                        'manage:fs:many',
+                    ])
+                ).map((row) => row.permission),
+            ).toEqual(['fs:many:write']);
+            expect(
+                await store.deleteUserGroupPerms(groupId, issuer.id, []),
+            ).toEqual({ removed: [], members: [] });
+        });
+
         it('reads many issuer/group pairs under many prefixes at once', async () => {
             const issuer = await makeUser();
             const rival = await makeUser();
@@ -1623,11 +1700,12 @@ describe('PermissionStore', () => {
             // Not the rival's grant, and `fs:two` stops at a segment boundary.
             expect(rows).toHaveLength(2);
             expect(
-                await store.queryIssuerGroupPermsByPrefix(
-                    issuer.id,
-                    g1,
-                    'fs:one',
-                ),
+                (
+                    await store.queryIssuerGroupPermsByPrefixes(
+                        [{ issuerUserId: issuer.id, groupId: g1 }],
+                        ['fs:one'],
+                    )
+                ).map((row) => row.permission),
             ).toEqual(['fs:one:read']);
         });
     });
@@ -1635,10 +1713,11 @@ describe('PermissionStore', () => {
     // -- issuer-prefix discovery queries ---------------------------------
 
     describe('issuer-prefix queries', () => {
-        it('lists the holders and permissions an issuer granted under a prefix', async () => {
+        it('lists what an issuer granted one holder under any of several prefixes', async () => {
             const issuer = await makeUser();
             const holder = await makeUser();
             const other = await makeUser();
+            const rival = await makeUser();
 
             await store.upsertUserUserPerm(
                 holder.id,
@@ -1649,39 +1728,41 @@ describe('PermissionStore', () => {
             await store.upsertUserUserPerm(
                 holder.id,
                 issuer.id,
-                'fs:abc:write',
+                'manage:fs:abc',
                 {},
             );
-            await store.upsertUserUserPerm(other.id, issuer.id, 'kv:x', {});
-
-            const rows = await store.queryIssuerUserPermsByPrefix(
-                issuer.id,
-                'fs:',
-            );
-            expect(rows.map((r) => r.permission).sort()).toEqual([
-                'fs:abc:read',
+            await store.upsertUserUserPerm(holder.id, issuer.id, 'kv:x', {});
+            await store.upsertUserUserPerm(other.id, issuer.id, 'fs:abc', {});
+            await store.upsertUserUserPerm(
+                holder.id,
+                rival.id,
                 'fs:abc:write',
-            ]);
-            expect(new Set(rows.map((r) => r.holder_user_id))).toEqual(
-                new Set([holder.id]),
+                {},
             );
 
             expect(
-                await store.queryIssuerHolderPermsByPrefix(
+                await store.queryIssuerHolderPermsByPrefixes(
                     issuer.id,
                     other.id,
-                    'fs:',
+                    ['kv'],
                 ),
             ).toEqual([]);
             expect(
                 (
-                    await store.queryIssuerHolderPermsByPrefix(
+                    await store.queryIssuerHolderPermsByPrefixes(
                         issuer.id,
                         holder.id,
-                        'fs:abc',
+                        ['fs:abc', 'manage:fs:abc'],
                     )
                 ).sort(),
-            ).toEqual(['fs:abc:read', 'fs:abc:write']);
+            ).toEqual(['fs:abc:read', 'manage:fs:abc']);
+            expect(
+                await store.queryIssuerHolderPermsByPrefixes(
+                    issuer.id,
+                    holder.id,
+                    [],
+                ),
+            ).toEqual([]);
         });
 
         it('does not let a wildcard or a partial segment widen a prefix', async () => {
@@ -1699,52 +1780,21 @@ describe('PermissionStore', () => {
 
             // `_` is a LIKE wildcard, so `fs_` unescaped would take `fsXy`.
             expect(
-                await store.queryIssuerHolderPermsByPrefix(
+                await store.queryIssuerHolderPermsByPrefixes(
                     issuer.id,
                     holder.id,
-                    'fs_',
+                    ['fs_'],
                 ),
             ).toEqual([]);
 
             // A prefix ends on a segment boundary: `fs:abc` is not `fs:abcdef`.
             expect(
-                await store.queryIssuerHolderPermsByPrefix(
+                await store.queryIssuerHolderPermsByPrefixes(
                     issuer.id,
                     holder.id,
-                    'fs:abc',
+                    ['fs:abc'],
                 ),
             ).toEqual(['fs:abc']);
-        });
-
-        it('lists the apps an issuer granted under a prefix', async () => {
-            const issuer = await makeUser();
-            const app = await makeApp(issuer.id);
-            await store.upsertUserAppPerm(issuer.id, app.id, 'fs:xyz:read', {});
-            await store.upsertUserAppPerm(issuer.id, app.id, 'kv:other', {});
-
-            const rows = await store.queryIssuerAppPermsByPrefix(
-                issuer.id,
-                'fs:',
-            );
-            expect(rows).toEqual([
-                { app_id: app.id, permission: 'fs:xyz:read' },
-            ]);
-        });
-
-        it('never returns another issuer grants', async () => {
-            const issuer = await makeUser();
-            const rival = await makeUser();
-            const holder = await makeUser();
-            await store.upsertUserUserPerm(
-                holder.id,
-                rival.id,
-                'fs:r:read',
-                {},
-            );
-
-            expect(
-                await store.queryIssuerUserPermsByPrefix(issuer.id, 'fs:'),
-            ).toEqual([]);
         });
     });
 
@@ -2340,20 +2390,55 @@ describe('PermissionStore', () => {
                 1,
             );
 
-            const mget = vi
-                .spyOn(server.clients.redis, 'mget')
-                .mockRejectedValue(new Error('redis unavailable'));
+            const pipeline = vi
+                .spyOn(server.clients.redis, 'pipeline')
+                .mockImplementation(() => {
+                    throw new Error('redis unavailable');
+                });
             try {
                 expect(
                     await store.getMultiCheckCache(actorUid, ['a'], 1),
                 ).toEqual(new Map());
             } finally {
-                mget.mockRestore();
+                pipeline.mockRestore();
             }
 
             expect(await store.getMultiCheckCache(actorUid, ['a'], 1)).toEqual(
                 new Map([['a', true]]),
             );
+        });
+
+        it('reads check-cache entries that sit in different cluster slots', async () => {
+            const actorUid = `actor-${uuidv4()}`;
+            await store.setMultiCheckCache(
+                actorUid,
+                [
+                    { permission: 'a', granted: true },
+                    { permission: 'b', granted: false },
+                ],
+                1,
+            );
+
+            // A cluster refuses a multi-key read across slots.
+            const mget = vi
+                .spyOn(server.clients.redis, 'mget')
+                .mockRejectedValue(
+                    new Error(
+                        "CROSSSLOT Keys in request don't hash to the same slot",
+                    ),
+                );
+            try {
+                expect(
+                    await store.getMultiCheckCache(actorUid, ['a', 'b'], 1),
+                ).toEqual(
+                    new Map([
+                        ['a', true],
+                        ['b', false],
+                    ]),
+                );
+            } finally {
+                mget.mockRestore();
+            }
         });
     });
 
@@ -3219,6 +3304,44 @@ describe('PermissionStore', () => {
             const page = await store.listUserUserAudit({ permissions: [] });
             expect(page.items).toEqual([]);
             expect(await store.countUserUserAudit({ permissions: [] })).toBe(0);
+        });
+    });
+
+    describe('listGrantsForUser', () => {
+        it('lists grants to apps and users and from users, with extra parsed', async () => {
+            const me = await makeUser();
+            const other = await makeUser();
+            const app = (await makeApp(me.id)) as { id: number; uid: string };
+            await store.upsertUserAppPerm(me.id, app.id, 'driver:kv', {
+                note: 'a',
+            });
+            await store.upsertUserUserPerm(other.id, me.id, 'fs:/x:read', {
+                note: 'out',
+            });
+            await store.upsertUserUserPerm(me.id, other.id, 'fs:/y:read', {});
+
+            const grants = await store.listGrantsForUser(me.id);
+            expect(grants.toApps).toEqual([
+                {
+                    appUid: app.uid,
+                    permission: 'driver:kv',
+                    extra: { note: 'a' },
+                },
+            ]);
+            expect(grants.toUsers).toEqual([
+                {
+                    username: other.username,
+                    permission: 'fs:/x:read',
+                    extra: { note: 'out' },
+                },
+            ]);
+            expect(grants.fromUsers).toEqual([
+                {
+                    username: other.username,
+                    permission: 'fs:/y:read',
+                    extra: {},
+                },
+            ]);
         });
     });
 });

@@ -57,6 +57,144 @@ describe('UserStore', () => {
         expect(typeof cachedUser?.requires_email_confirmation).toBe('boolean');
     });
 
+    it('moves last_activity_ts forward, never back', async () => {
+        const username = `us-${Math.random().toString(36).slice(2, 10)}`;
+        const user = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: null,
+        });
+        const stored = async () =>
+            (
+                await server.clients.db.read(
+                    'SELECT `last_activity_ts` FROM `user` WHERE `id` = ?',
+                    [user.id],
+                )
+            )[0]?.last_activity_ts;
+
+        await server.stores.user.touchLastActivity(
+            user.id,
+            '2026-05-02 10:00:00',
+        );
+        await server.stores.user.touchLastActivity(
+            user.id,
+            '2026-05-01 10:00:00',
+        );
+        expect(String(await stored())).toContain('2026-05-02');
+    });
+
+    it('keeps both keys of two concurrent metadata updates', async () => {
+        const username = `us-${Math.random().toString(36).slice(2, 10)}`;
+        const user = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: null,
+        });
+        await server.stores.user.updateMetadata(user.id, { kept: 1 });
+
+        await Promise.all([
+            server.stores.user.updateMetadata(user.id, { first: true }),
+            server.stores.user.updateMetadata(user.id, { second: true }),
+        ]);
+
+        const [row] = await server.clients.db.read(
+            'SELECT `metadata` FROM `user` WHERE `id` = ?',
+            [user.id],
+        );
+        const stored =
+            typeof row?.metadata === 'string'
+                ? JSON.parse(row.metadata)
+                : row?.metadata;
+        expect(stored).toEqual({ kept: 1, first: true, second: true });
+        expect((await server.stores.user.getById(user.id))?.metadata).toEqual(
+            { kept: 1, first: true, second: true },
+        );
+    });
+
+    it('sets one metadata key in place, keeping the others', async () => {
+        const username = `us-${Math.random().toString(36).slice(2, 10)}`;
+        const user = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: null,
+        });
+        await server.stores.user.setMetadataKey(user.id, 'first', true);
+        await server.stores.user.setMetadataKey(user.id, 'second', 'x');
+        await server.stores.user.setMetadataKey(user.id, 'first', null);
+
+        const [row] = await server.clients.db.read(
+            'SELECT `metadata` FROM `user` WHERE `id` = ?',
+            [user.id],
+        );
+        const stored =
+            typeof row?.metadata === 'string'
+                ? JSON.parse(row.metadata)
+                : row?.metadata;
+        expect(stored).toEqual({ first: null, second: 'x' });
+        await expect(
+            server.stores.user.setMetadataKey(user.id, 'a"b', true),
+        ).rejects.toThrow('invalid metadata key');
+    });
+
+    it('leaves the cached user fresh after setMetadataKey, even when a replica lags', async () => {
+        const username = `us-${Math.random().toString(36).slice(2, 10)}`;
+        const user = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: null,
+        });
+        await server.stores.user.getById(user.id);
+        const [stale] = await server.clients.db.pread(
+            'SELECT * FROM `user` WHERE `id` = ? LIMIT 1',
+            [user.id],
+        );
+        const lagging = vi
+            .spyOn(server.clients.db, 'tryHardRead')
+            .mockImplementation(async (sql: string, params?: unknown[]) =>
+                sql.startsWith('SELECT * FROM `user`') &&
+                params?.[0] === user.id
+                    ? [stale]
+                    : [],
+            );
+        try {
+            await server.stores.user.setMetadataKey(user.id, 'flag', false);
+            const cached = await server.stores.user.getById(user.id);
+            expect(cached?.metadata?.flag).toBe(false);
+            expect(lagging).not.toHaveBeenCalled();
+        } finally {
+            lagging.mockRestore();
+        }
+    });
+
+    it('tells whether a uuid has an account, from the primary', async () => {
+        const username = `us-${Math.random().toString(36).slice(2, 10)}`;
+        const user = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: null,
+        });
+        const pread = vi.spyOn(server.clients.db, 'pread');
+        try {
+            expect(
+                await server.stores.user.existsByUuidOnPrimary(user.uuid),
+            ).toBe(true);
+            expect(
+                await server.stores.user.existsByUuidOnPrimary(uuidv4()),
+            ).toBe(false);
+            expect(await server.stores.user.existsByUuidOnPrimary('')).toBe(
+                false,
+            );
+            expect(pread).toHaveBeenCalledTimes(2);
+        } finally {
+            pread.mockRestore();
+        }
+    });
+
     it('stops resolving an email the account no longer holds', async () => {
         const username = `us-${Math.random().toString(36).slice(2, 10)}`;
         const oldEmail = `${username}-old@test.local`;
@@ -489,6 +627,200 @@ describe('UserStore batched and uncached lookups', () => {
         ).toBeNull();
     });
 
+    describe('billing customer id', () => {
+        beforeAll(async () => {
+            // The SQLite schema leaves the column to the billing extension.
+            try {
+                await server.clients.db.write(
+                    'ALTER TABLE user ADD COLUMN stripe_customer_id TEXT',
+                    [],
+                );
+            } catch {
+                /* already there */
+            }
+        });
+
+        it('sets the id only while the account has none, and finds the account by it', async () => {
+            const user = await makeUser();
+            const customer = `cus_${user.username}`;
+
+            expect(
+                await server.stores.user.setStripeCustomerIdIfUnset(
+                    user.uuid,
+                    customer,
+                ),
+            ).toBe(true);
+            expect(
+                await server.stores.user.setStripeCustomerIdIfUnset(
+                    user.uuid,
+                    `${customer}_later`,
+                ),
+            ).toBe(false);
+
+            expect(
+                (await server.stores.user.getByStripeCustomerId(customer))?.id,
+            ).toBe(user.id);
+            expect(
+                (
+                    await server.stores.user.getByStripeCustomerId(customer, {
+                        force: true,
+                    })
+                )?.uuid,
+            ).toBe(user.uuid);
+            expect(
+                await server.stores.user.getByStripeCustomerId(
+                    `${customer}_later`,
+                ),
+            ).toBeNull();
+            expect(await server.stores.user.getByStripeCustomerId('')).toBeNull();
+        });
+
+        it('refreshes the cached row it wrote', async () => {
+            const user = await makeUser();
+            await server.stores.user.getByUuid(user.uuid);
+
+            await server.stores.user.setStripeCustomerIdIfUnset(
+                user.uuid,
+                `cus_${user.username}`,
+            );
+            expect(
+                (await server.stores.user.getByUuid(user.uuid))
+                    ?.stripe_customer_id,
+            ).toBe(`cus_${user.username}`);
+        });
+
+        it('treats an empty stored id as unset, and an unknown account as no write', async () => {
+            const user = await makeUser();
+            await server.clients.db.write(
+                "UPDATE `user` SET `stripe_customer_id` = '' WHERE `id` = ?",
+                [user.id],
+            );
+            expect(
+                await server.stores.user.setStripeCustomerIdIfUnset(
+                    user.uuid,
+                    'cus_after_empty',
+                ),
+            ).toBe(true);
+            expect(
+                await server.stores.user.setStripeCustomerIdIfUnset(
+                    uuidv4(),
+                    'cus_nobody',
+                ),
+            ).toBe(false);
+        });
+
+        it('finds another holder of an id the caller holds too', async () => {
+            const [mine, theirs] = [await makeUser(), await makeUser()];
+            const customer = `cus_shared_${mine.username}`;
+            for (const user of [mine, theirs]) {
+                await server.stores.user.update(user.id, {
+                    stripe_customer_id: customer,
+                });
+            }
+            for (const [self, other] of [
+                [mine, theirs],
+                [theirs, mine],
+            ]) {
+                expect(
+                    (
+                        await server.stores.user.getByStripeCustomerId(
+                            customer,
+                            { force: true, excludeUserId: self.id },
+                        )
+                    )?.id,
+                ).toBe(other.id);
+            }
+        });
+
+        it('reverts the id only while the row still holds the one written', async () => {
+            const user = await makeUser();
+            await server.stores.user.update(user.id, {
+                stripe_customer_id: 'cus_new',
+            });
+            await server.stores.user.getByUuid(user.uuid);
+
+            expect(
+                await server.stores.user.revertStripeCustomerId(
+                    user.id,
+                    'cus_other',
+                    'cus_old',
+                ),
+            ).toBe(false);
+            expect(
+                await server.stores.user.revertStripeCustomerId(
+                    user.id,
+                    'cus_new',
+                    null,
+                ),
+            ).toBe(true);
+            expect(
+                (await server.stores.user.getByUuid(user.uuid))
+                    ?.stripe_customer_id,
+            ).toBeNull();
+        });
+    });
+
+    describe('guarded moderation flags', () => {
+        it('claims a suspension once, over a replaceable one only, and announces it', async () => {
+            const user = await makeUser();
+            await server.stores.user.getById(user.id);
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                expect(
+                    await server.stores.user.claimSuspension(user.id, {
+                        reason: 'phishing',
+                    }),
+                ).toBe(true);
+                expect(
+                    await server.stores.user.claimSuspension(user.id, {
+                        reason: 'other',
+                        replaceable: ['team_owner_suspended'],
+                    }),
+                ).toBe(false);
+                expect(
+                    emit.mock.calls.filter(([e]) => e === 'user.suspended'),
+                ).toEqual([['user.suspended', { userId: user.id }, {}]]);
+            } finally {
+                emit.mockRestore();
+            }
+            const row = await server.stores.user.getById(user.id);
+            expect(row).toMatchObject({ suspended_reason: 'phishing' });
+            expect(row?.suspended).toBeTruthy();
+            expect(Number(row?.suspended_at)).toBeGreaterThan(0);
+
+            const seat = await makeUser();
+            await server.stores.user.update(seat.id, {
+                suspended: true,
+                suspended_reason: 'team_owner_suspended',
+            });
+            expect(
+                await server.stores.user.claimSuspension(seat.id, {
+                    reason: 'other',
+                    replaceable: ['team_owner_suspended'],
+                }),
+            ).toBe(true);
+            expect(
+                (await server.stores.user.getById(seat.id))?.suspended_reason,
+            ).toBe('other');
+        });
+
+        it('flips the developer incentive approval only when it changes', async () => {
+            const user = await makeUser();
+            await server.stores.user.getById(user.id);
+            const flip = (on: boolean) =>
+                server.stores.user.setDevIncentiveApproval(user.id, on);
+
+            expect(await flip(false)).toBe(false);
+            expect(await flip(true)).toBe(true);
+            expect(await flip(true)).toBe(false);
+            expect(
+                (await server.stores.user.getById(user.id))
+                    ?.dev_approved_for_incentive_program,
+            ).toBeTruthy();
+            expect(await flip(false)).toBe(true);
+        });
+    });
+
     it('countOthersByPhone excludes the caller and ignores unusable input', async () => {
         const phone = `+1415555${Math.floor(1000 + Math.random() * 9000)}`;
         const a = await makeUser();
@@ -719,6 +1051,20 @@ describe('UserStore batched and uncached lookups', () => {
         await server.stores.user.markDeletedById(id);
 
         expect(await redis.get(`users:id:${id}:deleted`)).not.toBeNull();
+    });
+
+    it('deleteById removes the row and tombstones the keys the row names', async () => {
+        const user = await makeUser();
+        const redis = server.clients.redis;
+
+        await server.stores.user.deleteById(user.id, user);
+
+        expect(
+            await server.stores.user.getById(user.id, { force: true }),
+        ).toBeNull();
+        expect(
+            await redis.get(`users:username:${user.username}:deleted`),
+        ).not.toBeNull();
     });
 
     describe('referral codes', () => {

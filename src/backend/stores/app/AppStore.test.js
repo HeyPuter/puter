@@ -27,6 +27,9 @@ const STATS_CACHE_TTL_SECONDS = 30 * 60;
 let counter = 0;
 const freshUid = () => `app-test-${Date.now()}-${counter++}`;
 
+const filetypesOf = async (appStore, id) =>
+    (await appStore.getFiletypeAssociationsByIds([id])).get(id);
+
 // ioredis-mock keeps one in-memory dataset per process, so a server booted
 // later inherits the previous server's `apps:*` keys — and app ids restart
 // from 1 with every fresh database.
@@ -431,7 +434,7 @@ describe('AppStore filetype associations', () => {
             '.doc',
         ]);
 
-        const stored = await appStore.getFiletypeAssociations(app.id);
+        const stored = await filetypesOf(appStore, app.id);
         expect(stored.sort()).toEqual(['doc', 'docx']);
     });
 
@@ -440,7 +443,23 @@ describe('AppStore filetype associations', () => {
 
         await appStore.setFiletypeAssociations(app.id, ['.', '  ', 'txt']);
 
-        expect(await appStore.getFiletypeAssociations(app.id)).toEqual(['txt']);
+        expect(await filetypesOf(appStore, app.id)).toEqual(['txt']);
+    });
+
+    it('getFiletypeAssociationsByIds answers more ids than one IN chunk holds', async () => {
+        const app = await createApp();
+        await appStore.setFiletypeAssociations(app.id, ['csv']);
+        // Absent ids pad the request past the chunk size; the real one is last.
+        const ids = [
+            ...Array.from({ length: 450 }, (_, i) => 10_000_000 + i),
+            app.id,
+        ];
+
+        const byId = await appStore.getFiletypeAssociationsByIds(ids);
+
+        expect(byId.size).toBe(ids.length);
+        expect(byId.get(app.id)).toEqual(['csv']);
+        expect(byId.get(10_000_000)).toEqual([]);
     });
 
     it('getAppsByFiletype matches legacy rows stored with a leading dot', async () => {
@@ -923,7 +942,7 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect(await appStore.delete(app.id)).toBe(true);
         expect(await appStore.getById(app.id)).toBeNull();
         expect(await appStore.getByUid(app.uid)).toBeNull();
-        expect(await appStore.getFiletypeAssociations(app.id)).toEqual([]);
+        expect(await filetypesOf(appStore, app.id)).toEqual([]);
     });
 
     it('drops the cached sites and workers that go with a deleted app', async () => {
@@ -1138,12 +1157,6 @@ describe('AppStore CRUD and cache invalidation', () => {
             'uid',
         ]);
 
-        const privateOnly = await appStore.listOwnedByIndexUrlCandidates(
-            OWNER,
-            candidates,
-            { requirePrivate: true },
-        );
-        expect(privateOnly.map((row) => row.id)).toEqual([privateApp.id]);
     });
 
     it('lists no index_url matches for no candidates, without a query', async () => {
@@ -1447,7 +1460,7 @@ describe('AppStore CRUD and cache invalidation', () => {
         await expect(
             appStore.setFiletypeAssociations(app.id, []),
         ).resolves.toBeUndefined();
-        expect(await appStore.getFiletypeAssociations(app.id)).toEqual([]);
+        expect(await filetypesOf(appStore, app.id)).toEqual([]);
     });
 
     it('lists a user recent app opens most-recent-first, deduped', async () => {
@@ -1476,6 +1489,36 @@ describe('AppStore CRUD and cache invalidation', () => {
             first,
         ]);
         expect(await appStore.getRecentAppOpens(4702)).toEqual([]);
+    });
+
+    it('records an open that the recent list then reads', async () => {
+        const userId = 4710;
+        const uid = `app-recorded-${Date.now()}`;
+        await appStore.recordOpen(uid, userId, Math.floor(Date.now() / 1000));
+        expect(await appStore.getRecentAppOpens(userId)).toEqual([uid]);
+    });
+
+    it('lists the names of approved apps only, up to the limit', async () => {
+        const make = async () => {
+            const name = `approved-${Math.random().toString(36).slice(2, 10)}`;
+            return appStore.create(
+                { name, title: name, index_url: `https://${name}.example.com/` },
+                { ownerUserId: 1 },
+            );
+        };
+        const listed = await make();
+        const unlisted = await make();
+        await db.write(
+            `UPDATE apps SET approved_for_listing = ${db.booleanLiteral(true)} WHERE id = ?`,
+            [listed.id],
+        );
+
+        const names = await appStore.listApprovedNames({ limit: 10_000 });
+        expect(names).toContain(listed.name);
+        expect(names).not.toContain(unlisted.name);
+        expect(
+            await appStore.listApprovedNames({ limit: 1 }),
+        ).toHaveLength(1);
     });
 
     it('rejects a batch lookup on a column it does not own', async () => {
@@ -1592,6 +1635,70 @@ describe('AppStore CRUD and cache invalidation', () => {
         // Nothing cached, or the claimed row; never the unowned copy.
         const cached = await cachedByUid(stale.uid);
         expect(cached === null || cached.owner_user_id === OWNER).toBe(true);
+    });
+
+    it('sets admin flags so a lagging replica cannot cache the old row back', async () => {
+        const app = await createApp();
+        await appStore.getByUid(app.uid);
+        const stale = await rawRow(app.id);
+
+        const read = await withLaggingReplica([stale], async () => {
+            const written = await appStore.setAdminFields(app.id, {
+                approved_for_opening_items: true,
+            });
+            expect(written).toMatchObject({
+                uid: app.uid,
+                approved_for_opening_items: true,
+            });
+            return appStore.getByUid(app.uid);
+        });
+
+        expect(read.approved_for_opening_items).toBe(true);
+        expect(
+            (await appStore.getByUid(app.uid)).approved_for_opening_items,
+        ).toBe(true);
+    });
+
+    it('writes guarded admin flags only when they change, and nothing else', async () => {
+        const app = await createApp();
+        const set = (patch, options) =>
+            appStore.setAdminFields(app.id, patch, options);
+
+        // Unset reads as false, so clearing it changes nothing.
+        const incentive = (on) =>
+            set({ approved_for_incentive_program: on }, { guard: true });
+        expect(await incentive(false)).toBeNull();
+        expect(await incentive(true)).toMatchObject({
+            approved_for_incentive_program: true,
+        });
+        expect(await incentive(true)).toBeNull();
+
+        expect(await set({ last_review: 1_700_000_000 })).not.toBeNull();
+        expect((await rawRow(app.id)).last_review).not.toBeNull();
+
+        await expect(set({ godmode: true })).rejects.toThrow(/godmode/);
+        await expect(set({ approved_for_listing: 'yes' })).rejects.toThrow();
+        expect(await set({})).toBeNull();
+    });
+
+    it('tombstones a row written outside the store', async () => {
+        const app = await createApp({ title: 'Before' });
+        await appStore.getByUid(app.uid);
+        const stale = await rawRow(app.id);
+        await db.write('UPDATE `apps` SET `title` = ? WHERE `id` = ?', [
+            'After',
+            app.id,
+        ]);
+
+        const read = await withLaggingReplica([stale], async () => {
+            expect(await appStore.invalidateWrittenById(app.id)).toMatchObject({
+                title: 'After',
+            });
+            return appStore.getByUid(app.uid);
+        });
+
+        expect(read.title).toBe('After');
+        expect(await appStore.invalidateWrittenById(-1)).toBeNull();
     });
 
     it('returns and caches a created app as the table holds it, without reading it back', async () => {
@@ -1734,11 +1841,48 @@ describe('AppStore detailed stats', () => {
         expect(stats.open_count).toBe(0);
     });
 
-    it('treats an unknown period as all-time', async () => {
-        const stats = await appStore.getAppStatsDetailed(APP_UID, {
-            period: 'not-a-period',
+    it.each(['not-a-period', 'constructor', 7])(
+        'rejects %s as a period',
+        async (period) => {
+            await expect(
+                appStore.getAppStatsDetailed(APP_UID, {
+                    period,
+                    grouping: 'hour',
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+        },
+    );
+
+    it.each(['month_to_date', 'year_to_date', 'last_12_months'])(
+        'reads the documented %s period as its window',
+        async (period) => {
+            const stats = await appStore.getAppStatsDetailed(APP_UID, {
+                period,
+            });
+            expect(stats.open_count).toBe(2);
+        },
+    );
+
+    it('refuses a grouping that would need more than 10,000 buckets', async () => {
+        await expect(
+            appStore.getAppStatsDetailed(APP_UID, {
+                period: 'all',
+                grouping: 'hour',
+                createdAt: new Date(Date.now() - 2 * 365 * 86_400_000),
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
         });
-        expect(stats.open_count).toBe(2);
+        const daily = await appStore.getAppStatsDetailed(APP_UID, {
+            period: 'all',
+            grouping: 'day',
+            createdAt: new Date(Date.now() - 2 * 365 * 86_400_000),
+        });
+        expect(daily.grouped_stats.open_count.length).toBeGreaterThan(700);
     });
 
     it('rejects an unsupported grouping', async () => {

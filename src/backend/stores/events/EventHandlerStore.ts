@@ -22,14 +22,17 @@ import {
     EVENTS_HANDLERS_PER_APP,
     EVENTS_HANDLER_SOURCE_MAX_BYTES,
     EVENTS_USER_HANDLERS_PER_SCOPE,
-} from '../../controllers/events/limits.js';
+} from '../../services/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
+    clampLimit,
     decodeCursor,
     keysetPage,
+    openIdCursor,
     type PageResult,
 } from '../../util/pagination.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { nowSeconds } from '../../util/time.js';
 import { PuterStore } from '../types.js';
 
 /**
@@ -298,8 +301,6 @@ const publishConflict = (name: string): HttpError =>
 
 // -- Row mapping ------------------------------------------------------
 
-const nowSeconds = (): number => Math.floor(Date.now() / 1000);
-
 const toRow = (row: Record<string, unknown>): EventHandler => ({
     appUid: String(row.app_uid),
     name: String(row.name),
@@ -457,11 +458,12 @@ export class EventHandlerStore extends PuterStore {
             `DELETE FROM \`${USER_TABLE}\` WHERE \`holder_user_id\` = ?`,
             [userId],
         );
-        for (const row of apps)
-            await this.#forgetSet({
+        await this.#forgetSets(
+            apps.map((row) => ({
                 appUid: String(row.app_uid),
                 holder: userId,
-            });
+            })),
+        );
         return result.affectedRows ?? 0;
     }
 
@@ -930,10 +932,10 @@ export class EventHandlerStore extends PuterStore {
         appUid: string,
         opts: { limit?: number; cursor?: string } = {},
     ): Promise<{ items: AppUserScope[]; cursor: string | null }> {
-        const limit = Math.min(
-            Math.max(1, Math.floor(opts.limit ?? USER_SCOPES_PAGE_DEFAULT)),
-            USER_SCOPES_PAGE_CAP,
-        );
+        const limit = clampLimit(opts.limit, {
+            fallback: USER_SCOPES_PAGE_DEFAULT,
+            cap: USER_SCOPES_PAGE_CAP,
+        });
         const after = Number(decodeCursor(opts.cursor)?.holder);
         const rows = await this.clients.db.read(
             'SELECT `holder_user_id`, COUNT(*) AS `handler_count`, ' +
@@ -972,7 +974,7 @@ export class EventHandlerStore extends PuterStore {
             1,
             Math.floor(opts.limit ?? UNBOUND_HANDLERS_BATCH),
         );
-        const after = Number(decodeCursor(opts.cursor)?.id);
+        const after = openIdCursor(opts.cursor, undefined) ?? 0;
         const rows = await this.clients.db.read(
             'SELECT h.`id`, h.`app_uid`, h.`holder_user_id`, h.`name` ' +
                 `FROM \`${USER_TABLE}\` h ` +
@@ -982,7 +984,7 @@ export class EventHandlerStore extends PuterStore {
                 'AND s.`app_uid` = h.`app_uid` AND s.`handler_scope` = 1 ' +
                 'AND s.`handler_name` = h.`name`) ' +
                 'ORDER BY h.`id` LIMIT ?',
-            [Number.isFinite(after) ? after : 0, olderThan, limit + 1],
+            [after, olderThan, limit + 1],
         );
         const page = keysetPage(rows, limit, undefined);
         return {

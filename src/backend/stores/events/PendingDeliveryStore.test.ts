@@ -26,7 +26,7 @@ import {
     EVENTS_RETRY_MAX_MS,
     EVENTS_SOCKET_LEASE_MS,
     deliveryBackoffMs,
-} from '../../controllers/events/limits.js';
+} from '../../services/events/limits.js';
 import type { ProjectedEvent } from '../../services/events/registry.js';
 import type { IConfig } from '../../types.js';
 import {

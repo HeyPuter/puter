@@ -22,17 +22,19 @@ import {
     EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
     EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
     type TieredQuota,
-} from '../../controllers/events/limits.js';
+} from '../../services/events/limits.js';
 import type { BatchEntry } from '../../clients/database/DatabaseClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { SqlGuard } from '../../core/schedules.js';
 import type { DeliveryClass } from '../../services/events/registry.js';
 import type { FsOp } from '../../services/events/subjects.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import {
     keysetPage,
     openIdCursor,
     type PageResult,
 } from '../../util/pagination.js';
+import { nowSeconds } from '../../util/time.js';
 import { PuterStore } from '../types.js';
 import {
     assertColumnWidths,
@@ -85,6 +87,8 @@ export const HOLDER_SETTLE_BATCH = 500;
 export const HANDLER_SETTLE_BATCH = 500;
 
 const TABLE = 'event_subscriptions';
+// Backlog purges a reap runs at once; each is a few Redis commands.
+const REAP_PURGE_CONCURRENCY = 8;
 
 // -- Wire shapes ------------------------------------------------------
 
@@ -270,8 +274,6 @@ export class DurableQuotaRaceLost extends HttpError {
 }
 
 // -- Row mapping ------------------------------------------------------
-
-const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
 const asNumber = (value: unknown): number | null => {
     if (value === null || value === undefined) return null;
@@ -684,6 +686,19 @@ export class DurableSubscriptionStore extends PuterStore {
             [subId],
         );
         return rows.length > 0 ? toRow(rows[0]) : null;
+    }
+
+    /**
+     * One row's handler scope: the replica first, the primary only for a row
+     * the replica doesn't have yet. `null` when neither has it.
+     */
+    async handlerScopeOf(subId: string): Promise<HandlerScopeKind | null> {
+        if (typeof subId !== 'string') return null;
+        const sql = `SELECT \`handler_scope\` FROM \`${TABLE}\` WHERE \`sub_id\` = ?`;
+        let [row] = await this.clients.db.read(sql, [subId]);
+        if (!row) [row] = await this.clients.db.pread(sql, [subId]);
+        if (!row) return null;
+        return Number(row.handler_scope) === 1 ? 'user' : 'app';
     }
 
     /**
@@ -1201,18 +1216,17 @@ export class DurableSubscriptionStore extends PuterStore {
 
         const cached = rows.filter((row) => !isScheduleRow(row));
         await this.stores.eventSubscription.dropDurables(cached);
-        for (const row of cached) {
-            // Whatever was still owed to a row that no longer exists.
-            try {
-                await this.stores.pendingDelivery.purge(row.subId);
-            } catch {
-                // The pending sweep purges it once it finds the row gone.
-            }
-        }
+        // Whatever was still owed to a row that no longer exists. A failed
+        // purge is left to the pending sweep, which finds the row gone.
+        await runWithConcurrencyLimitSettled(
+            cached,
+            REAP_PURGE_CONCURRENCY,
+            (row) => this.stores.pendingDelivery.purge(row.subId),
+        );
         const owners = new Set(cached.map((row) => row.ownerUserId));
-        const bumps: GenerationBump[] = [];
-        for (const ownerUserId of owners)
-            bumps.push(await this.#bump(ownerUserId));
+        const bumps: GenerationBump[] = await Promise.all(
+            [...owners].map((ownerUserId) => this.#bump(ownerUserId)),
+        );
         return { rows: [...rows], bumps };
     }
 

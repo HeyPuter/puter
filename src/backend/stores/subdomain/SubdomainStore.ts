@@ -20,7 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { escapeLike } from '../../util/sqlLike';
 import { isTrashedPath } from '../../util/hostedAppBacking';
-import { runWithConcurrencyLimit } from '../../util/concurrency';
+import { chunk, runWithConcurrencyLimit } from '../../util/concurrency';
 import { CACHE_TOMBSTONE_TTL_SECONDS, PuterStore } from '../types';
 
 /**
@@ -258,48 +258,35 @@ export class SubdomainStore extends PuterStore {
         if (uniqueNames.length === 0) return answer();
 
         let missingNames = uniqueNames;
+        let tombstoned = new Set<string>();
         if (!primary) {
-            missingNames = [];
-            try {
-                const pipeline = this.clients.redis.pipeline();
-                for (const name of uniqueNames) {
-                    pipeline.get(this.#cacheKey(name));
+            const cache = await this.readCacheAndTombstones(
+                uniqueNames.map((name) => this.#cacheKey(name)),
+            );
+            tombstoned = cache.tombstoned;
+            missingNames = uniqueNames.filter((name, i) => {
+                const raw = cache.raw[i];
+                if (raw === NEGATIVE_CACHE_MARKER) {
+                    negativeCached.add(name);
+                    return false;
                 }
-                const cacheResults = (await pipeline.exec()) ?? [];
-                for (let i = 0; i < uniqueNames.length; i++) {
-                    const name = uniqueNames[i]!;
-                    const raw = cacheResults[i]?.[1];
-                    if (raw === NEGATIVE_CACHE_MARKER) {
-                        negativeCached.add(name);
-                        continue;
-                    }
-                    if (typeof raw === 'string') {
-                        try {
-                            const parsed = JSON.parse(
-                                raw,
-                            ) as SubdomainRow | null;
-                            if (parsed) {
-                                found.set(name, parsed);
-                                continue;
-                            }
-                        } catch {
-                            // Fall through to DB on any parse failure.
+                if (raw) {
+                    try {
+                        const parsed = JSON.parse(raw) as SubdomainRow | null;
+                        if (parsed) {
+                            found.set(name, parsed);
+                            return false;
                         }
+                    } catch {
+                        // Fall through to DB on any parse failure.
                     }
-                    missingNames.push(name);
                 }
-            } catch {
-                missingNames = uniqueNames;
-            }
+                return true;
+            });
         }
         if (missingNames.length === 0) return answer();
 
-        // Names changed moments ago go to the primary; see `getBySubdomain`.
-        const tombstoned = primary
-            ? new Set<string>()
-            : await this.tombstonedCacheKeys(
-                  missingNames.map((name) => this.#cacheKey(name)),
-              );
+        // Changed moments ago: a replica may still have the old row.
         const isChanged = (name: string) =>
             primary || tombstoned.has(this.#cacheKey(name));
         const primaryNames = missingNames.filter(isChanged);
@@ -338,19 +325,14 @@ export class SubdomainStore extends PuterStore {
         primary: boolean,
     ): Promise<Map<string, SubdomainRow>> {
         const rowsByName = new Map<string, SubdomainRow>();
-        for (
-            let offset = 0;
-            offset < names.length;
-            offset += BULK_QUERY_CHUNK_SIZE
-        ) {
-            const chunk = names.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
-            const placeholders = chunk.map(() => '?').join(', ');
+        for (const batch of chunk(names, BULK_QUERY_CHUNK_SIZE)) {
+            const placeholders = batch.map(() => '?').join(', ');
             const sql = `SELECT * FROM \`subdomains\` WHERE \`subdomain\` IN (${placeholders})`;
             const rows = (primary
-                ? await this.clients.db.pread(sql, chunk)
+                ? await this.clients.db.pread(sql, batch)
                 : await this.clients.db.read(
                       sql,
-                      chunk,
+                      batch,
                   )) as unknown as SubdomainRow[];
             // Keyed lowercase: a case-insensitive collation can return a row
             // cased differently from the name, which `getBySubdomain` accepts.
@@ -378,6 +360,34 @@ export class SubdomainStore extends PuterStore {
             if (entry?.path && isTrashedPath(entry.path)) trashed.add(id);
         }
         return trashed;
+    }
+
+    /**
+     * Names of the sites whose root folder is one of `dirs` or anywhere below
+     * them, at most `limit`.
+     */
+    async subdomainsRootedUnder(
+        dirs: string[],
+        limit: number,
+    ): Promise<string[]> {
+        if (dirs.length === 0 || limit < 1) return [];
+        const conditions: string[] = [];
+        const values: unknown[] = [];
+        for (const dir of dirs) {
+            conditions.push(
+                "`fsentries`.`path` = ? OR `fsentries`.`path` LIKE ? ESCAPE '!'",
+            );
+            values.push(dir, `${escapeLike(dir)}/%`);
+        }
+        const rows = await this.clients.db.read(
+            'SELECT DISTINCT `subdomains`.`subdomain` FROM `fsentries`' +
+                ' JOIN `subdomains` ON `fsentries`.`id` = `subdomains`.`root_dir_id`' +
+                ` WHERE ${conditions.join(' OR ')} LIMIT ?`,
+            [...values, limit],
+        );
+        return (rows as Array<{ subdomain: string }>).map(
+            (row) => row.subdomain,
+        );
     }
 
     async listByUserId(
@@ -509,14 +519,6 @@ export class SubdomainStore extends PuterStore {
         // otherwise punch through to the DB on every call.
         const row = await this.getBySubdomain(subdomain);
         return row != null;
-    }
-
-    async countByUserId(userId: number) {
-        const rows = await this.clients.db.read(
-            'SELECT COUNT(*) AS n FROM `subdomains` WHERE `user_id` = ?',
-            [userId],
-        );
-        return rows[0]?.n ?? 0;
     }
 
     async listByUserIdAndPrefix(
