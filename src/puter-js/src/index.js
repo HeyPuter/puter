@@ -142,6 +142,21 @@ const parseLaunchArgs = (raw) => {
     return {};
 };
 
+/**
+ * The `puter.api_origin` launch parameter, decoded once more when it doesn't
+ * start with a scheme: a launcher may have encoded it twice.
+ * @param {string} raw
+ * @returns {string}
+ */
+const parseLaunchOrigin = (raw) => {
+    if (/^https?:\/\//i.test(raw)) return raw;
+    try {
+        return decodeURIComponent(raw);
+    } catch {
+        return raw;
+    }
+};
+
 // localStorage key for the auth token. The retired key below is never read —
 // only deleted, so a token from before the format change doesn't linger in a
 // visitor's browser (see `discardRetiredAuthToken_`).
@@ -665,7 +680,9 @@ export class Puter {
         // This should only be done when the SDK is running in 'app' mode.
         this.APIOrigin = this.defaultAPIOrigin;
         if (URLParams.has('puter.api_origin') && this.env === 'app') {
-            this.APIOrigin = URLParams.get('puter.api_origin');
+            this.APIOrigin = parseLaunchOrigin(
+                URLParams.get('puter.api_origin'),
+            );
         } else if (URLParams.has('puter.domain') && this.env === 'app') {
             this.APIOrigin = `https://api.${URLParams.get('puter.domain')}`;
         }

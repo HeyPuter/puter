@@ -174,10 +174,13 @@ const REBASED_INVALIDATION_MAX = 100_000;
 
 /**
  * Where a child named `name` of `parent` is stored: under the parent's stored
- * path, which may be spelled differently from the path a request used.
+ * path, which may be spelled differently (and be longer) than the path a
+ * request used.
  */
 const storedChildPath = (parent: FSEntry, name: string): string =>
-    parent.path === '/' ? `/${name}` : `${parent.path}/${name}`;
+    assertPathLength(
+        parent.path === '/' ? `/${name}` : `${parent.path}/${name}`,
+    );
 
 /**
  * Store backing the `fsentries` table. Owns DB CRUD over filesystem entries,
@@ -1962,6 +1965,27 @@ export class FSEntryStore extends PuterStore {
         return normalized === root || normalized.startsWith(`${root}/`);
     }
 
+    /**
+     * Entries for `paths`, taking those `#ensureDirectoryPathsForUser` just
+     * resolved as they are: one it created may be stored under another
+     * spelling, which a re-read by the requested path can miss on a replica.
+     */
+    async #readUnensuredPaths(
+        userId: number,
+        paths: string[],
+        ensured: Map<string, FSEntry>,
+    ): Promise<Map<string, FSEntry>> {
+        const unensured = paths.filter(
+            (path) => !ensured.has(this.#normalizePath(path)),
+        );
+        const read =
+            unensured.length > 0
+                ? await this.#readEntriesByPathsForUser(userId, unensured)
+                : new Map<string, FSEntry>();
+        for (const [path, entry] of ensured) read.set(path, entry);
+        return read;
+    }
+
     async resolveParentDirectoriesBatch(
         userId: number,
         requests: { parentPath: string; createPaths: boolean }[],
@@ -1991,15 +2015,17 @@ export class FSEntryStore extends PuterStore {
         const parentPathsToEnsure = requests
             .filter((request) => request.createPaths)
             .map((request) => request.parentPath);
-        const { createdEntryMap } = await this.#ensureDirectoryPathsForUser(
-            userId,
-            parentPathsToEnsure,
-        );
+        const { requiredEntryMap, createdEntryMap } =
+            await this.#ensureDirectoryPathsForUser(
+                userId,
+                parentPathsToEnsure,
+            );
 
         const allParentPaths = requests.map((request) => request.parentPath);
-        const parentEntriesByPath = await this.#readEntriesByPathsForUser(
+        const parentEntriesByPath = await this.#readUnensuredPaths(
             userId,
             allParentPaths,
+            requiredEntryMap,
         );
         const parentEntries = allParentPaths.map((path) => {
             const normalizedPath = this.#normalizePath(path);
@@ -2057,15 +2083,14 @@ export class FSEntryStore extends PuterStore {
         const pathsToEnsure = normalizedRequests
             .filter((request) => request.createPaths)
             .map((request) => request.path);
-        const { createdEntryMap } = await this.#ensureDirectoryPathsForUser(
-            userId,
-            pathsToEnsure,
-        );
+        const { requiredEntryMap, createdEntryMap } =
+            await this.#ensureDirectoryPathsForUser(userId, pathsToEnsure);
 
         const allPaths = normalizedRequests.map((request) => request.path);
-        const entriesByPath = await this.#readEntriesByPathsForUser(
+        const entriesByPath = await this.#readUnensuredPaths(
             userId,
             allPaths,
+            requiredEntryMap,
         );
 
         const entries = normalizedRequests.map((request) => {

@@ -174,6 +174,12 @@ describe('app launch parameters', () => {
         expect(puter.args).toEqual({ file: 'a b.txt' });
     });
 
+    it('reads an API origin a launcher encoded twice', async () => {
+        const origin = encodeURIComponent(encodeURIComponent('https://api.self.test'));
+        const puter = await bootApp(`${LAUNCH}&puter.api_origin=${origin}`);
+        expect(puter.APIOrigin).toBe('https://api.self.test');
+    });
+
     it('boots with empty arguments when they are not JSON', async () => {
         const puter = await bootApp(`${LAUNCH}&puter.args=%25&puter.app.name=50%25`);
         expect(puter.args).toEqual({});

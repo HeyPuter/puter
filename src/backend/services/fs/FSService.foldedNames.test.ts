@@ -453,6 +453,41 @@ describe.each(engines.filter((engine) => !engine.skip))(
             expect(await names(`${dir}/Photos`)).toEqual([]);
         });
 
+        it('refuses an overwriting batch that reaches one file through two spellings, before uploading', async () => {
+            const dir = await freshDir();
+            const original = await write(`${dir}/Photos/a.txt`, 'kept', {
+                createMissingParents: true,
+            });
+
+            const error = await caught(() =>
+                fs.batchWrites(userId, [
+                    {
+                        fileMetadata: {
+                            path: `${dir}/Photos/a.txt`,
+                            size: 1,
+                            contentType: 'text/plain',
+                            overwrite: true,
+                        },
+                        fileContent: 'A',
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${dir}/photos/a.txt`,
+                            size: 1,
+                            contentType: 'text/plain',
+                            overwrite: true,
+                        },
+                        fileContent: 'B',
+                    },
+                ]),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(await readBack((await at(`${dir}/Photos/a.txt`))!)).toBe(
+                'kept',
+            );
+            expect((await at(`${dir}/Photos/a.txt`))!.uuid).toBe(original.uuid);
+        });
+
         it('overwrites an NFD spelling of a stored name in place, signed or not', async () => {
             const dir = await freshDir();
             const nfc = `${dir}/r\u00e9sum\u00e9.txt`;
