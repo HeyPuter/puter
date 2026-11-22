@@ -18,7 +18,6 @@
  */
 
 const default_implicit_user_app_permissions = {
-    'driver:helloworld:greet': {},
     'driver:puter-kvstore': {},
     'driver:puter-ocr:recognize': {},
     'driver:puter-chat-completion': {},
@@ -29,7 +28,6 @@ const default_implicit_user_app_permissions = {
     'driver:puter-speech2txt': {},
     'driver:puter-apps': {},
     'driver:puter-subdomains': {},
-    'driver:temp-email': {},
     service: {},
     feature: {},
 };
@@ -51,7 +49,6 @@ const implicit_user_app_permissions = [
             'app-93005ce0-80d1-50d9-9b1e-9c453c375d56', // https://markus.puter.com
         ],
         permissions: {
-            'driver:helloworld:greet': {},
             'driver:puter-ocr:recognize': {},
             'driver:puter-kvstore:get': {},
             'driver:puter-kvstore:set': {},
@@ -77,7 +74,6 @@ const implicit_user_app_permissions = [
             'app-c2e27728-66d9-54dd-87cd-6f4e9b92e3e3', // http://127.0.0.1
         ],
         permissions: {
-            'driver:helloworld:greet': {},
             'driver:puter-ocr:recognize': {},
             'driver:puter-kvstore:get': {},
             'driver:puter-kvstore:set': {},

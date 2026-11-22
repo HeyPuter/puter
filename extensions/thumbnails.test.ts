@@ -15,17 +15,18 @@ import {
     vi,
 } from 'vitest';
 import type { FSController } from '../src/backend/controllers/fs/FSController.ts';
+import type { ClientSignedWriteResponse } from '../src/backend/controllers/fs/requestTypes.ts';
 import type {
-    ClientSignedWriteResponse,
     CompleteWriteRequest,
     SignedWriteRequest,
-} from '../src/backend/controllers/fs/requestTypes.ts';
+} from '../src/backend/services/fs/types.ts';
 import type { Actor } from '../src/backend/core/actor.ts';
 import { runWithContext } from '../src/backend/core/context.ts';
 import { PuterServer } from '../src/backend/server.ts';
 import { setupTestServer } from '../src/backend/testUtil.ts';
 import { generateDefaultFsentries } from '../src/backend/util/userProvisioning.ts';
 import {
+    fallbackThumbnailBucket,
     handleFsCopyNodeThumbnail,
     handleFsRemoveNodeThumbnail,
     handleThumbnailCreated,
@@ -72,6 +73,21 @@ const streamToBuffer = async (
     if (!body) throw new Error('s3 GetObject returned no body');
     return Buffer.from(await body.transformToByteArray());
 };
+
+describe('thumbnails extension — fallbackThumbnailBucket', () => {
+    it('uses the named thumbnail bucket, else the main one', () => {
+        expect(
+            fallbackThumbnailBucket({
+                thumbnailStore: { name: 'thumbs' },
+                s3_bucket: 'main',
+            }),
+        ).toBe('thumbs');
+        expect(
+            fallbackThumbnailBucket({ thumbnailStore: {}, s3_bucket: 'main' }),
+        ).toBe('main');
+        expect(fallbackThumbnailBucket({})).toBe('puter-local');
+    });
+});
 
 describe('thumbnails extension — handleThumbnailCreated', () => {
     let server: PuterServer;
@@ -127,6 +143,27 @@ describe('thumbnails extension — handleThumbnailCreated', () => {
             crypto.randomUUID(),
         );
         expect(url).toBeNull();
+    });
+
+    it('stores the sniffed image type, not the declared one', async () => {
+        const newUrl = await created(
+            `data:text/html;base64,${TINY_PNG_BASE64}`,
+            crypto.randomUUID(),
+        );
+        const key = (newUrl as string).slice(`s3://${BUCKET}/`.length);
+        const obj = await s3.send(
+            new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+        );
+        expect(obj.ContentType).toBe('image/png');
+    });
+
+    it('sets event.url to null for an SVG data: URL', async () => {
+        const svg = Buffer.from(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><script>alert(1)</script></svg>',
+        ).toString('base64');
+        expect(
+            await created(`data:image/svg+xml;base64,${svg}`, crypto.randomUUID()),
+        ).toBeNull();
     });
 
     it('sets event.url to null for a data: URL with no entry to bind it to', async () => {
@@ -257,6 +294,23 @@ describe('thumbnails extension — handleThumbnailUploadPrepare', () => {
         expect(item.uploadUrl).toBeUndefined();
         expect(item.thumbnailUrl).toBeUndefined();
     });
+
+    it.each(['text/html', 'image/svg+xml', 'application/octet-stream'])(
+        'skips items declared as %s',
+        async (contentType) => {
+            const item: Record<string, unknown> = {
+                contentType,
+                size: 1024,
+                item_uid: crypto.randomUUID(),
+            };
+            await handleThumbnailUploadPrepare(
+                { items: [item] },
+                { s3Presign, bucketName: BUCKET },
+            );
+            expect(item.uploadUrl).toBeUndefined();
+            expect(item.thumbnailUrl).toBeUndefined();
+        },
+    );
 
     it('skips items with no entry to bind the key to', async () => {
         const item: Record<string, unknown> = {

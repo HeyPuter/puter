@@ -13,6 +13,7 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 - Fixed [`puter.fs.getReadURL()`](/FS/getReadURL/) refusing files that the app or user can read through access to a parent folder, such as a folder shared with the user.
 - Fixed [`puter.fs.write()`](/FS/write/) answering `dest_does_not_exist` when the path spelled an existing folder in another letter case or Unicode form. The file is written into that folder.
 - Fixed launch arguments passed with [`puter.ui.launchApp()`](/UI/launchApp/) reaching the app with their percent-escapes decoded, so `%20` arrived as a space. A `%` that isn't part of an escape also stopped Puter.js from loading in the launched app.
+- Fixed the `stats_period` values `month_to_date`, `year_to_date` and `last_12_months` of [`puter.apps.get()`](/Apps/get/) and [`puter.apps.list()`](/Apps/list/) returning all-time counts. A `stats_period` that isn't one of the listed values is rejected with `bad_request`.
 
 ## November 21, 2026
 
