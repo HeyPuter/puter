@@ -24,13 +24,22 @@
  * extensions; keep these signatures stable.
  */
 
-import type { EventsDeployOutcome } from '../controllers/events/workerDeploy.js';
 import type { AppMessage } from '../services/notification/appMessage.js';
 import type { SuspendedReason } from '../stores/events/DurableSubscriptionStore.js';
 import type { DurableSubscription } from '../stores/events/types.js';
 import type { PageResult } from '../util/pagination.js';
 import type { Actor } from './actor.js';
 import { HttpError } from './http/HttpError.js';
+
+/** How an events worker deploy ended, for callers that answer differently. */
+export type EventsDeployOutcome =
+    | 'deployed'
+    | 'stale'
+    | 'no-handlers'
+    | 'no-owner'
+    | 'throttled'
+    | 'failed'
+    | 'busy';
 
 /** Why a schedule ended. */
 export type ScheduleEndReason =

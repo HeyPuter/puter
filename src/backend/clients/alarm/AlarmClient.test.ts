@@ -29,6 +29,24 @@ const capture = (
     return seen;
 };
 
+/** Whether the client still tracks `id`; clears it to find out. */
+const clearIfHeld = (client: AlarmClient, id: string): boolean => {
+    const log = vi.mocked(console.log);
+    log.mockClear();
+    client.clear(id);
+    return log.mock.calls.some(([message]) =>
+        String(message).startsWith('[alarm] CLEAR'),
+    );
+};
+
+/** How many times `id` was raised as a new alarm (short ids only). */
+const activeLines = (id: string): number =>
+    vi
+        .mocked(console.error)
+        .mock.calls.filter(([message]) =>
+            String(message).startsWith(`[alarm] ACTIVE ${id} ::`),
+        ).length;
+
 describe('AlarmClient severity routing', () => {
     beforeEach(() => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -98,35 +116,6 @@ describe('AlarmClient severity routing', () => {
 
         client.create('noisy:thing', 'not worth reporting');
         client.create('noisy:thing', 'still not worth reporting');
-
-        expect(chat).toHaveLength(0);
-    });
-
-    it('lets config override a known-error rule', () => {
-        const client = makeClient({
-            severityOverrides: { 'known:thing': 'critical' },
-        });
-        client.setKnownErrors([
-            {
-                match: { id: 'known:thing' },
-                action: { type: 'severity', value: 'info' },
-            },
-        ]);
-        const paging = capture(client, 'warning');
-
-        client.create('known:thing', 'known but escalated');
-
-        expect(paging[0].severity).toBe('critical');
-    });
-
-    it('still respects a no-alert known-error rule', () => {
-        const client = makeClient();
-        client.setKnownErrors([
-            { match: { id: 'known:quiet' }, action: { type: 'no-alert' } },
-        ]);
-        const chat = capture(client, 'info');
-
-        client.create('known:quiet', 'suppressed');
 
         expect(chat).toHaveLength(0);
     });
@@ -337,43 +326,19 @@ describe('AlarmClient alarm registry', () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         vi.spyOn(console, 'warn').mockImplementation(() => {});
         vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.mocked(console.error).mockClear();
     });
 
-    it('finds an alarm by its full id or its short id', () => {
+    it('starts a cleared alarm over as a new one', () => {
         const client = makeClient();
+        const seen = capture(client);
         client.create('disk-pressure', 'nearly full');
-
-        const alarm = client.get('disk-pressure');
-        expect(alarm?.message).toBe('nearly full');
-        expect(client.get(alarm!.shortId)).toBe(alarm);
-    });
-
-    it('returns nothing for an id it has never seen', () => {
-        expect(makeClient().get('never-raised')).toBeUndefined();
-    });
-
-    it('forgets an alarm once cleared, under both ids', () => {
-        const client = makeClient();
-        client.create('disk-pressure', 'nearly full');
-        const shortId = client.get('disk-pressure')!.shortId;
 
         client.clear('disk-pressure');
+        client.create('disk-pressure', 'nearly full again');
 
-        expect(client.get('disk-pressure')).toBeUndefined();
-        expect(client.get(shortId)).toBeUndefined();
-    });
-
-    it('keeps the short id of another alarm that shares it when one is cleared', () => {
-        const client = makeClient();
-        // These two ids hash to the same short id.
-        client.create('alarm:274', 'first');
-        const shortId = client.get('alarm:274')!.shortId;
-        client.create('alarm:643', 'second');
-        expect(client.get('alarm:643')!.shortId).toBe(shortId);
-
-        client.clear('alarm:274');
-
-        expect(client.get(shortId)?.id).toBe('alarm:643');
+        expect(activeLines('disk-pressure')).toBe(2);
+        expect(seen.at(-1)).toMatchObject({ repeatCount: 1, isRepeat: false });
     });
 
     it('ignores a clear for an alarm that is not active', () => {
@@ -381,16 +346,16 @@ describe('AlarmClient alarm registry', () => {
         expect(() => client.clear('never-raised')).not.toThrow();
     });
 
-    it('abbreviates long ids in the log line but keeps the short id usable', () => {
+    it('abbreviates long ids in the log line', () => {
         const log = vi.spyOn(console, 'error').mockImplementation(() => {});
         const client = makeClient();
+        const seen = capture(client);
         const longId = 'a-very-long-alarm-identifier-that-wraps';
 
         client.create(longId, 'noisy');
 
-        const shortId = client.get(longId)!.shortId;
         expect(log).toHaveBeenCalledWith(
-            `[alarm] ACTIVE ${shortId} (${longId.slice(0, 20)}...) :: noisy`,
+            `[alarm] ACTIVE ${seen[0].shortId} (${longId.slice(0, 20)}...) :: noisy`,
         );
     });
 
@@ -402,10 +367,9 @@ describe('AlarmClient alarm registry', () => {
         client.create('flap', 'second', { b: 2 });
 
         expect(seen[1].fields).toEqual({ a: '1', b: '2' });
-        expect(client.get('flap')?.occurrences).toHaveLength(2);
     });
 
-    it('caps retained occurrences while still counting every repeat', () => {
+    it('counts every repeat of a hot alarm', () => {
         const client = makeClient();
         const seen = capture(client);
 
@@ -413,14 +377,11 @@ describe('AlarmClient alarm registry', () => {
             client.create('hot', `occurrence ${i}`, { i });
         }
 
-        const alarm = client.get('hot')!;
-        expect(alarm.count).toBe(500);
-        expect(alarm.occurrences).toHaveLength(20);
-        expect(alarm.timestamps).toHaveLength(20);
-        // The window kept is the most recent one, not the oldest.
-        expect(alarm.occurrences[19].message).toBe('occurrence 499');
-        // Trimming history must not rewind what the transports are told.
-        expect(seen.at(-1)).toMatchObject({ repeatCount: 500, isRepeat: true });
+        expect(seen.at(-1)).toMatchObject({
+            repeatCount: 500,
+            isRepeat: true,
+            message: 'occurrence 499',
+        });
     });
 
     it('names anonymous handlers by their registration order', () => {
@@ -468,27 +429,26 @@ describe('AlarmClient alarm eviction', () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         vi.spyOn(console, 'warn').mockImplementation(() => {});
         vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.mocked(console.error).mockClear();
     });
 
     afterEach(() => {
         vi.useRealTimers();
     });
 
-    it('forgets alarms that stay quiet past the idle window, under both ids', () => {
+    it('forgets alarms that stay quiet past the idle window', () => {
         const client = makeClient();
         const ids = Array.from(
             { length: 50 },
             (_, i) => `metering_usage_dropped:user-${i}`,
         );
         for (const id of ids) client.create(id, 'usage dropped');
-        const shortIds = ids.map((id) => client.get(id)!.shortId);
 
         vi.advanceTimersByTime(ALARM_IDLE_TTL_MS + 1);
         client.create('unrelated', 'the next alarm sweeps the registry');
 
-        expect(ids.filter((id) => client.get(id))).toEqual([]);
-        expect(shortIds.filter((shortId) => client.get(shortId))).toEqual([]);
-        expect(client.get('unrelated')).toBeDefined();
+        expect(ids.filter((id) => clearIfHeld(client, id))).toEqual([]);
+        expect(clearIfHeld(client, 'unrelated')).toBe(true);
     });
 
     it('treats a recurrence after the idle window as a new alarm', () => {
@@ -519,11 +479,12 @@ describe('AlarmClient alarm eviction', () => {
             ...Array(10).fill('flap'),
             'other',
         ]);
-        expect(client.get('flap')?.count).toBe(11);
+        expect(activeLines('flap')).toBe(1);
     });
 
     it('keeps an alarm that keeps recurring for longer than the window', () => {
         const client = makeClient();
+        const seen = capture(client);
 
         for (let i = 0; i < 6; i++) {
             client.create('hot', 'still broken');
@@ -531,7 +492,10 @@ describe('AlarmClient alarm eviction', () => {
             client.create(`noise:${i}`, 'sweeps the registry');
         }
 
-        expect(client.get('hot')?.count).toBe(6);
+        expect(activeLines('hot')).toBe(1);
+        expect(seen.filter((alert) => alert.id === 'hot').at(-1)).toMatchObject(
+            { repeatCount: 6 },
+        );
     });
 
     it('drops the least recently raised alarm once full', () => {
@@ -545,10 +509,11 @@ describe('AlarmClient alarm eviction', () => {
         client.create('user:0', 'per-user alarm');
         client.create('one-more', 'over the cap');
 
-        expect(client.get('user:1')).toBeUndefined();
-        expect(client.get('user:0')?.count).toBe(2);
-        expect(client.get('user:2')).toBeDefined();
-        expect(client.get('one-more')).toBeDefined();
+        expect(activeLines('user:0')).toBe(1);
+        expect(clearIfHeld(client, 'user:1')).toBe(false);
+        expect(clearIfHeld(client, 'user:0')).toBe(true);
+        expect(clearIfHeld(client, 'user:2')).toBe(true);
+        expect(clearIfHeld(client, 'one-more')).toBe(true);
     });
 
     it('never holds more than the cap', () => {
@@ -560,101 +525,9 @@ describe('AlarmClient alarm eviction', () => {
 
         for (const id of ids) client.create(id, 'per-user alarm');
 
-        const held = ids.filter((id) => client.get(id));
+        const held = ids.filter((id) => clearIfHeld(client, id));
         expect(held).toHaveLength(MAX_TRACKED_ALARMS);
         expect(held[0]).toBe(`user:${MAX_TRACKED_ALARMS * 2}`);
-    });
-});
-
-describe('AlarmClient known-error rules', () => {
-    beforeEach(() => {
-        vi.spyOn(console, 'error').mockImplementation(() => {});
-        vi.spyOn(console, 'warn').mockImplementation(() => {});
-        vi.spyOn(console, 'log').mockImplementation(() => {});
-    });
-
-    it('suppresses alerts for a matching rule', () => {
-        const client = makeClient();
-        const seen = capture(client);
-        client.setKnownErrors([
-            { match: { id: 'noisy' }, action: { type: 'no-alert' } },
-        ]);
-
-        client.create('noisy', 'ignore me');
-        client.create('noisy', 'ignore me again');
-
-        expect(seen).toHaveLength(0);
-    });
-
-    it('leaves alarms with a different id alone', () => {
-        const client = makeClient();
-        const seen = capture(client);
-        client.setKnownErrors([
-            { match: { id: 'noisy' }, action: { type: 'no-alert' } },
-        ]);
-
-        client.create('real', 'page me');
-
-        expect(seen).toHaveLength(1);
-    });
-
-    it('only matches when the message matches too', () => {
-        const rules = [
-            {
-                match: { id: 'timeout', message: 'upstream timed out' },
-                action: { type: 'no-alert' as const },
-            },
-        ];
-
-        // Separate clients: suppression is recorded on the alarm, so a
-        // second occurrence of the same id would inherit it.
-        const matching = makeClient();
-        const matchingSeen = capture(matching);
-        matching.setKnownErrors(rules);
-        matching.create('timeout', 'upstream timed out');
-        expect(matchingSeen).toHaveLength(0);
-
-        const differing = makeClient();
-        const differingSeen = capture(differing);
-        differing.setKnownErrors(rules);
-        differing.create('timeout', 'something else entirely');
-        expect(differingSeen.map((alert) => alert.message)).toEqual([
-            'something else entirely',
-        ]);
-    });
-
-    it('only matches when every named field matches', () => {
-        const client = makeClient();
-        const seen = capture(client);
-        client.setKnownErrors([
-            {
-                match: { id: 'http', fields: { status: 404 } },
-                action: { type: 'no-alert' },
-            },
-        ]);
-
-        client.create('http', 'not found', { status: 404 });
-        client.create('http-2', 'server error', { status: 500 });
-
-        expect(seen.map((alert) => alert.id)).toEqual(['http-2']);
-    });
-
-    it('retiers a matching alarm to a lower severity', () => {
-        const client = makeClient();
-        const paging = capture(client, 'error');
-        const chat = capture(client, 'info');
-        client.setKnownErrors([
-            {
-                match: { id: 'flaky' },
-                action: { type: 'severity', value: 'info' },
-            },
-        ]);
-
-        client.create('flaky', 'transient', {}, 'critical');
-
-        expect(paging).toHaveLength(0);
-        expect(chat).toHaveLength(1);
-        expect(chat[0].severity).toBe('info');
     });
 });
 

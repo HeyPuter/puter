@@ -24,12 +24,6 @@ export interface AlarmFields {
     [key: string]: unknown;
 }
 
-export interface AlarmOccurrence {
-    message: string;
-    fields: AlarmFields;
-    timestamp: number;
-}
-
 export interface AlarmOptions {
     /**
      * Collapse repeats of this alarm id into a single incident on transports
@@ -54,20 +48,11 @@ export interface Alarm extends AlarmOptions {
     fields: AlarmFields;
     error?: Error;
     started: number;
-    /**
-     * Every occurrence ever counted, including those aged out of the two lists
-     * below.
-     */
+    /** Every occurrence counted since the alarm started. */
     count: number;
-    /**
-     * Timestamps of the most recent occurrences only — see
-     * `OCCURRENCE_HISTORY_LIMIT`.
-     */
-    timestamps: number[];
-    /** The most recent occurrences only — see `OCCURRENCE_HISTORY_LIMIT`. */
-    occurrences: AlarmOccurrence[];
+    /** When the latest occurrence was recorded, epoch ms. */
+    lastSeen: number;
     severity?: PagerSeverity;
-    noAlert?: boolean;
     /** Set once a config mute has been logged, so it's reported only once. */
     muteLogged?: boolean;
     /** The last call raised, so repeats too frequent to report keep it open. */
@@ -123,15 +108,3 @@ export interface AlarmCall {
 }
 
 export type CallHandler = (call: AlarmCall) => Promise<void>;
-
-export interface KnownErrorRule {
-    match: {
-        id: string;
-        message?: string;
-        fields?: Record<string, unknown>;
-    };
-    action: {
-        type: 'no-alert' | 'severity';
-        value?: PagerSeverity;
-    };
-}

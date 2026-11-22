@@ -245,13 +245,10 @@ async function slackFetch<T>(
     init: RequestInit,
     read: (res: Response) => Promise<T>,
 ): Promise<T> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-        return await read(
-            await fetch(url, { ...init, signal: controller.signal }),
-        );
-    } finally {
-        clearTimeout(timer);
-    }
+    return read(
+        await fetch(url, {
+            ...init,
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        }),
+    );
 }

@@ -28,7 +28,9 @@ import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
 import { awaitLater } from '../../../util/concurrency';
 import { isTrashedPath } from '../../../util/hostedAppBacking';
+import { normalizeHost } from '../../../util/hosts.js';
 import { makeActor, type Actor } from '../../actor';
+import { pipeToResponse } from '../pipeToResponse';
 import {
     buildAppCenterFallback,
     buildHostingConfig,
@@ -169,13 +171,6 @@ interface Layers {
     clients: LayerInstances<typeof puterClients>;
     stores: LayerInstances<typeof puterStores>;
     services: LayerInstances<typeof puterServices>;
-}
-
-function normalizeHost(value: string | undefined | null): string | null {
-    if (typeof value !== 'string') return null;
-    const trimmed = value.trim().toLowerCase().replace(/^\./, '');
-    if (!trimmed) return null;
-    return trimmed.split(':')[0] || null;
 }
 
 export const createPuterSiteMiddleware = (
@@ -856,8 +851,6 @@ export const createPuterSiteMiddleware = (
         }
         req.egressActor = visitorActor ?? ownerActor;
 
-        req.on('close', () => download.body.destroy());
-        download.body.on('error', (err) => res.destroy(err));
-        download.body.pipe(res);
+        void pipeToResponse(download.body, res);
     };
 };

@@ -25,6 +25,7 @@ import {
 } from '../../../services/auth/AuthService';
 import type { AppStore } from '../../../stores/app/AppStore.js';
 import type { IConfig } from '../../../types';
+import { normalizeHost } from '../../../util/hosts.js';
 import { isAccessTokenActor, isAccountContext, type Actor } from '../../actor';
 
 /**
@@ -66,6 +67,8 @@ export interface PrivateHostingConfig {
      */
     staticDomainsRaw: string[];
     privateDomainsRaw: string[];
+    /** `staticDomains` and `privateDomains`, longest first. */
+    hostingDomains: string[];
     /** Configured protocol (e.g. `http` in dev, `https` in prod). */
     protocol: string;
 }
@@ -106,30 +109,23 @@ interface AppLike {
 
 // -- Host helpers ----------------------------------------------------
 
-export function normalizeHost(value: string | undefined | null): string | null {
-    if (typeof value !== 'string') return null;
-    const trimmed = value.trim().toLowerCase().replace(/^\./, '');
-    if (!trimmed) return null;
-    return trimmed.split(':')[0] || null;
-}
-
-/** Like `normalizeHost` but preserves port when present. */
-export function normalizeHostRaw(
-    value: string | undefined | null,
-): string | null {
-    if (typeof value !== 'string') return null;
-    const trimmed = value.trim().toLowerCase().replace(/^\./, '');
-    return trimmed || null;
-}
-
 export function buildHostingConfig(config: IConfig): PrivateHostingConfig {
+    const staticDomains = [
+        normalizeHost(config.static_hosting_domain),
+        normalizeHost(config.static_hosting_domain_alt),
+    ].filter((d): d is string => !!d);
+    const privateDomains = [
+        normalizeHost(config.private_app_hosting_domain),
+        normalizeHost(config.private_app_hosting_domain_alt),
+    ].filter((d): d is string => !!d);
+    const keepPort = { keepPort: true };
     const staticRaw = [
-        normalizeHostRaw(config.static_hosting_domain),
-        normalizeHostRaw(config.static_hosting_domain_alt),
+        normalizeHost(config.static_hosting_domain, keepPort),
+        normalizeHost(config.static_hosting_domain_alt, keepPort),
     ].filter((d): d is string => !!d);
     const privateRaw = [
-        normalizeHostRaw(config.private_app_hosting_domain),
-        normalizeHostRaw(config.private_app_hosting_domain_alt),
+        normalizeHost(config.private_app_hosting_domain, keepPort),
+        normalizeHost(config.private_app_hosting_domain_alt, keepPort),
     ].filter((d): d is string => !!d);
     const rawProtocol =
         typeof config.protocol === 'string'
@@ -137,16 +133,11 @@ export function buildHostingConfig(config: IConfig): PrivateHostingConfig {
             : '';
     return {
         domain: normalizeHost(config.domain),
-        staticDomains: [
-            normalizeHost(config.static_hosting_domain),
-            normalizeHost(config.static_hosting_domain_alt),
-        ].filter((d): d is string => !!d),
-        privateDomains: [
-            normalizeHost(config.private_app_hosting_domain),
-            normalizeHost(config.private_app_hosting_domain_alt),
-        ].filter((d): d is string => !!d),
+        staticDomains,
+        privateDomains,
         staticDomainsRaw: staticRaw,
         privateDomainsRaw: privateRaw,
+        hostingDomains: longestFirst([...staticDomains, ...privateDomains]),
         protocol: rawProtocol || 'https',
     };
 }
@@ -160,13 +151,20 @@ export function hostMatchesPrivateDomain(
 
 // -- Subdomain extraction from a hosted request ---------------------
 
+// Longest-first so `foo.bar.puter.app` matches `bar.puter.app` before
+// falling back to `puter.app`.
+function longestFirst(domains: string[]): string[] {
+    return [...domains].sort((a, b) => b.length - a.length);
+}
+
 export function subdomainFromHost(
     host: string,
     hostingDomains: string[],
 ): string {
-    // Longest-first so `foo.bar.puter.app` matches `bar.puter.app` before
-    // falling back to `puter.app`.
-    const sorted = [...hostingDomains].sort((a, b) => b.length - a.length);
+    return subdomainFromSortedHost(host, longestFirst(hostingDomains));
+}
+
+function subdomainFromSortedHost(host: string, sorted: string[]): string {
     for (const d of sorted) {
         const suffix = `.${d}`;
         if (host === d) return '';
@@ -184,8 +182,7 @@ export function subdomainFromHost(
  * Resolve "what app does the subdomain owner run on this host?" by matching
  * apps owned by `site.user_id` against the request's host variants. Used by the
  * puter-site middleware to decide whether the request hits a private app (gate)
- * or a public app (sticky cookie), and by the subdomain driver to populate the
- * `associated_app` field in API responses.
+ * or a public app (sticky cookie).
  *
  * Ownership-anchored on `apps.owner_user_id = site.user_id` so a subdomain can
  * never "claim" an app belonging to a different user. The `subdomains` row's
@@ -199,7 +196,6 @@ export async function resolveOwnedAppForHostedSite(opts: {
     site: SubdomainLike;
     appStore: Pick<AppStore, 'listOwnedByIndexUrlCandidates'>;
     config: PrivateHostingConfig;
-    requirePrivate?: boolean;
     /** Match against this hosting-domain host instead of the request's. */
     host?: string;
 }): Promise<AppLike | null> {
@@ -208,10 +204,10 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const host = normalizeHost(opts.host ?? opts.req.hostname);
     if (!host) return null;
 
-    const hostedSubdomain = subdomainFromHost(host, [
-        ...opts.config.staticDomains,
-        ...opts.config.privateDomains,
-    ]);
+    const hostedSubdomain = subdomainFromSortedHost(
+        host,
+        opts.config.hostingDomains,
+    );
     if (!hostedSubdomain) return null;
 
     // Build host variants with AND without port, then cross each with both
@@ -257,7 +253,6 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const rows = await opts.appStore.listOwnedByIndexUrlCandidates(
         opts.site.user_id,
         uniqueCandidates,
-        { requirePrivate: opts.requirePrivate },
     );
     if (rows.length === 0) return null;
     if (rows.length > 1) {
@@ -693,10 +688,7 @@ export function buildPrivateHostRedirect(
     if (!privateDomain) return null;
     const host = normalizeHost(req.hostname);
     if (!host) return null;
-    const subdomain = subdomainFromHost(host, [
-        ...config.staticDomains,
-        ...config.privateDomains,
-    ]);
+    const subdomain = subdomainFromSortedHost(host, config.hostingDomains);
     if (!subdomain) return null;
     try {
         const protocol = config.protocol || req.protocol || 'https';
@@ -724,10 +716,7 @@ export function buildPublicHostRedirect(
     if (!publicDomain) return null;
     const host = normalizeHost(req.hostname);
     if (!host) return null;
-    const subdomain = subdomainFromHost(host, [
-        ...config.staticDomains,
-        ...config.privateDomains,
-    ]);
+    const subdomain = subdomainFromSortedHost(host, config.hostingDomains);
     if (!subdomain) return null;
     try {
         const protocol = config.protocol || req.protocol || 'https';

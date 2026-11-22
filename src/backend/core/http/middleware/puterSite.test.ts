@@ -53,7 +53,7 @@ interface CapturedRes {
 
 const makeRes = () => {
     const out: CapturedRes = { headers: {}, cookies: {} };
-    // The file-serving branch ends with `download.body.pipe(res)`, so
+    // The file-serving branch pipes the file into `res`, so
     // `res` has to satisfy the WritableStream contract Node's `pipe()`
     // expects — write/end/on/emit/etc. Use a real Writable so Node's
     // pipe internals don't trip on missing prototype methods. Bytes
@@ -139,9 +139,7 @@ const makeReq = (init: {
         headers: init.headers ?? {},
         cookies: init.cookies ?? {},
         query: init.query ?? {},
-        // The file-serve branch wires `req.on('close', ...)` to destroy
-        // the stream on client disconnect — a no-op event surface is
-        // enough for the offline tests.
+        // A no-op event surface is enough for the offline tests.
         on: () => undefined,
     }) as unknown as Request;
 

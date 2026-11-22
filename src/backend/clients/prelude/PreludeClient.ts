@@ -207,33 +207,27 @@ export class PreludeClient extends PuterClient {
         if (!this.apiKey) {
             throw new Error('Prelude is not configured');
         }
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-        try {
-            const res = await fetch(`${PRELUDE_API_BASE}${path}`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${this.apiKey}`,
-                    'Content-Type': 'application/json',
-                    Accept: 'application/json',
-                },
-                body: JSON.stringify(body),
-                signal: controller.signal,
-            });
-            const json = (await res.json().catch(() => ({}))) as Record<
-                string,
-                unknown
-            >;
-            if (!res.ok) {
-                throw new Error(
-                    `Prelude ${path} failed: ${res.status} ${
-                        (json as { message?: string })?.message ?? ''
-                    }`.trim(),
-                );
-            }
-            return json;
-        } finally {
-            clearTimeout(timer);
+        const res = await fetch(`${PRELUDE_API_BASE}${path}`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+        const json = (await res.json().catch(() => ({}))) as Record<
+            string,
+            unknown
+        >;
+        if (!res.ok) {
+            throw new Error(
+                `Prelude ${path} failed: ${res.status} ${
+                    (json as { message?: string })?.message ?? ''
+                }`.trim(),
+            );
         }
+        return json;
     }
 }

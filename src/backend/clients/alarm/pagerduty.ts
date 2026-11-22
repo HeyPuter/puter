@@ -92,24 +92,18 @@ async function openIncidentUrl(
     query.append('statuses[]', 'triggered');
     query.append('statuses[]', 'acknowledged');
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-        const res = await fetch(`${PAGERDUTY_API}/incidents?${query}`, {
-            headers: {
-                Authorization: `Token token=${apiToken}`,
-                Accept: 'application/vnd.pagerduty+json;version=2',
-            },
-            signal: controller.signal,
-        });
-        if (!res.ok) {
-            throw new Error(`PagerDuty incidents returned ${res.status}`);
-        }
-        const body = (await res.json()) as {
-            incidents?: Array<{ html_url?: string }>;
-        };
-        return body.incidents?.[0]?.html_url;
-    } finally {
-        clearTimeout(timer);
+    const res = await fetch(`${PAGERDUTY_API}/incidents?${query}`, {
+        headers: {
+            Authorization: `Token token=${apiToken}`,
+            Accept: 'application/vnd.pagerduty+json;version=2',
+        },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+        throw new Error(`PagerDuty incidents returned ${res.status}`);
     }
+    const body = (await res.json()) as {
+        incidents?: Array<{ html_url?: string }>;
+    };
+    return body.incidents?.[0]?.html_url;
 }

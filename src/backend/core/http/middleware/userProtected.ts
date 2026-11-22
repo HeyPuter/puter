@@ -26,6 +26,7 @@ import type { IConfig } from '../../../types';
 import type { UserStore, UserRow } from '../../../stores/user/UserStore';
 import type { OIDCService } from '../../../services/auth/OIDCService';
 import type { TokenService } from '../../../services/auth/TokenService';
+import { isTemporaryAccount } from '../../../util/userDetails.js';
 
 /**
  * Gate for security-critical account endpoints mounted under
@@ -205,7 +206,7 @@ export const createUserProtectedGate = (
                 legacyCode: 'internal_error',
             });
 
-        const isTemp = user.password === null && user.email === null;
+        const isTemp = isTemporaryAccount(user);
         if (isTemp) {
             if (allowTemp) return next();
             throw new HttpError(403, 'Temporary account', {

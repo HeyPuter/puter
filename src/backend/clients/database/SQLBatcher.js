@@ -148,10 +148,6 @@ export class SQLBatcher {
         return this.query(sql, values);
     }
 
-    promise() {
-        return this;
-    }
-
     // The public error is deliberately opaque (no SQL, no internals), but
     // `reason` distinguishes the load-shed path for logs and callers:
     // breakerOpen | queueOverflow | connAcquire.

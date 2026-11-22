@@ -22,6 +22,7 @@
 import '../../util/nodeFetchDispatcherGuard.js';
 
 import { Agent, fetch as undiciFetch } from 'undici';
+import { INTERNAL_AUTH_HEADER } from '../../core/http/middleware/internalAuth.js';
 import { PuterClient } from '../types.js';
 
 /**
@@ -695,7 +696,7 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                     method: 'POST',
                     headers: {
                         'content-type': 'application/json',
-                        'x-puter-internal-auth': this.#secret,
+                        [INTERNAL_AUTH_HEADER]: this.#secret,
                         'x-puter-events-script': call.script,
                         'x-puter-events-app': call.appUid,
                         ...(call.holder
@@ -810,7 +811,7 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                     method: 'POST',
                     headers: {
                         'content-type': 'application/json',
-                        'x-puter-internal-auth': this.#secret,
+                        [INTERNAL_AUTH_HEADER]: this.#secret,
                     },
                     body,
                     signal: AbortSignal.any([

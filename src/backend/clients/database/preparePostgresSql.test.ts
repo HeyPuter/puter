@@ -26,10 +26,9 @@ describe('preparePostgresSql', () => {
             'SELECT `user`.`id` FROM `user` WHERE `email` = ? AND `username` = ?',
         );
 
-        expect(prepared).toEqual({
-            text: 'SELECT "user"."id" FROM "user" WHERE "email" = $1 AND "username" = $2',
-            parameterCount: 2,
-        });
+        expect(prepared).toBe(
+            'SELECT "user"."id" FROM "user" WHERE "email" = $1 AND "username" = $2',
+        );
     });
 
     it('leaves question marks inside strings and comments untouched', () => {
@@ -42,12 +41,11 @@ describe('preparePostgresSql', () => {
               AND \`name\` = ?
         `);
 
-        expect(prepared.text).toContain("SELECT '?' AS literal, $1");
-        expect(prepared.text).toContain('-- ? in a comment');
-        expect(prepared.text).toContain('"description" = \'is this ok?\'');
-        expect(prepared.text).toContain('/* and ? in a block comment */');
-        expect(prepared.text).toContain('"name" = $2');
-        expect(prepared.parameterCount).toBe(2);
+        expect(prepared).toContain("SELECT '?' AS literal, $1");
+        expect(prepared).toContain('-- ? in a comment');
+        expect(prepared).toContain('"description" = \'is this ok?\'');
+        expect(prepared).toContain('/* and ? in a block comment */');
+        expect(prepared).toContain('"name" = $2');
     });
 
     it('escapes double quotes inside converted identifiers', () => {
@@ -55,10 +53,9 @@ describe('preparePostgresSql', () => {
             'SELECT `odd"name` FROM `odd``table` WHERE `id` = ?',
         );
 
-        expect(prepared).toEqual({
-            text: 'SELECT "odd""name" FROM "odd`table" WHERE "id" = $1',
-            parameterCount: 1,
-        });
+        expect(prepared).toBe(
+            'SELECT "odd""name" FROM "odd`table" WHERE "id" = $1',
+        );
     });
 
     it('does not scan placeholders inside dollar-quoted strings', () => {
@@ -66,10 +63,9 @@ describe('preparePostgresSql', () => {
             "SELECT $$?$$, $tag$`not_ident` ?$tag$, `id` FROM `user` WHERE `id` = ?",
         );
 
-        expect(prepared).toEqual({
-            text: 'SELECT $$?$$, $tag$`not_ident` ?$tag$, "id" FROM "user" WHERE "id" = $1',
-            parameterCount: 1,
-        });
+        expect(prepared).toBe(
+            'SELECT $$?$$, $tag$`not_ident` ?$tag$, "id" FROM "user" WHERE "id" = $1',
+        );
     });
 
     it('does not treat Postgres JSON operators as comments', () => {
@@ -77,9 +73,8 @@ describe('preparePostgresSql', () => {
             "SELECT * FROM `sessions` WHERE `user_id` = ? AND `meta` #>> ARRAY['worker_name'] = ? AND `expires_at` > ?",
         );
 
-        expect(prepared).toEqual({
-            text: 'SELECT * FROM "sessions" WHERE "user_id" = $1 AND "meta" #>> ARRAY[\'worker_name\'] = $2 AND "expires_at" > $3',
-            parameterCount: 3,
-        });
+        expect(prepared).toBe(
+            'SELECT * FROM "sessions" WHERE "user_id" = $1 AND "meta" #>> ARRAY[\'worker_name\'] = $2 AND "expires_at" > $3',
+        );
     });
 });
