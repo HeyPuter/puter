@@ -1046,10 +1046,10 @@ export class SocketService extends PuterService {
 
     /**
      * Close the connections of revoked sessions, plus the account's sockets
-     * that name no session. Cluster-wide: `disconnectSockets` publishes
-     * through the adapter, so a revoke handled on one node reaches sockets
-     * terminated on another. Without a list of sessions, every connection on
-     * the account goes.
+     * that name no session. Cluster-wide: `disconnectSockets` publishes through
+     * the adapter, so a revoke handled on one node reaches sockets terminated
+     * on another. Without a list of sessions, every connection on the account
+     * goes.
      */
     async #evictSessionSockets(
         userId: number,

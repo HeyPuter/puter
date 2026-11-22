@@ -202,11 +202,19 @@ export class SessionStore extends PuterStore {
      * that ended moments ago and that a lagging replica still shows live.
      *
      * @param {number[]} userIds
-     * @param {{ includeRevoked?: boolean; primary?: boolean; dropRecentlyEnded?: boolean }} [options]
+     * @param {{
+     *     includeRevoked?: boolean;
+     *     primary?: boolean;
+     *     dropRecentlyEnded?: boolean;
+     * }} [options]
      */
     async getByUserIds(
         userIds,
-        { includeRevoked = false, primary = false, dropRecentlyEnded = false } = {},
+        {
+            includeRevoked = false,
+            primary = false,
+            dropRecentlyEnded = false,
+        } = {},
     ) {
         const ids = [...new Set(userIds.filter(Boolean))];
         if (ids.length === 0) return [];
