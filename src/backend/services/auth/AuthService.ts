@@ -49,6 +49,7 @@ import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
 import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS, PERMISSION_MAX_LEN } from '../permission/consts';
+import { aclAnswerableFsPermission } from '../permission/fsPathPermission.js';
 import type { GrantMeta } from '../permission/PermissionService.js';
 import { savedAfterId, type JobRunContext } from '../jobs/JobScheduler.js';
 import { PuterService } from '../types';
@@ -2469,10 +2470,23 @@ export class AuthService extends PuterService {
             ),
         ];
         if (requestedPerms.length > 0) {
-            const granted = await this.services.permission.checkMany(
-                actor,
-                requestedPerms,
+            // `fs:` scopes are asked of ACL, which the token's reads go
+            // through, so access held through a parent folder counts.
+            const viaAcl = requestedPerms.filter((p) =>
+                aclAnswerableFsPermission(p),
             );
+            const viaScan = requestedPerms.filter(
+                (p) => !aclAnswerableFsPermission(p),
+            );
+            const [granted, reached] = await Promise.all([
+                viaScan.length > 0
+                    ? this.services.permission.checkMany(actor, viaScan)
+                    : new Map<string, boolean>(),
+                Promise.all(
+                    viaAcl.map((p) => this.services.acl.checkFsScope(actor, p)),
+                ),
+            ]);
+            viaAcl.forEach((p, i) => granted.set(p, reached[i]!));
             const missing = requestedPerms.filter((p) => !granted.get(p));
             if (missing.length > 0) {
                 throw new HttpError(

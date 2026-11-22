@@ -122,16 +122,15 @@ import {
 } from '../../services/permission/appDataScopes.js';
 import { parseAppGrantablePermission } from '../../services/permission/appGrantable.js';
 import {
+    aclAnswerableFsPermission,
     assertCreatablePath,
     isOwnHomePath,
     fsCreateKindFor,
     MAX_CREATED_ENTRIES_PER_GRANT,
     parseCreateFlag,
     parseFsPathPermission,
-    parseFsUidPermission,
     type FsCreateKind,
 } from '../../services/permission/fsPathPermission.js';
-import type { AclMode } from '../../services/acl/ACLService';
 import type { ReauthReason } from '../../services/auth/AuthService';
 import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
@@ -151,22 +150,6 @@ const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
 // crafted request from turning a single grant call into a bulk write.
 const MAX_PERMISSIONS_PER_REQUEST = 16;
-/** The `fs:` scopes ACL answers; anything else keeps the scan. */
-const ACL_ANSWERABLE_MODES = new Set(['see', 'list', 'read', 'write']);
-/** Both spellings, so the same file cannot answer two ways. */
-const aclAnswerableFsPermission = (
-    permission: string,
-): { uid?: string; path?: string; mode: string } | null => {
-    const byUid = parseFsUidPermission(permission);
-    if (byUid) {
-        return ACL_ANSWERABLE_MODES.has(byUid.mode) ? byUid : null;
-    }
-    const byPath = parseFsPathPermission(permission);
-    if (!byPath || byPath.hasManage || byPath.rest.length !== 1) return null;
-    const mode = byPath.rest[0]!;
-    return ACL_ANSWERABLE_MODES.has(mode) ? { path: byPath.path, mode } : null;
-};
-
 // Rides every row a request writes, and the per-(user, app) cache after that.
 const GRANT_EXTRA_MAX_BYTES = 4096;
 const DISPATCH_ID_MAX_LENGTH = 128;
@@ -3977,32 +3960,14 @@ export class AuthController extends PuterController {
         }
         // Together: the GUI gives up on this after five seconds and prompts.
         const reached = await Promise.all(
-            [...viaAcl].map((perm) => this.#appReachesFsEntry(actor, perm)),
+            [...viaAcl].map((perm) =>
+                this.services.acl.checkFsScope(actor, perm),
+            ),
         );
         [...viaAcl].forEach((perm, i) => {
             result[perm] = reached[i]!;
         });
         res.json({ permissions: result });
-    }
-
-    /** Asked of ACL, so this cannot answer kinder than the operation will. */
-    async #appReachesFsEntry(actor: Actor, permission: string) {
-        const target = aclAnswerableFsPermission(permission);
-        if (!target) return false;
-        try {
-            const entry = target.uid
-                ? await this.stores.fsEntry.getEntryByUuid(target.uid)
-                : await this.stores.fsEntry.getEntryByPath(target.path!);
-            if (!entry) return false;
-            return await this.services.acl.check(
-                actor,
-                this.services.acl.fsDescriptor(entry.path),
-                target.mode as AclMode,
-            );
-        } catch {
-            // Unreadable means unknown, and an extra prompt is the safe miss.
-            return false;
-        }
     }
 
     // -- Session management ------------------------------------------
