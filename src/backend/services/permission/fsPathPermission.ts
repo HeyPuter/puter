@@ -73,6 +73,26 @@ export function parseFsUidPermission(
     return { uid, mode };
 }
 
+/** The `fs:` scopes ACL answers; anything else keeps the permission scan. */
+const ACL_ANSWERABLE_MODES = new Set(['see', 'list', 'read', 'write']);
+
+/**
+ * The entry and mode of an `fs:` scope ACL answers, in either spelling, so the
+ * same file cannot answer two ways. Null for anything else.
+ */
+export const aclAnswerableFsPermission = (
+    permission: string,
+): { uid?: string; path?: string; mode: string } | null => {
+    const byUid = parseFsUidPermission(permission);
+    if (byUid) {
+        return ACL_ANSWERABLE_MODES.has(byUid.mode) ? byUid : null;
+    }
+    const byPath = parseFsPathPermission(permission);
+    if (!byPath || byPath.hasManage || byPath.rest.length !== 1) return null;
+    const mode = byPath.rest[0]!;
+    return ACL_ANSWERABLE_MODES.has(mode) ? { path: byPath.path, mode } : null;
+};
+
 /** Most path components a `create` grant may add below the home root. */
 export const MAX_CREATE_DEPTH = 16;
 

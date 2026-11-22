@@ -160,6 +160,32 @@ describe('app launch parameters', () => {
         expect(puter.APIOrigin).toBe('https://api.self.test');
     });
 
+    it('decodes launch arguments once, keeping percent signs and escapes', async () => {
+        const url = new URL('https://app.test/');
+        url.searchParams.append('puter.app_instance_id', 'i');
+        url.searchParams.append('puter.args', JSON.stringify({ link: 'a%20b', pct: '100%' }));
+        const puter = await bootApp(url.search);
+        expect(puter.args).toEqual({ link: 'a%20b', pct: '100%' });
+    });
+
+    it('reads arguments a launcher encoded twice', async () => {
+        const args = encodeURIComponent(encodeURIComponent(JSON.stringify({ file: 'a b.txt' })));
+        const puter = await bootApp(`${LAUNCH}&puter.args=${args}`);
+        expect(puter.args).toEqual({ file: 'a b.txt' });
+    });
+
+    it('reads an API origin a launcher encoded twice', async () => {
+        const origin = encodeURIComponent(encodeURIComponent('https://api.self.test'));
+        const puter = await bootApp(`${LAUNCH}&puter.api_origin=${origin}`);
+        expect(puter.APIOrigin).toBe('https://api.self.test');
+    });
+
+    it('boots with empty arguments when they are not JSON', async () => {
+        const puter = await bootApp(`${LAUNCH}&puter.args=%25&puter.app.name=50%25`);
+        expect(puter.args).toEqual({});
+        expect(puter.appName).toBe('50%');
+    });
+
     it('connects to the app that launched it and reports ready', async () => {
         const puter = await bootApp(`${LAUNCH}&puter.parent_instance_id=parent-1`);
         expect(puter.parentInstanceID).toBe('parent-1');

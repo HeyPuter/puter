@@ -385,6 +385,109 @@ describe.each(engines.filter((engine) => !engine.skip))(
             expect(await names(dir)).toEqual(['notes.txt']);
         });
 
+        it('writes into a folder spelled in another case or form, under its stored path', async () => {
+            const dir = await freshDir();
+            await fs.mkdir(userId, { path: `${dir}/Café` });
+            const respelled = `${dir}/café`.replace(
+                'é',
+                'é',
+            );
+
+            const written = await write(`${respelled}/plain.txt`, 'one');
+            expect(written.path).toBe(`${dir}/Café/plain.txt`);
+            expect(await names(`${dir}/Café`)).toEqual(['plain.txt']);
+
+            const signed = await signedWrite(`${respelled}/signed.txt`, 'two');
+            expect(signed.fsEntry.path).toBe(`${dir}/Café/signed.txt`);
+
+            const replaced = await write(`${respelled}/plain.txt`, 'three', {
+                overwrite: true,
+            });
+            expect(replaced.uuid).toBe(written.uuid);
+            expect(replaced.path).toBe(`${dir}/Café/plain.txt`);
+            expect(await names(`${dir}/Café`)).toEqual([
+                'plain.txt',
+                'signed.txt',
+            ]);
+            expect(await readBack(replaced)).toBe('three');
+        });
+
+        it('creates a missing folder under a respelled folder at its stored path', async () => {
+            const dir = await freshDir();
+            await fs.mkdir(userId, { path: `${dir}/Photos` });
+
+            const written = await write(`${dir}/photos/New/deep.txt`, 'one', {
+                createMissingParents: true,
+            });
+            expect(written.path).toBe(`${dir}/Photos/New/deep.txt`);
+            expect((await at(`${dir}/Photos/New`))?.path).toBe(
+                `${dir}/Photos/New`,
+            );
+        });
+
+        it('refuses a batch that reaches one file through two spellings of its folder', async () => {
+            const dir = await freshDir();
+            await fs.mkdir(userId, { path: `${dir}/Photos` });
+
+            const error = await caught(() =>
+                fs.batchWrites(userId, [
+                    {
+                        fileMetadata: {
+                            path: `${dir}/Photos/a.txt`,
+                            size: 1,
+                            contentType: 'text/plain',
+                        },
+                        fileContent: 'A',
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${dir}/photos/a.txt`,
+                            size: 1,
+                            contentType: 'text/plain',
+                        },
+                        fileContent: 'B',
+                    },
+                ]),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(await names(`${dir}/Photos`)).toEqual([]);
+        });
+
+        it('refuses an overwriting batch that reaches one file through two spellings, before uploading', async () => {
+            const dir = await freshDir();
+            const original = await write(`${dir}/Photos/a.txt`, 'kept', {
+                createMissingParents: true,
+            });
+
+            const error = await caught(() =>
+                fs.batchWrites(userId, [
+                    {
+                        fileMetadata: {
+                            path: `${dir}/Photos/a.txt`,
+                            size: 1,
+                            contentType: 'text/plain',
+                            overwrite: true,
+                        },
+                        fileContent: 'A',
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${dir}/photos/a.txt`,
+                            size: 1,
+                            contentType: 'text/plain',
+                            overwrite: true,
+                        },
+                        fileContent: 'B',
+                    },
+                ]),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(await readBack((await at(`${dir}/Photos/a.txt`))!)).toBe(
+                'kept',
+            );
+            expect((await at(`${dir}/Photos/a.txt`))!.uuid).toBe(original.uuid);
+        });
+
         it('overwrites an NFD spelling of a stored name in place, signed or not', async () => {
             const dir = await freshDir();
             const nfc = `${dir}/r\u00e9sum\u00e9.txt`;
@@ -729,9 +832,18 @@ describe.each(engines.filter((engine) => !engine.skip))(
             const dir = await freshDir();
             const folder = await fs.mkdir(userId, { path: `${dir}/Photos` });
             const nested = await fs.mkdir(userId, {
-                path: `${dir}/photos/2024/trip`,
+                path: `${dir}/Photos/2024/trip`,
                 createMissingParents: true,
             });
+            // Rows written before folders resolved to their stored spelling.
+            for (const sub of ['2024', '2024/trip']) {
+                const entry = (await at(`${dir}/Photos/${sub}`))!;
+                await server.clients.db.write(
+                    'UPDATE fsentries SET path = ? WHERE uuid = ?',
+                    [`${dir}/photos/${sub}`, entry.uuid],
+                );
+            }
+            await server.clients.redis.flushall();
             expect(await storedPath(nested)).toBe(`${dir}/photos/2024/trip`);
 
             await runWithContext({ actor }, () =>

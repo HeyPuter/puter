@@ -49,6 +49,7 @@ import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
 import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS, PERMISSION_MAX_LEN } from '../permission/consts';
+import { aclAnswerableFsPermission } from '../permission/fsPathPermission.js';
 import type { GrantMeta } from '../permission/PermissionService.js';
 import { savedAfterId, type JobRunContext } from '../jobs/JobScheduler.js';
 import { PuterService } from '../types';
@@ -849,9 +850,11 @@ export class AuthService extends PuterService {
     async listSessions(actor: Actor): Promise<Array<Record<string, unknown>>> {
         if (!actor.user?.id) return [];
 
-        const rows = (await this.stores.session.getByUserId(
-            actor.user.id,
-        )) as SessionRow[];
+        // A session revoked a moment ago stays off the list even while the
+        // replica still shows it live.
+        const rows = (await this.stores.session.getByUserId(actor.user.id, {
+            dropRecentlyEnded: true,
+        })) as SessionRow[];
 
         // Listed while authentication still accepts it: not expired, and for
         // a token minted under another session, that session live as well.
@@ -2467,10 +2470,22 @@ export class AuthService extends PuterService {
             ),
         ];
         if (requestedPerms.length > 0) {
-            const granted = await this.services.permission.checkMany(
-                actor,
-                requestedPerms,
+            // `fs:<uid>:<mode>` is asked of ACL, which the token's reads go
+            // through, so access held through a parent folder counts. The
+            // path form keeps the scan: reads match a token's grants by uid.
+            const viaAcl = requestedPerms.filter(
+                (p) => aclAnswerableFsPermission(p)?.uid,
             );
+            const viaScan = requestedPerms.filter((p) => !viaAcl.includes(p));
+            const [granted, reached] = await Promise.all([
+                viaScan.length > 0
+                    ? this.services.permission.checkMany(actor, viaScan)
+                    : new Map<string, boolean>(),
+                Promise.all(
+                    viaAcl.map((p) => this.services.acl.checkFsScope(actor, p)),
+                ),
+            ]);
+            viaAcl.forEach((p, i) => granted.set(p, reached[i]!));
             const missing = requestedPerms.filter((p) => !granted.get(p));
             if (missing.length > 0) {
                 throw new HttpError(

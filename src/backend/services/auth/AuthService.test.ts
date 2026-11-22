@@ -830,6 +830,40 @@ describe('AuthService (integration)', () => {
             expect((match as { current: boolean }).current).toBe(true);
         });
 
+        it('listSessions leaves out a session revoked moments ago while the replica still shows it live', async () => {
+            const user = await makeUser();
+            const kept = (await authService.createSessionToken(user, {}))
+                .session as { uuid: string };
+            const revoked = (await authService.createSessionToken(user, {}))
+                .session as { uuid: string };
+            const db = server.clients.db;
+            const beforeRevoke = await db.read(
+                'SELECT * FROM `sessions` WHERE `user_id` IN (?) AND `revoked_at` IS NULL',
+                [user.id],
+            );
+            await authService.revokeSession(revoked.uuid);
+
+            const realRead = db.read.bind(db);
+            const lagging = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('WHERE `user_id` IN')
+                        ? beforeRevoke
+                        : realRead(sql, params),
+                );
+            try {
+                const uuids = (
+                    await authService.listSessions({
+                        user: { id: user.id, uuid: user.uuid },
+                    } as unknown as Actor)
+                ).map((row) => (row as { uuid: string }).uuid);
+                expect(uuids).toContain(kept.uuid);
+                expect(uuids).not.toContain(revoked.uuid);
+            } finally {
+                lagging.mockRestore();
+            }
+        });
+
         it('revokeSession removes the session row', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
@@ -3556,6 +3590,133 @@ describe('AuthService (integration)', () => {
             ).rejects.toMatchObject({
                 statusCode: 403,
                 legacyCode: 'forbidden',
+            });
+        });
+
+        describe('fs: scopes held through a parent folder', () => {
+            const ownerWithFolder = async () => {
+                const owner = await makeUser();
+                await generateDefaultFsentries(
+                    server.clients.db,
+                    server.stores.user,
+                    owner,
+                );
+                const folder = `/${owner.username}/Documents/album`;
+                await server.services.fs.mkdir(owner.id, {
+                    path: folder,
+                } as never);
+                const body = Buffer.from('pixels');
+                await server.services.fs.write(owner.id, {
+                    fileMetadata: {
+                        path: `${folder}/photo.png`,
+                        size: body.byteLength,
+                        contentType: 'image/png',
+                    },
+                    fileContent: body,
+                } as never);
+                const ownerActor = makeActor({
+                    user: {
+                        id: owner.id,
+                        uuid: owner.uuid,
+                        username: owner.username,
+                    },
+                });
+                return {
+                    owner,
+                    ownerActor,
+                    folderEntry: (await server.stores.fsEntry.getEntryByPath(
+                        folder,
+                    ))!,
+                    fileEntry: (await server.stores.fsEntry.getEntryByPath(
+                        `${folder}/photo.png`,
+                    ))!,
+                };
+            };
+
+            it('lets an app with a folder grant mint a read token for a file inside', async () => {
+                const { owner, ownerActor, folderEntry, fileEntry } =
+                    await ownerWithFolder();
+                const appUid = `app-${uuidv4()}`;
+                await server.clients.db.write(
+                    'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                    [
+                        appUid,
+                        `n-${appUid}`,
+                        `t-${appUid}`,
+                        `https://${appUid}.example/`,
+                        owner.id,
+                    ],
+                );
+                const [app] = (await server.clients.db.read(
+                    'SELECT `id` FROM `apps` WHERE `uid` = ?',
+                    [appUid],
+                )) as Array<{ id: number }>;
+                await server.services.permission.grantUserAppPermission(
+                    ownerActor,
+                    appUid,
+                    `fs:${folderEntry.uuid}:read`,
+                );
+                const appActor = makeActor({
+                    user: ownerActor.user,
+                    app: { id: app!.id, uid: appUid },
+                });
+
+                const jwt = await authService.createAccessToken(appActor, [
+                    [`fs:${fileEntry.uuid}:read`],
+                ]);
+                const { actor: tokenActor } =
+                    await authService.authenticate(jwt);
+                const acl = server.services.acl;
+                expect(
+                    await acl.check(
+                        tokenActor!,
+                        acl.fsDescriptor(fileEntry.path),
+                        'read',
+                    ),
+                ).toBe(true);
+                await expect(
+                    authService.createAccessToken(appActor, [
+                        [`fs:${fileEntry.uuid}:write`],
+                    ]),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+
+            it('lets a share recipient mint a read token for a file in a shared folder', async () => {
+                const { ownerActor, folderEntry, fileEntry } =
+                    await ownerWithFolder();
+                const recipient = await makeUser();
+                const recipientActor = makeActor({
+                    user: {
+                        id: recipient.id,
+                        uuid: recipient.uuid,
+                        username: recipient.username,
+                    },
+                });
+                await expect(
+                    authService.createAccessToken(recipientActor, [
+                        [`fs:${fileEntry.uuid}:read`],
+                    ]),
+                ).rejects.toMatchObject({ statusCode: 403 });
+
+                await server.services.permission.grantUserUserPermission(
+                    ownerActor,
+                    recipient.username,
+                    `fs:${folderEntry.uuid}:read`,
+                );
+                const jwt = await authService.createAccessToken(
+                    recipientActor,
+                    [[`fs:${fileEntry.uuid}:read`]],
+                );
+                const { actor: tokenActor } =
+                    await authService.authenticate(jwt);
+                const acl = server.services.acl;
+                expect(
+                    await acl.check(
+                        tokenActor!,
+                        acl.fsDescriptor(fileEntry.path),
+                        'read',
+                    ),
+                ).toBe(true);
             });
         });
 

@@ -27,6 +27,7 @@ import UIAuthLogin from '../Auth/UIAuthLogin.js';
 import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
 import { clear_shared_param } from '../../helpers/parseSharedPath.js';
 import { forgetWorkers, forgetWorkersAfterMove } from '../../helpers/trashWorkers.js';
+import { reconnectAfterServerDisconnect } from '../../helpers/socketReconnect.js';
 import UIDashboardNotifications from './UIDashboardNotifications.js';
 import UIDashboardContactDialog from './UIDashboardContactDialog.js';
 import {
@@ -286,6 +287,7 @@ async function UIDashboard (options) {
         withCredentials: true,
     });
     answerNotificationReceipts(window.socket);
+    reconnectAfterServerDisconnect(window.socket, () => window.auth_token);
 
     window.socket.on('error', (error) => {
         console.error('Dashboard Socket Error:', error);

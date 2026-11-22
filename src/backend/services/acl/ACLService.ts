@@ -31,6 +31,7 @@ import {
 import { PermissionUtil } from '../permission/permissionUtil';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { closedAppDataOwners } from '../permission/appDataScopes';
+import { aclAnswerableFsPermission } from '../permission/fsPathPermission';
 import { HttpError } from '../../core/http/HttpError.js';
 import { actorHasSubscription } from '../metering/enforcement';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
@@ -454,6 +455,29 @@ export class ACLService extends PuterService {
             message: 'Forbidden',
             fields: { code: 'forbidden' },
         };
+    }
+
+    /**
+     * Whether `actor` reaches the entry an `fs:` scope names, through grants on
+     * its ancestors too, as the operation itself will. False for a scope ACL
+     * doesn't answer, a missing entry, or a failed read.
+     */
+    async checkFsScope(actor: Actor, permission: string): Promise<boolean> {
+        const target = aclAnswerableFsPermission(permission);
+        if (!target) return false;
+        try {
+            const entry = target.uid
+                ? await this.stores.fsEntry.getEntryByUuid(target.uid)
+                : await this.stores.fsEntry.getEntryByPath(target.path!);
+            if (!entry) return false;
+            return await this.check(
+                actor,
+                this.fsDescriptor(entry.path),
+                target.mode as AclMode,
+            );
+        } catch {
+            return false;
+        }
     }
 
     /** Descriptor for a filesystem path, its chain read from the store. */

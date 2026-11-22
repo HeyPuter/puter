@@ -173,6 +173,16 @@ const DEFAULT_BROADCAST_FLUSH_MS = 2_000;
 const REBASED_INVALIDATION_MAX = 100_000;
 
 /**
+ * Where a child named `name` of `parent` is stored: under the parent's stored
+ * path, which may be spelled differently (and be longer) than the path a
+ * request used.
+ */
+const storedChildPath = (parent: FSEntry, name: string): string =>
+    assertPathLength(
+        parent.path === '/' ? `/${name}` : `${parent.path}/${name}`,
+    );
+
+/**
  * Store backing the `fsentries` table. Owns DB CRUD over filesystem entries,
  * Redis caching keyed by uuid/path/id, and pending-upload-session state in the
  * system KV store. Constructed by the store registry; depends on `kv`.
@@ -971,7 +981,12 @@ export class FSEntryStore extends PuterStore {
                         parentEntry ? parentEntry.id : null,
                         parentEntry ? parentEntry.uuid : null,
                         pathPosix.basename(dirPath),
-                        dirPath,
+                        parentEntry
+                            ? storedChildPath(
+                                  parentEntry,
+                                  pathPosix.basename(dirPath),
+                              )
+                            : dirPath,
                         now,
                         now,
                         now,
@@ -1122,7 +1137,9 @@ export class FSEntryStore extends PuterStore {
                     parentEntry ? parentEntry.id : null,
                     parentEntry ? parentEntry.uuid : null,
                     dirName,
-                    normalizedPath,
+                    parentEntry
+                        ? storedChildPath(parentEntry, dirName)
+                        : normalizedPath,
                     now,
                     now,
                     now,
@@ -1948,6 +1965,27 @@ export class FSEntryStore extends PuterStore {
         return normalized === root || normalized.startsWith(`${root}/`);
     }
 
+    /**
+     * Entries for `paths`, taking those `#ensureDirectoryPathsForUser` just
+     * resolved as they are: one it created may be stored under another
+     * spelling, which a re-read by the requested path can miss on a replica.
+     */
+    async #readUnensuredPaths(
+        userId: number,
+        paths: string[],
+        ensured: Map<string, FSEntry>,
+    ): Promise<Map<string, FSEntry>> {
+        const unensured = paths.filter(
+            (path) => !ensured.has(this.#normalizePath(path)),
+        );
+        const read =
+            unensured.length > 0
+                ? await this.#readEntriesByPathsForUser(userId, unensured)
+                : new Map<string, FSEntry>();
+        for (const [path, entry] of ensured) read.set(path, entry);
+        return read;
+    }
+
     async resolveParentDirectoriesBatch(
         userId: number,
         requests: { parentPath: string; createPaths: boolean }[],
@@ -1977,15 +2015,17 @@ export class FSEntryStore extends PuterStore {
         const parentPathsToEnsure = requests
             .filter((request) => request.createPaths)
             .map((request) => request.parentPath);
-        const { createdEntryMap } = await this.#ensureDirectoryPathsForUser(
-            userId,
-            parentPathsToEnsure,
-        );
+        const { requiredEntryMap, createdEntryMap } =
+            await this.#ensureDirectoryPathsForUser(
+                userId,
+                parentPathsToEnsure,
+            );
 
         const allParentPaths = requests.map((request) => request.parentPath);
-        const parentEntriesByPath = await this.#readEntriesByPathsForUser(
+        const parentEntriesByPath = await this.#readUnensuredPaths(
             userId,
             allParentPaths,
+            requiredEntryMap,
         );
         const parentEntries = allParentPaths.map((path) => {
             const normalizedPath = this.#normalizePath(path);
@@ -2043,15 +2083,14 @@ export class FSEntryStore extends PuterStore {
         const pathsToEnsure = normalizedRequests
             .filter((request) => request.createPaths)
             .map((request) => request.path);
-        const { createdEntryMap } = await this.#ensureDirectoryPathsForUser(
-            userId,
-            pathsToEnsure,
-        );
+        const { requiredEntryMap, createdEntryMap } =
+            await this.#ensureDirectoryPathsForUser(userId, pathsToEnsure);
 
         const allPaths = normalizedRequests.map((request) => request.path);
-        const entriesByPath = await this.#readEntriesByPathsForUser(
+        const entriesByPath = await this.#readUnensuredPaths(
             userId,
             allPaths,
+            requiredEntryMap,
         );
 
         const entries = normalizedRequests.map((request) => {
@@ -2137,6 +2176,7 @@ export class FSEntryStore extends PuterStore {
                     input: entryInput,
                     userId: entryInput.userId,
                     targetPath,
+                    storedPath: targetPath,
                     parentPath,
                     fileName: pathPosix.basename(targetPath),
                     metadataJson: this.#serializeMetadata(entryInput),
@@ -2177,10 +2217,25 @@ export class FSEntryStore extends PuterStore {
                     createPaths: entry.createPaths,
                 })),
             );
+            // Keyed by the requested spelling: the folder found may be stored
+            // in another case or normalization form, and its children are
+            // written under its stored path.
             const parentByPath = new Map<string, FSEntry>();
-            for (const parentEntry of parentEntries) {
-                parentByPath.set(parentEntry.path, parentEntry);
-            }
+            const storedPaths = new Set<string>();
+            userEntries.forEach((entry, i) => {
+                const parentEntry = parentEntries[i]!;
+                parentByPath.set(entry.parentPath, parentEntry);
+                entry.storedPath = storedChildPath(parentEntry, entry.fileName);
+                // Two spellings of one folder reach the same destination.
+                if (storedPaths.has(entry.storedPath)) {
+                    throw new HttpError(
+                        409,
+                        `Batch contains duplicate target path: ${entry.fileName}`,
+                        { legacyCode: 'conflict' },
+                    );
+                }
+                storedPaths.add(entry.storedPath);
+            });
 
             const existingEntriesByPath = await this.#readEntriesByPathsForUser(
                 userId,
@@ -2247,7 +2302,7 @@ export class FSEntryStore extends PuterStore {
                         thumbnail: entry.input.thumbnail ?? null,
                         immutable: Boolean(entry.input.immutable),
                         name: entry.fileName,
-                        path: entry.targetPath,
+                        path: entry.storedPath,
                         metadata: entry.metadataJson,
                         modified: now,
                         accessed: now,
@@ -2289,7 +2344,7 @@ export class FSEntryStore extends PuterStore {
                                     Boolean(entry.input.immutable),
                                 ),
                                 entry.fileName,
-                                entry.targetPath,
+                                entry.storedPath,
                                 entry.metadataJson,
                                 now,
                                 now,
@@ -2576,7 +2631,7 @@ export class FSEntryStore extends PuterStore {
                         thumbnail: entry.input.thumbnail ?? null,
                         immutable: Boolean(entry.input.immutable),
                         name: entry.fileName,
-                        path: entry.targetPath,
+                        path: entry.storedPath,
                         metadata: entry.metadataJson,
                         modified: now,
                         accessed: now,
@@ -2615,7 +2670,7 @@ export class FSEntryStore extends PuterStore {
                                 Boolean(entry.input.immutable),
                             ),
                             entry.fileName,
-                            entry.targetPath,
+                            entry.storedPath,
                             entry.metadataJson,
                             now,
                             now,
@@ -2732,7 +2787,7 @@ export class FSEntryStore extends PuterStore {
             size: entry.size,
             symlink_path: null,
             is_symlink: 0,
-            path: entry.targetPath,
+            path: entry.storedPath,
             // A row this new has no subdomains.
             subdomains_agg: null,
         };
