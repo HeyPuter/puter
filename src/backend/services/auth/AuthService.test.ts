@@ -830,6 +830,40 @@ describe('AuthService (integration)', () => {
             expect((match as { current: boolean }).current).toBe(true);
         });
 
+        it('listSessions leaves out a session revoked moments ago while the replica still shows it live', async () => {
+            const user = await makeUser();
+            const kept = (await authService.createSessionToken(user, {}))
+                .session as { uuid: string };
+            const revoked = (await authService.createSessionToken(user, {}))
+                .session as { uuid: string };
+            const db = server.clients.db;
+            const beforeRevoke = await db.read(
+                'SELECT * FROM `sessions` WHERE `user_id` IN (?) AND `revoked_at` IS NULL',
+                [user.id],
+            );
+            await authService.revokeSession(revoked.uuid);
+
+            const realRead = db.read.bind(db);
+            const lagging = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('WHERE `user_id` IN')
+                        ? beforeRevoke
+                        : realRead(sql, params),
+                );
+            try {
+                const uuids = (
+                    await authService.listSessions({
+                        user: { id: user.id, uuid: user.uuid },
+                    } as unknown as Actor)
+                ).map((row) => (row as { uuid: string }).uuid);
+                expect(uuids).toContain(kept.uuid);
+                expect(uuids).not.toContain(revoked.uuid);
+            } finally {
+                lagging.mockRestore();
+            }
+        });
+
         it('revokeSession removes the session row', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});

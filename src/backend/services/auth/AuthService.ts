@@ -849,9 +849,11 @@ export class AuthService extends PuterService {
     async listSessions(actor: Actor): Promise<Array<Record<string, unknown>>> {
         if (!actor.user?.id) return [];
 
-        const rows = (await this.stores.session.getByUserId(
-            actor.user.id,
-        )) as SessionRow[];
+        // A session revoked a moment ago stays off the list even while the
+        // replica still shows it live.
+        const rows = (await this.stores.session.getByUserId(actor.user.id, {
+            dropRecentlyEnded: true,
+        })) as SessionRow[];
 
         // Listed while authentication still accepts it: not expired, and for
         // a token minted under another session, that session live as well.

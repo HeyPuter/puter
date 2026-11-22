@@ -7,6 +7,7 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 - Changed the pickers that [`puter.ui.showOpenFilePicker()`](/UI/showOpenFilePicker/), [`puter.ui.showSaveFilePicker()`](/UI/showSaveFilePicker/) and [`puter.ui.showDirectoryPicker()`](/UI/showDirectoryPicker/) open to look and work like the Files tab of the Puter dashboard, with its folders sidebar, breadcrumbs, list and grid views, sorting, and keyboard navigation.
 - Fixed `undefinedOnCancel` of those pickers not resolving in a Puter app when the user closed the picker with Escape or its close button.
 - Fixed [`puter.ui.showDirectoryPicker()`](/UI/showDirectoryPicker/) giving the folder the picker was open in a path with the username in it. Its path starts with `~/`, as a selected folder's does.
+- Fixed launch arguments passed with [`puter.ui.launchApp()`](/UI/launchApp/) reaching the app with their percent-escapes decoded, so `%20` arrived as a space. A `%` that isn't part of an escape also stopped Puter.js from loading in the launched app.
 
 ## November 20, 2026
 
