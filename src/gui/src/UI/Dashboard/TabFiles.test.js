@@ -23,7 +23,10 @@ import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 // The tab's window and dialog plumbing isn't what these tests exercise.
 vi.mock('../UIWindow.js', () => ({ default: vi.fn() }));
-vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
+vi.mock('./UIDashboardDialog.js', async (importOriginal) => ({
+    ...(await importOriginal()),
+    default: vi.fn(),
+}));
 vi.mock('../UIWindowProgress.js', () => ({ default: vi.fn() }));
 vi.mock('../UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('../../helpers/generateFileContextMenu.js', () => ({ default: vi.fn(async () => []) }));
@@ -127,8 +130,8 @@ describe('TabFiles restoring from the Trash', () => {
     afterEach(() => vi.restoreAllMocks());
 
     it('says in the user\'s language when an item has no record of where it came from', async () => {
-        const { default: UIAlert } = await import('../UIAlert.js');
-        UIAlert.mockClear();
+        const { default: UIDashboardDialog } = await import('./UIDashboardDialog.js');
+        UIDashboardDialog.mockClear();
         mountListing(['uid-1']);
         const row = $('.files .row')[0];
         row.setAttribute('data-name', 'notes.txt');
@@ -138,7 +141,9 @@ describe('TabFiles restoring from the Trash', () => {
         await TabFiles.restoreRows([row]);
 
         expect(puter.fs.move).not.toHaveBeenCalled();
-        expect(UIAlert).toHaveBeenCalledWith('“notes.txt” can’t be restored because where it was deleted from isn’t known.');
+        expect(UIDashboardDialog).toHaveBeenCalledWith(expect.objectContaining({
+            message: '“notes.txt” can’t be restored because where it was deleted from isn’t known.',
+        }));
         expect($('.files .row')).toHaveLength(1);
     });
 });
@@ -248,7 +253,7 @@ describe('failedUploadsMessage', () => {
             { name: 'b.txt' },
             { requestIndex: 3 },
         ] });
-        // UIAlert keeps <br> and encodes the rest; a "\n" would collapse into a space.
+        // A "\n" would collapse into a space in the dialog's HTML.
         expect(message.split('<br>').slice(1)).toEqual([
             '- /alice/a.txt (Too large)',
             '- b.txt',
@@ -569,8 +574,8 @@ describe('TabFiles New Folder', () => {
     });
 
     it('says so when the network fails, rather than vanishing', async () => {
-        const { default: UIAlert } = await import('../UIAlert.js');
-        UIAlert.mockClear();
+        const { default: UIDashboardDialog } = await import('./UIDashboardDialog.js');
+        UIDashboardDialog.mockClear();
         mountListing([], '/alice/Documents');
         TabFiles.renderingDirectory = false;
         TabFiles._creatingItem = 0;
@@ -582,7 +587,7 @@ describe('TabFiles New Folder', () => {
         await TabFiles.createFolderInstant('/alice/Documents');
 
         expect($('.files .row')).toHaveLength(0);
-        expect(UIAlert).toHaveBeenCalledWith('An unknown error occurred.');
+        expect(UIDashboardDialog).toHaveBeenCalledWith(expect.objectContaining({ message: 'An unknown error occurred.' }));
     });
 
     it('is made, not dropped, while the folder is refreshing', async () => {
@@ -1245,28 +1250,51 @@ describe('TabFiles permanent delete', () => {
     });
 
     it('asks about "this item" for one row and "these items" for several', async () => {
-        const { default: UIAlert } = await import('../UIAlert.js');
-        UIAlert.mockClear();
-        UIAlert.mockResolvedValue('delete');
+        const { default: UIDashboardDialog } = await import('./UIDashboardDialog.js');
+        UIDashboardDialog.mockClear();
+        UIDashboardDialog.mockResolvedValue(true);
         mountListing(['a', 'b'], TRASH);
         const rows = $('.files .row').toArray();
 
         await TabFiles.deleteRowsPermanently([rows[0]]);
-        expect(UIAlert.mock.calls[0][0].message).toMatch(/this item/);
+        expect(UIDashboardDialog.mock.calls[0][0].message).toMatch(/this item/);
         expect(window.delete_item).toHaveBeenCalledTimes(1);
 
         await TabFiles.deleteRowsPermanently(rows);
-        expect(UIAlert.mock.calls[1][0].message).toMatch(/these items/);
+        expect(UIDashboardDialog.mock.calls[1][0].message).toMatch(/these items/);
         expect(window.delete_item).toHaveBeenCalledTimes(3);
     });
 
     it('deletes nothing when cancelled', async () => {
-        const { default: UIAlert } = await import('../UIAlert.js');
-        UIAlert.mockResolvedValue('cancel');
+        const { default: UIDashboardDialog } = await import('./UIDashboardDialog.js');
+        UIDashboardDialog.mockResolvedValue(false);
         mountListing(['a'], TRASH);
 
         await TabFiles.deleteRowsPermanently($('.files .row').toArray());
         expect(window.delete_item).not.toHaveBeenCalled();
+    });
+});
+
+describe('TabFiles name conflict', () => {
+    it('leaves the item where it is when the dialog is dismissed', async () => {
+        const { default: UIDashboardDialog } = await import('./UIDashboardDialog.js');
+        UIDashboardDialog.mockResolvedValue(false);
+
+        expect(await TabFiles.askNameConflict('a.txt', false)).toBe('cancel');
+        expect(await TabFiles.askNameConflict('a.txt', true)).toBe('skip');
+    });
+
+    it('offers Replace all and Skip only for a batch', async () => {
+        const { default: UIDashboardDialog } = await import('./UIDashboardDialog.js');
+        UIDashboardDialog.mockClear();
+        UIDashboardDialog.mockResolvedValue('replace');
+
+        expect(await TabFiles.askNameConflict('a.txt', false)).toBe('replace');
+        await TabFiles.askNameConflict('a.txt', true);
+
+        const values = call => UIDashboardDialog.mock.calls[call][0].buttons.map(b => b.value);
+        expect(values(0)).toEqual(['cancel', 'keep_both', 'replace']);
+        expect(values(1)).toEqual(['skip', 'keep_both', 'replace_all', 'replace']);
     });
 });
 
@@ -1805,7 +1833,7 @@ describe('TabFiles listSharedView', () => {
 });
 
 describe('TabFiles path field', () => {
-    let UIAlert;
+    let UIDashboardDialog;
 
     /** The tab's real header and an empty listing, its listeners bound. */
     const mountHeader = (currentPath = '/alice/Documents') => {
@@ -1829,8 +1857,8 @@ describe('TabFiles path field', () => {
     const keydown = (el, key) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
 
     beforeEach(async () => {
-        ({ default: UIAlert } = await import('../UIAlert.js'));
-        UIAlert.mockClear();
+        ({ default: UIDashboardDialog } = await import('./UIDashboardDialog.js'));
+        UIDashboardDialog.mockClear();
         window.user = { username: 'alice', directories: {} };
         window.home_path = '/alice';
         window.trash_path = TRASH;
@@ -1919,7 +1947,7 @@ describe('TabFiles path field', () => {
             expect(TabFiles.currentPath).toBe('/');
         }
         expect(window.puter.fs.stat).not.toHaveBeenCalled();
-        expect(UIAlert).not.toHaveBeenCalled();
+        expect(UIDashboardDialog).not.toHaveBeenCalled();
     });
 
     it('opens a typed file\'s folder with the file selected', async () => {
@@ -1959,30 +1987,27 @@ describe('TabFiles path field', () => {
         TabFiles.openPathEditor();
         editor().value = '/alice/Gone';
         // The alert takes the focus, which must not close the field.
-        UIAlert.mockImplementation(async ({ window_options }) => {
+        UIDashboardDialog.mockImplementation(async () => {
             editor().blur();
-            window_options.on_close();
             return true;
         });
 
         await TabFiles.submitPathEditor();
 
-        expect(UIAlert.mock.calls[0][0].message).toContain('/alice/Gone');
+        expect(UIDashboardDialog.mock.calls[0][0].message).toContain('/alice/Gone');
         expect(render).not.toHaveBeenCalled();
         expect(editing()).toBe(true);
         expect(editor().getAttribute('aria-invalid')).toBe('true');
         expect(document.activeElement).toBe(editor());
     });
 
-    it('takes the field back when the alert is closed without its button', async () => {
+    it('takes the field back when the alert is dismissed', async () => {
         mountHeader();
         TabFiles.openPathEditor();
         editor().value = '/alice/Gone';
-        // Escape removes the alert, and what UIAlert returns never settles.
-        UIAlert.mockImplementation(({ window_options }) => {
+        UIDashboardDialog.mockImplementation(async () => {
             editor().blur();
-            window_options.on_close();
-            return new Promise(() => {});
+            return false;
         });
 
         await TabFiles.submitPathEditor();
@@ -1996,12 +2021,12 @@ describe('TabFiles path field', () => {
         mountHeader();
         TabFiles.openPathEditor();
         editor().value = '/alice/Gone';
-        UIAlert.mockImplementation(async ({ window_options }) => window_options.on_close());
+        UIDashboardDialog.mockResolvedValue(true);
 
         await Promise.all([TabFiles.submitPathEditor(), TabFiles.submitPathEditor()]);
 
         expect(window.puter.fs.stat).toHaveBeenCalledTimes(1);
-        expect(UIAlert).toHaveBeenCalledTimes(1);
+        expect(UIDashboardDialog).toHaveBeenCalledTimes(1);
     });
 
     it('calls off a lookup on Escape, and takes a new path at once', async () => {
@@ -2023,7 +2048,7 @@ describe('TabFiles path field', () => {
         await calledOff;
 
         expect(render.mock.calls).toEqual([['/alice/Pictures']]);
-        expect(UIAlert).not.toHaveBeenCalled();
+        expect(UIDashboardDialog).not.toHaveBeenCalled();
     });
 
     it('leaves Enter and Escape to an IME composing a name', () => {

@@ -20,7 +20,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
-vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../../helpers/itemIcon.js', () => ({ default: vi.fn(async () => ({ image: 'icon.svg' })) }));
 
 globalThis.$ = jQuery;

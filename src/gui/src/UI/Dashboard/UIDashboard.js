@@ -21,7 +21,7 @@
 
 import UIWindow from '../UIWindow.js';
 import UIContextMenu from '../UIContextMenu.js';
-import UIAlert from '../UIAlert.js';
+import UIDashboardDialog from './UIDashboardDialog.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIAuthLogin from '../Auth/UIAuthLogin.js';
 import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
@@ -920,18 +920,19 @@ async function UIDashboard (options) {
                 onClick: async function () {
                     // Check for open windows
                     if ( $('.window-app').length > 0 ) {
-                        const alert_resp = await UIAlert({
-                            message: `<p>${i18n('confirm_open_apps_log_out', [], false)}</p>`,
+                        const alert_resp = await UIDashboardDialog({
+                            message: i18n('confirm_open_apps_log_out'),
+                            tone: 'warning',
                             buttons: [
+                                { label: i18n('cancel', [], false), value: false, type: 'quiet' },
                                 {
                                     label: i18n('close_all_windows_and_log_out', [], false),
                                     value: 'close_and_log_out',
                                     type: 'primary',
                                 },
-                                {
-                                    label: i18n('cancel', [], false),
-                                },
                             ],
+                            $container: $el_window,
+                            returnFocusTo: $btn.get(0),
                         });
                         if ( alert_resp === 'close_and_log_out' ) {
                             window.logout();
