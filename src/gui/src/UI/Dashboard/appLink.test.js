@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { appTileLink } from './appLink.js';
+import { appCopyLink, appTileLink } from './appLink.js';
 
 describe('appTileLink', () => {
     it('builds the /app/<name> landing against the given origin', () => {
@@ -43,5 +43,19 @@ describe('appTileLink', () => {
     it('has no link for a tile that names no app — a folder', () => {
         expect(appTileLink({}, 'https://puter.com')).toBe('');
         expect(appTileLink(undefined, 'https://puter.com')).toBe('');
+    });
+});
+
+describe('appCopyLink', () => {
+    it('copies the app\'s index_url', () => {
+        expect(appCopyLink({ appName: 'editor', indexUrl: 'https://editor.puter.site/' }, 'https://puter.com'))
+            .toBe('https://editor.puter.site/');
+    });
+
+    it('copies the /app/<name> landing for a built-in app or one without an index_url', () => {
+        expect(appCopyLink({ appName: 'explorer', indexUrl: 'https://builtins.namespaces.puter.com/explorer' }, 'https://puter.com'))
+            .toBe('https://puter.com/app/explorer');
+        expect(appCopyLink({ appName: 'editor' }, 'https://puter.com'))
+            .toBe('https://puter.com/app/editor');
     });
 });

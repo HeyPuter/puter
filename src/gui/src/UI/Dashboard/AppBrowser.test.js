@@ -204,6 +204,21 @@ describe('shared app browser', () => {
         expect(onLaunch).toHaveBeenCalled();
     });
 
+    it('offers Copy link, not Open in new tab, and copies the app\'s index_url', async () => {
+        installed = [{ name: 'editor', title: 'Editor', index_url: 'https://editor.puter.site/' }];
+        saved = new Map();
+        const actions = { showContextMenu: vi.fn() };
+        await mount({ editable: true, actions });
+        window.copy_to_clipboard = vi.fn();
+        $('.myapps-tile[data-app-name="editor"]').trigger('contextmenu');
+        const { items } = actions.showContextMenu.mock.calls[0][0];
+        const labels = items.filter(item => item !== '-').map(item => item.html);
+        expect(labels).toContain('copy_link');
+        expect(labels).not.toContain('open_in_new_tab');
+        await items.find(item => item.html === 'copy_link').onClick();
+        expect(window.copy_to_clipboard).toHaveBeenCalledWith('https://editor.puter.site/');
+    });
+
     it('retains the dashboard editing controls and isolates component state', async () => {
         await mount({ editable: true });
         expect($('.myapps-reorder-btn, .myapps-add-tile')).toHaveLength(2);
