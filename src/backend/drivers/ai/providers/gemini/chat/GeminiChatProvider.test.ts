@@ -78,12 +78,14 @@ vi.mock('openai', () => {
 });
 
 // The http→data-URL inliner does real fetches; stub it and assert on calls.
-const { inlineHttpImageUrlsMock } = vi.hoisted(() => ({
+const { inlineHttpImageUrlsMock, inlineHttpVideoUrlsMock } = vi.hoisted(() => ({
     inlineHttpImageUrlsMock: vi.fn(async (_messages: unknown) => {}),
+    inlineHttpVideoUrlsMock: vi.fn(async (_messages: unknown) => {}),
 }));
 
 vi.mock('../../../protocols/openaiCompatible/inlineImages.js', () => ({
     inlineHttpImageUrls: inlineHttpImageUrlsMock,
+    inlineHttpVideoUrls: inlineHttpVideoUrlsMock,
 }));
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -403,6 +405,96 @@ describe('GeminiChatProvider.complete image inlining', () => {
     });
 });
 
+describe('GeminiChatProvider video and audio parts', () => {
+    const baseCompletion = {
+        choices: [
+            {
+                message: { content: 'Dog', role: 'assistant' },
+                finish_reason: 'stop',
+            },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+    };
+    const VIDEO_URL = 'data:video/mp4;base64,dmlkZW8=';
+
+    it('runs remote video URLs through the inliner', async () => {
+        inlineHttpVideoUrlsMock.mockClear();
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'video_url',
+                        video_url: { url: 'https://cdn.test/a.mp4' },
+                    },
+                ],
+            },
+        ];
+
+        await withTestActor(() =>
+            provider.complete({ model: 'gemini-3.5-flash', messages }),
+        );
+
+        expect(inlineHttpVideoUrlsMock).toHaveBeenCalledTimes(1);
+        expect(inlineHttpVideoUrlsMock.mock.calls[0]![0]).toBe(messages);
+    });
+
+    it('sends a video data URL in the image_url part Google reads, leaving the caller part alone', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        const part = { type: 'video_url', video_url: { url: VIDEO_URL } };
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-3.5-flash',
+                messages: [{ role: 'user', content: [part] }],
+            }),
+        );
+
+        expect(createMock.mock.calls.at(-1)![0].messages[0].content).toEqual([
+            { type: 'image_url', image_url: { url: VIDEO_URL } },
+        ]);
+        expect(part).toEqual({
+            type: 'video_url',
+            video_url: { url: VIDEO_URL },
+        });
+    });
+
+    it('sends audio inlined from a Puter file as bare base64 with a format Google accepts', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-3.5-flash',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'input_audio',
+                                input_audio: {
+                                    data: 'data:audio/mpeg;base64,YXVkaW8=',
+                                    format: 'mpeg',
+                                },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        expect(createMock.mock.calls.at(-1)![0].messages[0].content).toEqual([
+            {
+                type: 'input_audio',
+                input_audio: { data: 'YXVkaW8=', format: 'mp3' },
+            },
+        ]);
+    });
+});
+
 // ── Model resolution ────────────────────────────────────────────────
 
 describe('GeminiChatProvider model resolution', () => {
@@ -612,6 +704,90 @@ describe('GeminiChatProvider pricing tiers', () => {
             expect(listedCosts(entry, NOW)).toBe(entry.costs);
         });
     });
+
+    it.each([
+        [undefined, '2026-11-30T23:59:59.999Z', 30, 250, 3, 3_500_000],
+        [undefined, '2026-12-01T00:00:00.000Z', 30, 250, 3, 1_400_000],
+        ['gemini-2.5-flash', '2026-12-01T00:00:00.000Z', 30, 250, 3, 1_400_000],
+        [
+            'google/gemini-2.5-flash',
+            '2026-12-01T00:00:00.000Z',
+            30,
+            250,
+            3,
+            1_400_000,
+        ],
+        ['gemini-2.5-pro', '2026-11-30T23:59:59.999Z', 250, 1500, 25, 3_500_000],
+        ['gemini-2.5-pro', '2026-12-01T00:00:00.000Z', 150, 750, 15, 1_400_000],
+        [
+            'google/gemini-2.5-pro',
+            '2026-12-01T00:00:00.000Z',
+            150,
+            750,
+            15,
+            1_400_000,
+        ],
+        ['gemini-2.5-flash-lite', '2026-12-01T00:00:00.000Z', 10, 40, 1, 3_500_000],
+    ] as const)(
+        'settles legacy route %s at %s including grounding',
+        async (model, iso, input, output, cached, grounding) => {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: {
+                            role: 'assistant',
+                            content: 'OK',
+                            extra_content: {
+                                grounding_metadata: {
+                                    web_search_queries: ['query'],
+                                },
+                            },
+                        },
+                        finish_reason: 'stop',
+                    },
+                ],
+                usage: {
+                    prompt_tokens: 200_001,
+                    completion_tokens: 5,
+                    completion_tokens_details: { reasoning_tokens: 2 },
+                    prompt_tokens_details: { cached_tokens: 10 },
+                },
+            });
+            await withTestActor(() =>
+                provider.complete(
+                    { model: model ?? provider.getDefaultModel(), messages: [{ role: 'user', content: 'Search' }] },
+                    undefined,
+                    new Date(iso),
+                ),
+            );
+            expect(createMock.mock.calls[0]![0].model).toBe(
+                model?.replace('google/', '') ?? 'gemini-2.5-flash',
+            );
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                prompt_tokens: 199_991 * input,
+                completion_tokens: 3 * output,
+                thinking_tokens: 2 * output,
+                cached_tokens: 10 * cached,
+                grounding_requests: grounding,
+            });
+            const entry = (await provider.models()).find(entry => entry.id === (model?.replace('google/', '') ?? provider.getDefaultModel()))!;
+            expect(costsForRequest(entry, 200_001, new Date(iso))).toMatchObject({
+                prompt_tokens: input,
+                completion_tokens: output,
+                cached_tokens: cached,
+                grounding_requests: grounding,
+            });
+            if (new Date(iso) >= new Date('2026-12-01T00:00:00.000Z')) {
+                expect(listedCosts(entry, new Date(iso))).toMatchObject({
+                    prompt_tokens: input,
+                    completion_tokens: output,
+                    cached_tokens: cached,
+                    grounding_requests: grounding,
+                });
+            }
+        },
+    );
 
     it('prices gemini-2.5-pro at its list rates on both sides of 200,000 tokens', () => {
         const entry = GEMINI_MODELS.find((m) => m.id === 'gemini-2.5-pro')!;
@@ -876,6 +1052,53 @@ describe('GeminiChatProvider.complete thinking token metering', () => {
             completion_tokens: 40 * Number(flash.costs.completion_tokens),
         });
     });
+
+    it.each([false, true])(
+        'bills thoughts reported only in total_tokens, stream=%s',
+        async (stream) => {
+            const { provider } = makeProvider();
+            const usage = {
+                prompt_tokens: 100,
+                completion_tokens: 2,
+                total_tokens: 3070,
+            };
+            const choice = {
+                message: { content: '18', role: 'assistant' },
+                delta: { content: '18' },
+                finish_reason: 'stop',
+            };
+            createMock.mockResolvedValueOnce(
+                stream
+                    ? (async function* () {
+                          yield { choices: [choice], usage };
+                      })()
+                    : { choices: [choice], usage },
+            );
+            const result = await withTestActor(() =>
+                provider.complete({
+                    model: 'gemini-2.5-flash',
+                    messages: [{ role: 'user', content: 'think hard' }],
+                    stream,
+                }),
+            );
+            if (stream) {
+                await (
+                    result as {
+                        init_chat_stream: (options: {
+                            chatStream: unknown;
+                        }) => Promise<void>;
+                    }
+                ).init_chat_stream({
+                    chatStream: makeCapturingChatStream().chatStream,
+                });
+            }
+            expect(recordSpy.mock.calls[0]![0]).toMatchObject({
+                prompt_tokens: 100,
+                completion_tokens: 2,
+                thinking_tokens: 2968,
+            });
+        },
+    );
 
     it('sets thinking_tokens to 0 when completion_tokens_details is absent', async () => {
         const { provider } = makeProvider();

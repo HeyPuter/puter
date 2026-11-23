@@ -18,7 +18,8 @@
  */
 
 // Most models go through Google's OpenAI-compatible endpoint with the openai
-// SDK; only GEMINI_NATIVE_MODELS use the native generateContent API.
+// SDK; native models and separately priced audio, including a video's audio
+// track, use generateContent.
 import {
     type GenerateContentResponseUsageMetadata,
     GoogleGenAI,
@@ -32,6 +33,12 @@ import type {
     PuterMessage,
     UsageDetails,
 } from '../../../interfaces/chat/types.js';
+import type { IChatCompleteResult } from '../../../interfaces/chat/types.js';
+import {
+    parseDataUri,
+    requiredInputModalities,
+} from '../../../interfaces/chat/utils/mediaParts.js';
+import { inlineHttpVideoUrls } from '../../../protocols/openaiCompatible/inlineImages.js';
 import { toolChoiceToWire } from '../../../protocols/openaiCompatible/openaiParams.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
@@ -42,7 +49,11 @@ import {
 } from '../../../protocols/openaiCompatible/OpenAICompatProvider.js';
 import { usesGoogleGeminiEndpoint } from '../geminiRest.js';
 import { geminiNativeClient } from './geminiNative.js';
-import { GEMINI_MODELS, GEMINI_NATIVE_MODELS } from './models.js';
+import {
+    GEMINI_AUDIO_MODELS,
+    GEMINI_MODELS,
+    GEMINI_NATIVE_MODELS,
+} from './models.js';
 
 type GroundingContent = { grounding_metadata?: unknown };
 
@@ -83,8 +94,28 @@ export class GeminiChatProvider extends OpenAICompatProvider {
                         const { model, service_tier } = params as {
                             model: string;
                             service_tier?: string;
+                            messages?: PuterMessage[];
                         };
+                        const modalities = GEMINI_AUDIO_MODELS.has(model)
+                            ? requiredInputModalities(
+                                  (params as { messages?: PuterMessage[] })
+                                      .messages,
+                              )
+                            : [];
+                        if (modalities.includes('audio') && !native) {
+                            throw new HttpError(
+                                400,
+                                'Audio input requires the native Gemini endpoint',
+                                { legacyCode: 'bad_request' },
+                            );
+                        }
+                        // A video's audio track is priced as audio too.
+                        const splitAudio =
+                            !!native &&
+                            (modalities.includes('audio') ||
+                                modalities.includes('video'));
                         if (
+                            !splitAudio &&
                             !GEMINI_NATIVE_MODELS.has(model) &&
                             (service_tier === undefined || !native)
                         ) {
@@ -134,9 +165,25 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         return maxTokens === undefined ? {} : { maxTokens };
     }
 
+    /** Google fetches no remote video, so it is inlined like images are. */
+    override async complete(
+        args: ICompleteArguments,
+        resolved?: IChatModel,
+        attemptPricingTime?: Date,
+    ): Promise<IChatCompleteResult> {
+        if (Array.isArray(args.messages)) {
+            await inlineHttpVideoUrls(args.messages);
+        }
+        return super.complete(args, resolved, attemptPricingTime);
+    }
+
     protected override prepareMessages(messages: PuterMessage[]) {
-        for (const message of messages) delete message.cache_control;
-        return messages;
+        return messages.map((message) => {
+            delete message.cache_control;
+            return Array.isArray(message.content)
+                ? { ...message, content: message.content.map(geminiPart) }
+                : message;
+        });
     }
 
     protected override vendorParams(
@@ -196,8 +243,8 @@ export class GeminiChatProvider extends OpenAICompatProvider {
         ) {
             return nativeMeteredUsage(
                 source.usage as unknown as
-                    | GenerateContentResponseUsageMetadata
-                    | undefined,
+                    GenerateContentResponseUsageMetadata | undefined,
+                model.costs.audio_tokens !== undefined,
             );
         }
         // Non-stream grounding metadata lives in choices[0].message; a stream
@@ -207,20 +254,28 @@ export class GeminiChatProvider extends OpenAICompatProvider {
             | Array<{ message?: { extra_content?: GroundingContent } }>
             | undefined;
         const extraContent = source.extra_content as
-            | GroundingContent
-            | undefined;
+            GroundingContent | undefined;
 
         const cached_tokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
-        // Thinking tokens are a subset of completion_tokens billed at a different rate
+        // Explicit reasoning counts are included in completions; otherwise Google
+        // reports thoughts only in the total, separate from visible output.
         const thinking_tokens =
-            usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+            usage?.completion_tokens_details?.reasoning_tokens ??
+            Math.max(
+                0,
+                (count(usage?.total_tokens) ?? 0) -
+                    (usage?.prompt_tokens ?? 0) -
+                    (usage?.completion_tokens ?? 0),
+            );
 
         return {
             usage: {
                 prompt_tokens: (usage?.prompt_tokens ?? 0) - cached_tokens,
                 completion_tokens: Math.max(
                     0,
-                    (usage?.completion_tokens ?? 0) - thinking_tokens,
+                    (usage?.completion_tokens ?? 0) -
+                        (usage?.completion_tokens_details?.reasoning_tokens ??
+                            0),
                 ),
                 cached_tokens,
                 thinking_tokens,
@@ -235,6 +290,56 @@ export class GeminiChatProvider extends OpenAICompatProvider {
     }
 }
 
+const AUDIO_FORMATS: Record<string, string> = {
+    mpeg: 'mp3',
+    'x-wav': 'wav',
+    wave: 'wav',
+};
+
+/**
+ * A content part as Google reads it: video as a data URL in `image_url`, and
+ * audio as bare base64 with a `wav` or `mp3` format, which an inlined Puter
+ * file isn't.
+ */
+const geminiPart = (part: unknown): unknown => {
+    if (!part || typeof part !== 'object') return part;
+    const { type, video_url, input_audio, ...rest } = part as {
+        type?: unknown;
+        video_url?: { url?: unknown };
+        input_audio?: { data?: unknown; format?: unknown };
+    };
+    if (
+        type === 'video_url' &&
+        typeof video_url?.url === 'string' &&
+        video_url.url.startsWith('data:')
+    ) {
+        return {
+            ...rest,
+            type: 'image_url',
+            image_url: { url: video_url.url },
+        };
+    }
+    if (
+        type === 'input_audio' &&
+        typeof input_audio?.data === 'string' &&
+        typeof input_audio.format === 'string'
+    ) {
+        const uri = input_audio.data.startsWith('data:')
+            ? parseDataUri(input_audio.data)
+            : null;
+        return {
+            ...rest,
+            type,
+            input_audio: {
+                ...input_audio,
+                data: uri?.base64 ? uri.data : input_audio.data,
+                format: AUDIO_FORMATS[input_audio.format] ?? input_audio.format,
+            },
+        };
+    }
+    return part;
+};
+
 const count = (value: number | undefined): number | undefined =>
     typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
@@ -245,6 +350,7 @@ const count = (value: number | undefined): number | undefined =>
  */
 const nativeMeteredUsage = (
     metadata: GenerateContentResponseUsageMetadata | undefined,
+    splitAudio: boolean,
 ): { usage: Record<string, number>; usageDetails?: UsageDetails } => {
     const prompt = count(metadata?.promptTokenCount);
     const candidates = count(metadata?.candidatesTokenCount);
@@ -261,13 +367,41 @@ const nativeMeteredUsage = (
     ) {
         return { usage: {} };
     }
+    const audioTokens = splitAudio
+        ? (metadata?.promptTokensDetails ?? [])
+              .filter((detail) => detail.modality === 'AUDIO')
+              .reduce(
+                  (total, detail) => total + (count(detail.tokenCount) ?? 0),
+                  0,
+              )
+        : 0;
+    const cachedAudioTokens = splitAudio
+        ? (metadata?.cacheTokensDetails ?? [])
+              .filter((detail) => detail.modality === 'AUDIO')
+              .reduce(
+                  (total, detail) => total + (count(detail.tokenCount) ?? 0),
+                  0,
+              )
+        : 0;
     const inputTokens = Math.max(0, (prompt ?? 0) - cached);
     return {
         usage: {
-            prompt_tokens: inputTokens,
+            prompt_tokens: Math.max(
+                0,
+                inputTokens - Math.max(0, audioTokens - cachedAudioTokens),
+            ),
+            ...(splitAudio
+                ? {
+                      audio_tokens: Math.max(
+                          0,
+                          audioTokens - cachedAudioTokens,
+                      ),
+                      cached_audio_tokens: cachedAudioTokens,
+                  }
+                : {}),
             completion_tokens: candidates ?? 0,
             thinking_tokens: thoughts ?? 0,
-            cached_tokens: cached,
+            cached_tokens: Math.max(0, cached - cachedAudioTokens),
             ...(toolUse ? { tool_use_prompt_tokens: toolUse } : {}),
         },
         usageDetails: {

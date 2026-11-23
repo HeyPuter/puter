@@ -157,6 +157,41 @@ describe('ChatCompletionDriver media canonicalisation', () => {
 });
 
 describe('ChatCompletionDriver input modality gate', () => {
+    it('returns 400 for an audio part when the catalog entry declares text-only input', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce(
+            fakeCatalog({ input: ['text'], output: ['text'] }),
+        );
+        const driver = await makeDriver();
+        const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+
+        let caught: unknown;
+        try {
+            await withTestActor(() =>
+                driver.complete({
+                    model: 'fake',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: 'describe' },
+                                { type: 'input_audio', input_audio: { data: 'YXVkaW8=', format: 'mp3' } },
+                            ],
+                        },
+                    ],
+                }),
+            );
+        } catch (e) {
+            caught = e;
+        }
+
+        expect(caught).toMatchObject({
+            statusCode: 400,
+            message: 'Model fake does not support audio input',
+        });
+        // Refused before any provider round trip.
+        expect(completeSpy).not.toHaveBeenCalled();
+    });
+
     it('returns 400 for an image part when the catalog entry declares text-only input', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce(
             fakeCatalog({ input: ['text'], output: ['text'] }),
@@ -305,6 +340,42 @@ describe('ChatCompletionDriver puter_path resolution', () => {
         expect(processPuterPathUploadsMock.mock.calls[0]![0]).toBe(
             passed.messages,
         );
+    });
+
+    it('returns 400 when a resolved Puter file is audio the model cannot read', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce(
+            fakeCatalog({ input: ['text', 'image'], output: ['text'] }),
+        );
+        const driver = await makeDriver();
+        const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+        processPuterPathUploadsMock.mockImplementationOnce(async (messages) => {
+            const part = (
+                messages as Array<{ content: Record<string, unknown>[] }>
+            )[0]!.content[0]!;
+            delete part.puter_path;
+            part.type = 'input_audio';
+            part.input_audio = { data: 'YXVkaW8=', format: 'mp3' };
+        });
+
+        await expect(
+            withTestActor(() =>
+                driver.complete({
+                    model: 'fake',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { puter_path: '/someone/Documents/clip.mp3' },
+                            ],
+                        },
+                    ],
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Model fake does not support audio input',
+        });
+        expect(completeSpy).not.toHaveBeenCalled();
     });
 
     it('skips resolution when the provider resolves puter_path itself', async () => {

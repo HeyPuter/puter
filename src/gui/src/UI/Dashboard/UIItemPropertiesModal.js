@@ -18,7 +18,7 @@
  */
 
 import item_icon from '../../helpers/itemIcon.js';
-import UIAlert from '../UIAlert.js';
+import UIDashboardDialog from './UIDashboardDialog.js';
 import forget_parent_listing from '../../helpers/forgetParentListing.js';
 import { isOverlayOnTop } from './dashboardOverlay.js';
 import { formatRelativeTime } from '../../i18n/formatTime.js';
@@ -326,7 +326,12 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
                     window.update_sites_cache?.();
                 }).catch((err) => {
                     $link.prop('disabled', false);
-                    UIAlert(err?.message || i18n('error_unknown_cause', [], false));
+                    UIDashboardDialog({
+                        message: err?.message ? html_encode(err.message) : i18n('error_unknown_cause'),
+                        tone: 'error',
+                        $container: $root,
+                        returnFocusTo: $link.get(0),
+                    });
                 });
             });
         },

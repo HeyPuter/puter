@@ -492,6 +492,12 @@ export type EventMap = {
         // With `allowed` false, offer the card fallback in place of SMS. Only
         // honored while the fallback is on; otherwise the send proceeds.
         card_fallback_instead?: boolean;
+        // With `card_fallback_instead`, keep the refusal when there is no
+        // fallback to offer.
+        refuseWithoutFallback?: boolean;
+        // With `allowed` false, set false to keep this attempt out of the
+        // count that opens the card fallback.
+        countsTowardFallback?: boolean;
         [key: string]: unknown;
     };
     // Fire-and-forget signal that a code was actually sent — the abuse
@@ -543,6 +549,12 @@ export type EventMap = {
     // default on only where a card gate actually works, which means it gets
     // asked often and must stay cheap.
     'puter.card-verification.status': {
+        enabled: boolean | null;
+    };
+    // Asked before `phone_verification_card_fallback.enabled` is read. A
+    // listener sets `enabled` to switch the SMS-to-card fallback on or off in
+    // place of config; left null, config decides.
+    'puter.card-fallback.policy': {
         enabled: boolean | null;
     };
     'puter.card-verification.confirm': {
@@ -1293,11 +1305,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1308,10 +1319,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    | 'received'
-    | 'unreceived'
-    | 'no-socket'
-    | 'remote-only';
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

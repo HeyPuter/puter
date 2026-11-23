@@ -25,7 +25,7 @@ import path from '../../lib/path.js';
 import open_item from '../../helpers/openItem.js';
 import UIContextMenu from '../UIContextMenu.js';
 import UIWindowProgress from '../UIWindowProgress.js';
-import UIAlert from '../UIAlert.js';
+import UIDashboardDialog from './UIDashboardDialog.js';
 import generate_file_context_menu from '../../helpers/generateFileContextMenu.js';
 import update_title_based_on_uploads from '../../helpers/updateTitleBasedOnUploads.js';
 import item_icon from '../../helpers/itemIcon.js';
@@ -41,18 +41,18 @@ import { dedupedName } from '../../helpers/dedupedName.js';
 import { readFileAsDataUrl } from '../../helpers/readFileAsDataUrl.js';
 import { runLimited } from '../../helpers/runLimited.js';
 import { compareEntries, compareNames } from './sortEntries.js';
-import { middleTruncate } from './middleTruncate.js';
+import { breadcrumbsHtml, createFileRow, directoriesHtml, fitNames, folderAcceptsNewItems, formatFileSize, gridColumnCount, isReadOnlyShare, measureTextWidth, nextRowIndex, sharedListingEntry, sortFileEntries, typeSelectTarget } from './fileListing.js';
 import { resolveTypedPath } from './typedPath.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/listAllShared.js';
 import { can_restructure, can_share, remember_shared_root, remember_shared_roots, shared_root_for } from '../../helpers/sharedAccess.js';
-import { parent_path_for, parse_shared_path, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/sharePaths.js';
+import { parent_path_for, parse_shared_path, shared_uids_from_paths } from '../../helpers/sharePaths.js';
 import resolve_shared_item from '../../helpers/resolveSharedItem.js';
 import { is_owned_by_me } from '../../helpers/pathOwner.js';
 import parse_item_metadata from '../../helpers/parseItemMetadata.js';
-import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sharerFilterHtml, sharerOf, summarizeSharers } from './sharedBy.js';
+import { compareSharers, filterBySharer, fitSharedByWidth, sharerFilterHtml, sharerOf, summarizeSharers } from './sharedBy.js';
 import { paintAvatars } from '../../helpers/profilePictures.js';
 
 const { html_encode, SelectionArea } = window;
@@ -81,8 +81,7 @@ export function rebasePath (p, from, to) {
 
 /**
  * The alert for an upload some of whose items failed, one item per line,
- * or null when the error names none. Unencoded: UIAlert encodes the message
- * itself, apart from <p>, <strong> and <br>.
+ * or null when the error names none. Encoded HTML.
  *
  * @param {{ failedItems?: Array<{ path?: string, name?: string, requestIndex?: number, message?: string }> }} err
  * @returns {string|null}
@@ -95,33 +94,24 @@ export function failedUploadsMessage (err) {
         const failedMessage = typeof item?.message === 'string' && item.message.length > 0
             ? ` (${item.message})`
             : '';
-        return `- ${failedPath}${failedMessage}`;
+        return html_encode(`- ${failedPath}${failedMessage}`);
     });
-    return [i18n('upload_some_failed', [], false), ...lines].join('<br>');
+    return [i18n('upload_some_failed'), ...lines].join('<br>');
 }
+
+/**
+ * A failure's message as encoded HTML. A network failure rejects with no
+ * message of its own.
+ *
+ * @param {{ message?: string }} [err]
+ * @returns {string}
+ */
+const errorMessage = (err) => err?.message ? html_encode(err.message) : i18n('error_unknown_cause');
+
+export { typeSelectTarget };
 
 /** On a Mac, Ctrl+click is a right-click; Cmd is what adds to a selection. */
 const CTRL_CLICK_IS_SECONDARY = /mac/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
-
-/**
- * The row type-to-select lands on, or -1 for none. A repeated letter ("r",
- * "rr") steps through the names starting with it, past the selected one;
- * a longer prefix stays on the selected row while it still matches.
- *
- * @param {string[]} names - The rows' names, lower-cased, in listing order
- * @param {number} selected - Index of the selected row, or -1
- * @param {string} term - What has been typed, lower-cased
- * @returns {number}
- */
-export function typeSelectTarget (names, selected, term) {
-    const cycling = [...term].every(ch => ch === term[0]);
-    const prefix = cycling ? term[0] : term;
-    const matches = names.flatMap((name, i) => (name.startsWith(prefix) ? [i] : []));
-    if ( matches.length === 0 ) return -1;
-    const at = matches.indexOf(selected);
-    if ( at === -1 ) return matches[0];
-    return cycling ? matches[(at + 1) % matches.length] : selected;
-}
 
 /**
  * TabFiles - File browser tab component for the Puter Dashboard.
@@ -155,18 +145,7 @@ const TabFiles = {
                 <form>
                     <input type="file" name="file" id="upload-file-dialog" style="display: none;" multiple="multiple">
                 </form>
-                <div class="directories">
-                    <ul>
-                        <li data-folder="Home" tabindex="0" role="button" data-path="${html_encode(window.home_path)}"><img alt="" src="${html_encode(window.icons['folder-home.svg'])}"/> <span>${i18n('home')}</span></li>
-                        <li data-folder="Desktop" tabindex="0" role="button" data-path="${html_encode(window.desktop_path)}"><img alt="" src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>${i18n('desktop')}</span></li>
-                        <li data-folder="Documents" tabindex="0" role="button" data-path="${html_encode(window.docs_path)}"><img alt="" src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>${i18n('documents')}</span></li>
-                        <li data-folder="Pictures" tabindex="0" role="button" data-path="${html_encode(window.pictures_path)}"><img alt="" src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>${i18n('pictures')}</span></li>
-                        <li data-folder="Public" tabindex="0" role="button" data-path="${html_encode(window.public_path)}"><img alt="" src="${html_encode(window.icons['folder-public.svg'])}"/> <span>${i18n('public')}</span></li>
-                        <li data-folder="Videos" tabindex="0" role="button" data-path="${html_encode(window.videos_path)}"><img alt="" src="${html_encode(window.icons['folder-videos.svg'])}"/> <span>${i18n('videos')}</span></li>
-                        <li data-folder="Shared" tabindex="0" role="button" data-path="${html_encode(window.shared_path)}"><img alt="" src="${html_encode(window.icons['folder-shared.svg'])}"/> <span>${i18n('shared')}</span></li>
-                        <li data-folder="Trash" tabindex="0" role="button" data-path="${html_encode(window.trash_path)}"><img alt="" src="${html_encode(window.icons['trash.svg'])}"/> <span>${i18n('trash')}</span></li>
-                    </ul>
-                </div>
+                ${directoriesHtml()}
                 <div class="directory-contents">
                     <div class="header">
                         <div class="path">
@@ -389,7 +368,7 @@ const TabFiles = {
             if ( ! isEntryVisible(file.name, showHiddenFiles()) ) return;
 
             // If item already exists in view, update in-place.
-            const $existingRow = $(`.files-tab .files .item[data-uid='${file.uid}']`);
+            const $existingRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${file.uid}']`);
             if ( $existingRow.length > 0 ) {
                 window.UIDashboardFileItemUpdate($existingRow, file);
                 return;
@@ -697,7 +676,7 @@ const TabFiles = {
                 return;
             }
             if ( e.target === e.currentTarget || e.target.classList.contains('files') ) {
-                document.querySelectorAll('.files-tab .row.selected').forEach(r => {
+                $el_window[0].querySelectorAll('.files-tab .row.selected').forEach(r => {
                     r.classList.remove('selected');
                 });
                 _this.updateFooterStats();
@@ -718,7 +697,7 @@ const TabFiles = {
                 e.preventDefault();
                 e.stopPropagation();
                 // Clear selection when right-clicking background
-                document.querySelectorAll('.files-tab .row.selected').forEach(r => {
+                $el_window[0].querySelectorAll('.files-tab .row.selected').forEach(r => {
                     r.classList.remove('selected');
                 });
                 _this.updateFooterStats();
@@ -1011,12 +990,7 @@ const TabFiles = {
                 if ( this.pathLookup !== lookup ) return;
                 if ( ! entry ) {
                     input.setAttribute('aria-invalid', 'true');
-                    // Settled on close: Escape closes the alert without
-                    // settling what UIAlert returns.
-                    await new Promise(resolve => UIAlert({
-                        message: i18n('path_not_found', [typed], false),
-                        window_options: { on_close: resolve },
-                    }));
+                    await this.showError(i18n('path_not_found', [typed]));
                     input.focus();
                     input.select();
                     return;
@@ -1174,9 +1148,9 @@ const TabFiles = {
 
                     // Ended this way, the drag never leaves the target it was
                     // over, so nothing undoes that target's highlight.
-                    $('.files-tab .row.ui-droppable-hover:not(.dragging-source)').removeClass('selected');
-                    $('.files-tab .ui-droppable-hover').removeClass('ui-droppable-hover');
-                    $('.path-breadcrumbs .drop-target').removeClass('drop-target');
+                    _this.$el_window.find('.files-tab .row.ui-droppable-hover:not(.dragging-source)').removeClass('selected');
+                    _this.$el_window.find('.files-tab .ui-droppable-hover').removeClass('ui-droppable-hover');
+                    _this.$el_window.find('.path-breadcrumbs .drop-target').removeClass('drop-target');
                     _this.updateSidebarSelection();
 
                     // Cleanup
@@ -1329,53 +1303,15 @@ const TabFiles = {
                 // Find current item and calculate next
                 const $current = $(window.latest_selected_item || $selectedRows.last().get(0));
                 const currentIndex = $allRows.index($current);
-                let nextIndex = currentIndex;
-
-                // Calculate grid dimensions for grid view
-                const isGridView = $container.hasClass('files-grid-view');
-                let cols = 1;
-                if ( isGridView && $allRows.length > 1 ) {
-                    const firstTop = $allRows.eq(0).offset().top;
-                    for ( let i = 1; i < $allRows.length; i++ ) {
-                        if ( $allRows.eq(i).offset().top !== firstTop ) {
-                            cols = i;
-                            break;
-                        }
-                    }
-                    if ( cols === 1 ) cols = $allRows.length; // All on one row
-                }
-
-                // Calculate next index based on arrow key
-                switch ( e.which ) {
-                    case 37: // Left
-                        nextIndex = Math.max(0, currentIndex - 1);
-                        break;
-                    case 38: // Up
-                        nextIndex = Math.max(0, currentIndex - cols);
-                        break;
-                    case 39: // Right
-                        nextIndex = Math.min($allRows.length - 1, currentIndex + 1);
-                        break;
-                    case 40: // Down
-                        nextIndex = Math.min($allRows.length - 1, currentIndex + cols);
-                        break;
-                    case 36: // Home
-                        nextIndex = 0;
-                        break;
-                    case 35: // End
-                        nextIndex = $allRows.length - 1;
-                        break;
-                    case 33: // PageUp
-                    case 34: { // PageDown
-                        // A screenful of rows, whole rows of the grid.
-                        const rowHeight = $allRows.eq(0).outerHeight(true) || 1;
-                        const page = cols * Math.max(1, Math.floor($container.get(0).clientHeight / rowHeight));
-                        nextIndex = e.which === 33
-                            ? Math.max(0, currentIndex - page)
-                            : Math.min($allRows.length - 1, currentIndex + page);
-                        break;
-                    }
-                }
+                const cols = $container.hasClass('files-grid-view') ? gridColumnCount($allRows.toArray()) : 1;
+                // PageUp/PageDown move a screenful of rows, whole lines of the grid.
+                const rowHeight = $allRows.eq(0).outerHeight(true) || 1;
+                const nextIndex = nextRowIndex(e.which, {
+                    current: currentIndex,
+                    count: $allRows.length,
+                    cols,
+                    pageRows: Math.floor($container.get(0).clientHeight / rowHeight),
+                });
 
                 if ( nextIndex !== currentIndex ) {
                     const $next = $allRows.eq(nextIndex);
@@ -1620,7 +1556,7 @@ const TabFiles = {
      */
     createHeaderEventListeners () {
         const _this = this;
-        const fileInput = document.querySelector('#upload-file-dialog');
+        const fileInput = this.$el_window[0].querySelector('#upload-file-dialog');
 
         // The folder sidebar, crumbs, and nav arrows aren't native buttons or
         // links; give them the keys those would have.
@@ -1633,9 +1569,9 @@ const TabFiles = {
 
         this.bindPathEditor();
 
-        const el_window_navbar_back_btn = document.querySelector(`.path-btn-back`);
-        const el_window_navbar_forward_btn = document.querySelector(`.path-btn-forward`);
-        const el_window_navbar_up_btn = document.querySelector(`.path-btn-up`);
+        const el_window_navbar_back_btn = this.$el_window[0].querySelector('.path-btn-back');
+        const el_window_navbar_forward_btn = this.$el_window[0].querySelector('.path-btn-forward');
+        const el_window_navbar_up_btn = this.$el_window[0].querySelector('.path-btn-up');
 
         // Back button
         $(el_window_navbar_back_btn).on('click', function () {
@@ -1762,7 +1698,7 @@ const TabFiles = {
         });
 
         // New folder button
-        document.querySelector('.new-folder-btn').onclick = () => {
+        this.$el_window[0].querySelector('.new-folder-btn').onclick = () => {
             if ( ! _this.acceptsNewItems(_this.currentPath) ) return;
             _this.createFolderInstant(_this.currentPath);
         };
@@ -1784,24 +1720,24 @@ const TabFiles = {
         };
 
         // Upload button
-        document.querySelector('.upload-btn').onclick = async () => {
+        this.$el_window[0].querySelector('.upload-btn').onclick = async () => {
             if ( ! this.currentPath ) return;
             this.uploadTargetPath = null;
             fileInput.click();
         };
 
         // View button (shows dropdown menu: list / compact grid / grid)
-        document.querySelector('.view-toggle-btn').onclick = (e) => {
+        this.$el_window[0].querySelector('.view-toggle-btn').onclick = (e) => {
             this.showViewMenu(e);
         };
 
         // Sort button (shows dropdown menu)
-        document.querySelector('.sort-btn').onclick = (e) => {
+        this.$el_window[0].querySelector('.sort-btn').onclick = (e) => {
             this.showSortMenu(e);
         };
 
         // Select mode toggle button (mobile only)
-        document.querySelector('.select-mode-btn').onclick = () => {
+        this.$el_window[0].querySelector('.select-mode-btn').onclick = () => {
             this.toggleSelectMode();
         };
 
@@ -1836,12 +1772,12 @@ const TabFiles = {
 
         // Restore button (for trash items)
         $actions.find('.restore-btn').on('click', async function () {
-            await _this.restoreRows(Array.from(document.querySelectorAll('.files-tab .row.selected')));
+            await _this.restoreRows(Array.from(_this.$el_window[0].querySelectorAll('.files-tab .row.selected')));
         });
 
         // Download button
         $actions.find('.download-btn').on('click', function () {
-            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            const selectedRows = _this.$el_window[0].querySelectorAll('.files-tab .row.selected');
             // One file downloads as itself, as from its menu, not as a zip.
             if ( selectedRows.length === 1 && $(selectedRows[0]).attr('data-is_dir') !== '1' ) {
                 window.trigger_download([$(selectedRows[0]).attr('data-path')]);
@@ -1852,12 +1788,12 @@ const TabFiles = {
 
         // Share button
         $actions.find('.share-btn').on('click', function () {
-            _this.openShareModal(document.querySelectorAll('.files-tab .row.selected'));
+            _this.openShareModal(_this.$el_window[0].querySelectorAll('.files-tab .row.selected'));
         });
 
         // Cut button
         $actions.find('.cut-btn').on('click', async function () {
-            const rows = await _this.restructurableRows(document.querySelectorAll('.files-tab .row.selected'));
+            const rows = await _this.restructurableRows(_this.$el_window[0].querySelectorAll('.files-tab .row.selected'));
             if ( rows.length === 0 ) return;
             window.clipboard_op = 'move';
             window.clipboard = [];
@@ -1871,7 +1807,7 @@ const TabFiles = {
 
         // Copy button
         $actions.find('.copy-btn').on('click', function () {
-            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            const selectedRows = _this.$el_window[0].querySelectorAll('.files-tab .row.selected');
             window.clipboard_op = 'copy';
             window.clipboard = [];
             selectedRows.forEach(row => {
@@ -1881,7 +1817,7 @@ const TabFiles = {
 
         // Delete button
         $actions.find('.delete-btn').on('click', async function () {
-            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            const selectedRows = _this.$el_window[0].querySelectorAll('.files-tab .row.selected');
 
             // Check if any items are in trash (for permanent delete)
             const anyTrashed = Array.from(selectedRows).some(row => {
@@ -1971,14 +1907,16 @@ const TabFiles = {
      */
     async deleteRowsPermanently (rows) {
         const list = Array.from(rows);
-        const confirmed = await UIAlert({
-            message: i18n(list.length === 1 ? 'confirm_delete_single_item' : 'confirm_delete_multiple_items', [], false),
+        const confirmed = await UIDashboardDialog({
+            message: i18n(list.length === 1 ? 'confirm_delete_single_item' : 'confirm_delete_multiple_items'),
+            tone: 'danger',
             buttons: [
-                { label: i18n('delete', [], false), value: 'delete', type: 'primary' },
-                { label: i18n('cancel', [], false), value: 'cancel' },
+                { label: i18n('cancel', [], false), value: false, type: 'quiet' },
+                { label: i18n('delete', [], false), value: true, type: 'danger' },
             ],
+            $container: this.$el_window,
         });
-        if ( confirmed !== 'delete' ) return;
+        if ( confirmed !== true ) return;
         // The phone selection bar acts on rows that are going away.
         this.$el_window.find('.files-selection-actions').removeClass('visible');
         // A few at a time rather than one after another: a few hundred items
@@ -2443,54 +2381,7 @@ const TabFiles = {
         const columnsShown = this.$el_window.find('.files-tab .header .columns').css('display') !== 'none';
         const nameWidth = ! columnsShown ? null
             : this.appliedColumnWidths ? this.appliedColumnWidths.name : this.columnWidths.name;
-        const names = $names.toArray().filter(el => el.closest('.row')?.getAttribute('data-name'));
-        if ( ! names.length ) return;
-        // Measure in the font the names render in (the compact grid's is smaller).
-        const style = getComputedStyle(names[0]);
-        const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-        const fullNameOf = el => el.closest('.row').getAttribute('data-name');
-        const write = (el, text) => {
-            if ( el.textContent !== text ) el.textContent = text;
-            // A shortened name shows in full on hover.
-            const title = text === fullNameOf(el) ? '' : fullNameOf(el);
-            if ( el.title !== title ) el.title = title;
-        };
-
-        if ( isList ) {
-            // The name's padding (8px a side) takes room from a set width. An
-            // auto-width column fills the row, so its room is read off the
-            // name's wrapper, less the wrapper's padding: all reads before any
-            // write, so the writes don't force a layout each.
-            const paddingOf = s => (parseFloat(s.paddingLeft) || 0) + (parseFloat(s.paddingRight) || 0);
-            const padding = paddingOf(style);
-            const wrapperPadding = nameWidth ? 0 : paddingOf(getComputedStyle(names[0].parentElement));
-            const rooms = nameWidth ? null : names.map(el => el.parentElement.clientWidth - wrapperPadding);
-            names.forEach((el, i) => {
-                const room = (nameWidth || rooms[i]) - padding;
-                // A listing that isn't laid out yet (hidden tab) has no room to fit to.
-                write(el, room > 0 ? truncateFilenameToWidth(fullNameOf(el), room, font) : fullNameOf(el));
-            });
-            return;
-        }
-
-        // A tile has two lines for its name (see dashboard.css): the whole
-        // name when it wraps into them, else cut in the middle until it does.
-        // Where the browser wraps can't be told from widths alone, so every
-        // tile is written and then read back, a layout a round, not a tile.
-        const widths = new Map(names.map(el => [el, $(el).width() || 156]));
-        names.forEach(el => write(el, fullNameOf(el)));
-        let overflowing = names;
-        for ( let round = 0; round <= 10; round++ ) {
-            overflowing = overflowing.filter(el => el.scrollHeight > el.clientHeight + 1);
-            if ( ! overflowing.length ) break;
-            // Wrapping leaves line ends empty: a tenth of a line less each
-            // round, and the last round one line's worth.
-            for ( const el of overflowing ) {
-                const width = widths.get(el);
-                const room = round < 10 ? width * (2 - round / 10) : width;
-                write(el, truncateFilenameToWidth(fullNameOf(el), room, font));
-            }
-        }
+        fitNames($names.toArray(), { list: isList, nameWidth });
     },
 
     /**
@@ -2523,13 +2414,7 @@ const TabFiles = {
      * @returns {boolean}
      */
     acceptsNewItems (folderPath) {
-        return !! folderPath
-            && folderPath !== this.unreadablePath
-            && folderPath !== '/'
-            && folderPath !== window.trash_path
-            && ! folderPath.startsWith(`${window.trash_path}/`)
-            && folderPath !== window.shared_path
-            && ! this.isReadOnlyShare(folderPath);
+        return folderPath !== this.unreadablePath && folderAcceptsNewItems(folderPath);
     },
 
     /**
@@ -2561,9 +2446,7 @@ const TabFiles = {
      * @returns {boolean}
      */
     isReadOnlyShare (folderPath) {
-        if ( is_owned_by_me(folderPath) ) return false;
-        const mode = shared_root_for(folderPath)?.mode;
-        return !! mode && ! ['write', 'manage'].includes(mode);
+        return isReadOnlyShare(folderPath);
     },
 
     /**
@@ -2677,25 +2560,7 @@ const TabFiles = {
      * @returns {Array<Object>} Sorted array with folders first, then files
      */
     sortFiles (files) {
-        // Keyed once per entry: the comparator runs n·log n times, and a
-        // trashed item's shown name means parsing its metadata.
-        const keyed = files.map(file => ({
-            file,
-            name: parse_item_metadata(file.metadata).original_name || file.name || '',
-            size: file.size,
-            modified: file.modified,
-        }));
-
-        const sortColumn = this.activeSortColumn();
-        const sign = this.sortDirection === 'asc' ? 1 : -1;
-        keyed.sort((a, b) => {
-            if ( !! a.file.is_dir !== !! b.file.is_dir ) return a.file.is_dir ? -1 : 1;
-            const comparison = sortColumn === 'shared_by'
-                ? compareSharers(a.file, b.file) || compareNames(a.name, b.name)
-                : compareEntries(a, b, sortColumn);
-            return sign * comparison;
-        });
-        return keyed.map(({ file }) => file);
+        return sortFileEntries(files, this.activeSortColumn(), this.sortDirection);
     },
 
     /**
@@ -2940,9 +2805,9 @@ const TabFiles = {
                 _this.renderEmptyPlaceholderIfNeeded();
                 _this.updateFooterStats();
                 // A network failure rejects with no message to show.
-                UIAlert(err?.code === 'directory_depth_limit_exceeded'
-                    ? i18n('directory_depth_limit_exceeded', [], false)
-                    : err?.message || i18n('error_unknown_cause', [], false));
+                _this.showError(err?.code === 'directory_depth_limit_exceeded'
+                    ? i18n('directory_depth_limit_exceeded')
+                    : errorMessage(err));
             } finally {
                 _this.doneCreating();
                 if ( detached ) window.UIDashboardFileItem(detached);
@@ -3119,7 +2984,7 @@ const TabFiles = {
         const clearListing = () => {
             this.missingThumbnails?.reset();
             $files.html('');
-            document.querySelectorAll('.files-tab .row.selected').forEach(r => {
+            this.$el_window[0].querySelectorAll('.files-tab .row.selected').forEach(r => {
                 r.classList.remove('selected');
             });
 
@@ -3229,18 +3094,20 @@ const TabFiles = {
 
         // Rebuilding the crumbs drops a focused one; keyboard focus stays on
         // the same folder's crumb, else on the folder now open.
-        const focusedCrumb = document.activeElement?.matches('.path-breadcrumbs .dirname:focus-visible')
+        // Its own crumb only: a file picker's crumbs share this markup.
+        const focusedCrumb = this.$el_window[0]?.contains(document.activeElement)
+            && document.activeElement.matches('.path-breadcrumbs .dirname:focus-visible')
             ? document.activeElement.getAttribute('data-path')
             : undefined;
-        $('.path-breadcrumbs').html(this.renderPath(this.currentPath, window.user.username));
-        $('.path-breadcrumbs .dirname').last().attr('aria-current', 'page');
+        this.$el_window.find('.path-breadcrumbs').html(this.renderPath(this.currentPath, window.user.username));
+        this.$el_window.find('.path-breadcrumbs .dirname').last().attr('aria-current', 'page');
         if ( focusedCrumb !== undefined ) {
-            const $crumbs = $('.path-breadcrumbs .dirname');
+            const $crumbs = this.$el_window.find('.path-breadcrumbs .dirname');
             const $same = $crumbs.filter((_, el) => el.getAttribute('data-path') === focusedCrumb);
             ($same[0] ?? $crumbs.last()[0])?.focus({ preventScroll: true });
         }
         this.revealCurrentCrumb();
-        $('.path-breadcrumbs .dirname').each(function () {
+        this.$el_window.find('.path-breadcrumbs .dirname').each(function () {
             const dirnameElement = this;
             const clickedPath = dirnameElement.getAttribute("data-path");
 
@@ -3472,7 +3339,7 @@ const TabFiles = {
 
         // The sidebar Trash icon already tracks empty/full (see
         // update_trash_icons, which keeps this row's icon in step too).
-        const trashIcon = $('.directories [data-folder="Trash"] img').attr('src') || window.icons['trash.svg'];
+        const trashIcon = this.$el_window.find('.directories [data-folder="Trash"] img').attr('src') || window.icons['trash.svg'];
         const places = [
             { name: 'Shared', label: i18n('shared'), path: window.shared_path, icon: window.icons['folder-shared.svg'] },
             { name: 'Trash', label: i18n('trash'), path: window.trash_path, icon: trashIcon },
@@ -3551,105 +3418,15 @@ const TabFiles = {
      * @returns {void}
      */
     async renderItem (file, iconResult = null) {
-        // For trashed items, use original_name from metadata if available
-        const item_id = window.global_element_id++;
-        const metadata = parse_item_metadata(file.metadata);
-        const displayName = metadata.original_name || file.name;
         // A trashed item's raw name is its uid; the breadcrumbs of a trashed
         // folder opened from here show the name it had instead.
+        const metadata = parse_item_metadata(file.metadata);
         if ( metadata.original_name && path.dirname(file.path) === window.trash_path ) {
             this.trashedNames.set(file.path, metadata.original_name);
         }
-        let website_url = window.determine_website_url(file.path);
-        // Normalize is_shortcut to 0/1. Directory listings return it as a number,
-        // but the puter.fs.upload() result used to render newly-created items omits
-        // it, and an undefined value trips the `!== 0` badge check below (showing a
-        // phantom shortcut badge on every new file). Coerce to a plain 0/1 here.
-        const is_shortcut = file.is_shortcut ? 1 : 0;
-        const is_worker = file.workers?.length > 0;
-        const worker_url = is_worker ? file.workers[0]?.address : '';
         if ( ! iconResult ) iconResult = await this.rowIcon(file);
-        const icon = `<img alt=""${iconResult.type === 'thumb' ? ' class="row-thumb"' : ''} src="${html_encode(iconResult.image)}"/>`;
-        const row = document.createElement("div");
-        // A dot-file only reaches this point when the preference reveals it;
-        // `item-revealed` dims it the same way the desktop Explorer does.
-        const revealedClass = isHiddenName(file.name) ? ' item-revealed' : '';
-        row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}${revealedClass}`);
-        row.setAttribute("data-id", item_id);
-        row.setAttribute("data-name", displayName);
-        row.setAttribute("data-uid", file.uid);
-        row.setAttribute("data-is_dir", file.is_dir ? "1" : "0");
-        row.setAttribute("data-is_trash", file.is_trash ? "1" : "0");
-        row.setAttribute("data-shared_with_me", file.shared_with_me ? "1" : "0");
-        row.setAttribute("data-is_shared", file.is_shared === true ? "1" : "0");
-        row.setAttribute("data-share_mode", file.share_mode ?? '');
-        row.setAttribute("data-shared_by", file.shared_by ?? '');
-        row.setAttribute("data-has_website", file.has_website ? "1" : "0");
-        // setAttribute stores values literally (no HTML parsing), so values must
-        // stay raw — encoding here would leave e.g. `&amp;` inside data-path and
-        // break every fs operation that reads the attribute back.
-        row.setAttribute("data-website_url", website_url || '');
-        row.setAttribute("data-immutable", file.immutable ? "1" : "0");
-        row.setAttribute("data-is_shortcut", is_shortcut);
-        row.setAttribute("data-shortcut_to", file.shortcut_to ?? '');
-        row.setAttribute("data-shortcut_to_path", file.shortcut_to_path ?? '');
-        row.setAttribute("data-is_worker", is_worker ? "1" : "0");
-        row.setAttribute("data-worker_url", is_worker ? worker_url : "0");
-        row.setAttribute("data-sortable", file.sortable ?? 'true');
-        row.setAttribute("data-metadata", JSON.stringify(metadata));
-        row.setAttribute("data-sort_by", file.sort_by ?? 'name');
-        row.setAttribute("data-size", file.size);
-        row.setAttribute("data-type", file.type ?? '');
-        row.setAttribute("data-modified", file.modified);
-        row.setAttribute("data-associated_app_name", file.associated_app?.name ?? '');
-        row.setAttribute("data-path", file.path);
+        const row = createFileRow(file, iconResult, { sharedView: this.currentPath === window.shared_path });
         $(row).data('fsentry', file);
-        row.innerHTML = `
-            <div class="item-checkbox"><span class="checkbox-icon"></span></div>
-            <div class="item-icon">
-                ${icon}
-                <div class="item-shared-marker"
-                    style="${file.is_shared === true ? '' : 'display:none;'}"
-                    title="${html_encode(i18n('item_shared_by_you'))}"
-                ></div>
-            </div>
-            <div class="item-badges">
-                <img class="item-badge item-has-website-badge long-hover"
-                    style="${file.has_website && !is_worker ? 'display:block;' : ''}"
-                    src="${html_encode(window.icons['world.svg'])}"
-                    data-item-id="${item_id}"
-                />
-                <img class="item-badge item-has-website-url-badge" 
-                    style="${website_url ? 'display:block;' : ''}" 
-                    src="${html_encode(window.icons['link.svg'])}" 
-                    data-item-id="${item_id}"
-                >
-                <img class="item-badge item-shortcut"
-                    style="background-color: #ffffff; padding: 2px; ${is_shortcut !== 0 ? 'display:block;' : ''}"
-                    src="${html_encode(window.icons['shortcut.svg'])}" 
-                    data-item-id="${item_id}"
-                    title="${i18n('item_shortcut')}"
-                >
-                <img  class="item-badge item-is-worker long-hover"
-                    style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}"
-                    src="${html_encode(window.icons['worker.svg'])}"
-                    data-item-id="${item_id}"
-                >
-            </div>
-            <div class="item-name-wrapper">
-                <pre class="item-name">${html_encode(displayName)}</pre>
-                <textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(displayName)}</textarea>
-            </div>
-            <div class="col-spacer"></div>
-            <div class="item-metadata">
-                ${this.currentPath === window.shared_path ? `${sharedByCellHtml(file)}<div class="col-spacer"></div>` : ''}
-                ${file.is_dir ? '<div class="item-size"></div>' : `<div class="item-size">${this.formatFileSize(file.size)}</div>`}
-                <div class="col-spacer"></div>
-                <div class="item-modified">${html_encode(formatRelativeTime(file.modified * 1000, Date.now(), window.locale))}</div>
-            </div>
-            <div class="col-spacer"></div>
-            <div class="item-more">${icons.more}</div>
-        `;
         this.$el_window.find('.files-tab .files').append(row);
         if ( this.currentPath === window.shared_path ) paintAvatars(row);
 
@@ -3983,11 +3760,8 @@ const TabFiles = {
             // or it's empty,
             // or editable was not even active at all
             if ( old_name === new_name || !new_name || new_name === '.' || new_name === '..' || !$(el_item_name_editor).hasClass('item-name-editor-active') ) {
-                if ( new_name === '.' ) {
-                    UIAlert(i18n('reserved_name_not_allowed', { name: '.' }, false));
-                }
-                else if ( new_name === '..' ) {
-                    UIAlert(i18n('reserved_name_not_allowed', { name: '..' }, false));
+                if ( new_name === '.' || new_name === '..' ) {
+                    _this.showError(i18n('reserved_name_not_allowed', { name: new_name }));
                 }
                 $(el_item_name).show();
                 _this.fitItemNames($(el_item_name));
@@ -4105,7 +3879,7 @@ const TabFiles = {
             e.preventDefault();
             e.stopPropagation();
 
-            const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+            const selectedRows = _this.$el_window[0].querySelectorAll('.files-tab .row.selected');
             const isMultiSelection = selectedRows.length > 1 && el_item.classList.contains('selected');
             const items = isMultiSelection
                 ? await _this.generateMultiSelectContextMenu(selectedRows)
@@ -4601,7 +4375,7 @@ const TabFiles = {
                 if ( await this.restoreItem(row, conflict) ) restored.push(row);
             } catch ( err ) {
                 console.error('Failed to restore item:', err);
-                UIAlert(err?.message || i18n('error_unknown_cause', [], false));
+                this.showError(errorMessage(err));
             }
         }
         await $(restored).fadeOut(150).promise();
@@ -4618,16 +4392,31 @@ const TabFiles = {
      * @param {boolean} multiple - Part of a batch: offer Replace all and Skip
      * @returns {Promise<'replace' | 'replace_all' | 'keep_both' | 'skip' | 'cancel'>}
      */
-    askNameConflict (name, multiple) {
-        return UIAlert({
-            message: i18n('item_already_exists', [name], false),
+    async askNameConflict (name, multiple) {
+        const choice = await UIDashboardDialog({
+            message: i18n('item_already_exists', [name]),
             buttons: [
-                { label: i18n('replace', [], false), type: 'primary', value: 'replace' },
-                ... multiple ? [{ label: i18n('replace_all', [], false), value: 'replace_all' }] : [],
-                { label: i18n('keep_both', [], false), value: 'keep_both' },
-                ... multiple ? [{ label: i18n('skip', [], false), value: 'skip' }] : [{ label: i18n('cancel', [], false), value: 'cancel' }],
+                multiple
+                    ? { label: i18n('skip', [], false), value: 'skip', type: 'quiet' }
+                    : { label: i18n('cancel', [], false), value: 'cancel', type: 'quiet' },
+                { label: i18n('keep_both', [], false), value: 'keep_both', type: 'quiet' },
+                ... multiple ? [{ label: i18n('replace_all', [], false), value: 'replace_all', type: 'quiet' }] : [],
+                { label: i18n('replace', [], false), value: 'replace', type: 'primary' },
             ],
+            $container: this.$el_window,
         });
+        // Dismissing the dialog leaves the item where it is.
+        return choice || (multiple ? 'skip' : 'cancel');
+    },
+
+    /**
+     * Shows a message in a dialog over the dashboard.
+     *
+     * @param {string} message - HTML the caller has already encoded
+     * @returns {Promise<unknown>} Settles when the dialog closes
+     */
+    showError (message) {
+        return UIDashboardDialog({ message, tone: 'error', $container: this.$el_window });
     },
 
     /**
@@ -4727,8 +4516,7 @@ const TabFiles = {
                     } else {
                         console.error('Failed to move item:', err);
                         const item_name = String(item.path || source).split('/').pop();
-                        // UIAlert encodes the message itself, apart from <p>, <strong> and <br>.
-                        UIAlert(`<p>${i18n('moving_file', [`<strong>${item_name}</strong>`], false)}</p>${err?.message || i18n('error_unknown_cause', [], false)}`);
+                        this.showError(`<p>${i18n('moving_file', [item_name])}</p><p>${errorMessage(err)}</p>`);
                     }
                 }
             } while ( retry );
@@ -4748,16 +4536,7 @@ const TabFiles = {
      * @returns {string} Formatted size string (e.g., "1.5 MB")
      */
     formatFileSize (bytes) {
-        const num = Number(bytes);
-        // Missing/invalid sizes (undefined, null, NaN) and non-positive values
-        // shouldn't render as "NaN undefined".
-        if ( ! Number.isFinite(num) || num <= 0 ) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-        // Clamp the index so sizes beyond PB don't index past the array (which
-        // produced "1.5 undefined" for terabyte-plus files).
-        const i = Math.min(Math.floor(Math.log(num) / Math.log(k)), sizes.length - 1);
-        return `${Math.round((num / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
+        return formatFileSize(bytes);
     },
 
     /**
@@ -5251,7 +5030,7 @@ const TabFiles = {
     },
 
     async handleMoreClick (rowElement, file, targetElement, fromTouch) {
-        const selectedRows = document.querySelectorAll('.files-tab .row.selected');
+        const selectedRows = this.$el_window[0].querySelectorAll('.files-tab .row.selected');
         const isMultiSelection = selectedRows.length > 1 && rowElement.classList.contains('selected');
         const items = isMultiSelection
             ? await this.generateMultiSelectContextMenu(selectedRows)
@@ -5573,7 +5352,7 @@ const TabFiles = {
                                 }
                             }
                         } catch ( err ) {
-                            UIAlert(err?.message || i18n('error_unknown_cause', [], false));
+                            _this.showError(errorMessage(err));
                         } finally {
                             createFileInterceptors.splice(createFileInterceptors.indexOf(createFile), 1);
                             window.create_file = createFileInterceptors.at(-1) ?? realCreateFile;
@@ -5631,7 +5410,7 @@ const TabFiles = {
             items.push({
                 html: i18n('upload'),
                 onClick: function () {
-                    const fileInput = document.querySelector('#upload-file-dialog');
+                    const fileInput = _this.$el_window[0].querySelector('#upload-file-dialog');
                     if ( fileInput ) {
                         _this.uploadTargetPath = targetPath;
                         fileInput.click();
@@ -6005,7 +5784,7 @@ const TabFiles = {
         let opid;
 
         if ( destPath === window.trash_path ) {
-            UIAlert(i18n('upload_to_trash_not_allowed', [], false));
+            this.showError(i18n('upload_to_trash_not_allowed'));
             return;
         }
 
@@ -6066,7 +5845,7 @@ const TabFiles = {
             },
             error: async function (err) {
                 const failedMessage = failedUploadsMessage(err);
-                if ( failedMessage ) UIAlert(failedMessage);
+                if ( failedMessage ) _this.showError(failedMessage);
                 upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
                 delete window.active_uploads[opid];
                 if ( destPath === _this.currentPath ) _this.renderDirectory(destPath, { consistency: 'strong' });
@@ -6104,25 +5883,7 @@ const TabFiles = {
     async listSharedView () {
         const shares = await list_all_shared();
         remember_shared_roots(shares);
-        const rows = shares.map((share) => ({
-            uid: share.entryUid,
-            name: share.name ?? share.path.split('/').pop(),
-            path: share.path,
-            is_dir: share.isDir,
-            // A share row has no fsentry behind it to stat, so the
-            // listing carries what the icon needs.
-            type: share.type,
-            thumbnail: share.thumbnail,
-            modified: share.modified,
-            size: share.size,
-            shared_with_me: true,
-            share_mode: share.mode,
-            shared_by: share.issuer,
-            shared_by_all: share.issuers,
-            owner: share.owner,
-            holder_team: share.holderTeam,
-            also_team_share: share.alsoHeldByTeam,
-        }));
+        const rows = shares.map(sharedListingEntry);
 
         const linked = this.pendingSharedLinks ?? [];
         this.pendingSharedLinks = null;
@@ -6230,49 +5991,7 @@ const TabFiles = {
      * @returns {string} HTML string for the breadcrumb navigation
      */
     renderPath (abs_path) {
-        const { html_encode } = window;
-        // remove trailing slash
-        if ( abs_path.endsWith('/') && abs_path !== '/' ) {
-            abs_path = abs_path.slice(0, -1);
-        }
-
-        const dirs = (abs_path === '/' ? [''] : abs_path.split('/'));
-        const dirpaths = (abs_path === '/' ? ['/'] : []);
-        const path_seperator_html = `<img class="path-seperator" alt="" draggable="false" src="${html_encode(window.icons['triangle-right.svg'])}">`;
-
-        // The Shared view is a query, not a directory — one crumb, no ancestry.
-        if ( abs_path === window.shared_path ) {
-            return `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
-        }
-
-        // Someone else's tree is shown from the share down, not from their home.
-        const shared = shared_crumbs_for(abs_path);
-        if ( shared ) {
-            let str = `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
-            for ( const crumb of shared ) {
-                str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(crumb.path)}">${html_encode(crumb.label)}</span>`;
-            }
-            return str;
-        }
-
-        if ( dirs.length > 1 ) {
-            for ( let i = 0; i < dirs.length; i++ ) {
-                dirpaths[i] = '';
-                for ( let j = 1; j <= i; j++ ) {
-                    dirpaths[i] += `/${dirs[j]}`;
-                }
-            }
-        }
-        // The root crumb ("Puter") is noise on every path beneath it, so it
-        // only renders at the root itself, where it's all there is to show.
-        // Every crumb keeps its leading caret, including the first.
-        let str = abs_path === '/'
-            ? `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`
-            : '';
-        for ( let k = 1; k < dirs.length; k++ ) {
-            str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(dirpaths[k])}">${dirpaths[k] === window.trash_path ? i18n('trash') : html_encode(this.trashedNames.get(dirpaths[k]) ?? dirs[k])}</span>`;
-        }
-        return str;
+        return breadcrumbsHtml(abs_path, { nameFor: crumbPath => this.trashedNames.get(crumbPath) });
     },
 
     /**
@@ -6280,7 +5999,7 @@ const TabFiles = {
      * Shows loading spinner over files section
      */
     showSpinner () {
-        const files = document.querySelector('.directory-contents .files');
+        const files = this.$el_window?.[0]?.querySelector('.directory-contents .files');
         if ( ! files ) return;
         // Guard on the overlay itself rather than on a flag: clearing the
         // listing takes the overlay with it, and a flag left set meant the
@@ -6308,7 +6027,7 @@ const TabFiles = {
      * Hides the loading spinner over files section
      */
     hideSpinner () {
-        const overlay = document.querySelector('.files-loading-overlay');
+        const overlay = this.$el_window?.[0]?.querySelector('.files-loading-overlay');
         if ( overlay ) {
             overlay.parentNode?.removeChild(overlay);
         }
@@ -6316,43 +6035,7 @@ const TabFiles = {
     },
 };
 
-// Canvas context for measuring text width (reused for performance)
-let measureContext = null;
-let measureFont = null;
-
 /** List columns other than name/size/modified: icon(24) + spacers(4*3) + more(20), plus margin. */
 const COLUMN_FIXED_WIDTH = 56 + 20;
-
-/**
- * Measures the pixel width of text using a canvas context.
- *
- * @param {string} text - The text to measure
- * @param {string} font - CSS font string (e.g., '500 13px system-ui')
- * @returns {number} Width in pixels
- */
-function measureTextWidth (text, font = '500 13px system-ui, -apple-system, sans-serif') {
-    if ( ! measureContext ) {
-        const canvas = document.createElement('canvas');
-        measureContext = canvas.getContext('2d');
-    }
-    // Assigning font re-parses it; truncation measures many times per name.
-    if ( measureFont !== font ) {
-        measureContext.font = font;
-        measureFont = font;
-    }
-    return measureContext.measureText(text).width;
-}
-
-/**
- * Truncates a filename in the middle to fit a given pixel width, preserving the extension.
- *
- * @param {string} filename - The full filename to truncate
- * @param {number} maxWidth - Maximum width in pixels
- * @param {string} font - CSS font string for measurement
- * @returns {string} Truncated filename with ellipsis in middle, or original if it fits
- */
-function truncateFilenameToWidth (filename, maxWidth, font = '500 13px system-ui, -apple-system, sans-serif') {
-    return middleTruncate(filename, maxWidth, text => measureTextWidth(text, font));
-}
 
 export default TabFiles;

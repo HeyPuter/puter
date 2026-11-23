@@ -40,6 +40,10 @@ import {
 } from '../../../interfaces/image/inputImage.js';
 import { estimateTextTokens } from '../../../shared/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import {
+    isTransientUpstreamError,
+    malformedUpstreamResponse,
+} from '../../../../util/upstreamErrors.js';
 import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 
 const MIME_SIGNATURES: Record<string, string> = {
@@ -230,14 +234,27 @@ export class GeminiImageProvider implements IImageProvider {
                 imageConfig.imageSize = quality;
             }
 
-            const response = await this.#client.models.generateContent({
-                model: selectedModel.id,
-                contents,
-                config: {
-                    responseModalities: ['TEXT', 'IMAGE'],
-                    imageConfig,
-                },
-            });
+            const response = await this.#client.models
+                .generateContent({
+                    model: selectedModel.id,
+                    contents,
+                    config: {
+                        responseModalities: ['TEXT', 'IMAGE'],
+                        imageConfig,
+                    },
+                })
+                .catch((error: unknown) => {
+                    // What the SDK throws on a 2xx body that isn't the JSON
+                    // object it expects; a dropped connection has a cause.
+                    if (
+                        (error instanceof SyntaxError ||
+                            error instanceof TypeError) &&
+                        !isTransientUpstreamError(error)
+                    ) {
+                        throw malformedUpstreamResponse('gemini', 'Gemini');
+                    }
+                    throw error;
+                });
 
             // --- Actual cost calculation from response usage ---
             const usage = this.#extractUsageMetadata(response);

@@ -55,6 +55,7 @@ import apply_item_added_to_containers from '../helpers/applyItemAddedToContainer
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import { resolve_default_app } from '../helpers/defaultApp.js';
 import { forgetWorkers, forgetWorkersAfterMove } from '../helpers/trashWorkers.js';
+import { reconnectAfterServerDisconnect } from '../helpers/socketReconnect.js';
 
 async function UIDesktop () {
     // start a transaction if we're not in embedded or fullpage mode
@@ -76,6 +77,7 @@ async function UIDesktop () {
         withCredentials: true,
     });
     answerNotificationReceipts(window.socket);
+    reconnectAfterServerDisconnect(window.socket, () => window.auth_token);
 
     window.socket.on('error', (error) => {
         console.error('GUI Socket Error:', error);

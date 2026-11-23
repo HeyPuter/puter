@@ -20,6 +20,8 @@
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import { readBoundedBody } from '../../../../util/fileInput.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import type {
     IGenerateVideoParams,
     IVideoModel,
@@ -40,7 +42,12 @@ import {
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 const DEFAULT_BASE_URL = 'https://ark.ap-southeast.bytepluses.com/api/v3';
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
+const REQUEST_TIMEOUT_MS = 60_000;
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 const DEFAULT_MODEL = 'dreamina-seedance-2-0-mini-260615';
+
+const stringOr = (value: unknown): string | undefined =>
+    typeof value === 'string' && value ? value : undefined;
 
 const ARK_RATIOS = ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'];
 
@@ -54,12 +61,7 @@ type BytePlusVideoConfig = {
 interface ArkVideoTask {
     id: string;
     status:
-        | 'queued'
-        | 'running'
-        | 'cancelled'
-        | 'succeeded'
-        | 'failed'
-        | 'expired';
+        'queued' | 'running' | 'cancelled' | 'succeeded' | 'failed' | 'expired';
     content?: { video_url?: string };
     usage?: { completion_tokens?: number; total_tokens?: number };
     resolution?: string;
@@ -229,11 +231,15 @@ export class BytePlusVideoProvider extends VideoProvider {
                 const finalCentsPerToken =
                     model.costs?.[finalCostKey] ?? centsPerToken;
                 const estimate = Math.round(tokensPerSecond * cappedSeconds);
+                const reported = finalTask?.usage?.completion_tokens;
                 const tokens =
-                    finalTask?.usage?.completion_tokens ??
-                    (finalTask?.status === 'succeeded' || !settled
-                        ? estimate
-                        : 0);
+                    typeof reported === 'number' &&
+                    Number.isFinite(reported) &&
+                    reported >= 0
+                        ? reported
+                        : finalTask?.status === 'succeeded' || !settled
+                          ? estimate
+                          : 0;
                 if (!tokens) return;
                 await this.#meteringService.incrementUsage(
                     actor,
@@ -244,6 +250,9 @@ export class BytePlusVideoProvider extends VideoProvider {
             };
 
             const task = await this.#createTask(body);
+            if (typeof task.id !== 'string' || !task.id) {
+                throw malformedUpstreamResponse('byteplus', 'BytePlus');
+            }
             const finalTask = await this.#pollUntilComplete(
                 task.id,
                 meter,
@@ -251,21 +260,17 @@ export class BytePlusVideoProvider extends VideoProvider {
             );
 
             if (finalTask.status !== 'succeeded') {
-                const errorMessage =
-                    finalTask.error?.message ??
-                    `Video generation ${finalTask.status}`;
                 throw videoJobFailure(
                     'byteplus',
-                    errorMessage,
-                    finalTask.error?.code,
+                    stringOr(finalTask.error?.message) ??
+                        `Video generation ${stringOr(finalTask.status) ?? 'failed'}`,
+                    stringOr(finalTask.error?.code),
                 );
             }
 
             const videoUrl = finalTask.content?.video_url;
             if (typeof videoUrl !== 'string' || !videoUrl.trim()) {
-                throw new Error(
-                    'BytePlus response did not include a video URL',
-                );
+                throw malformedUpstreamResponse('byteplus', 'BytePlus');
             }
 
             return videoUrl;
@@ -385,7 +390,7 @@ export class BytePlusVideoProvider extends VideoProvider {
             fetch: () =>
                 this.#request(
                     'GET',
-                    `/contents/generations/tasks/${taskId}`,
+                    `/contents/generations/tasks/${encodeURIComponent(taskId)}`,
                 ) as Promise<ArkVideoTask>,
             isPending: (task) =>
                 task.status === 'queued' || task.status === 'running',
@@ -406,10 +411,15 @@ export class BytePlusVideoProvider extends VideoProvider {
                 ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
             },
             ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
-        let payload: { error?: { code?: string; message?: string } } = {};
+        const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES, () =>
+            malformedUpstreamResponse('byteplus', 'BytePlus'),
+        );
+        let payload: { error?: { code?: unknown; message?: unknown } } = {};
         try {
-            payload = (await response.json()) ?? {};
+            const parsed: unknown = JSON.parse(raw.toString('utf8'));
+            if (parsed && typeof parsed === 'object') payload = parsed;
         } catch {
             // Non-JSON body; the status alone decides.
         }
@@ -418,12 +428,12 @@ export class BytePlusVideoProvider extends VideoProvider {
             // the driver boundary maps it like any SDK error.
             throw Object.assign(
                 new Error(
-                    payload.error?.message ??
+                    stringOr(payload.error?.message) ??
                         `BytePlus video API error (status ${response.status})`,
                 ),
                 {
                     status: response.status,
-                    code: payload.error?.code,
+                    code: stringOr(payload.error?.code),
                     provider: 'byteplus',
                 },
             );

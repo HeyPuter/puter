@@ -119,6 +119,7 @@ import {
     isFreeModel,
     listedCosts,
     longContextMultipliers,
+    scheduledChangeTimes,
     trackedOutputTokens,
     usageCost,
     usageDetailsFromUsage,
@@ -204,6 +205,17 @@ const isModerationRefusal = (e: unknown): boolean =>
     isHttpError(e) &&
     (e.code === 'moderation_flagged' || e.code === 'moderation_unavailable');
 
+/** Times the credit gate sizes a request again after losing the headroom. */
+const CREDIT_GATE_ATTEMPTS = 3;
+
+/**
+ * Times the credit gate reads a balance that keeps changing under it, and the
+ * upper bound of the randomized wait before each new read, times the attempt.
+ * The same policy as a fixed-amount reservation's.
+ */
+const CREDIT_GATE_STALE_ATTEMPTS = 5;
+const CREDIT_GATE_STALE_BACKOFF_MS = 20;
+
 /**
  * The refusal for a request its funds can't cover. When what's missing is only
  * held by the account's own requests still in flight, waiting is the remedy,
@@ -217,6 +229,26 @@ const fundsRefusal = (heldByInFlight: boolean): HttpError =>
               { legacyCode: 'too_many_requests', code: 'credits_reserved' },
           )
         : insufficientCreditsError();
+
+/**
+ * A clear 400 for media parts the catalog says the model cannot read. Entries
+ * that declare no modalities (reseller catalogs) are not judged.
+ */
+const assertInputModalities = (
+    model: IChatModel,
+    messages: ICompleteArguments['messages'] | undefined,
+): void => {
+    if (!Array.isArray(model.modalities?.input)) return;
+    for (const modality of requiredInputModalities(messages)) {
+        if (!modelSupportsModality(model, modality)) {
+            throw new HttpError(
+                400,
+                `Model ${model.id} does not support ${modality} input`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+    }
+};
 
 const positiveOrInfinity = (n: unknown): number =>
     typeof n === 'number' && Number.isFinite(n) && n > 0
@@ -591,6 +623,62 @@ const withClaudeThinkingTokens = (
     }
 };
 
+/** What the model routes serve, built when the model map is swapped. */
+interface ModelListing {
+    models: readonly IChatModel[];
+    /** Ids as `list()` reports them, sorted. */
+    names: readonly string[];
+    /** The listed rates hold from `validFrom` until `validUntil`. */
+    validFrom: number;
+    validUntil: number;
+}
+
+/** Never in force, so the first call builds the listing from the map. */
+const UNBUILT_LISTING: ModelListing = {
+    models: [],
+    names: [],
+    validFrom: Infinity,
+    validUntil: -Infinity,
+};
+
+/**
+ * One entry per model id, by provider then id, at the rates listed at `now`. A
+ * bucket is reachable from each of its names, so it is walked once.
+ */
+const buildModelListing = (
+    modelIdMap: Record<string, IChatModel[]>,
+    now = Date.now(),
+): ModelListing => {
+    const at = new Date(now);
+    const seen = new Set<string>();
+    const models: IChatModel[] = [];
+    let validFrom = -Infinity;
+    let validUntil = Infinity;
+    for (const bucket of new Set(Object.values(modelIdMap))) {
+        for (const model of bucket) {
+            if (seen.has(model.id)) continue;
+            seen.add(model.id);
+            for (const change of scheduledChangeTimes(model)) {
+                if (change <= now) validFrom = Math.max(validFrom, change);
+                else validUntil = Math.min(validUntil, change);
+            }
+            const costs = listedCosts(model, at);
+            models.push(costs === model.costs ? model : { ...model, costs });
+        }
+    }
+    models.sort((a, b) => {
+        if (a.provider === b.provider) return a.id.localeCompare(b.id);
+        return a.provider!.localeCompare(b.provider!);
+    });
+
+    return {
+        models: Object.freeze(models),
+        names: Object.freeze(models.map((m) => m.puterId || m.id).sort()),
+        validFrom,
+        validUntil,
+    };
+};
+
 /**
  * Driver implementing the `puter-chat-completion` interface.
  *
@@ -614,6 +702,8 @@ export class ChatCompletionDriver extends PuterDriver {
     #modelIdMap: Record<string, IChatModel[]> = Object.create(null);
     /** Each bucket entry's own catalog entry, which keeps the vendor's casing. */
     #catalogEntries = new WeakMap<IChatModel, IChatModel>();
+    /** What the model routes serve; replaced with the map it is built from. */
+    #listing = UNBUILT_LISTING;
     #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
     /** The first model-map build, finished once every catalog is in. */
     #modelMapBuilt: Promise<void> = Promise.resolve();
@@ -631,10 +721,18 @@ export class ChatCompletionDriver extends PuterDriver {
         this.#registerProviders();
         // Not awaited: a gateway catalog can take its whole fetch timeout, and
         // the drivers started after this one shouldn't wait for it.
-        this.#modelMapBuilt = this.#buildModelMap({ publishEachCatalog: true });
+        // A failed build keeps the map it had; nothing awaits the refreshes, so
+        // a rejection left alone would be an unhandled one.
+        const keepMap = (error: unknown) =>
+            console.warn(
+                `[ai-chat] model map build failed: ${(error as Error)?.message ?? error}`,
+            );
+        this.#modelMapBuilt = this.#buildModelMap({
+            publishEachCatalog: true,
+        }).catch(keepMap);
         // Gateway catalogs change under us; rebuild once they've expired.
         this.#modelMapRefresh = setInterval(() => {
-            void this.#buildModelMap();
+            void this.#buildModelMap().catch(keepMap);
         }, CATALOG_TTL_MS);
         this.#modelMapRefresh.unref?.();
     }
@@ -645,28 +743,23 @@ export class ChatCompletionDriver extends PuterDriver {
 
     // -- Interface methods -------------------------------------------
 
-    async models() {
+    async models(): Promise<readonly IChatModel[]> {
         await this.#modelMapBuilt;
-        const seen = new Set<string>();
-        return Object.values(this.#modelIdMap)
-            .flat()
-            .filter((model) => {
-                if (seen.has(model.id)) return false;
-                seen.add(model.id);
-                return true;
-            })
-            .map((model) => {
-                const costs = listedCosts(model);
-                return costs === model.costs ? model : { ...model, costs };
-            })
-            .sort((a, b) => {
-                if (a.provider === b.provider) return a.id.localeCompare(b.id);
-                return a.provider!.localeCompare(b.provider!);
-            });
+        return this.#currentListing().models;
     }
 
-    async list() {
-        return (await this.models()).map((m) => m.puterId || m.id).sort();
+    async list(): Promise<readonly string[]> {
+        await this.#modelMapBuilt;
+        return this.#currentListing().names;
+    }
+
+    /** A scheduled price change relists without waiting for a map rebuild. */
+    #currentListing(): ModelListing {
+        const now = Date.now();
+        if (now < this.#listing.validFrom || now >= this.#listing.validUntil) {
+            this.#listing = buildModelListing(this.#modelIdMap, now);
+        }
+        return this.#listing;
     }
 
     override getReportedCosts(): Record<string, unknown>[] {
@@ -782,21 +875,8 @@ export class ChatCompletionDriver extends PuterDriver {
             args.tool_choice = toolChoiceFromWire(args.tool_choice, 'chat');
         }
 
-        // A clear 400 for image/video parts the catalog says the model cannot
-        // read, before the credit hold and the round trip. Entries that declare
-        // no modalities (reseller catalogs) are not judged.
-        for (const modality of requiredInputModalities(args.messages)) {
-            if (
-                Array.isArray(model.modalities?.input) &&
-                !modelSupportsModality(model, modality)
-            ) {
-                throw new HttpError(
-                    400,
-                    `Model ${model.id} does not support ${modality} input`,
-                    { legacyCode: 'bad_request' },
-                );
-            }
-        }
+        // Before the credit hold and the round trip.
+        assertInputModalities(model, args.messages);
 
         // Both estimated once, before any attempt: providers rewrite
         // `args.messages` in place (tool_use blocks move out of `content`), so
@@ -1027,6 +1107,7 @@ export class ChatCompletionDriver extends PuterDriver {
                         attemptProvider,
                         requestArgs,
                         actor,
+                        attemptModel,
                     );
                 }
                 abortSignal?.throwIfAborted();
@@ -1817,6 +1898,8 @@ export class ChatCompletionDriver extends PuterDriver {
             /** The instant this attempt is priced at. */
             pricingTime: Date;
         },
+        attempt = 1,
+        staleAttempt = 1,
     ): Promise<{
         hold: CreditHold;
         fundsCap?: number;
@@ -1885,15 +1968,20 @@ export class ChatCompletionDriver extends PuterDriver {
         // affordability check here and the output cap below, net of holds,
         // and the balance alone, which tells spent from committed to requests
         // that are still running.
-        let { balance, held } = await metering.getUsageHeadroom(actor);
+        let headroom = await metering.getUsageHeadroom(actor, {
+            versioned: true,
+        });
         // Short of funds rather than of what running requests hold: a top-up
         // made at this moment is worth reading the balance once more.
         if (
-            balance < fullCost &&
+            headroom.balance < fullCost &&
             (await creditsRefilled(this.clients.event, actor))
         ) {
-            ({ balance, held } = await metering.getUsageHeadroom(actor));
+            headroom = await metering.getUsageHeadroom(actor, {
+                versioned: true,
+            });
         }
+        const { balance, held } = headroom;
         const remainingCredits = Math.max(0, balance - held);
 
         if (remainingCredits < needed) {
@@ -1960,10 +2048,51 @@ export class ChatCompletionDriver extends PuterDriver {
             approximateInputCost +
             extras +
             (args.max_tokens ?? 0) * outputTokenCost;
+        // Held only if it still fits the headroom the cap was sized from.
+        // Requests this account started at the same moment read the same
+        // headroom; the ones that lose size themselves again from what is left.
         const hold = await this.#aiMetering.reserveCredits(
             actor,
             Math.max(worstCaseCost, minimumCredits),
+            { within: headroom },
         );
+        if (hold === 'stale') {
+            // The balance changed since it was read, which says nothing about
+            // what is held: counted apart from lost headroom, and read again
+            // after a short wait.
+            if (staleAttempt >= CREDIT_GATE_STALE_ATTEMPTS) {
+                throw new HttpError(
+                    429,
+                    'The account balance is changing too quickly to admit this request. Retry shortly.',
+                    { legacyCode: 'too_many_requests' },
+                );
+            }
+            await new Promise((resolve) =>
+                setTimeout(
+                    resolve,
+                    Math.random() * CREDIT_GATE_STALE_BACKOFF_MS * staleAttempt,
+                ),
+            );
+            return this.#applyCreditGate(
+                actor,
+                model,
+                args,
+                estimates,
+                attempt,
+                staleAttempt + 1,
+            );
+        }
+        if (!hold) {
+            if (attempt >= CREDIT_GATE_ATTEMPTS) throw fundsRefusal(true);
+            return this.#applyCreditGate(
+                actor,
+                model,
+                args,
+                estimates,
+                attempt + 1,
+                staleAttempt,
+            );
+        }
         return { hold, fundsCap, costFactor, promptTokenEstimate };
     }
 
@@ -2281,11 +2410,22 @@ export class ChatCompletionDriver extends PuterDriver {
                     return;
                 }
                 if (publishEachCatalog) {
-                    this.#modelIdMap = this.#assembleModelMap(names, catalogs);
+                    this.#publish(this.#assembleModelMap(names, catalogs));
                 }
             }),
         );
-        this.#modelIdMap = this.#assembleModelMap(names, catalogs);
+        this.#publish(this.#assembleModelMap(names, catalogs));
+    }
+
+    /** The map and its listing change together, so they never disagree. */
+    #publish(modelIdMap: Record<string, IChatModel[]>) {
+        this.#modelIdMap = modelIdMap;
+        try {
+            this.#listing = buildModelListing(modelIdMap);
+        } catch {
+            // Routing keeps the new map; each listing call reports the error.
+            this.#listing = UNBUILT_LISTING;
+        }
     }
 
     /**
@@ -2312,6 +2452,15 @@ export class ChatCompletionDriver extends PuterDriver {
             if (!catalog) return;
 
             for (const entry of catalog) {
+                // A gateway's list can carry an entry with no usable id; one
+                // such entry must not cost every provider its place in the map.
+                if (
+                    typeof entry?.id !== 'string' ||
+                    (entry.puterId !== undefined &&
+                        typeof entry.puterId !== 'string')
+                ) {
+                    continue;
+                }
                 // Catalogs are module-level constants shared by every driver
                 // instance, so they are read and never written: normalizing
                 // the id or appending puterId in place would accumulate across
@@ -2339,7 +2488,11 @@ export class ChatCompletionDriver extends PuterDriver {
                 const aliases = puterId
                     ? [
                           ...new Set([
-                              ...(entry.aliases ?? []),
+                              ...(Array.isArray(entry.aliases)
+                                  ? entry.aliases.filter(
+                                        (alias) => typeof alias === 'string',
+                                    )
+                                  : []),
                               ...(entry.puterId ? [entry.puterId] : []),
                               puterId,
                           ]),
@@ -2478,6 +2631,7 @@ export class ChatCompletionDriver extends PuterDriver {
         provider: IChatProvider,
         args: ICompleteArguments,
         actor: Actor | undefined,
+        model: IChatModel,
     ): Promise<void> {
         if (provider.resolvesPuterPaths) return;
         if (!messagesHavePuterPaths(args.messages)) return;
@@ -2487,6 +2641,8 @@ export class ChatCompletionDriver extends PuterDriver {
             this.services.fs,
             actor,
         );
+        // What a Puter file holds is only known once it's read.
+        assertInputModalities(model, args.messages);
     }
 
     #findFallback(modelId: string, tried: Set<string>): IChatModel | null {

@@ -417,7 +417,8 @@ describe('concurrent claims on one email address', () => {
         expect(await countOwners(email)).toBe(1);
 
         const rejected = results.find((r) => r.status === 'rejected') as
-            PromiseRejectedResult | undefined;
+            | PromiseRejectedResult
+            | undefined;
         expect(rejected?.reason).toMatchObject({ statusCode: 400 });
     });
 
@@ -498,7 +499,8 @@ describe('concurrent claims on one email address', () => {
 
         expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
         const rejected = results.find((r) => r.status === 'rejected') as
-            PromiseRejectedResult | undefined;
+            | PromiseRejectedResult
+            | undefined;
         expect(rejected?.reason).toMatchObject({
             statusCode: 400,
             message:
@@ -5930,6 +5932,29 @@ describe('AuthController SMS → card fallback', () => {
         }
     };
 
+    // A veto with whatever fields the extension sets on it.
+    const withVeto = async (
+        fields: Record<string, unknown>,
+        fn: () => Promise<void>,
+    ) => {
+        const ctrl = controller as { clients: { event: unknown } };
+        const real = ctrl.clients.event;
+        ctrl.clients.event = {
+            emit: vi.fn(),
+            emitAndWait: vi.fn(
+                async (name: string, payload: Record<string, unknown>) => {
+                    if (name !== 'puter.phone-verification.check') return;
+                    Object.assign(payload, { allowed: false, ...fields });
+                },
+            ),
+        };
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.event = real;
+        }
+    };
+
     it('routes a vetoed send to the card fallback when the extension asks', async () => {
         const { user, actor } = await makeUserAndActor({
             requires_phone_verification: 1,
@@ -5976,6 +6001,37 @@ describe('AuthController SMS → card fallback', () => {
             });
         });
         expect(prelude.createVerification).toHaveBeenCalled();
+    });
+
+    it.each([
+        ['an account that owes a card', { enabled: true }, 1],
+        ['a veto that holds without a fallback', { enabled: false }, 0],
+    ])('keeps that send refused for %s', async (_label, cfg, owesCard) => {
+        const { actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            requires_card_verification: owesCard,
+        });
+        const prelude = stubPrelude();
+        await withFallbackConfig(cfg, async () => {
+            await withPrelude(prelude, async () => {
+                await withVeto(
+                    {
+                        reason: 'refused',
+                        card_fallback_instead: true,
+                        refuseWithoutFallback: !owesCard,
+                    },
+                    async () => {
+                        await expect(
+                            controller.handleSendConfirmPhone(
+                                makeReq({ phone: '+14155550123' }, { actor }),
+                                makeRes(),
+                            ),
+                        ).rejects.toMatchObject({ statusCode: 429 });
+                    },
+                );
+            });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
     });
 
     it('offers the fallback on send only once SMS attempts are exhausted', async () => {
@@ -6129,6 +6185,60 @@ describe('AuthController SMS → card fallback', () => {
         });
     });
 
+    // An extension answering the policy event decides in place of config.
+    const withFallbackPolicy = async (
+        enabled: boolean,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { event: unknown } };
+        const real = ctrl.clients.event;
+        ctrl.clients.event = {
+            emitAndWait: async (
+                key: string,
+                event: Record<string, unknown>,
+            ) => {
+                if (key === 'puter.card-fallback.policy') {
+                    event.enabled = enabled;
+                }
+            },
+            emit: () => undefined,
+        };
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.event = real;
+        }
+    };
+
+    it.each([
+        { configured: true, policy: false, body: {} },
+        {
+            configured: false,
+            policy: true,
+            body: { card_fallback_available: true },
+        },
+    ])(
+        'follows an extension policy of $policy over enabled: $configured',
+        async ({ configured, policy, body }) => {
+            const { user, actor } = await makeUserAndActor({
+                requires_phone_verification: 1,
+            });
+            await withFallbackConfig({ enabled: configured }, async () => {
+                await withPrelude(stubPrelude(), async () => {
+                    await withFallbackPolicy(policy, async () => {
+                        await seedAttempts(user.id, 9);
+                        const res = makeRes();
+                        await controller.handleSendConfirmPhone(
+                            makeReq({ phone: '+14155550123' }, { actor }),
+                            res,
+                        );
+                        expect(res.body).toEqual(body);
+                    });
+                });
+            });
+        },
+    );
+
     it('clamps after_attempts to the send allowance so it stays reachable', async () => {
         const { user, actor } = await makeUserAndActor({
             requires_phone_verification: 1,
@@ -6204,7 +6314,6 @@ describe('AuthController SMS → card fallback', () => {
 
     it('lets card setup proceed past the phone gate once eligible', async () => {
         const { user, actor } = await makeUserAndActor({
-            requires_card_verification: 1,
             requires_phone_verification: 1,
         });
         await openFallback(user.id);
@@ -6253,7 +6362,6 @@ describe('AuthController SMS → card fallback', () => {
 
     it('send crossing the threshold opens card setup end-to-end', async () => {
         const { actor } = await makeUserAndActor({
-            requires_card_verification: 1,
             requires_phone_verification: 1,
         });
         await withFallbackConfig(
@@ -6314,35 +6422,93 @@ describe('AuthController SMS → card fallback', () => {
         );
     });
 
-    it('clears BOTH gates when the fallback card verifies', async () => {
+    // An account that owes a card, or has verified one, owes its phone too.
+    it.each([
+        ['owes a card', { requires_card_verification: 1 }],
+        ['has verified a card', { card_fingerprint: 'fp_verified' }],
+    ])('opens no fallback for an account that %s', async (_label, fields) => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            ...fields,
+        });
+        await seedAttempts(user.id, 9);
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                const res = makeRes();
+                await controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    res,
+                );
+                expect(res.body).toEqual({});
+            });
+        });
+        const { res: flag } = await server.stores.kv.get({
+            key: `card-fallback-open:${user.id}`,
+        });
+        expect(flag ?? null).toBeNull();
+    });
+
+    it('keeps the phone gate on an account that owes a card, whatever flag is open', async () => {
         const { user, actor } = await makeUserAndActor({
             requires_card_verification: 1,
             requires_phone_verification: 1,
         });
         await openFallback(user.id);
         await withFallbackConfig({ enabled: true }, async () => {
-            const res = makeRes();
             await withCardConfirmOverride(
                 (data) => {
                     data.enabled = true;
                     data.verified = true;
                 },
-                () =>
-                    controller.handleCardVerificationConfirm(
-                        makeReq({ setup_intent_id: 'seti_1' }, { actor }),
-                        res,
-                    ),
+                async () => {
+                    await expect(
+                        controller.handleCardVerificationConfirm(
+                            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                            makeRes(),
+                        ),
+                    ).rejects.toMatchObject({ statusCode: 409 });
+                },
             );
-            expect(res.body).toMatchObject({
-                card_verified: true,
-                phone_verified: true,
-            });
         });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
-        expect(after!.requires_card_verification).toBe(false);
-        expect(after!.requires_phone_verification).toBe(false);
+        expect(after!.requires_phone_verification).toBe(true);
+    });
+
+    it.each([
+        ['counts a refused send', {}, { card_fallback_available: true }],
+        [
+            'leaves out a refused send the extension excludes',
+            { countsTowardFallback: false },
+            {},
+        ],
+    ])('%s toward the threshold', async (_label, veto, offered) => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await seedAttempts(user.id, 9);
+        await withFallbackConfig({ enabled: true }, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withVeto({ reason: 'refused', ...veto }, async () => {
+                    await expect(
+                        controller.handleSendConfirmPhone(
+                            makeReq({ phone: '+14155550123' }, { actor }),
+                            makeRes(),
+                        ),
+                    ).rejects.toMatchObject({
+                        statusCode: 429,
+                        fields: { reason: 'refused', ...offered },
+                    });
+                });
+            });
+        });
+        const { res: counter } = await server.stores.kv.get({
+            key: `phone-verify-attempts:${user.id}`,
+        });
+        expect((counter as { attempts: number }).attempts).toBe(
+            'countsTowardFallback' in veto ? 9 : 10,
+        );
     });
 
     it('clears the phone gate via card even when card was not required', async () => {
@@ -6644,7 +6810,9 @@ describe('AuthController phone on file', () => {
             ['fp_other', true],
             ['fp_on_file', false],
         ] as const) {
-            expect((await confirmCard(actor, fingerprint, entered)).body).toEqual({
+            expect(
+                (await confirmCard(actor, fingerprint, entered)).body,
+            ).toEqual({
                 card_verified: false,
                 reason: 'card_not_on_file',
             });
@@ -6669,7 +6837,10 @@ describe('AuthController phone on file', () => {
                 );
             }
             await expect(
-                controller.handleSendConfirmPhone(makeReq({}, { actor }), makeRes()),
+                controller.handleSendConfirmPhone(
+                    makeReq({}, { actor }),
+                    makeRes(),
+                ),
             ).rejects.toMatchObject({
                 statusCode: 429,
                 code: 'phone_on_file_send_limit',
@@ -7542,7 +7713,8 @@ describe('AuthController user-protected mutations (validation paths)', () => {
 
         expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
         const rejected = results.find((r) => r.status === 'rejected') as
-            PromiseRejectedResult | undefined;
+            | PromiseRejectedResult
+            | undefined;
         expect(rejected?.reason).toMatchObject({
             statusCode: 400,
             legacyCode: 'username_already_in_use',
@@ -7753,7 +7925,10 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change-email: 400 on missing/invalid email and on a confirmed-account collision', async () => {
-        const { actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
+        const { actor } = await makeUserAndActor({
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+        });
         await expect(
             controller.handleChangeEmail(makeReq({}, { actor }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 400 });
@@ -7798,7 +7973,10 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change-email: stages the new email + token on success', async () => {
-        const { user, actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
+        const { user, actor } = await makeUserAndActor({
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+        });
         const newEmail = `ch_${uniq()}@test.local`;
         const res = makeRes();
         await controller.handleChangeEmail(
@@ -7859,7 +8037,10 @@ describe('AuthController user-protected mutations (validation paths)', () => {
     });
 
     it('change_email/confirm: completes the swap when the token matches the staged row', async () => {
-        const { user, actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
+        const { user, actor } = await makeUserAndActor({
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+        });
         const newEmail = `chc_${uniq()}@test.local`;
         await controller.handleChangeEmail(
             makeReq({ new_email: newEmail }, { actor }),
@@ -8042,7 +8223,8 @@ describe('AuthController.handleSaveAccount', () => {
 
         expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
         const rejected = results.find((r) => r.status === 'rejected') as
-            PromiseRejectedResult | undefined;
+            | PromiseRejectedResult
+            | undefined;
         expect(rejected?.reason).toMatchObject({
             statusCode: 400,
             legacyCode: 'username_already_in_use',
@@ -9346,7 +9528,13 @@ describe('AuthController 2FA flows', () => {
             otp_recovery_codes: 'a,b,c',
         });
         const res = makeRes();
-        await controller.handleDisable2fa(makeReq({ code: liveTotp(user.username, 'TESTSECRETBASE32') }, { actor }), res);
+        await controller.handleDisable2fa(
+            makeReq(
+                { code: liveTotp(user.username, 'TESTSECRETBASE32') },
+                { actor },
+            ),
+            res,
+        );
         expect(res.body).toEqual({ success: true });
         const after = await server.stores.user.getById(user.id, {
             force: true,
@@ -10289,8 +10477,14 @@ describe('AuthController user-protected mutations: additional branches', () => {
     it('change-email: 400 when an unconfirmed-but-password-holding account already owns the email', async () => {
         // Other user: password set, email NOT confirmed → still blocks
         // (existing.password !== null branch).
-        const { user: other } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
-        const { actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
+        const { user: other } = await makeUserAndActor({
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+        });
+        const { actor } = await makeUserAndActor({
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+        });
         await expect(
             controller.handleChangeEmail(
                 makeReq({ new_email: other.email! }, { actor }),
@@ -12124,7 +12318,10 @@ describe('AuthController account mail streams', () => {
     });
 
     it('sends both change-email messages on the auth stream', async () => {
-        const { user, actor } = await makeUserAndActor({ email_confirmed: 1, requires_email_confirmation: 0 });
+        const { user, actor } = await makeUserAndActor({
+            email_confirmed: 1,
+            requires_email_confirmation: 0,
+        });
         const newEmail = `cs_${uniq()}@test.local`;
         const send = spySend();
         const sendRaw = vi

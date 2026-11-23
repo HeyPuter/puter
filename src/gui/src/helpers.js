@@ -350,29 +350,30 @@ window.scrollParentToChild = (parent, child) => {
  * 6. Name cannot exceed the maximum allowed length (as defined in window.max_item_name_length).
  */
 window.validate_fsentry_name = function (name) {
+    // The messages go to UIAlert, which encodes them itself.
     if ( ! name )
     {
-        throw { message: i18n('name_cannot_be_empty') };
+        throw { message: i18n('name_cannot_be_empty', [], false) };
     }
     else if ( ! window.isString(name) )
     {
-        throw { message: i18n('name_must_be_string') };
+        throw { message: i18n('name_must_be_string', [], false) };
     }
     else if ( name.includes('/') )
     {
-        throw { message: i18n('name_cannot_contain_slash') };
+        throw { message: i18n('name_cannot_contain_slash', [], false) };
     }
     else if ( name === '.' )
     {
-        throw { message: i18n('name_cannot_contain_period') };
+        throw { message: i18n('name_cannot_contain_period', [], false) };
     }
     else if ( name === '..' )
     {
-        throw { message: i18n('name_cannot_contain_double_period') };
+        throw { message: i18n('name_cannot_contain_double_period', [], false) };
     }
     else if ( name.length > window.max_item_name_length )
     {
-        throw { message: i18n('name_too_long', window.max_item_name_length) };
+        throw { message: i18n('name_too_long', [window.max_item_name_length], false) };
     }
     else
     {
@@ -2390,7 +2391,15 @@ window.init_upload_using_dialog = function (el_target_container, target_path = n
     el_input.click();
 };
 
-window.upload_items = async function (items, dest_path) {
+/**
+ * Uploads items into a folder, with a progress window.
+ *
+ * @param {FileList|File[]|DataTransferItemList} items
+ * @param {string} dest_path
+ * @param {{ onUploaded?: (paths: string[]) => void }} [options] - `onUploaded`
+ *   gets the uploaded items' paths once the upload succeeds
+ */
+window.upload_items = async function (items, dest_path, { onUploaded } = {}) {
     let upload_progress_window;
     let opid;
 
@@ -2465,6 +2474,7 @@ window.upload_items = async function (items, dest_path) {
 
                 // highlight the uploaded items in the destination
                 select_uploaded_items(dest_path, files);
+                onUploaded?.(files);
 
                 // close progress window after a bit of delay for a better UX
                 setTimeout(() => {
@@ -3348,8 +3358,15 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             onDone?.(null);
 
             // A network failure rejects with no message, and the name going
-            // back on its own would look like the rename was ignored.
-            UIAlert(err?.message || i18n('error_unknown_cause', [], false));
+            // back on its own would look like the rename was ignored. A file
+            // picker sits above its app's window, so its alert is its child,
+            // and its listing takes the keyboard back when the alert closes.
+            const $picker = $(el_item).closest('.window-filedialog');
+            UIAlert({
+                message: err?.message || i18n('error_unknown_cause', [], false),
+                parent_uuid: $picker.attr('data-element_uuid'),
+                window_options: { on_close: () => $picker.find('.files').trigger('focus') },
+            });
         },
     }).catch(() => {
         // Handled by the error callback above.

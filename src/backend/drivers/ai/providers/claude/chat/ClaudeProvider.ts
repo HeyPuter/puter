@@ -24,6 +24,7 @@ import type { FSService } from '../../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import type { FSEntryStore } from '../../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../../stores/fs/S3ObjectStore.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import { upstreamUserIdentifier } from '../../../shared/upstreamIdentifier.js';
 import type {
     IChatModel,
@@ -431,6 +432,10 @@ export class ClaudeProvider implements IChatProvider {
                 : this.anthropic.messages.create(sdkParams as never, {
                       signal: Context.get('upstreamSignal'),
                   }));
+            // A 2xx that isn't a message object is no answer.
+            if (!msg || typeof msg !== 'object' || Array.isArray(msg)) {
+                throw malformedUpstreamResponse('claude', 'Anthropic');
+            }
             const nativeMsg = msg as unknown as Message & {
                 stop_sequence?: string | null;
                 stop_details?: Record<string, unknown> | null;

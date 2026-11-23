@@ -155,8 +155,7 @@ export const appSocketRoom = (
 
 /**
  * A room every one of an account's sockets joins and nothing is ever emitted
- * to. The user room is what a session revoke drops, and an app socket is
- * deliberately not in it — this is the handle that reaches those.
+ * to: the handle that reaches all of them, app sockets included.
  */
 export const accountSocketRoom = (userId: number | string): string =>
     `u${userId}:all`;
@@ -164,6 +163,24 @@ export const accountSocketRoom = (userId: number | string): string =>
 /** The handle a single access token's sockets are revoked by. */
 export const accessTokenSocketRoom = (tokenUid: string): string =>
     `tok:${tokenUid}`;
+
+/** The handle a session's sockets are revoked by. */
+export const sessionSocketRoom = (sessionUid: string): string =>
+    `sess:${sessionUid}`;
+
+/**
+ * Sockets whose actor names no session, so a revoke can't be matched to them:
+ * any session revoke on the account drops these.
+ */
+export const sessionlessSocketRoom = (userId: number | string): string =>
+    `u${userId}:nosess`;
+
+/**
+ * Every socket in a session's room or the sessionless one. An account socket
+ * outside it joined neither, so a session revoke drops it with the account.
+ */
+export const sessionScopedSocketRoom = (userId: number | string): string =>
+    `u${userId}:scoped`;
 
 /**
  * Which rooms a socket joins. An app socket gets its own per-(user, app) room
@@ -176,10 +193,19 @@ export const socketRoomsFor = (actor: Actor): string[] => {
     const userId = String(actor.user!.id);
     const appUid = actor.effectiveApp?.uid;
     const tokenUid = actor.accessToken?.uid;
+    const session = actor.session;
     return [
         appUid ? appSocketRoom(userId, appUid) : userId,
         accountSocketRoom(userId),
         ...(tokenUid ? [accessTokenSocketRoom(tokenUid)] : []),
+        // A first-party page's session also goes with the sign-in it was
+        // handed out under.
+        ...(session?.uid
+            ? [session.uid, session.parentUid]
+                  .filter((uid): uid is string => !!uid)
+                  .map(sessionSocketRoom)
+            : [sessionlessSocketRoom(userId)]),
+        sessionScopedSocketRoom(userId),
     ];
 };
 
@@ -1031,23 +1057,36 @@ export class SocketService extends PuterService {
     }
 
     /**
-     * Close a user's connections after any of their sessions was revoked.
-     * Cluster-wide: `disconnectSockets` publishes through the adapter, so a
-     * revoke handled on one node reaches sockets terminated on another.
-     *
-     * Every connection for the account goes, not just the revoked session's —
-     * which is what the account room is for, since an app socket is not in the
-     * user room. Narrowing would mean matching each socket to its session via a
-     * cluster-wide `fetchSockets` round trip. Dropping the room is the safe
-     * direction — a client does not reconnect by itself after a server-side
-     * disconnect, so one that wants to stay connected opens a new connection,
-     * and that handshake re-authenticates: only the revoked session is
-     * refused.
+     * Close the connections of revoked sessions, plus the account's sockets
+     * that name no session or joined no session room. Cluster-wide:
+     * `disconnectSockets` publishes through the adapter, so a revoke handled on
+     * one node reaches sockets terminated on another. Without a list of
+     * sessions, every connection on the account goes.
      */
-    async #evictUserSockets(userId: number): Promise<void> {
+    async #evictSessionSockets(
+        userId: number,
+        sessionUids: unknown,
+    ): Promise<void> {
         const io = this.#io;
         if (!io || !userId) return;
-        await io.in(accountSocketRoom(userId)).disconnectSockets(true);
+        if (!Array.isArray(sessionUids)) {
+            await io.in(accountSocketRoom(userId)).disconnectSockets(true);
+            return;
+        }
+        await Promise.all([
+            io
+                .in([
+                    sessionlessSocketRoom(userId),
+                    ...sessionUids
+                        .filter((uid): uid is string => typeof uid === 'string')
+                        .map(sessionSocketRoom),
+                ])
+                .disconnectSockets(true),
+            io
+                .in(accountSocketRoom(userId))
+                .except(sessionScopedSocketRoom(userId))
+                .disconnectSockets(true),
+        ]);
     }
 
     /** Close one revoked token's connections; the account's others stay up. */
@@ -1174,10 +1213,15 @@ export class SocketService extends PuterService {
         this.clients.event.on(
             'outer.auth.sessions.revoked',
             (_key: string, data: unknown) => {
-                const { user_id } = data as { user_id: number };
-                this.#evictUserSockets(user_id).catch((err: unknown) => {
-                    console.error('[socket] session eviction failed', err);
-                });
+                const { user_id, session_uids } = data as {
+                    user_id: number;
+                    session_uids?: unknown;
+                };
+                this.#evictSessionSockets(user_id, session_uids).catch(
+                    (err: unknown) => {
+                        console.error('[socket] session eviction failed', err);
+                    },
+                );
             },
         );
 

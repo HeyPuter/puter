@@ -909,6 +909,7 @@ export class FSService extends PuterService {
         };
 
         const results: WriteTargetResolutionResult[] = [];
+        const overwrittenUids = new Set<string>();
         for (const input of inputs) {
             let normalizedInput = input.normalizedInput;
             let existingEntry = await loadExistingEntry(normalizedInput.path);
@@ -986,6 +987,19 @@ export class FSService extends PuterService {
                         },
                     },
                 );
+            }
+
+            // Two spellings of one folder reach the same file; refused before
+            // either upload lands on its object.
+            if (existingEntry) {
+                if (overwrittenUids.has(existingEntry.uuid)) {
+                    throw new HttpError(
+                        409,
+                        `Batch contains duplicate target path: ${existingEntry.name}`,
+                        { legacyCode: 'conflict' },
+                    );
+                }
+                overwrittenUids.add(existingEntry.uuid);
             }
 
             // An overwrite reuses the entry's uuid as the object key, so the
@@ -2315,13 +2329,12 @@ export class FSService extends PuterService {
                     'Failed to resolve directory entry after start write',
                 );
             }
-            const createdDirectoryPathSet = new Set(
-                createdDirectoryEntries.map((entry) => entry.path),
-            );
             return {
                 response: this.#toDirectorySignedWriteResponse(
                     directoryEntry,
-                    createdDirectoryPathSet.has(normalizedInput.path),
+                    createdDirectoryEntries.some(
+                        (entry) => entry.uuid === directoryEntry.uuid,
+                    ),
                 ),
                 createdDirectoryEntries,
             };
@@ -2622,9 +2635,9 @@ export class FSService extends PuterService {
                         item.index,
                         this.#toDirectorySignedWriteResponse(
                             directoryEntry,
-                            createdDirectoryEntriesByPath.has(
-                                item.normalizedInput.path,
-                            ),
+                            createdDirectoryEntriesByPath.get(
+                                directoryEntry.path,
+                            )?.uuid === directoryEntry.uuid,
                         ),
                     );
                 }

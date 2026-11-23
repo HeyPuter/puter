@@ -126,6 +126,40 @@ const firstPartyGUIOrigin = (value) => {
     }
 };
 
+/**
+ * The `puter.args` launch parameter as an object. `URLSearchParams` has
+ * already decoded it once; a value that isn't JSON yet is tried once more
+ * decoded, for launchers that encoded it twice. Unparseable args read as `{}`.
+ * @param {string | null} raw
+ * @returns {unknown}
+ */
+const parseLaunchArgs = (raw) => {
+    if (raw === null) return {};
+    for (const decode of [(v) => v, decodeURIComponent]) {
+        try {
+            return JSON.parse(decode(raw));
+        } catch {
+            // try the next decoding
+        }
+    }
+    return {};
+};
+
+/**
+ * The `puter.api_origin` launch parameter, decoded once more when it doesn't
+ * start with a scheme: a launcher may have encoded it twice.
+ * @param {string} raw
+ * @returns {string}
+ */
+const parseLaunchOrigin = (raw) => {
+    if (/^https?:\/\//i.test(raw)) return raw;
+    try {
+        return decodeURIComponent(raw);
+    } catch {
+        return raw;
+    }
+};
+
 // localStorage key for the auth token. The retired key below is never read —
 // only deleted, so a token from before the format change doesn't linger in a
 // visitor's browser (see `discardRetiredAuthToken_`).
@@ -618,42 +652,30 @@ export class Puter {
         }
 
         // Get the 'args' from the URL. This is used to pass arguments to the app.
-        if (URLParams.has('puter.args')) {
-            this.args = JSON.parse(
-                decodeURIComponent(URLParams.get('puter.args')),
-            );
-        } else {
-            this.args = {};
-        }
+        this.args = parseLaunchArgs(URLParams.get('puter.args'));
 
         // Try to extract appInstanceID from the URL. appInstanceID is included in every messaage
         // sent to the host environment. This is used to help host environment identify the app
         // instance that sent the message and communicate back to it.
         if (URLParams.has('puter.app_instance_id')) {
-            this.appInstanceID = decodeURIComponent(
-                URLParams.get('puter.app_instance_id'),
-            );
+            this.appInstanceID = URLParams.get('puter.app_instance_id');
         }
 
         // Try to extract parentInstanceID from the URL. If another app launched this app instance, parentInstanceID
         // holds its instance ID, and is used to communicate with that parent app.
         if (URLParams.has('puter.parent_instance_id')) {
-            this.parentInstanceID = decodeURIComponent(
-                URLParams.get('puter.parent_instance_id'),
-            );
+            this.parentInstanceID = URLParams.get('puter.parent_instance_id');
         }
 
         // Try to extract `puter.app.id` from the URL. `puter.app.id` is the unique ID of the app.
         // App ID is useful for identifying the app when communicating with the Puter API, among other things.
         if (URLParams.has('puter.app.id')) {
-            this.appID = decodeURIComponent(URLParams.get('puter.app.id'));
+            this.appID = URLParams.get('puter.app.id');
         }
 
         // Extract app name (added later)
         if (URLParams.has('puter.app.name')) {
-            this.appName = decodeURIComponent(
-                URLParams.get('puter.app.name'),
-            );
+            this.appName = URLParams.get('puter.app.name');
         }
 
         // Construct this App's AppData path based on the appID. AppData path is used to store files that are specific to this app.
@@ -669,7 +691,7 @@ export class Puter {
         // This should only be done when the SDK is running in 'app' mode.
         this.APIOrigin = this.defaultAPIOrigin;
         if (URLParams.has('puter.api_origin') && this.env === 'app') {
-            this.APIOrigin = decodeURIComponent(
+            this.APIOrigin = parseLaunchOrigin(
                 URLParams.get('puter.api_origin'),
             );
         } else if (URLParams.has('puter.domain') && this.env === 'app') {

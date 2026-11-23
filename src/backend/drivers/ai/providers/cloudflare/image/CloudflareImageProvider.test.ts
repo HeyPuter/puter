@@ -286,6 +286,45 @@ describe('CloudflareImageProvider.generate request shape', () => {
         expect(body).toEqual({ prompt: 'a tiny red dot', steps: 4 });
     });
 
+    it('bounds the call with a timeout', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            okJsonResponse({ result: { image: 'AA' } }),
+        );
+
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: '@cf/black-forest-labs/flux-1-schnell',
+                prompt: 'hi',
+            } as never),
+        );
+
+        const [, init] = fetchSpy.mock.calls[0]!;
+        expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it('refuses a reply larger than the cap as an upstream failure', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            new Response('{}', {
+                headers: {
+                    'content-type': 'application/json',
+                    'content-length': String(65 * 1024 * 1024),
+                },
+            }),
+        );
+
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: '@cf/black-forest-labs/flux-1-schnell',
+                    prompt: 'hi',
+                } as never),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'upstream_failed',
+        });
+    });
+
     it('honours an apiBaseUrl override', async () => {
         const provider = makeProvider({
             apiBaseUrl: 'https://custom.cf.example/api/v4',

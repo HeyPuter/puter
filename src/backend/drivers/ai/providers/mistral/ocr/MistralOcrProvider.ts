@@ -37,7 +37,10 @@ import {
     OCR_MAX_PAGES,
     type OcrModel,
 } from '../../../interfaces/ocr/models.js';
-import { isMistralInputError } from '../inputError.js';
+import { HTTPClient } from '@mistralai/mistralai/lib/http.js';
+import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
+import { isMistralInputError, isMistralUnusableAnswer } from '../inputError.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import type {
     IOcrProvider,
     OcrBlock,
@@ -81,8 +84,7 @@ const toMistralResponseFormat = (
 ): Record<string, unknown> => {
     const format = value as Record<string, unknown> | null;
     const jsonSchema = (format?.jsonSchema ?? format?.json_schema) as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
     const schema = jsonSchema?.schemaDefinition ?? jsonSchema?.schema;
     if (
         !format ||
@@ -122,6 +124,7 @@ export class MistralOcrProvider implements IOcrProvider {
         config: { apiKey: string },
     ) {
         this.#client = new Mistral({
+            httpClient: new HTTPClient({ fetcher: jsonCheckedFetch }),
             apiKey: config.apiKey,
         }) as unknown as MistralOcrClient;
     }
@@ -210,6 +213,9 @@ export class MistralOcrProvider implements IOcrProvider {
                     legacyCode: 'bad_request',
                 });
             }
+            if (isMistralUnusableAnswer(e)) {
+                throw malformedUpstreamResponse('mistral', 'Mistral OCR');
+            }
             throw e;
         } finally {
             await hold.release();
@@ -265,9 +271,19 @@ export class MistralOcrProvider implements IOcrProvider {
         annotations: boolean,
     ) {
         try {
-            const pagesProcessed =
-                response?.usageInfo?.pagesProcessed ??
-                (Array.isArray(response?.pages) ? response.pages.length : 1);
+            const reported = response?.usageInfo?.pagesProcessed;
+            // The count Mistral reports, when it is one, and never more pages
+            // than a document may have.
+            const pagesProcessed = Math.min(
+                typeof reported === 'number' &&
+                    Number.isSafeInteger(reported) &&
+                    reported > 0
+                    ? reported
+                    : Array.isArray(response?.pages)
+                      ? response.pages.length
+                      : 1,
+                OCR_MAX_PAGES[model.provider],
+            );
             this.metering.incrementUsage(
                 actor,
                 model.pageUsageType,
@@ -282,8 +298,9 @@ export class MistralOcrProvider implements IOcrProvider {
                     OCR_COSTS[model.annotationUsageType] * pagesProcessed,
                 );
             }
-        } catch {
-            // Non-critical.
+        } catch (error) {
+            // The text is returned either way; an unrecorded charge is logged.
+            console.error('[mistral-ocr] recording usage failed:', error);
         }
     }
 }

@@ -50,7 +50,7 @@ import type {
     UsageInput,
 } from './types';
 import { creditsRefilled } from './enforcement';
-import { NO_CREDIT_HOLD } from './types';
+import { NO_CREDIT_HOLD, type UsageHeadroom } from './types';
 import {
     addUsageDetail,
     decodeUsageDetail,
@@ -88,10 +88,7 @@ export interface ActorSubscriptionStatus {
 
 /** A `provisional` answer wins but is cached only for the fallback window. */
 export type SubscriptionAnswer =
-    | string
-    | { id: string | null; provisional: boolean }
-    | null
-    | undefined;
+    string | { id: string | null; provisional: boolean } | null | undefined;
 
 export type SubscriptionResolver = (
     actor: Actor,
@@ -1566,12 +1563,23 @@ export class MeteringService extends PuterService {
      */
     async getUsageHeadroom(
         actor: Actor,
-    ): Promise<{ balance: number; held: number }> {
+        opts: { versioned?: boolean } = {},
+    ): Promise<UsageHeadroom> {
+        const userId = actor?.user?.uuid;
+        // Read before the balance, so a write the balance misses bumps it.
+        const version =
+            opts.versioned && userId
+                ? await this.stores.creditHold.version(userId)
+                : undefined;
         const [{ remaining }, held] = await Promise.all([
             this.getAllowedUsage(actor),
             this.getOutstandingHolds(actor),
         ]);
-        return { balance: remaining || 0, held };
+        return {
+            balance: remaining || 0,
+            held,
+            ...(version !== undefined ? { version } : {}),
+        };
     }
 
     /**
@@ -1592,15 +1600,51 @@ export class MeteringService extends PuterService {
      * being able to reach the cache is our problem, and turning it into failed
      * requests for everyone spending money is worse than the overshoot it would
      * prevent.
+     *
+     * With `within`, the headroom the caller sized the operation from, the hold
+     * is taken only if it still fits: null when another operation took the room
+     * since that read, `'stale'` when the balance changed. Either way the
+     * caller reads the headroom again and sizes the operation anew.
      */
     async reserveCredits(
         actor: Actor,
         amount: number,
-        opts: { ttlMs?: number } = {},
-    ): Promise<CreditHold> {
+        opts?: { ttlMs?: number },
+    ): Promise<CreditHold>;
+    async reserveCredits(
+        actor: Actor,
+        amount: number,
+        opts: { ttlMs?: number; within: UsageHeadroom },
+    ): Promise<CreditHold | 'stale' | null>;
+    async reserveCredits(
+        actor: Actor,
+        amount: number,
+        opts: { ttlMs?: number; within?: UsageHeadroom } = {},
+    ): Promise<CreditHold | 'stale' | null> {
         const userId = actor?.user?.uuid;
         if (!userId || isSystemActor(actor) || !(amount > 0)) {
             return NO_CREDIT_HOLD;
+        }
+
+        if (opts.within) {
+            const { balance, version } = opts.within;
+            // The cache couldn't answer the read either; the caller's own
+            // check of the balance stands.
+            if (version === null) return NO_CREDIT_HOLD;
+            const result = await this.stores.creditHold.reserve(
+                userId,
+                // Rounded down: the amount was sized to fit the headroom, and
+                // rounding up could put it a unit past it.
+                Math.max(1, Math.floor(amount)),
+                balance,
+                version ?? '',
+                opts.ttlMs,
+            );
+            if (result.outcome === 'accepted') {
+                return this.#holdHandle(userId, result.member, opts.ttlMs);
+            }
+            if (result.outcome === 'unavailable') return NO_CREDIT_HOLD;
+            return result.outcome === 'stale' ? 'stale' : null;
         }
 
         const member = await this.stores.creditHold.take(

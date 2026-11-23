@@ -846,6 +846,31 @@ describe('OCRDriver.recognize (mistral)', () => {
         expect(mistralOcrProcessMock).not.toHaveBeenCalled();
     });
 
+    it.each([
+        ['a count past the page limit', 5000, 1000],
+        ['a count that is not a number', '7', 2],
+        ['a negative count', -3, 2],
+    ])('bills %s as pages a document can have', async (_, reported, billed) => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValueOnce({
+            model: 'mistral-ocr-latest',
+            pages: [{ index: 0, markdown: 'a' }, { index: 1, markdown: 'b' }],
+            usageInfo: { pagesProcessed: reported },
+        });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.from('imgdata'), 'image/png'),
+                provider: 'mistral',
+            }),
+        );
+
+        const [, , pages] = incrementUsageSpy.mock.calls.find(
+            ([, type]) => type === 'mistral-ocr:mistral-ocr-4-1:page',
+        )!;
+        expect(pages).toBe(billed);
+    });
+
     it('packages an image as an image_url chunk with a base64 data URL', async () => {
         const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValueOnce({

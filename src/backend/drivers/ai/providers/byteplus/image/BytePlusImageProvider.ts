@@ -19,7 +19,9 @@
 
 import { assertImagePrompt } from '../../../interfaces/image/imageValidation.js';
 import { OpenAI } from 'openai';
-import { imageDataUri } from '../../../interfaces/image/imageOutput.js';
+import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
+import { imageEntryUrl } from '../../../interfaces/image/imageOutput.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import { closestAspectRatio } from '../../../interfaces/image/imageDimensions.js';
 import type { ImageSize } from '../../../interfaces/image/types.js';
 import { Context } from '../../../../../core/context.js';
@@ -90,6 +92,7 @@ export class BytePlusImageProvider implements IImageProvider {
         this.#meteringService = meteringService;
         this.#client = new OpenAI({
             apiKey: config.apiKey,
+            fetch: jsonCheckedFetch,
             baseURL:
                 config.apiBaseUrl ??
                 'https://ark.ap-southeast.bytepluses.com/api/v3',
@@ -200,30 +203,24 @@ export class BytePlusImageProvider implements IImageProvider {
                 OpenAI['images']['generate']
             >[0])) as ArkImageResponse;
 
-            const first = response.data?.[0];
+            const first = response?.data?.[0];
             if (first?.error) {
                 throw new HttpError(
                     400,
-                    first.error.message ?? 'Image generation failed',
+                    typeof first.error.message === 'string'
+                        ? first.error.message
+                        : 'Image generation failed',
                     {
                         legacyCode: 'upstream_failed',
                         fields: { provider: 'byteplus' },
                     },
                 );
             }
-            const url =
-                first?.url ||
-                (first?.b64_json
-                    ? imageDataUri(
-                          first.b64_json,
-                          `image/${first.output_format ?? 'jpeg'}`,
-                      )
-                    : undefined);
-            if (!url) {
-                throw new Error(
-                    'Failed to extract image URL from BytePlus response',
-                );
-            }
+            const url = imageEntryUrl(
+                first,
+                `image/${typeof first?.output_format === 'string' ? first.output_format : 'jpeg'}`,
+            );
+            if (!url) throw malformedUpstreamResponse('byteplus', 'BytePlus');
 
             const usageEntries = [
                 {

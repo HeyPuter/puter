@@ -110,7 +110,10 @@ describe('TogetherImageProvider construction', () => {
     it('constructs the Together SDK with the configured api key', () => {
         makeProvider();
         expect(togetherCtor).toHaveBeenCalledTimes(1);
-        expect(togetherCtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(togetherCtor).toHaveBeenCalledWith({
+            apiKey: 'test-key',
+            fetch: expect.any(Function),
+        });
     });
 
     it('throws when no apiKey is supplied', () => {

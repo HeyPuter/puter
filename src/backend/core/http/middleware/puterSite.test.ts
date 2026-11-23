@@ -572,6 +572,44 @@ describe('createPuterSiteMiddleware — file serving', () => {
         });
     });
 
+    it('reports a failed read against the owner without billing them for it', async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `fail-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(owner.id, `${homePath}/index.html`, Buffer.from('hi'));
+
+        const failure = Object.assign(new Error('socket hang up'), {
+            code: 'ECONNRESET',
+        });
+        const read = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValue(failure);
+        const logged = vi
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+        try {
+            const req = makeReq({
+                hostname: `${sub}.site.puter.localhost`,
+                path: '/index.html',
+            });
+            const next = vi.fn();
+            await buildMiddleware()(req, makeRes().res, next);
+
+            expect(next).toHaveBeenCalledWith(failure);
+            expect(req.alarmActor?.user?.uuid).toBe(owner.uuid);
+            expect(req.egressActor).toBeUndefined();
+        } finally {
+            read.mockRestore();
+            logged.mockRestore();
+        }
+    });
+
     it('emits site.htmlServed with the original URL target including query string', async () => {
         const owner = await makeUserWithHome();
         const homePath = `/${owner.username}`;

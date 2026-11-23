@@ -274,6 +274,123 @@ describe('ChatCompletionDriver model map', () => {
         d.onServerShutdown();
     });
 
+    const entry = (id: string, extra: Record<string, unknown> = {}) => ({
+        id,
+        costs_currency: 'usd-cents',
+        costs: { tokens: 1_000_000, input_tokens: 1, output_tokens: 2 },
+        max_tokens: 8192,
+        ...extra,
+    });
+
+    /** Two providers, with a shared id, aliases and a price change. */
+    const listingDriver = async (
+        pricingOverrides: unknown[] = [
+            { startsAt: '2020-01-01T00:00:00Z', costs: { output_tokens: 9 } },
+        ],
+    ) => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue([
+            entry('zeta', { aliases: ['zed', 'z'] }),
+            entry('shared'),
+            entry('alpha', { pricingOverrides }),
+        ] as never);
+        vi.spyOn(OllamaChatProvider.prototype, 'models').mockResolvedValue([
+            entry('shared'),
+            entry('beta'),
+        ] as never);
+        const d = newDriver({ ollama: {} });
+        await d.onServerStart();
+        return d;
+    };
+
+    it('lists each model once, by provider then id, at the rates in force', async () => {
+        const d = await listingDriver();
+        try {
+            expect(
+                (await d.models()).map((m) => [
+                    m.provider,
+                    m.id,
+                    m.costs.output_tokens,
+                ]),
+            ).toEqual([
+                ['fake-chat', 'alpha', 9],
+                ['fake-chat', 'zeta', 2],
+                ['ollama', 'beta', 2],
+                // Registered first, so its entry is the one kept for the id.
+                ['ollama', 'shared', 2],
+            ]);
+            expect(await d.list()).toEqual([
+                'alpha',
+                'ollama:ollama/beta',
+                'ollama:ollama/shared',
+                'zeta',
+            ]);
+        } finally {
+            d.onServerShutdown();
+        }
+    });
+
+    it('serves one prebuilt listing to every caller', async () => {
+        const d = await listingDriver();
+        try {
+            const models = await d.models();
+            const names = await d.list();
+            expect(await d.models()).toBe(models);
+            expect(await d.list()).toBe(names);
+            expect(Object.isFrozen(models)).toBe(true);
+            expect(Object.isFrozen(names)).toBe(true);
+        } finally {
+            d.onServerShutdown();
+        }
+    });
+
+    it('relists each scheduled price change at its instant, in either direction', async () => {
+        const at = (iso: string) => vi.setSystemTime(new Date(iso));
+        vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-06-01') });
+        try {
+            const d = await listingDriver([
+                { startsAt: '2026-01-01T00:00:00Z', costs: { output_tokens: 3 } },
+                { startsAt: '2026-12-01T00:00:00Z', costs: { output_tokens: 9 } },
+                { startsAt: '2027-12-01T00:00:00Z', costs: { output_tokens: 27 } },
+            ]);
+            const rate = async () =>
+                (await d.models()).find((m) => m.id === 'alpha')!.costs
+                    .output_tokens;
+            const first = await d.models();
+            expect(await rate()).toBe(3);
+
+            // The same listing for as long as its rates hold.
+            at('2026-11-30T23:59:59Z');
+            expect(await d.models()).toBe(first);
+
+            at('2026-12-01T00:00:00Z');
+            expect(await rate()).toBe(9);
+            const second = await d.models();
+            expect(second).not.toBe(first);
+            at('2027-11-30T23:59:59Z');
+            expect(await d.models()).toBe(second);
+
+            at('2027-12-01T00:00:00Z');
+            expect(await rate()).toBe(27);
+            at('2026-06-01T00:00:00Z');
+            expect(await rate()).toBe(3);
+            at('2025-06-01T00:00:00Z');
+            expect(await rate()).toBe(2);
+            d.onServerShutdown();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('reports a catalog it cannot list on each listing call', async () => {
+        const d = await listingDriver([null]);
+        try {
+            await expect(d.models()).rejects.toThrow(TypeError);
+            await expect(d.list()).rejects.toThrow(TypeError);
+        } finally {
+            d.onServerShutdown();
+        }
+    });
+
     it('rebuilds on a timer, picking up catalog changes', async () => {
         vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
         try {
@@ -281,7 +398,12 @@ describe('ChatCompletionDriver model map', () => {
             const models = vi.spyOn(FakeChatProvider.prototype, 'models');
             const d = newDriver({ ollama: { enabled: false } });
             await d.onServerStart();
+            const before = await d.models();
             expect(await d.list()).not.toContain('added-later');
+
+            // An unchanged catalog relists the same models.
+            await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+            expect(await d.models()).toEqual(before);
 
             models.mockImplementation(async function (this: FakeChatProvider) {
                 const catalog = await real.call(this);

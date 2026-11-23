@@ -4389,6 +4389,48 @@ describe('MeteringService', () => {
         });
     });
 
+    describe('reserveCredits within a headroom', () => {
+        it('admits one of two holds sized from the same read of the headroom', async () => {
+            const headroom = await target.getUsageHeadroom(actor, {
+                versioned: true,
+            });
+            const amount = headroom.balance - headroom.held;
+
+            const holds = await Promise.all([
+                target.reserveCredits(actor, amount, { within: headroom }),
+                target.reserveCredits(actor, amount, { within: headroom }),
+            ]);
+
+            expect(holds.filter((hold) => hold !== null)).toHaveLength(1);
+            expect(await target.getOutstandingHolds(actor)).toBe(amount);
+            await Promise.all(holds.map((hold) => hold?.release()));
+        });
+
+        it('refuses a hold sized from a balance that has been spent since', async () => {
+            const headroom = await target.getUsageHeadroom(actor, {
+                versioned: true,
+            });
+            await target.incrementUsage(actor, 'kv:read', 1, 1000);
+
+            expect(
+                await target.reserveCredits(actor, 1000, { within: headroom }),
+            ).toBe('stale');
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('takes a hold that fits', async () => {
+            const headroom = await target.getUsageHeadroom(actor, {
+                versioned: true,
+            });
+            const hold = await target.reserveCredits(actor, 1000, {
+                within: headroom,
+            });
+
+            expect(await target.getOutstandingHolds(actor)).toBe(1000);
+            await hold!.release();
+        });
+    });
+
     describe('reserveCreditsIfAffordable', () => {
         const BUDGET = 20_000_000;
         const HOLD = 16_200_000;

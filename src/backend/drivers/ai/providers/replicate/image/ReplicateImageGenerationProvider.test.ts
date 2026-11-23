@@ -1554,6 +1554,32 @@ describe('Replicate expanded catalog billing', () => {
         );
     });
 
+    it('bills no more runtime than a prediction is given to run', async () => {
+        createPredictionMock.mockResolvedValueOnce({
+            id: 'runaway',
+            status: 'succeeded',
+            output: ['https://r.example/output.png'],
+            metrics: { predict_time: 2 ** 53 },
+        });
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'stability-ai/sdxl',
+                prompt: 'A cup',
+            }),
+        );
+        // The 10-minute prediction window plus 30 seconds of cleanup.
+        expect(batchIncrementUsagesSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            [
+                {
+                    usageType: 'replicate:stability-ai/sdxl:second',
+                    usageAmount: 630,
+                    costOverride: 630 * 97_500,
+                },
+            ],
+        );
+    });
+
     it('extracts structured image output and uses the chosen resolution tariff', async () => {
         createPredictionMock.mockResolvedValueOnce({
             id: 'tier',

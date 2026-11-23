@@ -73,10 +73,11 @@ A chat completion counts as a concurrent request until the model finishes it, ev
 | Audio for `speech2speech()`                    | 25 MiB           |
 | Audio for `speech2txt()`, Gemini               | 10 MiB           |
 | Image inlined in a chat message                | 5 MB             |
+| Video URL in a chat message, Gemini models     | 20 MB            |
 | File attached to a chat message, Claude models | 30 MB            |
 | File attached to a chat message, OpenAI models | 5 MB             |
 
-An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
+An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. A chat request to a Gemini model can include up to 4 video URLs. A video URL over a limit, or one that doesn't finish downloading within 30 seconds, isn't sent to the model, and the model is told the video couldn't be loaded. OCR input limits are under [OCR](#ocr).
 
 The standard chat timeout is 10 minutes for a response to start, or to finish if it isn't streamed. Stream durations depend on the provider. Native Gemini applies the 10-minute timeout to the whole response, including streaming. Groq uses 60 seconds to start a response. Mistral streams have no timeout of their own. If the caller disconnects, a stream that's still running gets 10 more minutes to finish, and is then stopped. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
 
@@ -185,7 +186,7 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 | All | Up to 16 reference images; more fails with `bad_request`. A reference given as a URL is fetched with a 30-second timeout and capped at 30 MB. |
 | xAI | Up to 5 reference images; more fails with `bad_request`. |
 | Together | Image routes are excluded because they require third-party data sharing; generation fails before any upstream call. |
-| Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Steps: Schnell 1–8; Lucid Origin 1–40; Phoenix and FLUX.2 Dev 1–50; Klein exactly 4; SDXL and Inpainting 1–20. |
+| Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Steps: Schnell 1–8; Lucid Origin 1–40; Phoenix and FLUX.2 Dev 1–50; Klein exactly 4; SDXL and Inpainting 1–20. A call times out after 5 minutes and fails with `504 upstream_timeout`. A reply over 64 MiB fails with `502 upstream_failed`. Neither is charged. |
 | Replicate | At most 10 references, or the model's lower limit; FLUX 1.1 Pro accepts one. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For other models with width/height controls, dimensions round to multiples of 8 and clamp to the schema bounds (64–4096 per side if none are given). A call has 10 minutes for its predictions, which are polled every 2 seconds. A prediction that a model's safety checker rejects is run again up to two more times when no `seed` is set. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
 | BytePlus | Pro: 10 references; other Seedream models: 14. |
 | Kling | `kling-v3-omni` and `kling-image-o1`: 10 references; `kling-v3` and `kling-v2-1`: one. Prompt up to 2,500 characters. Each reference is a JPEG or PNG up to 10 MB. Jobs are polled every 2 seconds for up to 5 minutes, then fail with `504 upstream_timeout` and aren't charged. Each call to Kling times out after 60 seconds. |
@@ -951,6 +952,9 @@ An account can also hold at most **150** open connections from one origin, so a 
 ### All driver calls
 
 Every driver call also counts toward **8,000 calls/min**, before the per-API limits above. It only exists to catch runaway loops; a client that hits it is looping.
+
+JSON replies validated by the Mistral, OpenAI image and transcription, BytePlus image, Together image and video, and xAI image clients are capped at 64 MiB. Larger replies fail with `502 upstream_failed`.
+
 
 ## Storage quota
 

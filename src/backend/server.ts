@@ -973,6 +973,7 @@ export class PuterServer {
                     // tokens, and the actor carries the whole user row.
                     const urlPath = req.originalUrl.split('?')[0];
                     const body = req.body as unknown;
+                    const alarmActor = req.actor ?? req.alarmActor;
                     this.clients.alarm.create(
                         alarmId,
                         `HTTP ${status} on ${req.method} ${urlPath}: ${signature}`,
@@ -988,6 +989,8 @@ export class PuterServer {
                             error: err instanceof Error ? err : undefined,
                             status,
                             method: req.method,
+                            // Hosted sites share paths; the host says which.
+                            host: req.hostname,
                             path: urlPath,
                             queryKeys: Object.keys(req.query ?? {}),
                             bodyKeys:
@@ -995,7 +998,9 @@ export class PuterServer {
                                     ? Object.keys(body)
                                     : [],
                             route: routePath,
-                            actor: req.actor ? actorUid(req.actor) : undefined,
+                            actor: alarmActor
+                                ? actorUid(alarmActor)
+                                : undefined,
                         },
                         // An unhandled server error is the one thing that
                         // still pages on-call.

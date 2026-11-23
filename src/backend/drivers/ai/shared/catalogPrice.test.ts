@@ -18,7 +18,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { catalogPrice, usdToUcents } from './catalogPrice.js';
+import {
+    catalogPrice,
+    catalogTokenLimit,
+    usdToUcents,
+} from './catalogPrice.js';
 
 describe('catalogPrice', () => {
     it('reads numbers and numeric strings', () => {
@@ -42,6 +46,21 @@ describe('catalogPrice', () => {
     it('leaves overflowing and underflowing conversions unknown', () => {
         expect(catalogPrice(1e308, 100)).toBeUndefined();
         expect(catalogPrice(1e-320, 1e-10)).toBeUndefined();
+    });
+
+    it('leaves a number too large to be money unpriced', () => {
+        expect(catalogPrice(2 ** 53)).toBeUndefined();
+        expect(catalogPrice(2 ** 31, 100_000_000)).toBeUndefined();
+        expect(catalogPrice(2 ** 31, 100)).toBe(2 ** 31 * 100);
+    });
+});
+
+describe('catalogTokenLimit', () => {
+    it('reads a positive whole number and nothing else', () => {
+        expect(catalogTokenLimit(8192)).toBe(8192);
+        for (const value of [0, -1, 1.5, '8192', null, undefined, {}, 1e308]) {
+            expect(catalogTokenLimit(value)).toBeUndefined();
+        }
     });
 });
 

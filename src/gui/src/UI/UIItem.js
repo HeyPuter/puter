@@ -605,10 +605,7 @@ async function UIItem (options) {
                 return false;
             }
 
-            open_item({
-                item: el_item,
-                new_window: e.metaKey || e.ctrlKey,
-            });
+            open_item({ item: el_item });
         });
     }
 
@@ -669,26 +666,6 @@ async function UIItem (options) {
         if ( !e.ctrlKey && !e.metaKey ) {
             $(this).closest('.item-container').find('.item-selected').not(this).removeClass('item-selected');
             window.update_explorer_footer_selected_items_count($el_parent_window);
-        }
-        //----------------------------------------------------------------
-        // On an OpenFileDialog?
-        //----------------------------------------------------------------
-        if ( $el_parent_window.attr('data-is_openFileDialog') === 'true' ) {
-            if ( ! options.is_dir )
-            {
-                $el_parent_window.find('.openfiledialog-open-btn').removeClass('disabled');
-            }
-            else
-            {
-                $el_parent_window.find('.openfiledialog-open-btn').addClass('disabled');
-            }
-        }
-        //----------------------------------------------------------------
-        // On a SaveFileDialog?
-        //----------------------------------------------------------------
-        if ( $el_parent_window.attr('data-is_saveFileDialog') === 'true' && !options.is_dir ) {
-            $el_parent_window.find('.savefiledialog-filename').val($(el_item).attr('data-name'));
-            $el_parent_window.find('.savefiledialog-save-btn').removeClass('disabled');
         }
     });
 
@@ -1132,27 +1109,6 @@ async function UIItem (options) {
                 menu_items.push('-');
             }
 
-            // -------------------------------------------
-            // Open in New Window
-            // (only if the item is on a window)
-            // -------------------------------------------
-            if ( $(el_item).closest('.window-body').length > 0 && options.is_dir ) {
-                menu_items.push({
-                    html: i18n('open_in_new_window'),
-                    onClick: function () {
-                        if ( options.is_dir ) {
-                            open_item({ item: el_item, new_window: true });
-                        }
-                    },
-                });
-                // -------------------------------------------
-                // -- separator --
-                // -------------------------------------------
-                if ( !is_trash && !is_trashed && options.is_dir )
-                {
-                    menu_items.push('-');
-                }
-            }
             // -------------------------------------------
             // Deploy As App
             // -------------------------------------------

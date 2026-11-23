@@ -57,7 +57,10 @@ export interface NormalizedEntryWrite {
     index: number;
     input: FSEntryCreateInput;
     userId: number;
+    /** The path as requested; existing entries are looked up by it. */
     targetPath: string;
+    /** The path written: the parent's stored spelling plus `fileName`. */
+    storedPath: string;
     parentPath: string;
     fileName: string;
     metadataJson: string | null;

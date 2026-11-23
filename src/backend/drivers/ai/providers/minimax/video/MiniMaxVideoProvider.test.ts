@@ -875,7 +875,7 @@ describe('MiniMaxVideoProvider failures', () => {
     // MiniMax bills a task it reports as succeeded, video or not.
     it('fails, still metered, when the finished H3 task has no video', async () => {
         mockH3Flow(h3Task({ content: {} }));
-        await expect(generate({})).rejects.toThrow(/video URL/);
+        await expect(generate({})).rejects.toThrow(/unexpected response/);
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -888,7 +888,7 @@ describe('MiniMaxVideoProvider failures', () => {
             jsonResponse({ file: { file_id: 1 }, base_resp: ok }),
         );
         await expect(generate({ model: 'minimax-hailuo-2.3' })).rejects.toThrow(
-            /video URL/,
+            /unexpected response/,
         );
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
     });

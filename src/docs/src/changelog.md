@@ -2,14 +2,28 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
-## November 21, 2026
+## November 23, 2026
 
 - Changed Puter.js in an app that Puter opens in its own browser tab to remove the `puter.*` launch parameters from the address bar once the page has loaded, keeping the app's other query parameters and its URL hash. Code that reads them from `location.search` has to do so before or during the `load` event.
 - Fixed [`puter.ui.onLaunchedWithItems()`](/UI/onLaunchedWithItems/) and [`puter.ui.wasLaunchedWithItems()`](/UI/wasLaunchedWithItems/) missing the opened item when the app changed its URL before calling them.
 - Fixed a private app that Puter opens in its own browser tab missing the opened item from [`puter.ui.onLaunchedWithItems()`](/UI/onLaunchedWithItems/) when the user had to sign in to the app first.
 
+## November 22, 2026
+
+- Fixed [`puter.fs.getReadURL()`](/FS/getReadURL/) refusing files that the app or user can read through access to a parent folder, such as a folder shared with the user.
+- Fixed [`puter.fs.write()`](/FS/write/) answering `dest_does_not_exist` when the path spelled an existing folder in another letter case or Unicode form. The file is written into that folder.
+- Fixed launch arguments passed with [`puter.ui.launchApp()`](/UI/launchApp/) reaching the app with their percent-escapes decoded, so `%20` arrived as a space. A `%` that isn't part of an escape also stopped Puter.js from loading in the launched app.
+
+## November 21, 2026
+
+- Changed the pickers that [`puter.ui.showOpenFilePicker()`](/UI/showOpenFilePicker/), [`puter.ui.showSaveFilePicker()`](/UI/showSaveFilePicker/) and [`puter.ui.showDirectoryPicker()`](/UI/showDirectoryPicker/) open to look and work like the Files tab of the Puter dashboard, with its folders sidebar, breadcrumbs, list and grid views, sorting, and keyboard navigation.
+- Fixed `undefinedOnCancel` of those pickers not resolving in a Puter app when the user closed the picker with Escape or its close button.
+- Fixed [`puter.ui.showDirectoryPicker()`](/UI/showDirectoryPicker/) giving the folder the picker was open in a path with the username in it. Its path starts with `~/`, as a selected folder's does.
+
 ## November 20, 2026
 
+- Changed [`puter.ai.chat()`](/AI/chat/) to reject audio with `bad_request` when the model does not support audio input. This covers audio parts, audio from a Puter file, and audio or video `data:` URLs sent in an image part.
+- Fixed video and Puter file audio input in [`puter.ai.chat()`](/AI/chat/) on Gemini models.
 - Added the `senderAuth` field to the [`EmailMessage`](/Objects/emailmessage/) from [`puter.email.get()`](/Email/get/). It holds the result of Puter's check that mail naming a Puter domain as its sender really came from that domain.
 
 ## November 18, 2026

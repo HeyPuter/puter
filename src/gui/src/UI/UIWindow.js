@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIAlert from './UIAlert.js';
 import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
 import UIAuthLogin from './Auth/UIAuthLogin.js';
@@ -34,6 +33,7 @@ import item_icon from '../helpers/itemIcon.js';
 import { parent_path_for, shared_crumbs_for } from '../helpers/sharePaths.js';
 import { has_shared_roots } from '../helpers/sharedAccess.js';
 import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/windowVisibility.js';
+import { filePickerPromptHtml, focusFileName, initFilePickerDialog, isFilePickerDialog } from './FilePicker/filePickerDialog.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 // Above any z-index an ordinary desktop window reaches in practice.
@@ -46,10 +46,15 @@ async function UIWindow (options) {
     // options.dominant places the window in center close to top.
     options.dominant = options.dominant ?? false;
 
-    // in case of file dialogs, the window is automatically dominant
-    if ( options.is_openFileDialog || options.is_saveFileDialog || options.is_directoryPicker )
-    {
+    // A file picker draws its own listing (see FilePicker), so it isn't an
+    // explorer window, whatever its caller passed. It opens dominant.
+    const is_file_picker = isFilePickerDialog(options);
+    if ( is_file_picker ) {
         options.dominant = true;
+        options.is_dir = false;
+        // Room for the folders sidebar beside the listing; a dominant window opens 15% down.
+        options.width = options.width ?? Math.max(320, Math.min(820, window.innerWidth - 32));
+        options.height = options.height ?? Math.max(300, Math.min(540, Math.floor(window.innerHeight * 0.8)));
     }
 
     // we don't want to increment window_counter for dominant windows
@@ -247,7 +252,7 @@ async function UIWindow (options) {
                         ${options.uid !== undefined ? `window-${options.uid}` : ''} 
                         ${options.window_class} 
                         ${options.allow_user_select ? ' allow-user-select' : ''}
-                        ${options.is_openFileDialog || options.is_saveFileDialog || options.is_directoryPicker ? 'window-filedialog' : ''}" 
+                        ${is_file_picker ? 'window-filedialog' : ''}" 
                 id="window-${win_id}" 
                 data-allowed_file_types = "${html_encode(options.allowed_file_types)}"
                 data-app="${html_encode(options.app)}" 
@@ -424,7 +429,7 @@ async function UIWindow (options) {
 
     // Body
     h += `<div 
-                class="window-body${options.is_dir ? ' item-container' : ''}${options.iframe_url !== undefined || options.iframe_srcdoc !== undefined ? ' window-body-app' : ''}${options.is_saveFileDialog || options.is_openFileDialog || options.is_directoryPicker ? ' window-body-filedialog' : ''}" 
+                class="window-body${options.is_dir ? ' item-container' : ''}${options.iframe_url !== undefined || options.iframe_srcdoc !== undefined ? ' window-body-app' : ''}${is_file_picker ? ' window-body-filedialog' : ''}" 
                 data-allowed_file_types="${html_encode(options.allowed_file_types)}"
                 data-path="${html_encode(options.path)}"
                 data-multiselectable = "${options.selectable_body}"
@@ -486,7 +491,7 @@ async function UIWindow (options) {
     h += '</div>';
 
     // Explorer footer
-    if ( options.is_dir && !options.is_saveFileDialog && !options.is_openFileDialog && !options.is_directoryPicker ) {
+    if ( options.is_dir ) {
         h += '<div class="explorer-footer">';
         h += '<span class="explorer-footer-item-count"></span>';
         h += '<span class="explorer-footer-seperator">|</span>';
@@ -494,46 +499,9 @@ async function UIWindow (options) {
         h += '</div>';
     }
 
-    // is_saveFileDialog
-    if ( options.is_saveFileDialog ) {
-        h += '<div class="window-filedialog-prompt">';
-        h += '<div style="display:flex; flex-grow: 1;">';
-        h += `<input type="text" style="flex-grow:1;" class="savefiledialog-filename" autocorrect="off" spellcheck="false" value="${html_encode(options.saveFileDialog_default_filename) ?? ''}">`;
-        h += `<button class="button button-small filedialog-cancel-btn">${i18n('cancel')}</button>`;
-        h += '<button class="button ';
-        if ( options.saveFileDialog_default_filename === undefined || options.saveFileDialog_default_filename === '' )
-        {
-            h += 'disabled ';
-        }
-        h += `button-small button-primary savefiledialog-save-btn">${i18n('save')}</button>`;
-        h += '</div>';
-        h += '</div>';
-    }
-
-    // is_openFileDialog
-    else if ( options.is_openFileDialog ) {
-        h += '<div class="window-filedialog-prompt">';
-        // 'upload here'
-        h += `<div class="window-filedialog-upload-here"><svg xmlns="http://www.w3.org/2000/svg" style="width: 18px; height: 18px; margin-bottom: -4px;" width="16" height="16" fill="currentColor" class="bi bi-cloud-arrow-up" viewBox="0 0 16 16">
-  <path fill-rule="evenodd" d="M7.646 5.146a.5.5 0 0 1 .708 0l2 2a.5.5 0 0 1-.708.708L8.5 6.707V10.5a.5.5 0 0 1-1 0V6.707L6.354 7.854a.5.5 0 1 1-.708-.708z"/>
-  <path d="M4.406 3.342A5.53 5.53 0 0 1 8 2c2.69 0 4.923 2 5.166 4.579C14.758 6.804 16 8.137 16 9.773 16 11.569 14.502 13 12.687 13H3.781C1.708 13 0 11.366 0 9.318c0-1.763 1.266-3.223 2.942-3.593.143-.863.698-1.723 1.464-2.383m.653.757c-.757.653-1.153 1.44-1.153 2.056v.448l-.445.049C2.064 6.805 1 7.952 1 9.318 1 10.785 2.23 12 3.781 12h8.906C13.98 12 15 10.988 15 9.773c0-1.216-1.02-2.228-2.313-2.228h-.5v-.5C12.188 4.825 10.328 3 8 3a4.53 4.53 0 0 0-2.941 1.1z"/>
-</svg> ${i18n('upload')}</div>`;
-
-        h += '<div style="text-align:right; flex-grow:1;">';
-        h += `<button class="button button-small filedialog-cancel-btn">${i18n('cancel')}</button>`;
-        h += `<button class="button disabled button-small button-primary openfiledialog-open-btn">${i18n('open')}</button>`;
-        h += '</div>';
-        h += '</div>';
-    }
-
-    // is_directoryPicker
-    else if ( options.is_directoryPicker ) {
-        h += '<div class="window-filedialog-prompt">';
-        h += '<div style="text-align:right; flex-grow: 1;">';
-        h += `<button class="button button-small filedialog-cancel-btn">${i18n('cancel')}</button>`;
-        h += `<button class="button button-small button-primary directorypicker-select-btn" style="margin-left:10px;">${i18n('select')}</button>`;
-        h += '</div>';
-        h += '</div>';
+    // File picker: the buttons under its listing
+    if ( is_file_picker ) {
+        h += filePickerPromptHtml(options);
     }
     h += '</div>';
 
@@ -579,18 +547,6 @@ async function UIWindow (options) {
     const el_window_navbar_up_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-up`);
     const el_window_body = document.querySelector(`#window-${win_id} > .window-body`);
     const el_window_app_iframe = document.querySelector(`#window-${win_id} > .window-body > .window-app-iframe`);
-    const el_savefiledialog_filename = document.querySelector(`#window-${win_id} .savefiledialog-filename`);
-    const el_savefiledialog_save_btn = document.querySelector(`#window-${win_id} .savefiledialog-save-btn`);
-    const el_filedialog_cancel_btn = document.querySelector(`#window-${win_id} .filedialog-cancel-btn`);
-    const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
-    const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
-    const el_window_filedialog_upload_here = document.querySelector(`#window-${win_id} .window-filedialog-upload-here`);
-
-    if ( el_window_filedialog_upload_here ) {
-        el_window_filedialog_upload_here.addEventListener('click', function () {
-            window.init_upload_using_dialog(el_window_body, `${$(el_window).attr('data-path') }/`);
-        });
-    }
     // attach optional event listeners
     el_window.on_before_exit = options.on_before_exit;
 
@@ -738,21 +694,8 @@ async function UIWindow (options) {
                 // Move the onAppend callback here to ensure it's called after fade-in
                 if ( options.is_visible ) {
                     $(el_window).show(0, function (e) {
-                        // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
-                        if ( options.is_saveFileDialog ) {
-                            let item_name = el_savefiledialog_filename.value;
-                            const extname = path.extname(`/${ item_name}`);
-                            if ( extname !== '' )
-                            {
-                                el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length);
-                            }
-                            else
-                            {
-                                $(el_savefiledialog_filename).select();
-                            }
-
-                            $(el_savefiledialog_filename).get(0).focus({ preventScroll: true });
-                        }
+                        // A save picker's name has the keyboard, selected up to its extension.
+                        if ( options.is_saveFileDialog ) focusFileName(el_window);
                         //set custom window css
                         $(el_window).css(options.window_css);
                         // onAppend()
@@ -764,21 +707,8 @@ async function UIWindow (options) {
             });
         } else {
             $(el_window).show(0, function (e) {
-                // if SaveFileDialog, bring focus to the el_savefiledialog_filename and select all
-                if ( options.is_saveFileDialog ) {
-                    let item_name = el_savefiledialog_filename.value;
-                    const extname = path.extname(`/${ item_name}`);
-                    if ( extname !== '' )
-                    {
-                        el_savefiledialog_filename.setSelectionRange(0, item_name.length - extname.length);
-                    }
-                    else
-                    {
-                        $(el_savefiledialog_filename).select();
-                    }
-
-                    $(el_savefiledialog_filename).get(0).focus({ preventScroll: true });
-                }
+                // A save picker's name has the keyboard, selected up to its extension.
+                if ( options.is_saveFileDialog ) focusFileName(el_window);
                 //set custom window css
                 $(el_window).css(options.window_css);
                 // onAppend()
@@ -789,222 +719,8 @@ async function UIWindow (options) {
         }
     }
 
-    if ( options.is_saveFileDialog ) {
-        //------------------------------------------------
-        // SaveFileDialog > Save button
-        //------------------------------------------------
-        $(el_savefiledialog_save_btn).on('click', function (e) {
-            const filename = $(el_savefiledialog_filename).val();
-            try {
-                window.validate_fsentry_name(filename);
-            } catch ( err ) {
-                UIAlert(err.message, 'error', 'OK');
-                return;
-            }
-            const target_path = path.join($(el_window).attr('data-path'), filename);
-            if ( options.onSaveFileDialogSave && typeof options.onSaveFileDialogSave === 'function' )
-            {
-                options.onSaveFileDialogSave(target_path, el_window);
-            }
-        });
-
-        //------------------------------------------------
-        // SaveFileDialog > Enter
-        //------------------------------------------------
-        $(el_savefiledialog_filename).on('keypress', function (event) {
-            if ( event.which === 13 ) {
-                $(el_savefiledialog_save_btn).trigger('click');
-            }
-        });
-
-        //------------------------------------------------
-        // Enable/disable Save button based on input
-        //------------------------------------------------
-        $(el_savefiledialog_filename).bind('keydown change input paste', function () {
-            if ( $(this).val() !== '' )
-            {
-                $(el_savefiledialog_save_btn).removeClass('disabled');
-            }
-            else
-            {
-                $(el_savefiledialog_save_btn).addClass('disabled');
-            }
-        });
-        $(el_savefiledialog_filename).get(0).focus({ preventScroll: true });
-    }
-
-    if ( options.is_openFileDialog ) {
-        //------------------------------------------------
-        // OpenFileDialog > Open button
-        //------------------------------------------------
-        $(el_openfiledialog_open_btn).on('click', async function (e) {
-            const selected_els = $(el_window).find('.item-selected[data-is_dir="0"]');
-            let selected_files;
-
-            // No item selected
-            if ( selected_els.length === 0 )
-            {
-                return;
-            }
-            // ------------------------------------------------
-            // Item(s) selected
-            // ------------------------------------------------
-            else {
-                selected_files = [];
-                // an array that hold the items to sign
-                const items_to_sign = [];
-
-                // prepare items to sign
-                for ( let i = 0; i < selected_els.length; i++ )
-                {
-                    items_to_sign.push({ uid: $(selected_els[i]).attr('data-uid'), action: 'write', path: $(selected_els[i]).attr('data-path') });
-                }
-
-                // sign items
-                selected_files = await puter.fs.sign(options.initiating_app_uuid, items_to_sign);
-                selected_files = selected_files.items;
-                selected_files = Array.isArray(selected_files) ? selected_files : [selected_files];
-
-                // change path of each item to preserve privacy
-                for ( let i = 0; i < selected_files.length; i++ )
-                {
-                    selected_files[i].path = privacy_aware_path(selected_files[i].path);
-                }
-            }
-
-            const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
-            if ( options.return_to_parent_window ) {
-                // Before the answer: a picker's token rides out with it.
-                window.deliverPopupTokenToOpener?.();
-                window.opener.postMessage({
-                    msg: 'fileOpenPicked',
-                    original_msg_id: ifram_msg_uid,
-                    items: Array.isArray(selected_files) ? [...selected_files] : [selected_files],
-                    // LEGACY SUPPORT, remove this in the future when Polotno uses the new SDK
-                    // this is literally put in here to support Polotno's legacy code
-                    ...(selected_files.length === 1 && selected_files[0]),
-                }, window.openerOrigin);
-
-                window.close();
-                window.open('', '_self').close();
-            }
-            else if ( options.parent_uuid ) {
-                // send event to iframe
-                const target_iframe = $(`.window[data-element_uuid="${options.parent_uuid}"]`).find('.window-app-iframe').get(0);
-                if ( target_iframe ) {
-                    target_iframe.contentWindow.postMessage({
-                        msg: 'fileOpenPicked',
-                        original_msg_id: ifram_msg_uid,
-                        items: Array.isArray(selected_files) ? [...selected_files] : [selected_files],
-                        // LEGACY SUPPORT, remove this in the future when Polotno uses the new SDK
-                        // this is literally put in here to support Polotno's legacy code
-                        ...(selected_files.length === 1 && selected_files[0]),
-                    }, '*');
-                }
-                // focus on iframe
-                $(target_iframe).get(0)?.focus({ preventScroll: true });
-
-                // send file_opened event
-                const file_opened_event = new CustomEvent('file_opened', { detail: Array.isArray(selected_files) ? [...selected_files] : [selected_files] });
-
-                // dispatch event to parent window
-                $(`.window[data-element_uuid="${options.parent_uuid}"]`).get(0)?.dispatchEvent(file_opened_event);
-
-                $(el_window).close();
-            }
-        });
-    }
-    else if ( options.is_directoryPicker ) {
-        //------------------------------------------------
-        // DirectoryPicker > Select button
-        //------------------------------------------------
-        $(el_directorypicker_select_btn).on('click', async function (e) {
-            const selected_els = $(el_window).find('.item-selected[data-is_dir="1"]');
-            let selected_dirs;
-            // ------------------------------------------------
-            // No item selected, return current directory
-            // ------------------------------------------------
-            if ( selected_els.length === 0 ) {
-                selected_dirs = await puter.fs.sign(options.initiating_app_uuid, { uid: $(el_window).attr('data-uid'), action: 'write', path: $(el_window).attr('data-path') });
-                selected_dirs = selected_dirs.items;
-            }
-
-            // ------------------------------------------------
-            // directorie(s) selected
-            // ------------------------------------------------
-            else {
-                selected_dirs = [];
-                // an array that hold the items to sign
-                const items_to_sign = [];
-
-                // prepare items to sign
-                for ( let i = 0; i < selected_els.length; i++ )
-                {
-                    items_to_sign.push({ uid: $(selected_els[i]).attr('data-uid'), action: 'write', path: $(selected_els[i]).attr('data-path') });
-                }
-
-                // sign items
-                selected_dirs = await puter.fs.sign(options.initiating_app_uuid, items_to_sign);
-                selected_dirs = selected_dirs.items;
-                selected_dirs = Array.isArray(selected_dirs) ? selected_dirs : [selected_dirs];
-
-                // change path of each item to preserve privacy
-                for ( let i = 0; i < selected_dirs.length; i++ )
-                {
-                    selected_dirs[i].path = privacy_aware_path(selected_dirs[i].path);
-                }
-            }
-
-            const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
-
-            if ( options.return_to_parent_window ) {
-                // Before the answer: a picker's token rides out with it.
-                window.deliverPopupTokenToOpener?.();
-                window.opener.postMessage({
-                    msg: 'directoryPicked',
-                    original_msg_id: ifram_msg_uid,
-                    items: Array.isArray(selected_dirs) ? [...selected_dirs] : [selected_dirs],
-                    // LEGACY SUPPORT, remove this in the future when Polotno uses the new SDK
-                    // this is literally put in here to support Polotno's legacy code
-                    ...(selected_dirs.length === 1 && selected_dirs[0]),
-                }, window.openerOrigin);
-
-                window.close();
-                window.open('', '_self').close();
-            }
-            if ( options.parent_uuid ) {
-                // Send directoryPicked event to iframe
-                const target_iframe = $(`.window[data-element_uuid="${options.parent_uuid}"]`).find('.window-app-iframe').get(0);
-                if ( target_iframe ) {
-                    target_iframe.contentWindow.postMessage({
-                        msg: 'directoryPicked',
-                        original_msg_id: ifram_msg_uid,
-                        items: Array.isArray(selected_dirs) ? [...selected_dirs] : [selected_dirs],
-                    }, '*');
-                }
-                $(target_iframe).get(0).focus({ preventScroll: true });
-                $(el_window).close();
-            }
-        });
-    }
-
-    if ( options.is_saveFileDialog || options.is_openFileDialog || options.is_directoryPicker ) {
-        //------------------------------------------------
-        // FileDialog > Cancel button
-        //------------------------------------------------
-        $(el_filedialog_cancel_btn).on('click', function (e) {
-            if ( options.return_to_parent_window ) {
-                window.close();
-                window.open('', '_self').close();
-            }
-            $(el_window).hide(0, () => {
-                // re-anable parent window
-                $(`.window[data-element_uuid="${options.parent_uuid}"]`).removeClass('window-disabled');
-                $(`.window[data-element_uuid="${options.parent_uuid}"]`).find('.window-disable-mask').hide();
-                $(el_window).close();
-            });
-            if ( options.onDialogCancel ) options.onDialogCancel.call(el_window);
-        });
+    if ( is_file_picker ) {
+        initFilePickerDialog(el_window, options);
     }
 
     if ( options.is_dir ) {
@@ -1269,11 +985,6 @@ async function UIWindow (options) {
         if ( $(e.target).hasClass('window-body') && !e.ctrlKey && !e.metaKey ) {
             $(el_window_body).find('.item-selected').removeClass('item-selected');
             window.update_explorer_footer_selected_items_count(el_window);
-            // if this is openFileDialog, disable the Open button
-            if ( options.is_openFileDialog )
-            {
-                $(el_openfiledialog_open_btn).addClass('disabled');
-            }
         }
     });
 
@@ -1460,27 +1171,6 @@ async function UIWindow (options) {
                 }
 
                 window.update_explorer_footer_selected_items_count(el_window);
-
-                // If this is openFileDialog, enable/disable the Open button accordingly
-                if ( options.is_openFileDialog && $(el_window).find('.item-selected[data-is_dir="0"]').length )
-                {
-                    $(el_openfiledialog_open_btn).removeClass('disabled');
-                }
-                else
-                {
-                    $(el_openfiledialog_open_btn).addClass('disabled');
-                }
-            })
-            .on('stop', ({ store, event }) => {
-            // If this is openFileDialog, enable/disable the Open button accordingly
-                if ( options.is_openFileDialog && $(el_window).find('.item-selected[data-is_dir="0"]').length )
-                {
-                    $(el_openfiledialog_open_btn).removeClass('disabled');
-                }
-                else
-                {
-                    $(el_openfiledialog_open_btn).addClass('disabled');
-                }
             });
 
         $(document).on(`mouseup.window-selection-${win_id}`, function () {
@@ -2513,22 +2203,7 @@ $(document).on('click', '.window-sidebar-item', async function (e) {
     const parent_win_id = $(el_window).attr('data-id');
     const item_path =  $(this).attr('data-path');
 
-    // ctrl/cmd + click will open in new window
-    if ( e.metaKey || e.ctrlKey ) {
-        UIWindow({
-            path: item_path,
-            title: path.basename(item_path),
-            icon: await item_icon({ is_dir: true, path: item_path }),
-            // todo
-            // uid: $(el_item).attr('data-uid'),
-            is_dir: true,
-            // todo
-            // sort_by: $(el_item).attr('data-sort_by'),
-            app: 'explorer',
-        });
-    }
-    // update window path only if it's a new path AND no ctrl/cmd key pressed
-    else if ( item_path !== $(el_window).attr('data-path') ) {
+    if ( item_path !== $(el_window).attr('data-path') ) {
         window.window_nav_history[parent_win_id] = window.window_nav_history[parent_win_id].slice(0, window.window_nav_history_current_position[parent_win_id] + 1);
         window.window_nav_history[parent_win_id].push(item_path);
         window.window_nav_history_current_position[parent_win_id]++;
@@ -2540,56 +2215,6 @@ $(document).on('click', '.window-sidebar-item', async function (e) {
 $(document).on('contextmenu', '.window-sidebar', function (e) {
     e.preventDefault();
     e.stopPropagation();
-    return false;
-});
-
-$(document).on('contextmenu taphold', '.window-sidebar-item', function (event) {
-    // dismiss taphold on regular devices
-    if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-    {
-        return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    // todo
-    // $(this).addClass('window-sidebar-item-highlighted');
-    const item = this;
-    UIContextMenu({
-        parent_element: $(this),
-        items: [
-            //--------------------------------------------------
-            // Open
-            //--------------------------------------------------
-            {
-                html: i18n('open'),
-                onClick: function () {
-                    $(item).trigger('click');
-                },
-            },
-            //--------------------------------------------------
-            // Open in New Window
-            //--------------------------------------------------
-            {
-                html: i18n('open_in_new_window'),
-                onClick: async function () {
-                    let item_path = $(item).attr('data-path');
-
-                    UIWindow({
-                        path: item_path,
-                        title: path.basename(item_path),
-                        icon: await item_icon({ is_dir: true, path: item_path }),
-                        // todo
-                        // uid: $(el_item).attr('data-uid'),
-                        is_dir: true,
-                        // todo
-                        // sort_by: $(el_item).attr('data-sort_by'),
-                        app: 'explorer',
-                    });
-                },
-            },
-        ],
-    });
     return false;
 });
 
@@ -2707,20 +2332,8 @@ $(document).on('click', '.window-navbar-path-dirname', function (e) {
     const $el_parent_window = $(this).closest('.window');
     const parent_win_id = $($el_parent_window).attr('data-id');
 
-    // open in new window
-    if ( e.metaKey || e.ctrlKey ) {
-        const dirpath = $(this).attr('data-path');
-        UIWindow({
-            path: dirpath,
-            title: dirpath === '/' ? window.root_dirname : path.basename(dirpath),
-            icon: window.icons['folder.svg'],
-            // uid: $(el_item).attr('data-uid'),
-            is_dir: true,
-            app: 'explorer',
-        });
-    }
     // only change dir if target is not the same as current path
-    else if ( $el_parent_window.attr('data-path') !== $(this).attr('data-path') ) {
+    if ( $el_parent_window.attr('data-path') !== $(this).attr('data-path') ) {
         window.window_nav_history[parent_win_id] = window.window_nav_history[parent_win_id].slice(0, window.window_nav_history_current_position[parent_win_id] + 1);
         window.window_nav_history[parent_win_id].push($(this).attr('data-path'));
         window.window_nav_history_current_position[parent_win_id] = window.window_nav_history[parent_win_id].length - 1;
@@ -2763,23 +2376,6 @@ $(document).on('contextmenu taphold', '.window-navbar-path-dirname', function (e
         html: i18n('open'),
         onClick: () => {
             $(this).trigger('click');
-        },
-    });
-    // -------------------------------------------
-    // Open in New Window
-    // (only if the item is on a window)
-    // -------------------------------------------
-    menu_items.push({
-        html: i18n('open_in_new_window'),
-        onClick: function () {
-            UIWindow({
-                path: $(el).attr('data-path'),
-                title: $(el).attr('data-path') === '/' ? window.root_dirname : path.basename($(el).attr('data-path')),
-                icon: window.icons['folder.svg'],
-                uid: $(el).attr('data-uid'),
-                is_dir: true,
-                app: 'explorer',
-            });
         },
     });
     // -------------------------------------------
@@ -3026,8 +2622,6 @@ window.update_window_path = async function (el_window, target_path) {
 
         // empty body to be filled with the results of /readdir
         $(el_window_body).find('.item').removeItems();
-        // nothing is selected in the folder being opened
-        $(el_window).find('.openfiledialog-open-btn').addClass('disabled');
 
         // add the 'Detail View' table header
         if ( $(el_window).find('.explore-table-headers').length === 0 )

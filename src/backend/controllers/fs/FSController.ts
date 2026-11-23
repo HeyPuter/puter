@@ -282,16 +282,18 @@ export class FSController extends PuterController {
                 requests,
                 storageAllowanceMax,
             );
-        const directoryGuiMetadataByPath = new Map<
+        // By entry: a directory may be stored under another spelling of the
+        // requested path.
+        const directoryGuiMetadataByUid = new Map<
             string,
             WriteGuiMetadata | undefined
         >(
-            requests
-                .filter((request) => request.directory)
-                .map((request) => [
-                    request.fileMetadata.path,
-                    request.guiMetadata,
-                ]),
+            requests.flatMap((request, index) => {
+                const entryUid = responses[index]?.entryUid;
+                return request.directory && entryUid
+                    ? [[entryUid, request.guiMetadata] as const]
+                    : [];
+            }),
         );
         const emittedDirectoryPaths = new Set<string>();
 
@@ -324,8 +326,8 @@ export class FSController extends PuterController {
                     await this.#emitGuiWriteEvent(
                         'outer.gui.item.added',
                         createdDirectoryEntry,
-                        directoryGuiMetadataByPath.get(
-                            createdDirectoryEntry.path,
+                        directoryGuiMetadataByUid.get(
+                            createdDirectoryEntry.uuid,
                         ),
                     );
                 }

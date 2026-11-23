@@ -120,6 +120,13 @@ export const listedCosts = (model: IChatModel, now = new Date()): ModelCost => {
         : model.costs;
 };
 
+/** The instants at which `listedCosts` starts listing other rates for a model. */
+export const scheduledChangeTimes = (model: IChatModel): number[] =>
+    (model.pricingOverrides ?? [])
+        .filter(isScheduledOnly)
+        .map((override) => Date.parse(override.startsAt!))
+        .filter(Number.isFinite);
+
 /**
  * Whether a usage key is priced at the output rate when the model has no rate
  * of its own for it.

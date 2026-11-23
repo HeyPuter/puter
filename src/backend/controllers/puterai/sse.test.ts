@@ -271,6 +271,174 @@ describe('AnthropicSseWriter', () => {
         expect(stops.map((e) => (e.data as { index: number }).index)).toEqual([0, 1]);
     });
 
+    /** Each tool_use block's id and joined input, checking blocks never overlap. */
+    const toolBlocks = (written: string[]) => {
+        const blocks: { id: string; json: string }[] = [];
+        let open: number | null = null;
+        for (const { event, data } of events(written)) {
+            const d = data as {
+                index: number;
+                content_block?: { type: string; id: string };
+                delta?: { partial_json?: string };
+            };
+            if (event === 'content_block_start') {
+                expect(open).toBeNull();
+                open = d.index;
+                if (d.content_block?.type === 'tool_use') {
+                    blocks[d.index] = { id: d.content_block.id, json: '' };
+                }
+            } else if (event === 'content_block_delta') {
+                expect(d.index).toBe(open);
+                if (blocks[d.index]) {
+                    blocks[d.index]!.json += d.delta?.partial_json ?? '';
+                }
+            } else if (event === 'content_block_stop') {
+                expect(d.index).toBe(open);
+                open = null;
+            }
+        }
+        return blocks.filter(Boolean);
+    };
+
+    it('keeps the pieces of a call that arrive after the next call starts', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_a', name: 'Read' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '{"x":' });
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_b', name: 'Grep' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_b', partialJson: '{"y":' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '1}' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_b', partialJson: '2}' });
+        writer.onChunk({ type: 'tool_use', id: 'tu_a', name: 'Read', input: { x: 1 } });
+        writer.onChunk({ type: 'tool_use', id: 'tu_b', name: 'Grep', input: { y: 2 } });
+        writer.onChunk({ type: 'usage', usageDetails: {} });
+
+        expect(toolBlocks(written)).toEqual([
+            { id: 'tu_a', json: '{"x":1}' },
+            { id: 'tu_b', json: '{"y":2}' },
+        ]);
+        expect(
+            events(written).find((e) => e.event === 'message_delta')!.data,
+        ).toMatchObject({ delta: { stop_reason: 'tool_use' } });
+    });
+
+    it('writes a call that ends while another call is still open', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_a', name: 'Read' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '{"x":' });
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_b', name: 'Grep' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_b', partialJson: '{"y":2}' });
+        writer.onChunk({ type: 'tool_use', id: 'tu_b', name: 'Grep', input: { y: 2 } });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '1}' });
+        writer.onChunk({ type: 'tool_use', id: 'tu_a', name: 'Read', input: { x: 1 } });
+        writer.onChunk({ type: 'usage', usageDetails: {} });
+
+        expect(toolBlocks(written)).toEqual([
+            { id: 'tu_a', json: '{"x":1}' },
+            { id: 'tu_b', json: '{"y":2}' },
+        ]);
+    });
+
+    it('writes a waiting call before the message ends, even without its tool_use', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_a', name: 'Read' });
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_b', name: 'Grep' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_b', partialJson: '{"y":2}' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '{}' });
+        writer.onChunk({ type: 'usage', usageDetails: {} });
+
+        expect(toolBlocks(written)).toEqual([
+            { id: 'tu_a', json: '{}' },
+            { id: 'tu_b', json: '{"y":2}' },
+        ]);
+    });
+
+    it('streams the next call live once the open call has its whole input', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_a', name: 'Read' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '{"x":1}' });
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_b', name: 'Grep' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_b', partialJson: '{"y":2}' });
+
+        // The driver holds every tool_use until the upstream ends; B is live before that.
+        expect(toolBlocks(written)).toEqual([
+            { id: 'tu_a', json: '{"x":1}' },
+            { id: 'tu_b', json: '{"y":2}' },
+        ]);
+    });
+
+    it('streams a waiting call live after its pieces so far are written', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_a', name: 'Read' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '{"x":' });
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_b', name: 'Grep' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_b', partialJson: '{"y":' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '1}' });
+        writer.onChunk({ type: 'tool_use', id: 'tu_a', name: 'Read', input: { x: 1 } });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_b', partialJson: '2}' });
+        writer.onChunk({ type: 'tool_use', id: 'tu_b', name: 'Grep', input: { y: 2 } });
+        writer.onChunk({ type: 'usage', usageDetails: {} });
+
+        expect(toolBlocks(written)).toEqual([
+            { id: 'tu_a', json: '{"x":1}' },
+            { id: 'tu_b', json: '{"y":2}' },
+        ]);
+    });
+
+    it.each([undefined, ''])('keeps calls apart when their ids are %j', (id) => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use_start', id, name: 'Read' });
+        writer.onChunk({ type: 'tool_input_delta', id, partialJson: '{"a":' });
+        writer.onChunk({ type: 'tool_input_delta', id, partialJson: '1}' });
+        writer.onChunk({ type: 'tool_use_start', id, name: 'Grep' });
+        writer.onChunk({ type: 'tool_input_delta', id, partialJson: '{"b":2}' });
+        writer.onChunk({ type: 'tool_use', id, name: 'Read', input: { a: 1 } });
+        writer.onChunk({ type: 'tool_use', id, name: 'Grep', input: { b: 2 } });
+        writer.onChunk({ type: 'usage', usageDetails: {} });
+
+        expect(toolBlocks(written).map((block) => block.json)).toEqual([
+            '{"a":1}',
+            '{"b":2}',
+        ]);
+    });
+
+    it('queues a whole tool_use behind an open call instead of cutting it short', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_a', name: 'Read' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '{"x":' });
+        writer.onChunk({ type: 'tool_use', id: 'tu_d', name: 'Grep', input: { d: 4 } });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '1}' });
+        writer.onChunk({ type: 'tool_use', id: 'tu_a', name: 'Read', input: { x: 1 } });
+        writer.onChunk({ type: 'usage', usageDetails: {} });
+
+        expect(toolBlocks(written)).toEqual([
+            { id: 'tu_a', json: '{"x":1}' },
+            { id: 'tu_d', json: '{"d":4}' },
+        ]);
+    });
+
+    it('writes waiting calls when the open call ends after another block closed it', () => {
+        const { writer, written } = newWriter();
+        writer.start();
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_a', name: 'Read' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_a', partialJson: '{"x":' });
+        writer.onChunk({ type: 'tool_use_start', id: 'tu_b', name: 'Grep' });
+        writer.onChunk({ type: 'tool_input_delta', id: 'tu_b', partialJson: '{"y":2}' });
+        writer.onChunk({ type: 'text', text: 'checking' });
+        writer.onChunk({ type: 'tool_use', id: 'tu_a', name: 'Read', input: { x: 1 } });
+
+        expect(toolBlocks(written).map((block) => block.id)).toEqual([
+            'tu_a',
+            'tu_b',
+        ]);
+    });
+
     it('tool_use single-shot (no prior start): one content_block_start/delta/stop', () => {
         const { writer, written } = newWriter();
         writer.start();

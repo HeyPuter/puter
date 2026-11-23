@@ -18,7 +18,9 @@
  */
 
 import { assertImagePrompt } from '../../../interfaces/image/imageValidation.js';
-import { imageDataUri } from '../../../interfaces/image/imageOutput.js';
+import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
+import { imageEntryUrl } from '../../../interfaces/image/imageOutput.js';
+import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import { OpenAI } from 'openai';
 import { formatAspectRatio } from '../../../interfaces/image/imageDimensions.js';
 import { Context } from '../../../../../core/context.js';
@@ -64,6 +66,7 @@ export class XAIImageProvider implements IImageProvider {
         this.#meteringService = meteringService;
         this.#client = new OpenAI({
             apiKey: config.apiKey,
+            fetch: jsonCheckedFetch,
             baseURL: 'https://api.x.ai/v1',
         });
         this.#catalog = cachedRemoteCatalog({
@@ -184,16 +187,8 @@ export class XAIImageProvider implements IImageProvider {
                       OpenAI['images']['generate']
                   >[0])) as XaiImageResponse);
 
-            const first = response.data?.[0];
-            const url =
-                first?.url ||
-                (first?.b64_json ? imageDataUri(first.b64_json) : undefined);
-
-            if (!url) {
-                throw new Error(
-                    'Failed to extract image URL from xAI response',
-                );
-            }
+            const url = imageEntryUrl(response?.data?.[0]);
+            if (!url) throw malformedUpstreamResponse('xai', 'xAI');
 
             const usageEntries = [
                 {

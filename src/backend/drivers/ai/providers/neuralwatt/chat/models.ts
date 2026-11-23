@@ -18,7 +18,10 @@
  */
 
 import type { IChatModel } from '../../../interfaces/chat/types.js';
-import { catalogPrice } from '../../../shared/catalogPrice.js';
+import {
+    catalogPrice,
+    catalogTokenLimit,
+} from '../../../shared/catalogPrice.js';
 
 export const NEURALWATT_ID_PREFIX = 'neuralwatt:';
 export const NEURALWATT_DEFAULT_MODEL = 'neuralwatt:deepseek-v4-flash';
@@ -101,6 +104,7 @@ export const stripNeuralwattPrefix = (modelId: string): string =>
 export const mapNeuralwattApiModel = (
     model: NeuralwattApiModel,
 ): IChatModel | null => {
+    if (typeof model?.id !== 'string' || !model.id) return null;
     const pricing = model.metadata?.pricing;
     if (pricing?.pricing_tbd) return null;
 
@@ -119,14 +123,18 @@ export const mapNeuralwattApiModel = (
 
     const caps = model.metadata?.capabilities;
     const limits = model.metadata?.limits;
-    const context =
-        limits?.max_context_length ?? model.max_model_len ?? undefined;
-    const maxTokens = limits?.max_output_tokens ?? context ?? 0;
+    const context = catalogTokenLimit(
+        limits?.max_context_length ?? model.max_model_len,
+    );
+    const maxTokens =
+        catalogTokenLimit(limits?.max_output_tokens) ?? context ?? 0;
 
     const inputModalities = ['text'];
     if (caps?.vision) inputModalities.push('image');
 
-    const displayName = model.metadata?.display_name || model.id;
+    const listedName = model.metadata?.display_name;
+    const displayName =
+        typeof listedName === 'string' && listedName ? listedName : model.id;
     const pathTail = model.id.includes('/')
         ? model.id.split('/').slice(1).join('/')
         : undefined;

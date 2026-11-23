@@ -57,13 +57,17 @@ import {
 } from '../../services/auth/OTPUtil.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
-import type { CardFallbackDeps } from '../../util/cardFallback.js';
+import type {
+    CardFallbackDeps,
+    PhoneGatedUser,
+} from '../../util/cardFallback.js';
 import {
     CARD_FALLBACK_OPEN_TTL_SECONDS,
     PHONE_ON_FILE_SEND_WINDOW_MS,
     PHONE_ON_FILE_SENDS_PER_DAY,
     SEND_PHONE_RATE_LIMIT,
     SEND_PHONE_RATE_WINDOW_MS,
+    canCardReplacePhone,
     cardFallbackAfterAttempts,
     cardFallbackDepsFrom,
     cardFallbackFlagKey,
@@ -118,16 +122,15 @@ import {
 } from '../../services/permission/appDataScopes.js';
 import { parseAppGrantablePermission } from '../../services/permission/appGrantable.js';
 import {
+    aclAnswerableFsPermission,
     assertCreatablePath,
     isOwnHomePath,
     fsCreateKindFor,
     MAX_CREATED_ENTRIES_PER_GRANT,
     parseCreateFlag,
     parseFsPathPermission,
-    parseFsUidPermission,
     type FsCreateKind,
 } from '../../services/permission/fsPathPermission.js';
-import type { AclMode } from '../../services/acl/ACLService';
 import type { ReauthReason } from '../../services/auth/AuthService';
 import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
@@ -147,22 +150,6 @@ const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
 // crafted request from turning a single grant call into a bulk write.
 const MAX_PERMISSIONS_PER_REQUEST = 16;
-/** The `fs:` scopes ACL answers; anything else keeps the scan. */
-const ACL_ANSWERABLE_MODES = new Set(['see', 'list', 'read', 'write']);
-/** Both spellings, so the same file cannot answer two ways. */
-const aclAnswerableFsPermission = (
-    permission: string,
-): { uid?: string; path?: string; mode: string } | null => {
-    const byUid = parseFsUidPermission(permission);
-    if (byUid) {
-        return ACL_ANSWERABLE_MODES.has(byUid.mode) ? byUid : null;
-    }
-    const byPath = parseFsPathPermission(permission);
-    if (!byPath || byPath.hasManage || byPath.rest.length !== 1) return null;
-    const mode = byPath.rest[0]!;
-    return ACL_ANSWERABLE_MODES.has(mode) ? { path: byPath.path, mode } : null;
-};
-
 // Rides every row a request writes, and the per-(user, app) cache after that.
 const GRANT_EXTRA_MAX_BYTES = 4096;
 const DISPATCH_ID_MAX_LENGTH = 128;
@@ -1451,12 +1438,9 @@ export class AuthController extends PuterController {
      * eligibility flag the card endpoints check. Returns whether the fallback
      * is open so send responses (success or 429) can advertise it.
      */
-    private async recordPhoneAttemptForFallback(user: {
-        id: number;
-        phone?: string | null;
-        card_fingerprint?: string | null;
-        requires_phone_verification?: boolean | number | null;
-    }): Promise<boolean> {
+    private async recordPhoneAttemptForFallback(
+        user: PhoneGatedUser & { id: number },
+    ): Promise<boolean> {
         const attempts = await this.bumpPhoneAttempts(user.id);
         if (attempts < cardFallbackAfterAttempts(this.config)) return false;
         return this.openCardFallback(user);
@@ -1466,15 +1450,10 @@ export class AuthController extends PuterController {
      * Stamp the eligibility flag the card endpoints check, when the user is
      * phone-gated and the fallback is on. Returns whether it is now open.
      */
-    private async openCardFallback(user: {
-        id: number;
-        phone?: string | null;
-        card_fingerprint?: string | null;
-        requires_phone_verification?: boolean | number | null;
-    }): Promise<boolean> {
-        if (!user.requires_phone_verification) return false;
-        // A number on file can only be stood in for by the card on file.
-        if (isPhoneOnFileStep(user) && !user.card_fingerprint) return false;
+    private async openCardFallback(
+        user: PhoneGatedUser & { id: number },
+    ): Promise<boolean> {
+        if (!canCardReplacePhone(user)) return false;
         const deps = this.cardFallbackDeps();
         if (!(await isCardFallbackEnabled(this.config, deps))) return false;
         try {
@@ -1505,10 +1484,9 @@ export class AuthController extends PuterController {
         }
     }
 
-    private async isCardFallbackEligible(user: {
-        id: number;
-        requires_phone_verification?: boolean | number | null;
-    }): Promise<boolean> {
+    private async isCardFallbackEligible(
+        user: PhoneGatedUser & { id: number },
+    ): Promise<boolean> {
         return isCardFallbackEligible(
             this.config,
             user,
@@ -1641,14 +1619,6 @@ export class AuthController extends PuterController {
             );
         }
 
-        // Counted before the abuse / Prelude checks so a blocked attempt still
-        // counts toward the fallback threshold.
-        const fallbackAvailable =
-            await this.recordPhoneAttemptForFallback(user);
-        const fallbackFields = fallbackAvailable
-            ? { card_fallback_available: true }
-            : {};
-
         // Abuse caps live ENTIRELY in a listening abuse extension, consulted
         // via `puter.phone-verification.check`. The backend ships no thresholds
         // or detection of its own (so none of it is readable in the open-source
@@ -1667,6 +1637,8 @@ export class AuthController extends PuterController {
             allowed: true,
             reason: null as string | null,
             card_fallback_instead: false,
+            refuseWithoutFallback: false,
+            countsTowardFallback: true,
         };
         try {
             await this.clients.event?.emitAndWait(
@@ -1677,13 +1649,30 @@ export class AuthController extends PuterController {
         } catch (e) {
             console.warn('[send-confirm-phone] abuse-check hook failed:', e);
         }
+        // Counted before the send, so one the provider blocks still counts
+        // toward the fallback threshold. A refused send counts too, unless
+        // the extension says this one doesn't.
+        const fallbackAvailable =
+            abuseCheck.allowed !== false ||
+            abuseCheck.countsTowardFallback !== false
+                ? await this.recordPhoneAttemptForFallback(user)
+                : false;
+        const fallbackFields = fallbackAvailable
+            ? { card_fallback_available: true }
+            : {};
         // A veto that routes to the card fallback needs the fallback to exist;
-        // without it there is nothing to offer, so the send goes ahead.
+        // without it there is nothing to offer, so the send goes ahead. An
+        // account no card can stand in for stays refused, and so does a veto
+        // the extension marks `refuseWithoutFallback`.
         let vetoFallbackFields = fallbackFields;
         if (abuseCheck.allowed === false && abuseCheck.card_fallback_instead) {
             if (await this.openCardFallback(user))
                 vetoFallbackFields = { card_fallback_available: true };
-            else abuseCheck.allowed = true;
+            else if (
+                canCardReplacePhone(user) &&
+                !abuseCheck.refuseWithoutFallback
+            )
+                abuseCheck.allowed = true;
         }
         // Forward the verdict verbatim: a generic 429 plus the opaque reason for
         // the client to message on. The backend never interprets the reason —
@@ -3971,32 +3960,14 @@ export class AuthController extends PuterController {
         }
         // Together: the GUI gives up on this after five seconds and prompts.
         const reached = await Promise.all(
-            [...viaAcl].map((perm) => this.#appReachesFsEntry(actor, perm)),
+            [...viaAcl].map((perm) =>
+                this.services.acl.checkFsScope(actor, perm),
+            ),
         );
         [...viaAcl].forEach((perm, i) => {
             result[perm] = reached[i]!;
         });
         res.json({ permissions: result });
-    }
-
-    /** Asked of ACL, so this cannot answer kinder than the operation will. */
-    async #appReachesFsEntry(actor: Actor, permission: string) {
-        const target = aclAnswerableFsPermission(permission);
-        if (!target) return false;
-        try {
-            const entry = target.uid
-                ? await this.stores.fsEntry.getEntryByUuid(target.uid)
-                : await this.stores.fsEntry.getEntryByPath(target.path!);
-            if (!entry) return false;
-            return await this.services.acl.check(
-                actor,
-                this.services.acl.fsDescriptor(entry.path),
-                target.mode as AclMode,
-            );
-        } catch {
-            // Unreadable means unknown, and an extra prompt is the safe miss.
-            return false;
-        }
     }
 
     // -- Session management ------------------------------------------

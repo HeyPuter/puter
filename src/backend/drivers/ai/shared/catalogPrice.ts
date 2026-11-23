@@ -19,7 +19,7 @@
 
 /**
  * Absent, negative and placeholder prices remain unpriced, including empty
- * strings.
+ * strings and numbers too large to be an amount of money.
  */
 export const catalogPrice = (
     value: unknown,
@@ -35,10 +35,17 @@ export const catalogPrice = (
     const price = Number(value);
     if (!Number.isFinite(price) || price < 0) return undefined;
     const converted = price * multiplier;
-    return Number.isFinite(converted) && !(price > 0 && converted === 0)
+    return converted <= Number.MAX_SAFE_INTEGER &&
+        !(price > 0 && converted === 0)
         ? converted
         : undefined;
 };
+
+/** A token limit from a vendor's catalog, if the field holds one. */
+export const catalogTokenLimit = (value: unknown): number | undefined =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+        ? value
+        : undefined;
 
 // A plain USD decimal, e.g. "0.0000160000".
 const USD_PATTERN = /^(\d+)(?:\.(\d+))?$/;

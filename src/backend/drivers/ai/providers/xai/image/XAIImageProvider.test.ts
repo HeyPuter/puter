@@ -135,6 +135,7 @@ describe('XAIImageProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledTimes(1);
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
+            fetch: expect.any(Function),
             baseURL: 'https://api.x.ai/v1',
         });
     });
@@ -485,7 +486,7 @@ describe('XAIImageProvider.generate success path', () => {
                     prompt: 'a small red dot',
                 }),
             ),
-        ).rejects.toThrow(/Failed to extract image URL/);
+        ).rejects.toThrow(/unexpected response/);
 
         // Failure path must NOT meter usage.
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();

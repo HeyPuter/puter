@@ -198,22 +198,42 @@ export class SessionStore extends PuterStore {
 
     /**
      * `getByUserId` for several users in one query. The caller bounds the list.
+     * `dropRecentlyEnded` leaves out rows whose uuid key is tombstoned: rows
+     * that ended moments ago and that a lagging replica still shows live.
      *
      * @param {number[]} userIds
-     * @param {{ includeRevoked?: boolean; primary?: boolean }} [options]
+     * @param {{
+     *     includeRevoked?: boolean;
+     *     primary?: boolean;
+     *     dropRecentlyEnded?: boolean;
+     * }} [options]
      */
     async getByUserIds(
         userIds,
-        { includeRevoked = false, primary = false } = {},
+        {
+            includeRevoked = false,
+            primary = false,
+            dropRecentlyEnded = false,
+        } = {},
     ) {
         const ids = [...new Set(userIds.filter(Boolean))];
         if (ids.length === 0) return [];
-        const rows = await this.clients.db[primary ? 'pread' : 'read'](
-            `SELECT * FROM \`sessions\` WHERE \`user_id\` IN (${ids.map(() => '?').join(', ')})` +
-                (includeRevoked ? '' : ' AND `revoked_at` IS NULL'),
-            ids,
+        const rows = (
+            await this.clients.db[primary ? 'pread' : 'read'](
+                `SELECT * FROM \`sessions\` WHERE \`user_id\` IN (${ids.map(() => '?').join(', ')})` +
+                    (includeRevoked ? '' : ' AND `revoked_at` IS NULL'),
+                ids,
+            )
+        )
+            .map((r) => this.#normalizeRow(r))
+            .filter(Boolean);
+        if (!dropRecentlyEnded || rows.length === 0) return rows;
+        const ended = await this.tombstonedCacheKeys(
+            rows.map((r) => this.#cacheKey(r.uuid)),
         );
-        return rows.map((r) => this.#normalizeRow(r)).filter(Boolean);
+        return ended.size === 0
+            ? rows
+            : rows.filter((r) => !ended.has(this.#cacheKey(r.uuid)));
     }
 
     /**
