@@ -277,6 +277,88 @@ describe('AppDriver.create', () => {
         });
     });
 
+    describe('with a godmode app on the new-app placeholder host', () => {
+        const placeholder = 'https://console.puter.com/coming-soon.html';
+
+        beforeAll(async () => {
+            const { actor } = await makeUser();
+            const app = await withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('placeholder-host'),
+                        title: 't',
+                        index_url: 'https://console.puter.com/',
+                    },
+                }),
+            );
+            await server.clients.db.write(
+                'UPDATE `apps` SET `godmode` = 1 WHERE `uid` = ?',
+                [app.uid],
+            );
+        });
+
+        it('lets several users create apps on the placeholder URL', async () => {
+            for (let i = 0; i < 2; i++) {
+                const { actor } = await makeUser();
+                await expect(
+                    withActor(actor, () =>
+                        driver.create({
+                            object: {
+                                name: uniqueName('placeholder'),
+                                title: 't',
+                                index_url: placeholder,
+                            },
+                        }),
+                    ),
+                ).resolves.toMatchObject({ index_url: placeholder });
+            }
+        });
+
+        it('lets an app move back to the placeholder URL', async () => {
+            const { actor } = await makeUser();
+            const created = await withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('placeholder-upd'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            );
+            await expect(
+                withActor(actor, () =>
+                    driver.update({
+                        uid: created.uid,
+                        object: { index_url: placeholder },
+                    }),
+                ),
+            ).resolves.toMatchObject({ index_url: placeholder });
+        });
+
+        it.each([
+            ['with a query string', `${placeholder}?puter.api_origin=x`],
+            ['with a fragment', `${placeholder}#x`],
+            ['over http', 'http://console.puter.com/coming-soon.html'],
+            ['on another path', 'https://console.puter.com/index.html'],
+        ])('rejects the placeholder host %s with 400', async (_label, index_url) => {
+            const { actor } = await makeUser();
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName('placeholder-variant'),
+                            title: 't',
+                            index_url,
+                        },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: /system host/,
+            });
+        });
+    });
+
     describe('with a claimed subdomain', () => {
         const claimed = 'claimed-app-host';
 
