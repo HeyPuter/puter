@@ -53,14 +53,14 @@ import { CloudflareImageProvider } from './CloudflareImageProvider.js';
 import modelSearchFixture from './fixtures/model-search.json';
 import { translateProviderError } from '../../../../../controllers/drivers/DriverController.js';
 
-// Keep URL downloads offline; other input parsing stays real.
-const { fetchImageBytesMock } = vi.hoisted(() => ({
-    fetchImageBytesMock: vi.fn(),
+// Keep URL downloads offline at the network boundary; parsing stays real.
+const { secureFetchMock } = vi.hoisted(() => ({
+    secureFetchMock: vi.fn(),
 }));
 
-vi.mock('../../../interfaces/image/inputImage.js', async (orig) => ({
-    ...(await orig<typeof import('../../../interfaces/image/inputImage.js')>()),
-    fetchImageBytes: fetchImageBytesMock,
+vi.mock('../../../../../util/secureHttp.js', async (orig) => ({
+    ...(await orig<typeof import('../../../../../util/secureHttp.js')>()),
+    secureFetch: secureFetchMock,
 }));
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ const makeProvider = (
     );
 
 beforeEach(() => {
-    fetchImageBytesMock.mockReset();
+    secureFetchMock.mockReset();
     fetchSpy = vi.fn<typeof fetch>();
     modelSearchFetch = vi.fn<typeof fetch>(async () =>
         okJsonResponse(modelSearchFixture),
@@ -650,13 +650,15 @@ describe('CloudflareImageProvider.generate input_images', () => {
     });
 
     it('fetches an http(s) URL input via secureFetch and uses it as the input image', async () => {
-        fetchImageBytesMock.mockResolvedValueOnce({
-            bytes: Buffer.from('AAAA', 'base64'),
-            mime: 'image/png',
-        });
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(Buffer.from('AAAA', 'base64'), {
+                headers: { 'content-type': 'image/png' },
+            }),
+        );
         await klein9bWith({ input_images: ['https://example.com/in.png'] });
-        expect(fetchImageBytesMock).toHaveBeenCalledWith(
+        expect(secureFetchMock).toHaveBeenCalledWith(
             'https://example.com/in.png',
+            { signal: expect.any(AbortSignal) },
         );
         expect(hasInputCostLine()).toBe(true);
     });
@@ -677,7 +679,7 @@ describe('CloudflareImageProvider.generate input_images', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(fetchSpy).not.toHaveBeenCalled();
-        expect(fetchImageBytesMock).not.toHaveBeenCalled();
+        expect(secureFetchMock).not.toHaveBeenCalled();
     });
 });
 

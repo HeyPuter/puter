@@ -21,9 +21,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     awaitLater,
+    chunk,
     settleWithin,
     runWithConcurrencyLimit,
     runWithConcurrencyLimitSettled,
+    withTimeout,
 } from './concurrency.ts';
 
 /**
@@ -273,4 +275,74 @@ describe('settleWithin', () => {
             }
         },
     );
+});
+
+describe('withTimeout', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('resolves with the value and clears the timer when work wins', async () => {
+        vi.useFakeTimers();
+        const work = Promise.withResolvers<string>();
+        const waiting = withTimeout(work.promise, 5000);
+        expect(vi.getTimerCount()).toBe(1);
+        work.resolve('done');
+        await expect(waiting).resolves.toBe('done');
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('passes the work rejection through', async () => {
+        await expect(
+            withTimeout(Promise.reject(new Error('boom')), 5000),
+        ).rejects.toThrow('boom');
+    });
+
+    it('rejects with a TimeoutError when time runs out', async () => {
+        vi.useFakeTimers();
+        const waiting = withTimeout(new Promise(() => {}), 5000);
+        const settled = expect(waiting).rejects.toMatchObject({
+            name: 'TimeoutError',
+        });
+        await vi.advanceTimersByTimeAsync(5000);
+        await settled;
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rejects with the caller error when one is given', async () => {
+        vi.useFakeTimers();
+        const waiting = withTimeout(
+            new Promise(() => {}),
+            100,
+            () => new Error('push provider timed out'),
+        );
+        const settled = expect(waiting).rejects.toThrow(
+            'push provider timed out',
+        );
+        await vi.advanceTimersByTimeAsync(100);
+        await settled;
+    });
+
+    it('sets no deadline for a non-finite ms', async () => {
+        vi.useFakeTimers();
+        const work = Promise.withResolvers<number>();
+        const waiting = withTimeout(work.promise, Infinity);
+        expect(vi.getTimerCount()).toBe(0);
+        work.resolve(1);
+        await expect(waiting).resolves.toBe(1);
+    });
+});
+
+describe('chunk', () => {
+    it('splits into consecutive slices of at most size', () => {
+        expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+        expect(chunk([1, 2], 5)).toEqual([[1, 2]]);
+    });
+
+    it('returns no slices for an empty input', () => {
+        expect(chunk([], 3)).toEqual([]);
+    });
+
+    it('treats a size below one, or not a number, as one', () => {
+        expect(chunk(['a', 'b'], 0)).toEqual([['a'], ['b']]);
+        expect(chunk(['a', 'b'], Number.NaN)).toEqual([['a'], ['b']]);
+    });
 });

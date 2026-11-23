@@ -31,10 +31,10 @@ import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { FSController } from './FSController.js';
 import type { LegacyFSController } from './LegacyFSController.js';
 import type {
-    ClientSignedWriteResponse,
     CompleteWriteRequest,
     SignedWriteRequest,
-} from './requestTypes.js';
+} from '../../services/fs/types.js';
+import type { ClientSignedWriteResponse } from './requestTypes.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -1058,6 +1058,46 @@ describe('FSController.searchEntries', () => {
         expect(results.some((r) => r.name === needle)).toBe(true);
     });
 
+    it('returns client entries without storage or ownership columns', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const needle = `sclean-${Math.random().toString(36).slice(2, 8)}`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/${needle}` },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.searchEntries(
+                makeReq({ body: { query: needle }, actor }),
+                res,
+            ),
+        );
+        const [hit] = captured.body as Array<Record<string, unknown>>;
+        expect(hit).toMatchObject({
+            name: needle,
+            path: `/${username}/Documents/${needle}`,
+        });
+        for (const key of [
+            'id',
+            'userId',
+            'parentId',
+            'bucket',
+            'bucketRegion',
+            'publicToken',
+            'fileRequestToken',
+            'associatedAppId',
+        ]) {
+            expect(hit).not.toHaveProperty(key);
+        }
+    });
+
     it('scopes app-under-user actors to their AppData root', async () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
@@ -1994,6 +2034,26 @@ describe('FSController.readEntry (file streaming)', () => {
         );
         expect(captured.statusCode).toBe(206);
         expect(Buffer.concat(captured.bodyChunks).toString()).toBe('cdef');
+    });
+
+    it('serves an empty file whole with 200 when a range is asked', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/empty-ranged.bin`;
+        await writeFile(userId, target, Buffer.alloc(0), 'text/plain');
+
+        const { res, captured } = makeStreamingRes();
+        await withActor(actor, () =>
+            controller.readEntry(
+                makeReq({
+                    query: { path: target },
+                    actor,
+                    headers: { range: 'bytes=0-' },
+                }),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(200);
     });
 
     it('throws 404 when the path does not exist', async () => {
@@ -3074,7 +3134,7 @@ describe('FSController metadata.objectKey injection', () => {
                 }) as unknown as Request<
                     Record<string, never>,
                     null,
-                    import('./requestTypes.js').WriteRequest
+                    import('../../services/fs/types.js').WriteRequest
                 >,
                 makeRes().res,
             ),

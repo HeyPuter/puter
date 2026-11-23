@@ -68,7 +68,15 @@ if (require.main === module) {
         puterControllers,
         puterDrivers,
     );
-    server.start();
+    // A failed boot exits even when the process guards keep it alive on faults.
+    void (async () => {
+        try {
+            await server.start();
+        } catch (err) {
+            console.error('[boot] server failed to start', err);
+            process.exit(1);
+        }
+    })();
     // Owns process exit on signals; the telemetry preload installs none and is
     // flushed as the last shutdown step.
     const shutDownProcess = createGracefulShutdown(server, {

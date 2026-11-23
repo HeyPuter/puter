@@ -20,3 +20,7 @@
 /** Audio the speech drivers return in `test_mode`, without calling a vendor. */
 export const SAMPLE_AUDIO_URL =
     'https://puter-sample-data.puter.site/tts_example.mp3';
+
+/** Image the image drivers return in `test_mode`, without calling a vendor. */
+export const SAMPLE_IMAGE_URL =
+    'https://puter-sample-data.puter.site/image_example.png';

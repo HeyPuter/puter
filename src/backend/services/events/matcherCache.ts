@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import type { CompiledMatch } from './matcher.js';
 
 /**
@@ -33,22 +34,14 @@ export const MATCHER_CACHE_MAX_ENTRIES = 20_000;
 /** Long enough that a busy subscription recompiles rarely; compiling is cheap. */
 export const MATCHER_CACHE_TTL_MS = 10 * 60 * 1000;
 
-interface CacheEntry {
-    matcher: CompiledMatch;
-    cachedAt: number;
-}
-
 export class MatcherCache {
-    readonly #entries = new Map<string, CacheEntry>();
-    readonly #maxEntries: number;
-    readonly #ttlMs: number;
+    readonly #entries: BoundedTtlMap<string, CompiledMatch>;
 
     constructor(
         maxEntries: number = MATCHER_CACHE_MAX_ENTRIES,
         ttlMs: number = MATCHER_CACHE_TTL_MS,
     ) {
-        this.#maxEntries = Math.max(1, maxEntries);
-        this.#ttlMs = Math.max(0, ttlMs);
+        this.#entries = new BoundedTtlMap({ maxEntries, ttlMs });
     }
 
     get size(): number {
@@ -64,25 +57,10 @@ export class MatcherCache {
         pattern: string,
         compile: (pattern: string) => CompiledMatch,
     ): CompiledMatch {
-        const entry = this.#entries.get(subId);
-        if (
-            entry &&
-            entry.matcher.pattern === pattern &&
-            Date.now() - entry.cachedAt <= this.#ttlMs
-        ) {
-            this.#entries.delete(subId);
-            this.#entries.set(subId, entry);
-            return entry.matcher;
-        }
-
+        const cached = this.#entries.get(subId);
+        if (cached && cached.pattern === pattern) return cached;
         const matcher = compile(pattern);
-        this.#entries.delete(subId);
-        this.#entries.set(subId, { matcher, cachedAt: Date.now() });
-        while (this.#entries.size > this.#maxEntries) {
-            const oldest = this.#entries.keys().next();
-            if (oldest.done) break;
-            this.#entries.delete(oldest.value);
-        }
+        this.#entries.set(subId, matcher);
         return matcher;
     }
 

@@ -41,13 +41,13 @@ export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024;
 
 /** Max characters kept from the caller's file name, before the extension. */
-export const MAX_ATTACHMENT_NAME_LENGTH = 80;
+const MAX_ATTACHMENT_NAME_LENGTH = 80;
 
 /**
  * Accepted sniffed MIME types and the extension each is sent under. SVG is
  * excluded: it carries script.
  */
-export const ATTACHMENT_MIME_EXTENSIONS: Readonly<Record<string, string>> = {
+const ATTACHMENT_MIME_EXTENSIONS: Readonly<Record<string, string>> = {
     'image/png': 'png',
     'image/jpeg': 'jpg',
     'image/gif': 'gif',

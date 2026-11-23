@@ -21,7 +21,7 @@
 // minted by the team service and spent at login, so the two halves live here
 // rather than one layer importing the other.
 
-import { randomBytes } from 'node:crypto';
+import { randomCode } from './randomCode.js';
 
 /** Unambiguous alphabet -- no 0/O or 1/l, since a human retypes this. */
 const TEMP_PASSWORD_ALPHABET =
@@ -31,14 +31,8 @@ const TEMP_PASSWORD_ALPHABET =
 export const TEMP_PASSWORD_TTL_SECONDS = 24 * 60 * 60;
 
 /** ~95 bits, generated rather than chosen so it is never a reused pattern. */
-export const generateTemporaryPassword = (length = 16): string => {
-    const bytes = randomBytes(length);
-    let out = '';
-    for (let i = 0; i < length; i++) {
-        out += TEMP_PASSWORD_ALPHABET[bytes[i] % TEMP_PASSWORD_ALPHABET.length];
-    }
-    return out;
-};
+export const generateTemporaryPassword = (length = 16): string =>
+    randomCode(length, TEMP_PASSWORD_ALPHABET);
 
 /** Unix seconds at which a temporary password issued now stops working. */
 export const temporaryPasswordExpiry = (now = Date.now()): number =>

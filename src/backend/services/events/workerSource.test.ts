@@ -31,7 +31,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
-import { EVENTS_WORKER_SOURCE_MAX_BYTES } from '../../controllers/events/limits.js';
+import { EVENTS_WORKER_SOURCE_MAX_BYTES } from './limits.js';
 import {
     hashContent,
     type EventHandler,

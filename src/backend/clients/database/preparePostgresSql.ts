@@ -17,11 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-export interface PreparedPostgresSql {
-    text: string;
-    parameterCount: number;
-}
-
 type ScannerState =
     | { kind: 'normal' }
     | { kind: 'singleQuote' }
@@ -37,12 +32,16 @@ const isLineCommentStart = (sql: string, index: number): boolean => {
     return after === undefined || /\s/u.test(after);
 };
 
-const readDollarQuoteTag = (sql: string, index: number): string | null => {
+export const readDollarQuoteTag = (
+    sql: string,
+    index: number,
+): string | null => {
     const match = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/u.exec(sql.slice(index));
     return match?.[0] ?? null;
 };
 
-export const preparePostgresSql = (sql: string): PreparedPostgresSql => {
+/** `?` placeholders become `$1..$n` and backtick identifiers double-quoted. */
+export const preparePostgresSql = (sql: string): string => {
     let state: ScannerState = { kind: 'normal' };
     let parameterCount = 0;
     let out = '';
@@ -165,5 +164,5 @@ export const preparePostgresSql = (sql: string): PreparedPostgresSql => {
         }
     }
 
-    return { text: out, parameterCount };
+    return out;
 };

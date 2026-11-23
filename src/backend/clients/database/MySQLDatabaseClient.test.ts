@@ -22,10 +22,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../types';
-import {
-    MySQLDatabaseClient,
-    compareMigrationFilenames,
-} from './MySQLDatabaseClient.js';
+import { compareMigrationFilenames } from './migrationFilenames.js';
+import { MySQLDatabaseClient } from './MySQLDatabaseClient.js';
 
 interface FakeConnection {
     query: ReturnType<typeof vi.fn>;

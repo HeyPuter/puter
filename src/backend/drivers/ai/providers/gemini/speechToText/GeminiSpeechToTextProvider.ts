@@ -19,15 +19,15 @@
 
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import type { UsageInput } from '../../../../../services/metering/types.js';
+import { withAiCreditHold } from '../../../../../util/aiCostFactor.js';
 import { loadFileInput } from '../../../../util/fileInput.js';
 import {
     geminiUpstreamFailure,
     postGeminiJson,
-    geminiTokenCount as tokenCount,
     usesGoogleGeminiEndpoint,
 } from '../geminiRest.js';
+import { catalogTokenCount as tokenCount } from '../../../shared/catalogPrice.js';
 import type {
     ISpeechToTextDeps,
     ISpeechToTextModel,
@@ -377,59 +377,56 @@ export class GeminiSpeechToTextProvider extends SpeechToTextProvider {
         }
         const metering = this.deps.metering;
         const usagePrefix = `gemini:${MODEL}`;
-        const hold = await metering.reserveAiCredits(
+        return withAiCreditHold(
+            metering,
             actor,
             usagePrefix,
             holdAmount,
+            async () => {
+                const interaction = await postGeminiJson<Interaction>(
+                    this.#apiKey,
+                    'interactions',
+                    this.#request(mimeType, data, options),
+                    {
+                        label: 'Gemini transcription',
+                        maxBytes: GEMINI_STT_MAX_RESPONSE_BYTES,
+                        timeoutMs: GEMINI_STT_TIMEOUT_MS,
+                        signal,
+                    },
+                );
+                // Google bills what it processed, finished or not, so usage is
+                // recorded before the reply is checked. The counted audio stands in
+                // when the reply's usage can't be read.
+                const billed = billedTokens(interaction.usage) ?? {
+                    audio: inputTokens,
+                    output: 0,
+                };
+                const usages: UsageInput[] = [
+                    {
+                        usageType: `${usagePrefix}:input:audio`,
+                        usageAmount: billed.audio,
+                        costOverride: billed.audio * costs.inputAudio,
+                    },
+                    {
+                        usageType: `${usagePrefix}:output:text`,
+                        usageAmount: billed.output,
+                        costOverride: billed.output * costs.outputText,
+                    },
+                ].filter((usage) => usage.usageAmount > 0);
+                if (usages.length > 0) {
+                    await metering.batchIncrementUsages(actor, usages);
+                }
+
+                if (interaction.status !== 'completed') {
+                    throw geminiUpstreamFailure(
+                        'Gemini transcription did not complete the request',
+                    );
+                }
+                const { text, words } = this.#readTranscript(interaction);
+                return this.#result(text, options, words);
+            },
             { ttlMs: GEMINI_STT_HOLD_TTL_MS },
         );
-        if (!hold) throw insufficientCreditsError();
-
-        try {
-            const interaction = await postGeminiJson<Interaction>(
-                this.#apiKey,
-                'interactions',
-                this.#request(mimeType, data, options),
-                {
-                    label: 'Gemini transcription',
-                    maxBytes: GEMINI_STT_MAX_RESPONSE_BYTES,
-                    timeoutMs: GEMINI_STT_TIMEOUT_MS,
-                    signal,
-                },
-            );
-            // Google bills what it processed, finished or not, so usage is
-            // recorded before the reply is checked. The counted audio stands in
-            // when the reply's usage can't be read.
-            const billed = billedTokens(interaction.usage) ?? {
-                audio: inputTokens,
-                output: 0,
-            };
-            const usages: UsageInput[] = [
-                {
-                    usageType: `${usagePrefix}:input:audio`,
-                    usageAmount: billed.audio,
-                    costOverride: billed.audio * costs.inputAudio,
-                },
-                {
-                    usageType: `${usagePrefix}:output:text`,
-                    usageAmount: billed.output,
-                    costOverride: billed.output * costs.outputText,
-                },
-            ].filter((usage) => usage.usageAmount > 0);
-            if (usages.length > 0) {
-                await metering.batchIncrementUsages(actor, usages);
-            }
-
-            if (interaction.status !== 'completed') {
-                throw geminiUpstreamFailure(
-                    'Gemini transcription did not complete the request',
-                );
-            }
-            const { text, words } = this.#readTranscript(interaction);
-            return this.#result(text, options, words);
-        } finally {
-            await hold.release();
-        }
     }
 
     /** Validates every option before any I/O, test mode included. */

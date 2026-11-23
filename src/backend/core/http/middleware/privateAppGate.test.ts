@@ -37,8 +37,6 @@ import {
     getBootstrapToken,
     hostMatchesPrivateDomain,
     isTopLevelNavigation,
-    normalizeHost,
-    normalizeHostRaw,
     pathWithoutQueryParam,
     renderLoginBootstrapHtml,
     resolveOwnedAppForHostedSite,
@@ -50,44 +48,6 @@ import {
 // ── Pure helpers ────────────────────────────────────────────────────
 //
 // These don't need a server, so they live above the harness.
-
-describe('normalizeHost', () => {
-    it('lowercases and strips port + leading dot', () => {
-        expect(normalizeHost('Foo.Puter.Site:1234')).toBe('foo.puter.site');
-        expect(normalizeHost('.foo.bar')).toBe('foo.bar');
-        expect(normalizeHost('  foo.bar  ')).toBe('foo.bar');
-    });
-
-    it('returns null for non-strings, empty input, or bare port', () => {
-        expect(normalizeHost(null)).toBeNull();
-        expect(normalizeHost(undefined)).toBeNull();
-        expect(normalizeHost(123 as unknown as string)).toBeNull();
-        expect(normalizeHost('')).toBeNull();
-        expect(normalizeHost('   ')).toBeNull();
-        // `':1234'` → trimmed empty → bare-port case (head before `:` is '').
-        expect(normalizeHost(':1234')).toBeNull();
-    });
-});
-
-describe('normalizeHostRaw', () => {
-    it('keeps the port (used for index_url candidate matching)', () => {
-        expect(normalizeHostRaw('Foo.Puter.Site:1234')).toBe(
-            'foo.puter.site:1234',
-        );
-    });
-
-    it('still strips the leading dot and trims', () => {
-        expect(normalizeHostRaw('.foo:80')).toBe('foo:80');
-        expect(normalizeHostRaw('  foo.bar  ')).toBe('foo.bar');
-    });
-
-    it('returns null for missing / empty input', () => {
-        expect(normalizeHostRaw(null)).toBeNull();
-        expect(normalizeHostRaw(undefined)).toBeNull();
-        expect(normalizeHostRaw('')).toBeNull();
-        expect(normalizeHostRaw('   ')).toBeNull();
-    });
-});
 
 describe('hostMatchesPrivateDomain', () => {
     it('matches exact host AND any subdomain of a private domain', () => {
@@ -124,12 +84,13 @@ describe('subdomainFromHost', () => {
     it('prefers longest-matching hosting domain (avoids over-stripping)', () => {
         // `bar.puter.app` is configured as a hosting domain itself, so a
         // visit to `foo.bar.puter.app` should pull `foo`, not `foo.bar`.
-        expect(
-            subdomainFromHost('foo.bar.puter.app', [
-                'puter.app',
-                'bar.puter.app',
-            ]),
-        ).toBe('foo');
+        const { hostingDomains } = buildHostingConfig({
+            static_hosting_domain: 'puter.app',
+            private_app_hosting_domain: 'bar.puter.app',
+        } as IConfig);
+        expect(subdomainFromHost('foo.bar.puter.app', hostingDomains)).toBe(
+            'foo',
+        );
     });
 
     it('returns empty for the bare hosting domain', () => {
@@ -1028,7 +989,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         expect(out).toBeNull();
     });
 
-    it('returns a public app when requirePrivate is not set', async () => {
+    it('returns a public app', async () => {
         const owner = await makeUser();
         const app = await createApp(
             owner.id,
@@ -1042,23 +1003,6 @@ describe('resolveOwnedAppForHostedSite', () => {
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
-    });
-
-    it('filters out non-private apps when requirePrivate is set', async () => {
-        const owner = await makeUser();
-        await createApp(
-            owner.id,
-            'http://beans.site.puter.localhost/',
-            { isPrivate: false },
-        );
-        const out = await resolveOwnedAppForHostedSite({
-            req: reqOf('beans.site.puter.localhost'),
-            site: { user_id: owner.id },
-            appStore: server.stores.app,
-            config: baseConfig(),
-            requirePrivate: true,
-        });
-        expect(out).toBeNull();
     });
 
     it('prefers the private app over an older public bootstrap stub on an alternate host', async () => {

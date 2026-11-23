@@ -20,13 +20,19 @@
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
-import { readBoundedBody } from '../../../../util/fileInput.js';
-import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
+import {
+    fetchBoundedJson,
+    malformedUpstreamResponse,
+} from '../../../../util/upstreamErrors.js';
 import type {
     IGenerateVideoParams,
     IVideoModel,
 } from '../../../interfaces/video/types.js';
 import { capSecondsToRemainingCredits } from '../../../interfaces/video/creditCap.js';
+import {
+    positiveWholeSeconds,
+    snapAspectRatio,
+} from '../../../interfaces/video/videoParams.js';
 import { VideoProvider } from '../../../interfaces/video/VideoProvider.js';
 import {
     JobHold,
@@ -169,7 +175,7 @@ export class BytePlusVideoProvider extends VideoProvider {
         const perSecondMicroCents = tokensPerSecond * centsPerToken * 1_000_000;
 
         const requestedSeconds = Math.min(
-            this.#coerceSeconds(seconds ?? duration) ?? spec.duration.default,
+            positiveWholeSeconds(seconds ?? duration) ?? spec.duration.default,
             spec.duration.max,
         );
         // `durationSeconds` enumerates the model's whole-second range, so a
@@ -201,7 +207,7 @@ export class BytePlusVideoProvider extends VideoProvider {
             if (spec.supportsAudio) {
                 body.generate_audio = audioOn;
             }
-            const ratio = this.#deriveRatio(width, height);
+            const ratio = snapAspectRatio(width, height, ARK_RATIOS);
             if (ratio) {
                 body.ratio = ratio;
             }
@@ -404,25 +410,27 @@ export class BytePlusVideoProvider extends VideoProvider {
         path: string,
         opts: { body?: Record<string, unknown> } = {},
     ): Promise<unknown> {
-        const response = await fetch(`${this.#baseUrl}${path}`, {
-            method,
-            headers: {
-                Authorization: `Bearer ${this.#apiKey}`,
-                ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
+        const { response, payload } = await fetchBoundedJson<{
+            error?: { code?: unknown; message?: unknown };
+        }>(
+            `${this.#baseUrl}${path}`,
+            {
+                method,
+                headers: {
+                    Authorization: `Bearer ${this.#apiKey}`,
+                    ...(opts.body
+                        ? { 'Content-Type': 'application/json' }
+                        : {}),
+                },
+                ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
             },
-            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        });
-        const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES, () =>
-            malformedUpstreamResponse('byteplus', 'BytePlus'),
+            {
+                timeoutMs: REQUEST_TIMEOUT_MS,
+                maxBytes: MAX_RESPONSE_BYTES,
+                tooLarge: () =>
+                    malformedUpstreamResponse('byteplus', 'BytePlus'),
+            },
         );
-        let payload: { error?: { code?: unknown; message?: unknown } } = {};
-        try {
-            const parsed: unknown = JSON.parse(raw.toString('utf8'));
-            if (parsed && typeof parsed === 'object') payload = parsed;
-        } catch {
-            // Non-JSON body; the status alone decides.
-        }
         if (!response.ok) {
             // Carry the upstream status so the poller can retry 429/5xx and
             // the driver boundary maps it like any SDK error.
@@ -491,39 +499,5 @@ export class BytePlusVideoProvider extends VideoProvider {
             return audioKey;
         }
         return 'video_tokens';
-    }
-
-    #coerceSeconds(value: unknown): number | undefined {
-        if (typeof value === 'number' && Number.isFinite(value)) {
-            const rounded = Math.round(value);
-            return rounded > 0 ? rounded : undefined;
-        }
-        if (typeof value === 'string') {
-            const numeric = Number.parseInt(value, 10);
-            return Number.isFinite(numeric) && numeric > 0
-                ? numeric
-                : undefined;
-        }
-        return undefined;
-    }
-
-    /** Snap width/height to one of Ark's supported aspect-ratio strings. */
-    #deriveRatio(width?: number, height?: number): string | undefined {
-        if (
-            typeof width !== 'number' ||
-            typeof height !== 'number' ||
-            !Number.isFinite(width) ||
-            !Number.isFinite(height) ||
-            width <= 0 ||
-            height <= 0
-        ) {
-            return undefined;
-        }
-        const gcd = (a: number, b: number): number =>
-            b === 0 ? a : gcd(b, a % b);
-        const d = gcd(Math.round(width), Math.round(height)) || 1;
-        const candidate = `${Math.round(width) / d}:${Math.round(height) / d}`;
-        // Unsupported ratios are omitted so Ark's `adaptive` default applies.
-        return ARK_RATIOS.includes(candidate) ? candidate : undefined;
     }
 }

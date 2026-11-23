@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { normalizeHost } from './hosts.js';
+
 /** Express's own default, used when `domain` is missing or unusable. */
 const DEFAULT_SUBDOMAIN_OFFSET = 2;
 
@@ -30,13 +32,7 @@ const DEFAULT_SUBDOMAIN_OFFSET = 2;
 export function subdomainOffsetForDomain(
     domain: string | undefined | null,
 ): number {
-    if (typeof domain !== 'string') return DEFAULT_SUBDOMAIN_OFFSET;
-    const labels = domain
-        .trim()
-        .toLowerCase()
-        .split(':')[0]
-        .split('.')
-        .filter(Boolean);
+    const labels = (normalizeHost(domain) ?? '').split('.').filter(Boolean);
     return labels.length > 0 ? labels.length : DEFAULT_SUBDOMAIN_OFFSET;
 }
 

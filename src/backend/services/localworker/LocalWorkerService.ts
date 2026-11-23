@@ -26,7 +26,7 @@ const activeWorkers = new Map<string, Miniflare>();
 // Registry key -> last dispatch/deploy time (ms). Drives the idle sweep.
 const lastAccess = new Map<string, number>();
 // Worker name -> its first-request deploy, while that deploy is running.
-const inflightColdStarts = new Map<string, Promise<void>>();
+const inflightColdStarts = new Map<string, Promise<boolean>>();
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
@@ -120,6 +120,18 @@ export class LocalWorkerService extends PuterService {
             // finds the key empty mid-redeploy.
             activeWorkers.set(key, mf);
             this.#touch(key);
+            // The runtime starts after construction. A script it can't load
+            // fails here, and what was serving before goes back in place.
+            try {
+                await mf.ready;
+            } catch (err) {
+                if (activeWorkers.get(key) === mf) {
+                    if (previous) activeWorkers.set(key, previous);
+                    else activeWorkers.delete(key);
+                }
+                await this.#disposeInstance(mf);
+                throw err;
+            }
             await this.#disposeInstance(previous);
             return {
                 success: true,
@@ -150,8 +162,9 @@ export class LocalWorkerService extends PuterService {
                 pending = this.#coldStart(workerName);
                 inflightColdStarts.set(workerName, pending);
             }
+            let started = true;
             try {
-                await pending;
+                started = await pending;
             } finally {
                 if (inflightColdStarts.get(workerName) === pending) {
                     inflightColdStarts.delete(workerName);
@@ -159,7 +172,9 @@ export class LocalWorkerService extends PuterService {
             }
             mf = activeWorkers.get(workerName);
             if (!mf) {
-                return new Response('subdomain not found', { status: 404 });
+                return started
+                    ? new Response('subdomain not found', { status: 404 })
+                    : new Response('worker failed to start', { status: 502 });
             }
         }
         // Mark activity so the idle sweep keeps this worker resident.
@@ -175,21 +190,25 @@ export class LocalWorkerService extends PuterService {
             ...(hasBody ? { duplex: 'half' } : {}),
         } as unknown as MiniflareRequestInit);
     }
-    /** Deploys a worker from its subdomain row, if it has one to serve. */
-    async #coldStart(workerName: string): Promise<void> {
+    /**
+     * Deploys a worker from its subdomain row, if it has one to serve. False
+     * when it has one and the deploy failed.
+     */
+    async #coldStart(workerName: string): Promise<boolean> {
         const existingSub: SubdomainRow | null =
             await this.stores.subdomain.getBySubdomain(
                 'workers.puter.' + workerName,
             );
-        if (!existingSub) return;
+        if (!existingSub) return true;
         // A suspended owner's worker answers as one that doesn't exist.
         const owner = await this.stores.user.getById(existingSub.user_id);
-        if (owner?.suspended) return;
+        if (owner?.suspended) return true;
         const [_, authorization, code] = await this.reconstructDeployArgs(
             workerName,
             existingSub,
         );
-        await this.cfDeployLocal(workerName, authorization, code);
+        return (await this.cfDeployLocal(workerName, authorization, code))
+            .success;
     }
 
     /**

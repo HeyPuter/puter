@@ -19,7 +19,10 @@
 
 import axios from 'axios';
 import type { IChatModel } from '../../../interfaces/chat/types.js';
-import { catalogPrice } from '../../../shared/catalogPrice.js';
+import {
+    catalogPrice,
+    catalogTokenLimit,
+} from '../../../shared/catalogPrice.js';
 import { ALIBABA_MODELS } from './models.js';
 
 export interface AlibabaApiModel {
@@ -76,11 +79,6 @@ const tokenDenominators: Record<string, number> = {
     'per thousand tokens': 1000,
     'per million tokens': 1_000_000,
 };
-
-const positiveLimit = (value: unknown): number | undefined =>
-    typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-        ? value
-        : undefined;
 
 const chatCapabilities = ['TG', 'Reasoning', 'VU'];
 
@@ -193,17 +191,20 @@ export const mapAlibabaCatalogModel = (
         // The official catalog omits currency; curated rates remain the billing source.
         costs: existing?.costs ?? { tokens: 1_000_000 },
         context:
-            positiveLimit(raw.model_info?.context_window) ?? existing?.context,
+            catalogTokenLimit(raw.model_info?.context_window) ??
+            existing?.context,
         max_tokens:
-            positiveLimit(raw.model_info?.max_output_tokens) ??
+            catalogTokenLimit(raw.model_info?.max_output_tokens) ??
             existing?.max_tokens ??
             0,
-        maxInputTokens: positiveLimit(raw.model_info?.max_input_tokens),
-        maxReasoningTokens: positiveLimit(raw.model_info?.max_reasoning_tokens),
-        reasoningMaxInputTokens: positiveLimit(
+        maxInputTokens: catalogTokenLimit(raw.model_info?.max_input_tokens),
+        maxReasoningTokens: catalogTokenLimit(
+            raw.model_info?.max_reasoning_tokens,
+        ),
+        reasoningMaxInputTokens: catalogTokenLimit(
             raw.model_info?.reasoning_max_input_tokens,
         ),
-        reasoningMaxOutputTokens: positiveLimit(
+        reasoningMaxOutputTokens: catalogTokenLimit(
             raw.model_info?.reasoning_max_output_tokens,
         ),
         release_date: existing?.release_date ?? releaseDate,

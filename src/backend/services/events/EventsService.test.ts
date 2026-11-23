@@ -29,7 +29,7 @@ import {
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SUBSCRIBE_LIMIT,
     EVENTS_UNSUBSCRIBE_LIMIT,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import type { Actor } from '../../core/actor.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import {
@@ -973,6 +973,18 @@ describe('cross-process invalidation', () => {
         expect(cold).toHaveBeenCalledWith(userId);
     });
 
+    it('leaves the region warm for a durable bump a sibling in this region fanned out', async () => {
+        const cold = vi.spyOn(store, 'markRegionCold');
+
+        remoteGenerationBumpHandler()?.(
+            'outer.pubsub.events.generationBumped',
+            { userId, generation: 3, durable: true },
+            { from_outside: true, from_fanout: true },
+        );
+
+        expect(cold).not.toHaveBeenCalled();
+    });
+
     it('invalidates on a remote bump regardless of the number it carries', async () => {
         vi.useFakeTimers();
         // `ev:g` is a region-local INCR: a peer's own counter can legitimately
@@ -1732,9 +1744,7 @@ describe('limits', () => {
         await expect(
             service.unsubscribe(actorFor(), socketId, { subId: sub.subId }),
         ).resolves.toBeUndefined();
-        expect(await service.listSubscriptions(actorFor(), socketId)).toEqual(
-            [],
-        );
+        expect(await store.listForSocket(userId, socketId)).toEqual([]);
     });
 
     it('is idempotent under a burst of concurrent duplicate unsubscribes', async () => {
@@ -1758,7 +1768,7 @@ describe('limits', () => {
         );
         // The other socket's row on the same anchor is unharmed.
         expect(
-            await service.listSubscriptions(actorFor(), otherSocket),
+            await store.listForSocket(userId, otherSocket),
         ).toHaveLength(1);
     });
 

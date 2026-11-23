@@ -90,17 +90,19 @@ const tooManyCalls = (): HttpError =>
         legacyCode: 'too_many_requests',
     });
 
+/** Spend one call from the window `limit` keeps for `id`; false past it. */
+export const allowWindow = (
+    limit: RouteRateLimit,
+    id: string | number,
+): Promise<boolean> =>
+    checkRateLimit(`${limit.scope}:${id}`, limit.limit, limit.window);
+
 /** Spend one call from a per-user window, refusing past it. */
 export const spendUserWindow = async (
     limit: RouteRateLimit,
     userId: number,
 ): Promise<void> => {
-    const ok = await checkRateLimit(
-        `${limit.scope}:${userId}`,
-        limit.limit,
-        limit.window,
-    );
-    if (!ok) throw tooManyCalls();
+    if (!(await allowWindow(limit, userId))) throw tooManyCalls();
 };
 
 /**

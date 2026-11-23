@@ -41,6 +41,7 @@ import {
     KLING_IMAGE_GENERATION_MODELS,
     type KlingImageModel,
 } from './models.js';
+import { SAMPLE_IMAGE_URL } from '../../../shared/testMode.js';
 
 const DEFAULT_MODEL = 'kling-v3';
 const MAX_PROMPT_CHARS = 2500;
@@ -105,7 +106,7 @@ export class KlingImageProvider implements IImageProvider {
         const model = this.#getModel(params.model);
 
         if (testMode) {
-            return 'https://puter-sample-data.puter.site/image_example.png';
+            return SAMPLE_IMAGE_URL;
         }
 
         assertImagePrompt(prompt);

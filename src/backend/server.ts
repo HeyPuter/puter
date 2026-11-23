@@ -1478,8 +1478,7 @@ export class PuterServer {
                     : [opts.subdomain];
                 const original = handler;
                 handler = (req, res, next) => {
-                    const active =
-                        req.subdomains?.[req.subdomains.length - 1] ?? '';
+                    const active = activeSubdomain(req);
                     if (!allowList.includes(active)) return next();
                     return original(req, res, next);
                 };

@@ -18,7 +18,6 @@
  */
 
 import type { Request } from 'express';
-import { randomInt } from 'node:crypto';
 import type {
     EventMap,
     EventMetadata,
@@ -31,20 +30,22 @@ import {
 } from '../../core/http/middleware/gates.js';
 import type { OrgSeatRow } from '../../core/teams.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import { generateEmailConfirmCode } from '../../util/credentials.js';
 import { claimOnce } from '../../util/kvClaim.js';
+import { requestIp } from '../../util/requestIp.js';
 import {
     lookupPasswordRange,
     passwordRange,
     type PasswordRange,
 } from '../../util/pwnedPasswords.js';
 import {
+    isTemporaryAccount,
     passwordTag,
     toUnixSeconds,
     withoutSecrets,
 } from '../../util/userDetails.js';
 import { PHONE_AT_DORMANT_SIGN_IN } from '../../util/verificationOrder.js';
 import { PuterService } from '../types.js';
-import { signupClientIp } from '../user/SignupService.js';
 
 const DAY_SECONDS = 24 * 60 * 60;
 const DEFAULT_DORMANT_DAYS = 180;
@@ -183,7 +184,7 @@ const refusalOf = (decision: {
 
 /** What the sign-in events report about the request. */
 const requestFacts = (req: Request) => ({
-    ip: signupClientIp(req),
+    ip: requestIp(req),
     userAgent:
         typeof req.headers?.['user-agent'] === 'string'
             ? req.headers['user-agent']
@@ -207,9 +208,6 @@ const accountFactReads = new WeakMap<
     Request,
     Map<string, Promise<AccountFacts>>
 >();
-
-const isTemporaryAccount = (user: UserRow): boolean =>
-    (user.password ?? null) === null && (user.email ?? null) === null;
 
 // An account with no recorded activity counts from its signup.
 const daysSinceActivity = (
@@ -329,7 +327,7 @@ export class SignInService extends PuterService {
             user.email &&
             !user.email_confirmed &&
             this.config.email
-                ? String(randomInt(100000, 1000000))
+                ? generateEmailConfirmCode()
                 : null;
         user = await this.#setGates(user, {
             requiresPhone,

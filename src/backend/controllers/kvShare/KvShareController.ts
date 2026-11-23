@@ -36,9 +36,10 @@ import {
     KV_SHARE_OWNER_LIST_STATES,
 } from '../../stores/events/KvShareHandleStore.js';
 import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
-import { normalizeLimit } from '../../util/pagination.js';
+import { pageEnvelope, parsePageQuery } from '../../util/pagination.js';
 import type { KvShareView } from '../../services/kvShare/KvShareService.js';
-import { EVENTS_LIST_LIMIT, KV_SHARE_BATCH_MAX } from '../events/limits.js';
+import { KV_SHARE_BATCH_MAX } from '../../services/events/limits.js';
+import { EVENTS_LIST_LIMIT } from '../events/limits.js';
 import { PuterController } from '../types.js';
 
 /** The app-less namespace is no app, so the wire says `null` for it. */
@@ -101,15 +102,10 @@ const listState = (value: unknown): KvShareOwnerListState | undefined => {
     return value as KvShareOwnerListState;
 };
 
-const pageOptions = (req: Request): KvShareHandleListOptions => {
-    const query = (req.query ?? {}) as Record<string, unknown>;
-    return {
-        limit: normalizeLimit(query.limit, { cap: KV_HANDLE_LIST_LIMIT_CAP }),
-        cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
-        includeTotal: query.includeTotal === 'true',
-        appUid: listAppUid(query.appUid),
-    };
-};
+const pageOptions = (req: Request): KvShareHandleListOptions => ({
+    ...parsePageQuery(req.query, { cap: KV_HANDLE_LIST_LIMIT_CAP }),
+    appUid: listAppUid((req.query ?? {}).appUid),
+});
 
 const ownerPageOptions = (req: Request): KvShareOwnerListOptions => ({
     ...pageOptions(req),
@@ -200,8 +196,8 @@ export class KvShareController extends PuterController {
             actor,
             ownerPageOptions(req),
         );
-        res.json({
-            items: page.items.map((row) => ({
+        res.json(
+            pageEnvelope(page, (row) => ({
                 handle: row.handle,
                 prefix: row.prefix,
                 access: row.access,
@@ -213,9 +209,7 @@ export class KvShareController extends PuterController {
                 revokedAt: row.revokedAt,
                 revokedBy: row.revokedBy,
             })),
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(page.total !== undefined ? { total: page.total } : {}),
-        });
+        );
     }
 
     /** GET /kv/shares/with-me — live shares this account holds. */
@@ -231,8 +225,8 @@ export class KvShareController extends PuterController {
             actor,
             pageOptions(req),
         );
-        res.json({
-            items: page.items.map((row) => ({
+        res.json(
+            pageEnvelope(page, (row) => ({
                 handle: row.handle,
                 access: row.access,
                 appUid: publicAppUid(row.appUid),
@@ -240,9 +234,7 @@ export class KvShareController extends PuterController {
                 notify: row.notify,
                 createdAt: row.createdAt,
             })),
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(page.total !== undefined ? { total: page.total } : {}),
-        });
+        );
     }
 
     /**

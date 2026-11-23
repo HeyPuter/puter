@@ -50,6 +50,7 @@ const API_BASE = 'https://api.x.ai/v1';
 const MAX_AUDIO_FILE_SIZE = 500 * 1024 * 1024; // 500 MB per xAI docs
 // Covers the upload as well as the transcription.
 const STT_TIMEOUT_MS = 10 * 60 * 1000;
+const MAX_TRANSCRIPT_REPLY_BYTES = 32 * 1024 * 1024;
 // $0.10 per hour = 10 cents per hour = 10 * 1_000_000 microcents per hour
 // Per second: 10_000_000 / 3600 ≈ 2778 microcents per second
 const UCENTS_PER_SECOND = 2778;
@@ -207,6 +208,7 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
                     'xai',
                     'xAI STT',
                     response,
+                    MAX_TRANSCRIPT_REPLY_BYTES,
                 )) as { duration?: unknown } | null;
                 if (!result || typeof result !== 'object') {
                     throw malformedUpstreamResponse('xai', 'xAI STT');

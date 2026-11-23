@@ -39,6 +39,7 @@ import {
     requestAiCosts,
     withAiCostFactor,
 } from '../../../../util/aiCostFactor.js';
+import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import {
     isCreditExhaustion as isUpstreamCreditExhaustion,
@@ -65,7 +66,7 @@ import { MoonshotProvider } from '../../providers/moonshot/chat/MoonshotProvider
 import { NeuralwattProvider } from '../../providers/neuralwatt/chat/NeuralwattProvider.js';
 import { OllamaChatProvider } from '../../providers/ollama/chat/OllamaProvider.js';
 import type { ChatProviderConfig } from '../../protocols/openaiCompatible/OpenAICompatProvider.js';
-import { processPuterPathUploads } from '../../providers/openai/chat/fileUpload.js';
+import { processPuterPathUploads } from './utils/puterPathUploads.js';
 import { OpenAiChatProvider } from '../../providers/openai/chat/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from '../../providers/openai/chat/OpenAiChatResponsesProvider.js';
 import { OpenRouterProvider } from '../../providers/openrouter/chat/OpenRouterProvider.js';
@@ -819,27 +820,9 @@ export class ChatCompletionDriver extends PuterDriver {
         // AI charges recorded in this request before the current attempt.
         let priorCharges = requestAiCosts().length;
 
-        let intendedProvider = args.provider || '';
-        if (!args.model && !intendedProvider) {
-            intendedProvider = 'azure-openai'; // default provider
-        }
-        if (
-            !args.model &&
-            intendedProvider &&
-            this.#providers[intendedProvider]
-        ) {
-            args.model = this.#providers[intendedProvider].getDefaultModel();
-        }
-
-        const initialModel = await this.#resolveLoadedModel(
-            args.model,
-            intendedProvider,
-        );
-        if (!initialModel) {
-            throw new HttpError(400, `Model not found: ${args.model}`, {
-                legacyCode: 'bad_request',
-            });
-        }
+        const requested = await this.#resolveRequestedModel(args);
+        let intendedProvider = requested.intendedProvider;
+        const initialModel = requested.model;
         let model: IChatModel = initialModel;
         // A pinned provider without a route for the model normally resolves
         // to another vendor; with `fallback: false` that is the one thing the
@@ -860,20 +843,7 @@ export class ChatCompletionDriver extends PuterDriver {
         const pinnedFallback = await this.#pinnedRefusalFallback(args, model);
         if (pinnedFallback) model = pinnedFallback;
 
-        args.messages = normalizeMediaParts(normalize_messages(args.messages));
-        if (args.tools) {
-            normalize_tools_object(args.tools);
-        } else {
-            // `tools: enabled && list` leaves `false` here; it means no tools.
-            delete args.tools;
-        }
-        // A raw `/drivers/call` caller still sends the OpenAI wire form
-        // ('auto'/'none'/'required', {type:'function', function:{name}}) —
-        // normalize it once here so a provider downstream never spreads a
-        // bare string or an unrecognized shape into its request.
-        if (args.tool_choice !== undefined && !isToolChoice(args.tool_choice)) {
-            args.tool_choice = toolChoiceFromWire(args.tool_choice, 'chat');
-        }
+        this.#normalizeRequest(args);
 
         // Before the credit hold and the round trip.
         assertInputModalities(model, args.messages);
@@ -1805,35 +1775,8 @@ export class ChatCompletionDriver extends PuterDriver {
         args: ICompleteArguments,
     ): Promise<{ input_tokens: number }> {
         assertScalarOptions(args, SCALAR_OPTIONS);
-        let intendedProvider = args.provider || '';
-        if (!args.model && !intendedProvider) {
-            intendedProvider = 'azure-openai';
-        }
-        if (
-            !args.model &&
-            intendedProvider &&
-            this.#providers[intendedProvider]
-        ) {
-            args.model = this.#providers[intendedProvider].getDefaultModel();
-        }
-
-        const model = await this.#resolveLoadedModel(
-            args.model,
-            intendedProvider,
-        );
-        if (!model) {
-            throw new HttpError(400, `Model not found: ${args.model}`, {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        args.messages = normalizeMediaParts(normalize_messages(args.messages));
-        if (args.tools) {
-            normalize_tools_object(args.tools);
-        } else {
-            // `tools: enabled && list` leaves `false` here; it means no tools.
-            delete args.tools;
-        }
+        const { model } = await this.#resolveRequestedModel(args);
+        this.#normalizeRequest(args);
 
         const provider = this.#providers[model.provider!];
         if (!provider) {
@@ -1858,6 +1801,55 @@ export class ChatCompletionDriver extends PuterDriver {
                 estimatePromptTokens(requestArgs.messages ?? []) +
                 estimateToolTokens(requestArgs.tools),
         };
+    }
+
+    /**
+     * The model a call names. With neither a model nor a provider named, the
+     * default provider's default model, which is written into `args.model`.
+     */
+    async #resolveRequestedModel(
+        args: ICompleteArguments,
+    ): Promise<{ model: IChatModel; intendedProvider: string }> {
+        let intendedProvider = args.provider || '';
+        if (!args.model && !intendedProvider) {
+            intendedProvider = 'azure-openai'; // default provider
+        }
+        if (
+            !args.model &&
+            intendedProvider &&
+            this.#providers[intendedProvider]
+        ) {
+            args.model = this.#providers[intendedProvider].getDefaultModel();
+        }
+
+        const model = await this.#resolveLoadedModel(
+            args.model,
+            intendedProvider,
+        );
+        if (!model) {
+            throw new HttpError(400, `Model not found: ${args.model}`, {
+                legacyCode: 'bad_request',
+            });
+        }
+        return { model, intendedProvider };
+    }
+
+    /** Normalizes messages, tools and `tool_choice` in place. */
+    #normalizeRequest(args: ICompleteArguments): void {
+        args.messages = normalizeMediaParts(normalize_messages(args.messages));
+        if (args.tools) {
+            normalize_tools_object(args.tools);
+        } else {
+            // `tools: enabled && list` leaves `false` here; it means no tools.
+            delete args.tools;
+        }
+        // A raw `/drivers/call` caller still sends the OpenAI wire form
+        // ('auto'/'none'/'required', {type:'function', function:{name}}) —
+        // normalize it once here so a provider downstream never spreads a
+        // bare string or an unrecognized shape into its request.
+        if (args.tool_choice !== undefined && !isToolChoice(args.tool_choice)) {
+            args.tool_choice = toolChoiceFromWire(args.tool_choice, 'chat');
+        }
     }
 
     /**
@@ -2285,11 +2277,7 @@ export class ChatCompletionDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
         const metering = this.#aiMetering;
 
-        const readKey = (cfg: Record<string, unknown> | undefined) =>
-            (cfg?.apiKey as string | undefined) ??
-            (cfg?.secret_key as string | undefined);
-
-        const claudeKey = readKey(providers['claude']);
+        const claudeKey = readProviderKey(providers['claude']);
         if (claudeKey) {
             this.#providers['claude'] = new ClaudeProvider(
                 metering,
@@ -2306,22 +2294,16 @@ export class ChatCompletionDriver extends PuterDriver {
         // and it is preferred for us; `PREFERRED_PROVIDERS` in modelRouting
         // puts it ahead of them in the per-model bucket.
         const azureOpenai = providers['azure-openai'];
-        const azureOpenaiKey = readKey(azureOpenai);
+        const azureOpenaiKey = readProviderKey(azureOpenai);
         const azureOpenaiURL = azureOpenai?.apiURL as string | undefined;
         let azureResponses: AzureResponsesProvider | undefined;
         if (azureOpenaiKey && azureOpenaiURL) {
-            const azureStores = {
-                fsEntry: this.stores.fsEntry,
-                s3Object: this.stores.s3Object,
-            };
             const azureConfig = {
                 apiKey: azureOpenaiKey,
                 apiURL: azureOpenaiURL,
             };
             const azureCompletions = new AzureChatProvider(
                 metering,
-                azureStores,
-                this.services.fs,
                 azureConfig,
             );
             // Codex / Responses-API-only models can't use Chat Completions, so
@@ -2330,8 +2312,6 @@ export class ChatCompletionDriver extends PuterDriver {
             // here too.
             azureResponses = new AzureResponsesProvider(
                 metering,
-                azureStores,
-                this.services.fs,
                 azureConfig,
             );
             azureCompletions.setResponsesProvider(azureResponses);
@@ -2339,7 +2319,7 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['azure-openai-responses'] = azureResponses;
         }
 
-        const openaiKey = readKey(providers['openai-completion']);
+        const openaiKey = readProviderKey(providers['openai-completion']);
         if (openaiKey) {
             const openaiCompletions = new OpenAiChatProvider(
                 { apiKey: openaiKey },
@@ -2360,7 +2340,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         for (const { name, configKey = name, Class } of KEYED_PROVIDERS) {
             const config = providers[configKey];
-            const apiKey = readKey(config);
+            const apiKey = readProviderKey(config);
             if (!apiKey) continue;
             this.#providers[name] = new Class(
                 {

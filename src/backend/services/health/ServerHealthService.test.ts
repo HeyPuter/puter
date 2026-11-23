@@ -126,15 +126,12 @@ describe('ServerHealthService.addCheck', () => {
         service.onServerShutdown();
     });
 
-    it('reports a failing check and fires its onFail hook only on the transition', async () => {
+    it('reports a failing check until it recovers', async () => {
         const { service } = makeService();
-        const onFail = vi.fn();
         let failing = true;
-        service
-            .addCheck('flaky', () => {
-                if (failing) throw new Error('nope');
-            })
-            .onFail(onFail);
+        service.addCheck('flaky', () => {
+            if (failing) throw new Error('nope');
+        });
         service.onServerStart();
 
         await runCycle();
@@ -142,43 +139,12 @@ describe('ServerHealthService.addCheck', () => {
             ok: false,
             failed: ['flaky'],
         });
-        expect(onFail).toHaveBeenCalledTimes(1);
-        expect(onFail.mock.calls[0][0]).toBeInstanceOf(Error);
 
-        // Still failing — the self-heal hook must not re-fire every cycle.
-        kv.del(STATUS_CACHE_KEY);
-        await runCycle();
-        expect(onFail).toHaveBeenCalledTimes(1);
-
-        // Recovers.
         failing = false;
         kv.del(STATUS_CACHE_KEY);
         await runCycle();
         expect(await service.getStatus()).toEqual({ ok: true });
 
-        service.onServerShutdown();
-    });
-
-    it('keeps going when an onFail hook itself throws', async () => {
-        const { service } = makeService();
-        service
-            .addCheck('bad', () => {
-                throw new Error('check failed');
-            })
-            .onFail(() => {
-                throw new Error('handler failed');
-            });
-        service.onServerStart();
-
-        await runCycle();
-        expect(await service.getStatus()).toEqual({
-            ok: false,
-            failed: ['bad'],
-        });
-        expect(errorSpy).toHaveBeenCalledWith(
-            '[server-health] onFail handler for bad threw:',
-            expect.anything(),
-        );
         service.onServerShutdown();
     });
 

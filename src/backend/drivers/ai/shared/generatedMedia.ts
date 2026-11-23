@@ -30,6 +30,15 @@ import {
 } from '../../../services/fs/resolveNode.js';
 import { secureFetch } from '../../../util/secureHttp.js';
 import { dataUriBytes, parseDataUri } from '../../util/dataUri.js';
+import { readBoundedBody } from '../../util/fileInput.js';
+import { isUpstreamTimeoutError } from '../../util/upstreamErrors.js';
+
+/**
+ * Bounds on downloading a provider-minted result URL for `puter_output_path`.
+ * The cap sits above the largest source video any provider accepts.
+ */
+const MAX_GENERATED_MEDIA_BYTES = 256 * 1024 * 1024;
+const GENERATED_MEDIA_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Where a generation's `puter_output_path` lands, checked before any credits
@@ -109,16 +118,7 @@ export async function saveGeneratedMediaToFS(
         // input paths: it reaches an unauthenticated GET whose body lands in
         // the user's filesystem. skipProxy because generated media is ours to
         // download directly, not user input to screen.
-        const response = await secureFetch(result, { skipProxy: true });
-        if (!response.ok) {
-            throw new HttpError(
-                502,
-                `Failed to fetch generated ${media.noun} for FS write: ${response.status}`,
-                { legacyCode: 'internal_error' },
-            );
-        }
-        contentType = response.headers.get('content-type') ?? media.defaultType;
-        buffer = Buffer.from(await response.arrayBuffer());
+        ({ buffer, contentType } = await downloadGeneratedMedia(result, media));
     }
 
     if (!(await canStillWrite(fsService, actor, pathPosix.dirname(path)))) {
@@ -135,6 +135,50 @@ export async function saveGeneratedMediaToFS(
         fileContent: Readable.from(buffer),
     });
     return true;
+}
+
+async function downloadGeneratedMedia(
+    url: string,
+    media: { noun: 'image' | 'video'; defaultType: string },
+): Promise<{ buffer: Buffer; contentType: string }> {
+    try {
+        const response = await secureFetch(url, {
+            skipProxy: true,
+            signal: AbortSignal.timeout(GENERATED_MEDIA_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+            await response.body?.cancel();
+            throw new HttpError(
+                502,
+                `Failed to fetch generated ${media.noun} for FS write: ${response.status}`,
+                { legacyCode: 'internal_error' },
+            );
+        }
+        const buffer = await readBoundedBody(
+            response,
+            MAX_GENERATED_MEDIA_BYTES,
+            (maxBytes) =>
+                new HttpError(
+                    502,
+                    `Generated ${media.noun} exceeds ${maxBytes} bytes`,
+                    { legacyCode: 'internal_error' },
+                ),
+        );
+        return {
+            buffer,
+            contentType:
+                response.headers.get('content-type') ?? media.defaultType,
+        };
+    } catch (err) {
+        if (isUpstreamTimeoutError(err)) {
+            throw new HttpError(
+                504,
+                `Timed out fetching generated ${media.noun} for FS write`,
+                { legacyCode: 'upstream_timeout' },
+            );
+        }
+        throw err;
+    }
 }
 
 async function canStillWrite(

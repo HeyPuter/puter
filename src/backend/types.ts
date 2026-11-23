@@ -184,16 +184,6 @@ export interface IAlarmCallConfig {
     ttlMs?: number;
 }
 
-export interface ICfFileCacheConfig {
-    /**
-     * POST endpoint that accepts batched `{ site, path }[]` invalidation
-     * payloads.
-     */
-    endpoint: string;
-    /** Flush cadence in ms. Default 500. */
-    throttle_ms?: number;
-}
-
 export interface IClickhouseConfig {
     url: string;
     username?: string;
@@ -725,8 +715,6 @@ interface IConfigOptional {
 
     /** `dev` disables blocked-email checks, opens the browser, etc. */
     env: 'dev' | 'prod';
-    /** Config profile name (e.g. `oss-default`), surfaced in logs. */
-    config_name: string;
     /**
      * `json` emits one structured line per console call (`level`, `timestamp`,
      * `msg`, `traceId`); `text` (default) stays human-readable.
@@ -1148,7 +1136,6 @@ interface IConfigOptional {
     prelude: IPreludeConfig;
     /** Optional — only set when a ClickHouse analytics client is wired in. */
     clickhouse?: IClickhouseConfig;
-    cf_file_cache: ICfFileCacheConfig;
 
     // -- Rate limiting -----------------------------------------------
 

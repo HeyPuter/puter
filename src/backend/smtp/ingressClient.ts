@@ -20,7 +20,10 @@
 import http from 'node:http';
 import https from 'node:https';
 import PostalMime from 'postal-mime';
-import { MAIL_CONTENT_TYPE } from '../services/email/mailbox.js';
+import {
+    MAIL_CONTENT_TYPE,
+    refusalReasonText,
+} from '../services/email/mailbox.js';
 
 /**
  * An SMTP reply: 250 when the endpoint took the message, an error code
@@ -117,11 +120,7 @@ export const replyForStatus = (status: number, reason = ''): SmtpReply => {
     if (status === 413)
         return { code: 552, text: '5.3.4 Message too big for system' };
     if (status === 422) {
-        const text = reason
-            .replace(/[^\x20-\x7e]+/g, ' ')
-            .trim()
-            .slice(0, MAX_REASON_CHARS);
-        return { code: 550, text: `5.7.1 ${text || 'Message refused'}` };
+        return { code: 550, text: `5.7.1 ${refusalReasonText(reason)}` };
     }
     return { code: 451, text: '4.3.0 Temporary server error' };
 };

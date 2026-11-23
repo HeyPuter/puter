@@ -1,5 +1,4 @@
 import { extension } from '@heyputer/backend/src/extensions';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request } from 'express';
 import type { Readable } from 'node:stream';
 import {
@@ -8,6 +7,7 @@ import {
     isPuterEmailAddress,
     isTempUser,
     puterEmailUsername,
+    refusalReasonText,
     stampSenderAuth,
     storeInboxMessage,
 } from '@heyputer/backend/src/services/email/mailbox.js';
@@ -17,14 +17,7 @@ import {
     readHeadBlock,
     replaceHead,
 } from '@heyputer/backend/src/services/email/rawMessage.js';
-
-// copied form peer secrets checker
-const COMPARE_KEY = randomBytes(32);
-const secretsEqual = (a: string, b: string): boolean =>
-    timingSafeEqual(
-        createHmac('sha256', COMPARE_KEY).update(a).digest(),
-        createHmac('sha256', COMPARE_KEY).update(b).digest(),
-    );
+import { secretsEqual } from '@heyputer/backend/src/util/secureCompare.js';
 
 const USER_EMAIL_CONFIG = (extension.config as Record<string, unknown>)
     .userEmail as { secret?: string; feedbackAddresses?: unknown } | undefined;
@@ -52,16 +45,6 @@ const MAX_FEEDBACK_BYTES = 5 * 1024 * 1024;
 const isFeedbackAddress = (to: string): boolean =>
     isPuterEmailAddress(to) &&
     FEEDBACK_ADDRESSES.has(puterEmailUsername(to).toLowerCase());
-
-/**
- * A listener's refusal reason as one short line of printable ASCII: the relay
- * quotes it in an SMTP reply.
- */
-const refusalText = (reason: string | null): string =>
-    (reason ?? '')
-        .replace(/[^\x20-\x7e]+/g, ' ')
-        .trim()
-        .slice(0, 200) || 'Message refused';
 
 const readBody = async (req: Request): Promise<Buffer> => {
     const chunks: Buffer[] = [];
@@ -218,7 +201,7 @@ if (!INGRESS_SECRET) {
                 );
             }
             if (check.allow === false) {
-                refuse(422, 'drain', refusalText(check.message));
+                refuse(422, 'drain', refusalReasonText(check.message));
                 return;
             }
 

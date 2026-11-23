@@ -90,12 +90,6 @@ export type NeuralwattCost = {
     allowance_remaining_usd?: number;
 };
 
-/** Strip the Puter-facing `neuralwatt:` prefix for upstream API calls. */
-export const stripNeuralwattPrefix = (modelId: string): string =>
-    modelId.startsWith(NEURALWATT_ID_PREFIX)
-        ? modelId.slice(NEURALWATT_ID_PREFIX.length)
-        : modelId;
-
 /**
  * Map a Neuralwatt catalog entry to Puter's `IChatModel`. Returns `null` when
  * pricing is TBD (placeholders) so the model is not offered for preflight

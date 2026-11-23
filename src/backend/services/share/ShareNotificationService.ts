@@ -20,11 +20,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Actor } from '../../core/actor';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
-import {
-    runWithConcurrencyLimitSettled,
-    settleWithin,
-} from '../../util/concurrency.js';
-import { FINAL_FLUSH_TIMEOUT_MS } from '../../util/gracefulShutdown.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { finalFlush } from '../../util/gracefulShutdown.js';
 import { PuterService } from '../types';
 import {
     digestItemPaths,
@@ -139,6 +136,10 @@ const skipped = (reason: string, detail: Record<string, unknown>): void => {
     console.log('[share-notify] not emailing:', reason, detail);
 };
 
+/** `kv.list` answers with a paged envelope or a bare array: its items. */
+const listedItems = (res: unknown): unknown[] =>
+    Array.isArray(res) ? res : ((res as { items?: unknown[] })?.items ?? []);
+
 /** Where a single-item notification points; a masked path, opened in place. */
 interface ShareNotificationTarget {
     path: string;
@@ -226,8 +227,7 @@ export class ShareNotificationService extends PuterService {
         for (const [, timer] of this.#digestTimers) clearTimeout(timer);
         this.#digestTimers.clear();
         const active = [...this.#digestFlushes.values()];
-        const deadline = Date.now() + FINAL_FLUSH_TIMEOUT_MS;
-        const drain = async () => {
+        await finalFlush('share-notify', async (deadline) => {
             try {
                 await Promise.allSettled(active);
                 if (Date.now() >= deadline) return;
@@ -245,10 +245,7 @@ export class ShareNotificationService extends PuterService {
                     err,
                 );
             }
-        };
-        if (!(await settleWithin(drain(), FINAL_FLUSH_TIMEOUT_MS))) {
-            console.warn('[share-notify] final flush timed out');
-        }
+        });
     }
 
     /** The recovery sweep, for tests that can't wait out an interval. */
@@ -268,11 +265,10 @@ export class ShareNotificationService extends PuterService {
                 pattern: 'share:digest:',
                 limit: DIGEST_LIST_LIMIT,
             });
-            const listed = (
-                Array.isArray(res)
-                    ? res
-                    : ((res as { items?: unknown[] })?.items ?? [])
-            ) as Array<{ key: string; value: unknown }>;
+            const listed = listedItems(res) as Array<{
+                key: string;
+                value: unknown;
+            }>;
             if (listed.length === 0) return;
             if (listed.length >= DIGEST_LIST_LIMIT) {
                 console.log('[share-notify] sweep listing hit its cap:', {
@@ -905,10 +901,7 @@ export class ShareNotificationService extends PuterService {
                 pattern: `share:digest:${key}:`,
                 limit: 1,
             });
-            const listed = Array.isArray(res)
-                ? res
-                : ((res as { items?: unknown[] })?.items ?? []);
-            return listed.length > 0;
+            return listedItems(res).length > 0;
         } catch {
             // Fail closed: a broken read must not become unlimited joins.
             return false;
@@ -963,11 +956,7 @@ export class ShareNotificationService extends PuterService {
                 pattern: prefix,
                 limit: DIGEST_LIST_LIMIT,
             });
-            // `list` answers with a paged envelope; unwrap defensively.
-            const listed = Array.isArray(res)
-                ? res
-                : ((res as { items?: unknown[] })?.items ?? []);
-            const keys = listed.filter(
+            const keys = listedItems(res).filter(
                 (entry): entry is string => typeof entry === 'string',
             );
             if (keys.length >= DIGEST_LIST_LIMIT) {

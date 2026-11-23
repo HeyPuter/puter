@@ -330,6 +330,75 @@ describe('PermissionService group grants', () => {
         expect(await permService.check(memberActor, permission)).toBeFalsy();
     });
 
+    it('revokes several permissions at once, announcing only the ones it removed', async () => {
+        const { user: issuer, actor: issuerActor } = await makeUserActor();
+        const { user: member, actor: memberActor } = await makeUserActor();
+        const group = await makeGroup(issuer, [member]);
+        const tag = uuidv4();
+        const held = `zztest:grp-many-${tag}:ii:read`;
+        const alsoHeld = `zztest:grp-many-${tag}:ii:write`;
+        const never = `zztest:grp-many-${tag}:ii:list`;
+        for (const permission of [held, alsoHeld, never])
+            await holdAndManage(issuer, permission);
+        await grant(issuerActor, group.uid, held);
+        await grant(issuerActor, group.uid, alsoHeld);
+        expect(await permService.check(memberActor, held)).toBe(true);
+
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        let removed: string[];
+        try {
+            removed = await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserGroupPermissions(
+                    issuerActor,
+                    group.uid,
+                    [held, alsoHeld, never, held],
+                    { reason: 'batch' },
+                ),
+            );
+            expect(
+                revokedEvents(emit)
+                    .map((data) => (data as { permission: string }).permission)
+                    .sort(),
+            ).toEqual([held, alsoHeld].sort());
+        } finally {
+            emit.mockRestore();
+        }
+        expect(removed.sort()).toEqual([held, alsoHeld].sort());
+        expect(await permService.check(memberActor, held)).toBeFalsy();
+        expect(await permService.check(memberActor, alsoHeld)).toBeFalsy();
+        expect(await grantRows(group.id, held)).toEqual([]);
+        expect(
+            await permService.revokeUserGroupPermissions(
+                issuerActor,
+                group.uid,
+                [],
+            ),
+        ).toEqual([]);
+    });
+
+    it('refuses a batch revoke the actor may not manage, removing nothing', async () => {
+        const { user: owner, actor: ownerActor } = await makeUserActor();
+        const { user: member } = await makeUserActor();
+        const { actor: outsider } = await makeUserActor();
+        const group = await makeGroup(owner, [member]);
+        const permission = `zztest:grp-many-denied-${uuidv4()}:ii:read`;
+        await holdAndManage(owner, permission);
+        await grant(ownerActor, group.uid, permission);
+
+        await expect(
+            runWithContext({ actor: outsider }, () =>
+                permService.revokeUserGroupPermissions(
+                    outsider,
+                    group.uid,
+                    [permission],
+                    {},
+                    { issuerUserId: owner.id },
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(await grantRows(group.id, permission)).toHaveLength(1);
+    });
+
     it('lists what an issuer granted a group under a prefix', async () => {
         const { user: issuer, actor: issuerActor } = await makeUserActor();
         const { user: other, actor: otherActor } = await makeUserActor();
@@ -347,24 +416,24 @@ describe('PermissionService group grants', () => {
         const prefix = `zztest:grp-query-${tag}`;
 
         expect(
-            await permService.queryIssuerGroupPermissionsByPrefix(
+            await permService.queryIssuerGroupPermissionsByPrefixes(
                 issuerActor,
                 group.uid,
-                prefix,
+                [prefix],
             ),
         ).toEqual([inside]);
         expect(
-            await permService.queryIssuerGroupPermissionsByPrefix(
+            await permService.queryIssuerGroupPermissionsByPrefixes(
                 issuerActor,
                 uuidv4(),
-                prefix,
+                [prefix],
             ),
         ).toEqual([]);
         expect(
-            await permService.queryIssuerGroupPermissionsByPrefix(
+            await permService.queryIssuerGroupPermissionsByPrefixes(
                 { user: undefined } as unknown as Actor,
                 group.uid,
-                prefix,
+                [prefix],
             ),
         ).toEqual([]);
     });

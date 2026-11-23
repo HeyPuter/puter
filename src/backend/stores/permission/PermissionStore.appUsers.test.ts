@@ -125,3 +125,74 @@ describe('PermissionStore.listAppsGrantedByUser', () => {
         expect(byTitle[0]).toHaveProperty('installed_at');
     });
 });
+
+describe('PermissionStore.listAppsWithUserAppPerm', () => {
+    it('lists the apps holding one permission, by title, with the grant’s via', async () => {
+        const dev = await makeUser();
+        const user = await makeUser();
+        const zed = await makeApp(dev.id, 'Zed');
+        const alpha = await makeApp(dev.id, 'Alpha');
+        const other = await makeApp(dev.id, 'Other');
+        await server.stores.permission.upsertUserAppPerm(
+            user.id,
+            zed.id,
+            'notifications:push',
+            { via: 'webpush' },
+        );
+        await grant(user.id, alpha.id, 'notifications:push');
+        await grant(user.id, other.id, APP_AUTHENTICATED_FLAG);
+
+        const rows = await server.stores.permission.listAppsWithUserAppPerm(
+            user.id,
+            'notifications:push',
+            { limit: 10 },
+        );
+        expect(rows).toEqual([
+            {
+                uid: alpha.uid,
+                name: alpha.name,
+                title: 'Alpha',
+                index_url: alpha.index_url,
+                description: alpha.description ?? null,
+                via: null,
+            },
+            {
+                uid: zed.uid,
+                name: zed.name,
+                title: 'Zed',
+                index_url: zed.index_url,
+                description: zed.description ?? null,
+                via: 'webpush',
+            },
+        ]);
+
+        const limited = await server.stores.permission.listAppsWithUserAppPerm(
+            user.id,
+            'notifications:push',
+            { limit: 1, withIcon: true },
+        );
+        expect(limited.map((row) => row.uid)).toEqual([alpha.uid]);
+        expect(limited[0]).toHaveProperty('icon');
+    });
+});
+
+describe('PermissionStore.hasAnyUserAppPermByUuids', () => {
+    it('tells whether a user uuid granted an app uid anything, from the primary', async () => {
+        const dev = await makeUser();
+        const user = await makeUser();
+        const app = await makeApp(dev.id);
+        const untouched = await makeApp(dev.id);
+        await grant(user.id, app.id, 'some:perm');
+
+        const store = server.stores.permission;
+        expect(await store.hasAnyUserAppPermByUuids(user.uuid, app.uid)).toBe(
+            true,
+        );
+        expect(
+            await store.hasAnyUserAppPermByUuids(user.uuid, untouched.uid),
+        ).toBe(false);
+        expect(await store.hasAnyUserAppPermByUuids(dev.uuid, app.uid)).toBe(
+            false,
+        );
+    });
+});

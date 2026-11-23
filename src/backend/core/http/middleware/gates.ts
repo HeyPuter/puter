@@ -33,6 +33,7 @@ import {
     type CardFallbackDeps,
 } from '../../../util/cardFallback';
 import { reserveUsernames } from '../../../util/reservedUsernames';
+import { activeSubdomain } from '../../../util/subdomains';
 import { isEmailGateLast } from '../../../util/verificationOrder';
 import {
     isAccountContext,
@@ -125,9 +126,7 @@ const settleGate = async (
 export const subdomainGate = (allowed: string | string[]): RequestHandler => {
     const allowList = Array.isArray(allowed) ? allowed : [allowed];
     return (req, _res, next) => {
-        // Express `req.subdomains` is reverse-of-URL order; the leftmost
-        // subdomain (the active one) is the last element.
-        const active = req.subdomains?.[req.subdomains.length - 1] ?? '';
+        const active = activeSubdomain(req);
         if (!allowList.includes(active)) {
             next('route');
             return;

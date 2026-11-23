@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { UserRow } from '../stores/user/UserStore';
+import type { UserRow } from '../stores/user/UserStore';
 import { Context } from './context';
 import { HttpError } from './http/HttpError';
 import { assertVerifiedEmail } from './http/verifiedEmail';

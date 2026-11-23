@@ -24,19 +24,12 @@ import type {
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types.js';
 
-/**
- * Home directory plus the seven folders `generateDefaultFsentries` creates. An
- * account with no more than these has never had a file put in it.
- */
-const PROVISIONED_FSENTRY_COUNT = 8;
-
 /** Apps read per page when listing the ones an account owns. */
 const OWNED_APPS_PAGE = 500;
 
 /**
- * Account-lifecycle operations that more than one caller needs: deleting an
- * account and everything hanging off it, and measuring whether an account has
- * ever actually been used.
+ * Account deletion that more than one caller needs: the account and everything
+ * hanging off it.
  *
  * Most `user_id` foreign keys cascade, but only inside the database: S3
  * objects, sites, flat permission entries and caches outlive a bare row delete.
@@ -61,15 +54,15 @@ export class UserAccountService extends PuterService {
         // Cache keys the row answers under, captured while it still exists.
         let cachedIdentity: UserRow | null = null;
         try {
-            // `SELECT *`: a schema without `stripe_customer_id` still yields the rest.
-            const rows = (await this.clients.db.pread(
-                'SELECT * FROM `user` WHERE `id` = ?',
-                [userId],
-            )) as Array<Record<string, unknown>>;
-            userUuid = rows[0]?.uuid as string | undefined;
+            // Read from the primary, uncached; the row carries every column,
+            // so a schema without `stripe_customer_id` still yields the rest.
+            cachedIdentity = await this.stores.user.getById(userId, {
+                cached: false,
+                force: true,
+            });
+            userUuid = cachedIdentity?.uuid;
             stripeCustomerId =
-                (rows[0]?.stripe_customer_id as string | null) ?? null;
-            cachedIdentity = (rows[0] as UserRow | undefined) ?? null;
+                (cachedIdentity?.stripe_customer_id as string | null) ?? null;
         } catch (e) {
             console.warn('[cascade-delete-user] identifier lookup failed:', e);
         }
@@ -132,11 +125,10 @@ export class UserAccountService extends PuterService {
             console.warn('[cascade-delete-user] kv share retire failed:', e);
         }
 
-        // Sessions FK is SET NULL, so delete explicitly to avoid dangling rows.
-        await this.clients.db.write(
-            'DELETE FROM `sessions` WHERE `user_id` = ?',
-            [userId],
-        );
+        // Revoked first so open sockets and relays hear about it; the FK is
+        // SET NULL, so the rows are then deleted explicitly.
+        await this.services.auth.revokeAllSessionsForUserId(userId);
+        await this.stores.session.deleteAllForUser(userId);
         // Its group grants cascade too, so their members' readings change.
         let granted: GroupMember[] = [];
         try {
@@ -160,11 +152,7 @@ export class UserAccountService extends PuterService {
             userId,
             ...granted.map((member) => member.id),
         ]);
-        await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
-            userId,
-        ]);
-        if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
-        else await this.stores.user.invalidateById(userId);
+        await this.stores.user.deleteById(userId, cachedIdentity);
         // Its issued grant rows cascaded; holders' cached copies still name it.
         await this.stores.permission.markUserUserPermsChanged(
             issuedRefs.map((ref) => ref.holderUserId),
@@ -280,86 +268,5 @@ export class UserAccountService extends PuterService {
             }
             afterId = rows[rows.length - 1]!.id;
         }
-    }
-
-    /**
-     * Evidence that an account has been used for something — the signals that
-     * separate "a row a race created and nobody ever touched" from "somebody's
-     * account".
-     *
-     * Deliberately generous about what counts. A false "in use" costs a row
-     * that sticks around; a false "unused" destroys somebody's files.
-     *
-     * `fsentryCount` is compared against the folders provisioned at signup, so
-     * an account whose Desktop is still empty reads as untouched.
-     */
-    async getUsageSignals(userId: number): Promise<{
-        userId: number;
-        signals: string[];
-        inUse: boolean;
-        lastActivityTs: string | null;
-    }> {
-        // Each of these is a capped count, not a real one: the subquery stops at
-        // `cap` rows, so a user with a million fsentries costs the same as one
-        // with nine. We only ever compare against a small threshold.
-        const cappedCount = async (
-            table: string,
-            column: string,
-            cap: number,
-        ): Promise<number> => {
-            const sql =
-                `SELECT COUNT(*) AS n FROM ` +
-                `(SELECT 1 FROM \`${table}\` WHERE \`${column}\` = ? LIMIT ${cap}) t`;
-            try {
-                const rows = (await this.clients.db.read(sql, [
-                    userId,
-                ])) as Array<Record<string, unknown>>;
-                return Number(rows[0]?.n ?? 0);
-            } catch (e) {
-                // A signal we cannot read is not a signal that is absent —
-                // report it as present so the caller errs toward keeping.
-                console.warn('[user-usage] signal query failed:', sql, e);
-                return cap;
-            }
-        };
-
-        // Through the store rather than a hand-written column list: several of
-        // the columns read below (`stripe_customer_id`, `card_fingerprint`) are
-        // prod-only additions that a self-hosted schema may not carry, and
-        // naming them in SQL turns their absence into a thrown query instead of
-        // an absent signal.
-        const [
-            row,
-            sessionCount,
-            appCount,
-            subdomainCount,
-            oidcCount,
-            fsentryCount,
-        ] = await Promise.all([
-            this.stores.user.getById(userId, { force: true }),
-            cappedCount('sessions', 'user_id', 1),
-            cappedCount('apps', 'owner_user_id', 1),
-            cappedCount('subdomains', 'user_id', 1),
-            cappedCount('user_oidc_providers', 'user_id', 1),
-            cappedCount('fsentries', 'user_id', PROVISIONED_FSENTRY_COUNT + 1),
-        ]);
-
-        const signals: string[] = [];
-        if (sessionCount > 0) signals.push('sessions');
-        if (appCount > 0) signals.push('apps');
-        if (subdomainCount > 0) signals.push('subdomains');
-        if (oidcCount > 0) signals.push('oidc-link');
-        if (fsentryCount > PROVISIONED_FSENTRY_COUNT) signals.push('files');
-        if (row?.stripe_customer_id) signals.push('stripe-customer');
-        if (row?.card_fingerprint) signals.push('card-verified');
-        if (row?.phone) signals.push('phone-verified');
-        if (row?.last_activity_ts) signals.push('activity');
-
-        return {
-            userId,
-            signals,
-            inUse: signals.length > 0,
-            lastActivityTs: (row?.last_activity_ts as string | null) ?? null,
-        };
     }
 }

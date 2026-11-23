@@ -49,7 +49,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { setupTestServer, withAiCostFactorHook } from '../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from '../../providers/together/video/models.js';
-import type { VideoGenerationDriver } from './VideoGenerationDriver.js';
+import { VideoGenerationDriver } from './VideoGenerationDriver.js';
 
 const DEFAULT_MODEL = 'togetherai:wan-ai/wan2.7-t2v';
 const DEFAULT_WIRE_MODEL = 'Wan-AI/wan2.7-t2v';
@@ -166,6 +166,22 @@ describe('VideoGenerationDriver.generate authentication', () => {
 // ── Argument validation ─────────────────────────────────────────────
 
 describe('VideoGenerationDriver.generate argument validation', () => {
+    it('answers with an HttpError when no provider is configured', async () => {
+        const unconfigured = new VideoGenerationDriver(
+            { providers: {} } as never,
+            server.clients as never,
+            server.stores as never,
+            server.services as never,
+        );
+        await unconfigured.onServerStart();
+        await expect(
+            withActor(() => unconfigured.generate({ prompt: 'hi' } as never)),
+        ).rejects.toMatchObject({
+            statusCode: 500,
+            legacyCode: 'internal_error',
+        });
+    });
+
     it('throws 400 when no provider knows the requested model', async () => {
         await expect(
             withActor(() =>
@@ -921,7 +937,7 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
 
         expect(secureFetchMock).toHaveBeenCalledWith(
             'https://together/out.mp4',
-            { skipProxy: true },
+            { skipProxy: true, signal: expect.any(AbortSignal) },
         );
         expect(fsWriteSpy).toHaveBeenCalledTimes(1);
         const [, writeArg] = fsWriteSpy.mock.calls[0]!;

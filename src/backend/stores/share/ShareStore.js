@@ -20,7 +20,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isSameAddress } from '../../util/email';
-import { decodeCursor, keysetPage, openIdCursor } from '../../util/pagination';
+import {
+    clampLimit,
+    decodeCursor,
+    keysetPage,
+    openIdCursor,
+} from '../../util/pagination';
 import { escapeLike } from '../../util/sqlLike';
 import { PuterStore } from '../types';
 
@@ -303,15 +308,10 @@ export class ShareStore extends PuterStore {
      * @param {number} fsentryId
      */
     async listByFsentrySubtree(fsentryId) {
-        const rows = await this.clients.db.read(
-            this.#subtreeCte() +
-                'SELECT `share`.* FROM `share` ' +
-                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
-                'WHERE `share`.`holder_user_id` IS NOT NULL ' +
-                'ORDER BY `share`.`id`',
-            [fsentryId],
+        return this.#listSubtree(
+            fsentryId,
+            'WHERE `share`.`holder_user_id` IS NOT NULL ',
         );
-        return rows.map((r) => this.#normalizeRow(r));
     }
 
     /**
@@ -321,15 +321,10 @@ export class ShareStore extends PuterStore {
      * @param {number} fsentryId
      */
     async listGroupSharesBySubtree(fsentryId) {
-        const rows = await this.clients.db.read(
-            this.#subtreeCte() +
-                'SELECT `share`.* FROM `share` ' +
-                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
-                'WHERE `share`.`holder_group_id` IS NOT NULL ' +
-                'ORDER BY `share`.`id`',
-            [fsentryId],
+        return this.#listSubtree(
+            fsentryId,
+            'WHERE `share`.`holder_group_id` IS NOT NULL ',
         );
-        return rows.map((r) => this.#normalizeRow(r));
     }
 
     /**
@@ -343,17 +338,7 @@ export class ShareStore extends PuterStore {
      * @param {{ primary?: boolean }} [opts]
      */
     async listAllByFsentrySubtree(fsentryId, { primary = false } = {}) {
-        const read = primary
-            ? this.clients.db.pread.bind(this.clients.db)
-            : this.clients.db.read.bind(this.clients.db);
-        const rows = await read(
-            this.#subtreeCte() +
-                'SELECT `share`.* FROM `share` ' +
-                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
-                'ORDER BY `share`.`id`',
-            [fsentryId],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
+        return this.#listSubtree(fsentryId, '', primary);
     }
 
     /**
@@ -588,18 +573,16 @@ export class ShareStore extends PuterStore {
             );
         }
 
-        const existing = await this.clients.db.read(
+        // The primary: nothing else dedupes these, so a replica that hasn't
+        // seen a moment-old invite would let a second row in.
+        const existing = await this.clients.db.pread(
             'SELECT * FROM `share` WHERE `recipient_email` = ? AND ' +
                 '`fsentry_id` = ? AND `issuer_user_id` = ? AND ' +
                 '`holder_user_id` IS NULL LIMIT 1',
             [recipientEmail, fsentryId, issuerUserId],
         );
         // The key an active share uses, so one reader covers both.
-        const attribution = existing[0]
-            ? this.#keptAttribution(existing[0].data, issuerAppUid)
-            : issuerAppUid
-              ? { issuedByApp: issuerAppUid }
-              : {};
+        const attribution = this.#attribution(existing[0], issuerAppUid);
         const data = JSON.stringify({
             ...attribution,
             ...(displayEmail && displayEmail !== recipientEmail
@@ -706,51 +689,13 @@ export class ShareStore extends PuterStore {
         }
 
         // The user's grant; `data` records which app asked for it.
-        // No app asked, so there is nothing to keep and nothing to read for.
-        const prior = issuerAppUid
-            ? await this.getActive({
-                  holderUserId,
-                  fsentryId,
-                  issuerUserId,
-              })
-            : null;
-        const data = JSON.stringify(
-            prior
-                ? this.#keptAttribution(prior.data, issuerAppUid)
-                : issuerAppUid
-                  ? { issuedByApp: issuerAppUid }
-                  : {},
-        );
-        await this.clients.db.write(
-            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
-                '`holder_user_id`, `fsentry_id`, `mode`, `data`, ' +
-                '`entry_owner_user_id`, `applied_at`) ' +
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ' +
-                '(SELECT `user_id` FROM `fsentries` WHERE `id` = ?), ' +
-                'CURRENT_TIMESTAMP) ' +
-                this.clients.db.upsertClause(
-                    ['holder_user_id', 'fsentry_id', 'issuer_user_id'],
-                    ['mode', 'data'],
-                ),
-            [
-                uuidv4(),
-                issuerUserId,
-                recipientEmail ?? '',
-                holderUserId,
-                fsentryId,
-                mode,
-                data,
-                fsentryId,
-                mode,
-                data,
-            ],
-        );
-        // The upsert may have kept an existing row's uid and created_at, and
-        // `entry_owner_user_id` is a subquery's; only the primary knows them.
-        return this.getActive(
-            { holderUserId, fsentryId, issuerUserId },
-            { primary: true },
-        );
+        return this.#upsertHeld('holder_user_id', holderUserId, {
+            issuerUserId,
+            fsentryId,
+            mode,
+            recipientEmail: recipientEmail ?? '',
+            issuerAppUid,
+        });
     }
 
     /**
@@ -776,51 +721,14 @@ export class ShareStore extends PuterStore {
                 'upsertActiveGroup: issuerUserId, holderGroupId, fsentryId and mode are required',
             );
         }
-        // No app asked, so there is nothing to keep and nothing to read for.
-        const prior = issuerAppUid
-            ? await this.getActiveGroup({
-                  holderGroupId,
-                  fsentryId,
-                  issuerUserId,
-              })
-            : null;
-        const data = JSON.stringify(
-            prior
-                ? this.#keptAttribution(prior.data, issuerAppUid)
-                : issuerAppUid
-                  ? { issuedByApp: issuerAppUid }
-                  : {},
-        );
-        await this.clients.db.write(
-            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
-                '`holder_group_id`, `fsentry_id`, `mode`, `data`, ' +
-                '`entry_owner_user_id`, `applied_at`) ' +
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ' +
-                '(SELECT `user_id` FROM `fsentries` WHERE `id` = ?), ' +
-                'CURRENT_TIMESTAMP) ' +
-                this.clients.db.upsertClause(
-                    ['holder_group_id', 'fsentry_id', 'issuer_user_id'],
-                    ['mode', 'data'],
-                ),
-            [
-                uuidv4(),
-                issuerUserId,
-                // NOT NULL since `0067`; a team has no address.
-                '',
-                holderGroupId,
-                fsentryId,
-                mode,
-                data,
-                fsentryId,
-                mode,
-                data,
-            ],
-        );
-        // As `upsertActive`: only the primary knows the row this settled on.
-        return this.getActiveGroup(
-            { holderGroupId, fsentryId, issuerUserId },
-            { primary: true },
-        );
+        return this.#upsertHeld('holder_group_id', holderGroupId, {
+            issuerUserId,
+            fsentryId,
+            mode,
+            // NOT NULL since `0067`; a team has no address.
+            recipientEmail: '',
+            issuerAppUid,
+        });
     }
 
     /**
@@ -834,13 +742,12 @@ export class ShareStore extends PuterStore {
         { holderGroupId, fsentryId, issuerUserId },
         { primary = false } = {},
     ) {
-        const rows = await this.#select(
-            'SELECT * FROM `share` WHERE `holder_group_id` = ? AND ' +
-                '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
-            [holderGroupId, fsentryId, issuerUserId],
+        return this.#getHeld(
+            'holder_group_id',
+            holderGroupId,
+            { fsentryId, issuerUserId },
             primary,
         );
-        return this.#normalizeRow(rows[0]) ?? null;
     }
 
     /** Every team-held share of this node, whoever issued it. */
@@ -859,15 +766,10 @@ export class ShareStore extends PuterStore {
      * @param {number | null} [input.issuerUserId]
      */
     async deleteActiveGroup({ holderGroupId, fsentryId, issuerUserId = null }) {
-        const scoped = issuerUserId !== null && issuerUserId !== undefined;
-        const result = await this.clients.db.write(
-            'DELETE FROM `share` WHERE `holder_group_id` = ? AND `fsentry_id` = ?' +
-                (scoped ? ' AND `issuer_user_id` = ?' : ''),
-            scoped
-                ? [holderGroupId, fsentryId, issuerUserId]
-                : [holderGroupId, fsentryId],
-        );
-        return result.anyRowsAffected;
+        return this.#deleteHeld('holder_group_id', holderGroupId, {
+            fsentryId,
+            issuerUserId,
+        });
     }
 
     /**
@@ -881,13 +783,12 @@ export class ShareStore extends PuterStore {
         { holderUserId, fsentryId, issuerUserId },
         { primary = false } = {},
     ) {
-        const rows = await this.#select(
-            'SELECT * FROM `share` WHERE `holder_user_id` = ? AND ' +
-                '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
-            [holderUserId, fsentryId, issuerUserId],
+        return this.#getHeld(
+            'holder_user_id',
+            holderUserId,
+            { fsentryId, issuerUserId },
             primary,
         );
-        return this.#normalizeRow(rows[0]) ?? null;
     }
 
     /**
@@ -900,15 +801,10 @@ export class ShareStore extends PuterStore {
      * @param {number | null} [input.issuerUserId]
      */
     async deleteActive({ holderUserId, fsentryId, issuerUserId = null }) {
-        const scoped = issuerUserId !== null && issuerUserId !== undefined;
-        const result = await this.clients.db.write(
-            'DELETE FROM `share` WHERE `holder_user_id` = ? AND `fsentry_id` = ?' +
-                (scoped ? ' AND `issuer_user_id` = ?' : ''),
-            scoped
-                ? [holderUserId, fsentryId, issuerUserId]
-                : [holderUserId, fsentryId],
-        );
-        return result.anyRowsAffected;
+        return this.#deleteHeld('holder_user_id', holderUserId, {
+            fsentryId,
+            issuerUserId,
+        });
     }
 
     /**
@@ -930,7 +826,7 @@ export class ShareStore extends PuterStore {
                 ' WHERE `uid` = ? AND `holder_user_id` IS NULL',
             [holderUserId, ...(mode === null ? [] : [mode]), uid],
         );
-        if ((result?.affectedRows ?? result?.changes ?? 0) === 0) return null;
+        if (!result.anyRowsAffected) return null;
         // Only the uid is known here; the caller holds the replica's copy.
         return this.getByUid(uid, { primary: true });
     }
@@ -1150,13 +1046,7 @@ export class ShareStore extends PuterStore {
         }
         // As the other upserts: re-issuing may lose the app, never switch it.
         const prior = issuerAppUid ? await this.getAnyone(fsentryId) : null;
-        const data = JSON.stringify(
-            prior
-                ? this.#keptAttribution(prior.data, issuerAppUid)
-                : issuerAppUid
-                  ? { issuedByApp: issuerAppUid }
-                  : {},
-        );
+        const data = JSON.stringify(this.#attribution(prior, issuerAppUid));
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
                 '`fsentry_id`, `anyone`, `mode`, `data`, ' +
@@ -1280,6 +1170,18 @@ export class ShareStore extends PuterStore {
     }
 
     /**
+     * The attribution a write records: a new row is credited to the app asking
+     * for it, a re-issued one per {@link #keptAttribution}.
+     *
+     * @param {{ data?: unknown } | null | undefined} prior
+     * @param {string | null} issuerAppUid
+     */
+    #attribution(prior, issuerAppUid) {
+        if (prior) return this.#keptAttribution(prior.data, issuerAppUid);
+        return issuerAppUid ? { issuedByApp: issuerAppUid } : {};
+    }
+
+    /**
      * Who a re-issued share stays credited to: only the same app re-issuing
      * keeps it, so a share may lose attribution but never gain or switch it.
      */
@@ -1314,6 +1216,114 @@ export class ShareStore extends PuterStore {
             : this.clients.db.read(sql, params);
     }
 
+    /**
+     * Record a held share, or move an existing one to a new mode. Keyed on
+     * (holder, fsentry, issuer), so two people with manage rights keep their
+     * own rows; one statement, so concurrent shares settle on one row.
+     *
+     * @param {'holder_user_id' | 'holder_group_id'} column
+     * @param {number} holderId
+     * @param {{
+     *     issuerUserId: number;
+     *     fsentryId: number;
+     *     mode: string;
+     *     recipientEmail: string;
+     *     issuerAppUid: string | null;
+     * }} input
+     */
+    async #upsertHeld(
+        column,
+        holderId,
+        { issuerUserId, fsentryId, mode, recipientEmail, issuerAppUid },
+    ) {
+        const key = { fsentryId, issuerUserId };
+        // No app asked, so there is nothing to keep and nothing to read for.
+        const prior = issuerAppUid
+            ? await this.#getHeld(column, holderId, key, false)
+            : null;
+        const data = JSON.stringify(this.#attribution(prior, issuerAppUid));
+        await this.clients.db.write(
+            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
+                `\`${column}\`, \`fsentry_id\`, \`mode\`, \`data\`, ` +
+                '`entry_owner_user_id`, `applied_at`) ' +
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ' +
+                '(SELECT `user_id` FROM `fsentries` WHERE `id` = ?), ' +
+                'CURRENT_TIMESTAMP) ' +
+                this.clients.db.upsertClause(
+                    [column, 'fsentry_id', 'issuer_user_id'],
+                    ['mode', 'data'],
+                ),
+            [
+                uuidv4(),
+                issuerUserId,
+                recipientEmail,
+                holderId,
+                fsentryId,
+                mode,
+                data,
+                fsentryId,
+                mode,
+                data,
+            ],
+        );
+        // The upsert may have kept an existing row's uid and created_at, and
+        // `entry_owner_user_id` is a subquery's; only the primary knows them.
+        return this.#getHeld(column, holderId, key, true);
+    }
+
+    /**
+     * @param {'holder_user_id' | 'holder_group_id'} column
+     * @param {number} holderId
+     * @param {{ fsentryId: number; issuerUserId: number }} key
+     * @param {boolean} primary
+     */
+    async #getHeld(column, holderId, { fsentryId, issuerUserId }, primary) {
+        const rows = await this.#select(
+            `SELECT * FROM \`share\` WHERE \`${column}\` = ? AND ` +
+                '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
+            [holderId, fsentryId, issuerUserId],
+            primary,
+        );
+        return this.#normalizeRow(rows[0]) ?? null;
+    }
+
+    /**
+     * @param {'holder_user_id' | 'holder_group_id'} column
+     * @param {number} holderId
+     * @param {{ fsentryId: number; issuerUserId: number | null }} key
+     */
+    async #deleteHeld(column, holderId, { fsentryId, issuerUserId }) {
+        const scoped = issuerUserId !== null && issuerUserId !== undefined;
+        const result = await this.clients.db.write(
+            `DELETE FROM \`share\` WHERE \`${column}\` = ? AND \`fsentry_id\` = ?` +
+                (scoped ? ' AND `issuer_user_id` = ?' : ''),
+            scoped
+                ? [holderId, fsentryId, issuerUserId]
+                : [holderId, fsentryId],
+        );
+        return result.anyRowsAffected;
+    }
+
+    /**
+     * Share rows on a directory and everything beneath it, narrowed by `where`.
+     *
+     * @param {number} fsentryId
+     * @param {string} where
+     * @param {boolean} [primary]
+     */
+    async #listSubtree(fsentryId, where, primary = false) {
+        const rows = await this.#select(
+            this.#subtreeCte() +
+                'SELECT `share`.* FROM `share` ' +
+                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
+                where +
+                'ORDER BY `share`.`id`',
+            [fsentryId],
+            primary,
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
     /** The recursive walk of a directory's row ids, by parent linkage. */
     #subtreeCte() {
         return (
@@ -1328,10 +1338,10 @@ export class ShareStore extends PuterStore {
 
     /** @param {number} [limit] */
     #pageSize(limit) {
-        return Math.min(
-            Math.max(1, Math.floor(Number(limit) || DEFAULT_PAGE_SIZE)),
-            MAX_PAGE_SIZE,
-        );
+        return clampLimit(limit, {
+            fallback: DEFAULT_PAGE_SIZE,
+            cap: MAX_PAGE_SIZE,
+        });
     }
 
     /**

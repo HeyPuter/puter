@@ -22,15 +22,20 @@ import type { puterServices } from '../index';
 import type { UserRow } from '../../stores/user/UserStore';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types';
-import { signupClientIp } from '../user/SignupService.js';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import { generateUsername } from '../../util/username.js';
+import { requestIp } from '../../util/requestIp.js';
 import { provisionUser } from '../../util/userProvisioning.js';
 import { Context } from '../../core';
 import { HttpError } from '../../core/http/HttpError.js';
 import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
-import { verifyOidcIdToken, type JwksCacheEntry } from './oidcIdToken';
+import {
+    emailVerifiedClaim,
+    OIDC_FETCH_TIMEOUT_MS,
+    verifyOidcIdToken,
+    type JwksCacheEntry,
+} from './oidcIdToken';
 
 const GOOGLE_DISCOVERY_URL =
     'https://accounts.google.com/.well-known/openid-configuration';
@@ -347,6 +352,7 @@ export class OIDCService extends PuterService {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString(),
+            signal: AbortSignal.timeout(OIDC_FETCH_TIMEOUT_MS),
         });
 
         if (!res.ok) {
@@ -393,9 +399,14 @@ export class OIDCService extends PuterService {
         if (config.userinfo_endpoint) {
             const res = await fetch(config.userinfo_endpoint, {
                 headers: { Authorization: `Bearer ${accessToken}` },
+                signal: AbortSignal.timeout(OIDC_FETCH_TIMEOUT_MS),
             });
             if (!res.ok) return null;
-            return (await res.json()) as OIDCUserInfo;
+            const info = (await res.json()) as OIDCUserInfo;
+            return {
+                ...info,
+                email_verified: emailVerifiedClaim(info.email_verified),
+            };
         }
 
         // No userinfo endpoint — verify the id_token signature against the
@@ -552,7 +563,7 @@ export class OIDCService extends PuterService {
         }
 
         const req = Context.get('req')!;
-        const clientIp = signupClientIp(req);
+        const clientIp = requestIp(req);
         const proxyIpChain = req.headers['x-forwarded-for'];
 
         // Before the signup gate: the abuse harness reads the verdict the
@@ -722,7 +733,9 @@ export class OIDCService extends PuterService {
         label: string,
     ): Promise<Record<string, string> | null> {
         try {
-            const res = await fetch(url);
+            const res = await fetch(url, {
+                signal: AbortSignal.timeout(OIDC_FETCH_TIMEOUT_MS),
+            });
             if (!res.ok) return null;
             const data = (await res.json()) as Record<string, string>;
             this.#discoveryCache.set(url, data);

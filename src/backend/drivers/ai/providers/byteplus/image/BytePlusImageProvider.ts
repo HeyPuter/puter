@@ -26,8 +26,10 @@ import { closestAspectRatio } from '../../../interfaces/image/imageDimensions.js
 import type { ImageSize } from '../../../interfaces/image/types.js';
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
-import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import {
+    type AiMeteringService,
+    withAiCreditHold,
+} from '../../../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageModel,
@@ -38,6 +40,7 @@ import {
     BYTEPLUS_IMAGE_GENERATION_MODELS,
     type BytePlusImageModel,
 } from './models.js';
+import { SAMPLE_IMAGE_URL } from '../../../shared/testMode.js';
 
 const DEFAULT_MODEL = 'seedream-5-0-lite-260128';
 
@@ -116,7 +119,7 @@ export class BytePlusImageProvider implements IImageProvider {
         const isPro = selectedModel.pricing_unit === 'per-tier';
 
         if (test_mode) {
-            return 'https://puter-sample-data.puter.site/image_example.png';
+            return SAMPLE_IMAGE_URL;
         }
 
         assertImagePrompt(prompt);
@@ -172,76 +175,73 @@ export class BytePlusImageProvider implements IImageProvider {
                 legacyCode: 'unauthorized',
             });
         }
-        const hold = await this.#meteringService.reserveAiCredits(
+        return withAiCreditHold(
+            this.#meteringService,
             actor,
             `byteplus-image-generation:${selectedModel.id}:${outputCostKey}`,
             estimatedCents * 1_000_000,
-        );
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
+            async () => {
+                const image =
+                    inputImageCount > 0
+                        ? input_images!.map((img) =>
+                              toUrlOrDataUri(img, input_image_mime_type),
+                          )
+                        : undefined;
 
-        try {
-            const image =
-                inputImageCount > 0
-                    ? input_images!.map((img) =>
-                          toUrlOrDataUri(img, input_image_mime_type),
-                      )
-                    : undefined;
+                const response = (await this.#client.images.generate({
+                    model: selectedModel.id,
+                    prompt,
+                    // Ark-specific params not in the OpenAI type; passed through.
+                    ...(size ? { size } : {}),
+                    ...(image
+                        ? { image: image.length === 1 ? image[0] : image }
+                        : {}),
+                    response_format: 'url',
+                    watermark: false,
+                } as Parameters<
+                    OpenAI['images']['generate']
+                >[0])) as ArkImageResponse;
 
-            const response = (await this.#client.images.generate({
-                model: selectedModel.id,
-                prompt,
-                // Ark-specific params not in the OpenAI type; passed through.
-                ...(size ? { size } : {}),
-                ...(image
-                    ? { image: image.length === 1 ? image[0] : image }
-                    : {}),
-                response_format: 'url',
-                watermark: false,
-            } as Parameters<
-                OpenAI['images']['generate']
-            >[0])) as ArkImageResponse;
-
-            const first = response?.data?.[0];
-            if (first?.error) {
-                throw new HttpError(
-                    400,
-                    typeof first.error.message === 'string'
-                        ? first.error.message
-                        : 'Image generation failed',
-                    {
-                        legacyCode: 'upstream_failed',
-                        fields: { provider: 'byteplus' },
-                    },
+                const first = response?.data?.[0];
+                if (first?.error) {
+                    throw new HttpError(
+                        400,
+                        typeof first.error.message === 'string'
+                            ? first.error.message
+                            : 'Image generation failed',
+                        {
+                            legacyCode: 'upstream_failed',
+                            fields: { provider: 'byteplus' },
+                        },
+                    );
+                }
+                const url = imageEntryUrl(
+                    first,
+                    `image/${typeof first?.output_format === 'string' ? first.output_format : 'jpeg'}`,
                 );
-            }
-            const url = imageEntryUrl(
-                first,
-                `image/${typeof first?.output_format === 'string' ? first.output_format : 'jpeg'}`,
-            );
-            if (!url) throw malformedUpstreamResponse('byteplus', 'BytePlus');
+                if (!url)
+                    throw malformedUpstreamResponse('byteplus', 'BytePlus');
 
-            const usageEntries = [
-                {
-                    usageType: `byteplus-image-generation:${selectedModel.id}:${outputCostKey}`,
-                    usageAmount: 1,
-                    costOverride: outputCents * 1_000_000,
-                },
-            ];
-            if (billableInputs > 0) {
-                usageEntries.push({
-                    usageType: `byteplus-image-generation:${selectedModel.id}:input_image`,
-                    usageAmount: billableInputs,
-                    costOverride: billableInputs * inputImageCents * 1_000_000,
-                });
-            }
-            this.#meteringService.batchIncrementUsages(actor, usageEntries);
+                const usageEntries = [
+                    {
+                        usageType: `byteplus-image-generation:${selectedModel.id}:${outputCostKey}`,
+                        usageAmount: 1,
+                        costOverride: outputCents * 1_000_000,
+                    },
+                ];
+                if (billableInputs > 0) {
+                    usageEntries.push({
+                        usageType: `byteplus-image-generation:${selectedModel.id}:input_image`,
+                        usageAmount: billableInputs,
+                        costOverride:
+                            billableInputs * inputImageCents * 1_000_000,
+                    });
+                }
+                this.#meteringService.batchIncrementUsages(actor, usageEntries);
 
-            return url;
-        } finally {
-            await hold.release();
-        }
+                return url;
+            },
+        );
     }
 
     /**

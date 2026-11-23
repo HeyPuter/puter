@@ -36,7 +36,9 @@ import type {
 import {
     characterCostReport,
     meterPerCharacter,
+    TTS_UPSTREAM_TIMEOUT_MS,
 } from '../../../interfaces/textToSpeech/common.js';
+import { catalogTokenCount } from '../../../shared/catalogPrice.js';
 import { OPENAI_TTS_COSTS, OPENAI_TTS_TOKEN_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'gpt-4o-mini-tts';
@@ -46,11 +48,6 @@ interface SpeechUsage {
     input_tokens?: unknown;
     output_tokens?: unknown;
 }
-
-const tokenCount = (value: unknown): number | undefined =>
-    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-        ? value
-        : undefined;
 
 /**
  * Turns OpenAI's speech event stream into the audio bytes it carries, and hands
@@ -158,7 +155,11 @@ export class OpenAITTSProvider implements ITTSProvider {
         private readonly meteringService: AiMeteringService,
         config: { apiKey: string },
     ) {
-        this.openai = new OpenAI({ apiKey: config.apiKey });
+        this.openai = new OpenAI({
+            apiKey: config.apiKey,
+            timeout: TTS_UPSTREAM_TIMEOUT_MS,
+            maxRetries: 0,
+        });
     }
 
     async listVoices(): Promise<ITTSVoice[]> {
@@ -360,8 +361,8 @@ export class OpenAITTSProvider implements ITTSProvider {
             },
             async () => {
                 const reported = await usage;
-                const input = tokenCount(reported?.input_tokens);
-                const output = tokenCount(reported?.output_tokens);
+                const input = catalogTokenCount(reported?.input_tokens);
+                const output = catalogTokenCount(reported?.output_tokens);
                 if (input === undefined || output === undefined)
                     return this.meteringService.incrementUsage(
                         actor,

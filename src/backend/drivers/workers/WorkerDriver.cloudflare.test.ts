@@ -1648,6 +1648,24 @@ describe('WorkerDriver hot reload', () => {
         expect(code.endsWith('v2-updated-body')).toBe(true);
     });
 
+    it('reads a source shared by two workers once per redeploy', async () => {
+        const { user, actor, path, name } = await deployWorker();
+        const second = `${name}-2`;
+        await inCtx(actor, () =>
+            target.create({ appId: '', workerName: second, filePath: path }),
+        );
+        fetchSpy.mockClear();
+        const reads = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+
+        await writeSource(actor, user.id, path, 'v2-shared');
+
+        await waitFor(() => putCalls().length >= 2, 'both hot-reload deploys');
+        expect(putCalls().map(([url]) => url).sort()).toEqual(
+            [`${SCRIPTS_BASE}/${name}/`, `${SCRIPTS_BASE}/${second}/`].sort(),
+        );
+        expect(reads).toHaveBeenCalledTimes(1);
+    });
+
     it('notifies the owner after a successful hot-reload deploy', async () => {
         const { user, actor, path, name } = await deployWorker();
         const notifySpy = vi.spyOn(server.services.notification, 'notify');
@@ -2072,6 +2090,33 @@ describe('WorkerDriver teardown of a worker’s sandbox app', () => {
         });
         await inCtx(actor, () => target.destroy({ workerName: name }));
         expect(await server.stores.app.getByUid(app.uid)).toBeTruthy();
+    });
+
+    it('deletes the sandbox app and announces the delete when the source file is removed', async () => {
+        const { user, actor, app, name, path } = await deploySandboxed();
+        const seen: Array<{ subdomain?: string }> = [];
+        const handler = (_key: string, data: { subdomain?: string }) => {
+            seen.push(data);
+        };
+        server.clients.event.on('subdomain.delete', handler as never);
+        try {
+            const entry = await server.stores.fsEntry.getEntryByPath(path);
+            await inCtx(actor, () =>
+                server.services.fs.remove(user.id, { entry: entry! }),
+            );
+            await waitFor(
+                async () => !(await server.stores.app.getByUid(app.uid)),
+                'sandbox app removal after source delete',
+            );
+        } finally {
+            server.clients.event.off('subdomain.delete', handler as never);
+        }
+        expect(seen.map((data) => data.subdomain)).toContain(
+            `workers.puter.${name}`,
+        );
+        expect(
+            await server.stores.subdomain.getBySubdomain(`workers.puter.${name}`),
+        ).toBeFalsy();
     });
 });
 

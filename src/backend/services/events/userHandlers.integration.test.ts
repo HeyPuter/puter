@@ -43,7 +43,7 @@ import {
     EVENTS_HANDLER_SOURCE_MAX_BYTES,
     EVENTS_USER_HANDLERS_PER_SCOPE,
     EVENTS_USER_SCOPE_SOURCE_MAX_BYTES,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import {
     appHandlerScope,
     hashContent,

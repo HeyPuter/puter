@@ -43,7 +43,7 @@ import {
     KV_SHARE_BATCH_MAX,
     KV_SHARE_GRANT_LIMITS,
     KV_SHARE_LOOKUP_LIMIT,
-} from '../events/limits.js';
+} from '../../services/events/limits.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 

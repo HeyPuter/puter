@@ -20,6 +20,7 @@
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { EventsDeployOutcome } from '../../core/schedules.js';
 import type { puterClients } from '../../clients/index.js';
 import type { puterDrivers } from '../../drivers/index.js';
 import {
@@ -36,18 +37,15 @@ import {
     answerFrom,
     failedAnswer,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
-import type { puterServices } from '../../services/index.js';
-import type { IExtensionServiceInstances } from '../../services/types.js';
+import type { puterServices } from '../index.js';
+import type { IExtensionServiceInstances } from '../types.js';
 import {
     eventsInvokeKey,
     eventsWorkerScope,
     eventsWorkerScript,
     userHandlerScript,
-} from '../../services/events/workerRuntime.js';
-import {
-    generateEventsWorkerSource,
-    handlerSetHash,
-} from '../../services/events/workerSource.js';
+} from './workerRuntime.js';
+import { generateEventsWorkerSource, handlerSetHash } from './workerSource.js';
 import {
     appHandlerScope,
     type HandlerScope,
@@ -70,16 +68,6 @@ import {
  * listed or deleted as if it were. A republished set leaves the old script
  * behind rather than deleting it; redeploying a still-live one is always safe.
  */
-
-/** Why a deploy could not happen, for the callers that answer differently. */
-export type EventsDeployOutcome =
-    | 'deployed'
-    | 'stale'
-    | 'no-handlers'
-    | 'no-owner'
-    | 'throttled'
-    | 'failed'
-    | 'busy';
 
 /** Whose call asked for the deploy: a schedule run's is held to a share. */
 export interface EventsDeployOptions {

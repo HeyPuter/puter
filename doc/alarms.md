@@ -190,8 +190,8 @@ prefix ending in `*`; the exact id beats a pattern, and the longest matching
 prefix wins among patterns. Values are a severity, or `mute` to drop the
 alarm before any transport sees it.
 
-It is applied *after* the call site's severity and any known-error rule, so
-config always has the last word.
+It is applied *after* the call site's severity, so config always has the last
+word.
 
 ### Repeat throttling
 

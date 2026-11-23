@@ -70,9 +70,11 @@ interface PollyVoicesResponse {
 export class AWSPollyTTSProvider implements ITTSProvider {
     readonly providerName = 'aws-polly';
 
-    private clients: Record<string, PollyClient> = {};
-    private voicesCache: { data: PollyVoicesResponse; expires: number } | null =
-        null;
+    private client: PollyClient | undefined;
+    private voicesCache: {
+        data: Promise<PollyVoicesResponse>;
+        expires: number;
+    } | null = null;
 
     /** The region every synthesis call goes to, and so the one it's priced in. */
     private readonly region: string;
@@ -107,38 +109,29 @@ export class AWSPollyTTSProvider implements ITTSProvider {
             : async () => AWS_POLLY_COSTS;
     }
 
-    private getClient(region?: string): PollyClient {
-        const cfg = this.config;
-        const resolvedRegion = region ?? this.region;
-
-        if (this.clients[resolvedRegion]) {
-            return this.clients[resolvedRegion];
-        }
-
-        this.clients[resolvedRegion] = new PollyClient({
-            credentials: cfg.credentials,
-            region: resolvedRegion,
+    private getClient(): PollyClient {
+        this.client ??= new PollyClient({
+            credentials: this.config.credentials,
+            region: this.region,
         });
-
-        return this.clients[resolvedRegion];
+        return this.client;
     }
 
+    /** Cached for 10 minutes; concurrent callers share one request. */
     private async describeVoices(): Promise<PollyVoicesResponse> {
-        // Simple in-memory cache with 10-minute TTL
-        if (this.voicesCache && Date.now() < this.voicesCache.expires) {
-            return this.voicesCache.data;
+        const cached = this.voicesCache;
+        if (cached && Date.now() < cached.expires) return cached.data;
+
+        const data = this.getClient().send(
+            new DescribeVoicesCommand({}),
+        ) as Promise<PollyVoicesResponse>;
+        this.voicesCache = { data, expires: Date.now() + 10 * 60 * 1000 };
+        try {
+            return await data;
+        } catch (e) {
+            if (this.voicesCache?.data === data) this.voicesCache = null;
+            throw e;
         }
-
-        const client = this.getClient();
-        const command = new DescribeVoicesCommand({});
-        const response = await client.send(command);
-
-        this.voicesCache = {
-            data: response as PollyVoicesResponse,
-            expires: Date.now() + 10 * 60 * 1000,
-        };
-
-        return response as PollyVoicesResponse;
     }
 
     private async getLanguageAppropriateVoice(

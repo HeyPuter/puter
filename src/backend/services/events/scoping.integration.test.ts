@@ -31,13 +31,14 @@
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import { EVENTS_COALESCE_WINDOW_MS } from './limits.js';
 import type { Actor } from '../../core/actor.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import type { AuthResult } from '../auth/AuthService.js';
 import { decideSocketAuth } from '../socket/SocketService.js';
+import { rowInActorScope } from './authorization.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
@@ -105,10 +106,16 @@ const writeAsUser = async (path: string): Promise<void> => {
     expect(response.status).toBe(200);
 };
 
+/** The rows on the socket this actor may see and remove. */
 const heldBy = async (actor: Actor): Promise<string[]> =>
-    (await events().listSubscriptions(actor, SOCKET_ID)).map(
-        (sub) => sub.subId,
-    );
+    (
+        await env.server.stores.eventSubscription.listForSocket(
+            actor.user!.id!,
+            SOCKET_ID,
+        )
+    )
+        .filter((sub) => rowInActorScope(actor, sub))
+        .map((sub) => sub.subId);
 
 const absent = (err: unknown) =>
     isHttpError(err) &&

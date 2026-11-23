@@ -155,17 +155,4 @@ describe('AI wire routes require a subscription', () => {
         const res = await fetch(new URL('/puterai/chat/models', env.apiOrigin));
         expect(res.status).toBe(200);
     });
-
-    it('leaves the video proxy outside the plan gate', async () => {
-        // Unsigned, so this is turned away on the signature — the point is
-        // that a free account gets that answer rather than a 402. The proxy
-        // delivers a video the account already paid to generate.
-        const res = await fetch(
-            new URL(
-                '/puterai/video/proxy?url=https://x.test/v.mp4',
-                env.apiOrigin,
-            ),
-        );
-        expect(res.status).not.toBe(402);
-    });
 });

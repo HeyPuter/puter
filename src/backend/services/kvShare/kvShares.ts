@@ -520,9 +520,19 @@ export const kvShareManagePermission = (permission: string): string =>
         ...PermissionUtil.split(permission),
     );
 
+/**
+ * The permission a `manage:` arm delegates over. Only the leading component is
+ * stripped: a key segment may itself be `manage`, and taking those out would
+ * change which string the owner is read from.
+ */
+const withoutManageArm = (permission: string): string =>
+    permission.startsWith(`${MANAGE_PERM_PREFIX}:`)
+        ? permission.slice(MANAGE_PERM_PREFIX.length + 1)
+        : permission;
+
 export const isKvShareManagePermission = (permission: string): boolean =>
     PermissionUtil.isManage(permission) &&
-    isKvSharePermission(permission.slice(MANAGE_PERM_PREFIX.length + 1));
+    isKvSharePermission(withoutManageArm(permission));
 
 /**
  * A delegation must name a subtree. Consent on the namespace root reads as "let
@@ -590,16 +600,6 @@ export const kvShareLevelsExploder = (): PermissionExploder => ({
         ];
     },
 });
-
-/**
- * The permission a `manage:` arm delegates over. Only the leading component is
- * stripped: a key segment may itself be `manage`, and taking those out would
- * change which string the owner is read from.
- */
-const withoutManageArm = (permission: string): string =>
-    permission.startsWith(`${MANAGE_PERM_PREFIX}:`)
-        ? permission.slice(MANAGE_PERM_PREFIX.length + 1)
-        : permission;
 
 /**
  * Owning the namespace is holding every share grant over it, and being able to

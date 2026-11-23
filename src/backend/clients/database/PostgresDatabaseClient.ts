@@ -137,7 +137,6 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
     private primaryPool!: PostgresPool;
     private replicaPool!: PostgresPool;
     private configuration = Configuration.SINGLE;
-    private shutdownStarted = false;
     /** Query text as written → its Postgres rewrite, which is pure. */
     private readonly preparedSql = new BoundedTtlMap<string, string>({
         maxEntries: PREPARED_SQL_CACHE_SIZE,
@@ -175,15 +174,8 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         );
     }
 
-    override async onServerPrepareShutdown(): Promise<void> {
-        if (this.shutdownStarted) return;
-        this.shutdownStarted = true;
-
-        // Pools stay open; onServerShutdown closes them after the layers above
-        // have drained through them.
-        console.log('[postgres] entering drain mode');
-    }
-
+    // Pools stay open through prepare-shutdown; this closes them after the
+    // layers above have drained through them.
     override async onServerShutdown(): Promise<void> {
         await this.closeCurrentPools();
     }
@@ -287,7 +279,7 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         assertBindableParams(query, params);
         let text = this.preparedSql.get(query);
         if (text === undefined) {
-            text = preparePostgresSql(query).text;
+            text = preparePostgresSql(query);
             this.preparedSql.set(query, text);
         }
         return target.query(text, params);

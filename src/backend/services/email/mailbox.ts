@@ -24,6 +24,7 @@ import { resolveHomeRegion } from '../fs/homeRegion.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { UserRow, UserStore } from '../../stores/user/UserStore.js';
+import { isTemporaryAccount } from '../../util/userDetails.js';
 import * as uuid from 'uuid';
 import { lineEndingOf, stripHeaderFields } from './rawMessage.js';
 
@@ -47,6 +48,16 @@ export const MAIL_CONTENT_TYPE = 'message/rfc822';
 
 /** Ceiling on one stored message, inbound or outbound. */
 export const MAX_MESSAGE_BYTES = 25 * 1024 * 1024;
+
+/**
+ * A refusal reason as one short line of printable ASCII, since an SMTP reply
+ * quotes it; `Message refused` when nothing usable is left.
+ */
+export const refusalReasonText = (reason: string | null | undefined): string =>
+    (reason ?? '')
+        .replace(/[^\x20-\x7e]+/g, ' ')
+        .trim()
+        .slice(0, 200) || 'Message refused';
 
 export type MailFolder = 'objects' | 'sent' | 'outbox';
 
@@ -147,14 +158,9 @@ export const puterEmailUsername = (address: string): string =>
 export const puterEmailAddressesOf = (username: string): string[] =>
     PUTER_EMAIL_DOMAINS.map((domain) => `${username.toLowerCase()}@${domain}`);
 
-/**
- * A temp account has neither a password nor an email - the same test
- * `userProtected` and AuthController use. Read it off a stored user row, never
- * off `actor.user`: the actor's copy has `password` stripped, so the check
- * there would pass every account.
- */
+/** {@link isTemporaryAccount}, with an empty password or email as missing. */
 export const isTempUser = (user: { password?: unknown; email?: unknown }) =>
-    !user.password && !user.email;
+    isTemporaryAccount(user, { blankIsMissing: true });
 
 export const mailboxPath = (username: string): string => `/${username}/.mail`;
 

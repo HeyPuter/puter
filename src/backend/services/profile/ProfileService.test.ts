@@ -446,14 +446,4 @@ describe('ProfileService', () => {
             await limited.shutdown();
         }
     });
-
-    it('builds the hosted URL from the static hosting domain', async () => {
-        const user = await makeUser();
-        // The default test config hosts sites under `site.puter.localhost`.
-        expect(service.getPublicUrl(user)).toMatch(
-            new RegExp(
-                `^https?://${PROFILES_SUBDOMAIN}\\.site\\.puter\\.localhost(:\\d+)?/${user.uuid}\\.profile$`,
-            ),
-        );
-    });
 });

@@ -27,6 +27,7 @@ import {
     kvAnchorToken,
     kvAnchorTokens,
     kvKeyPrefixes,
+    notifSubject,
     parseSubject,
     SUBJECT_MAX_LENGTH,
     type AnchorRef,
@@ -306,6 +307,15 @@ describe('subject length', () => {
 describe('fsAnchorToken', () => {
     it('namespaces node uids', () => {
         expect(fsAnchorToken('uid-abc')).toBe('f#uid-abc');
+    });
+});
+
+describe('notifSubject', () => {
+    it('names the app a slice is about, or the recipient', () => {
+        expect(notifSubject('app-1', 'developer')).toBe('notif:app-1:developer');
+        expect(notifSubject('user-uuid', 'account')).toBe(
+            'notif:user-uuid:account',
+        );
     });
 });
 

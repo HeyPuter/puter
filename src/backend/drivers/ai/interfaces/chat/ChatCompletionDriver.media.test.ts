@@ -51,7 +51,7 @@ const { processPuterPathUploadsMock } = vi.hoisted(() => ({
     processPuterPathUploadsMock: vi.fn(async (_messages: unknown) => {}),
 }));
 
-vi.mock('../../providers/openai/chat/fileUpload.js', () => ({
+vi.mock('./utils/puterPathUploads.js', () => ({
     processPuterPathUploads: processPuterPathUploadsMock,
     MAX_FILE_SIZE: 5 * 1_000_000,
 }));

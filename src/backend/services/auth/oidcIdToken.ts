@@ -67,6 +67,19 @@ export interface VerifyIdTokenDeps {
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
+/** Each call to a sign-in provider (discovery, token, userinfo, JWKS). */
+export const OIDC_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * An `email_verified` claim as a boolean. Some providers (Apple) send it as the
+ * string "true" or "false"; anything else reads as absent.
+ */
+export const emailVerifiedClaim = (value: unknown): boolean | undefined => {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return undefined;
+};
+
 /** Convert a JWK public key to a SPKI PEM, or null if it can't be imported. */
 export const jwkToPem = (jwk: JWK): string | null => {
     try {
@@ -87,7 +100,9 @@ const fetchJwks = async (
     now: () => number,
 ): Promise<JwksCacheEntry | null> => {
     try {
-        const res = await fetchImpl(jwksUri);
+        const res = await fetchImpl(jwksUri, {
+            signal: AbortSignal.timeout(OIDC_FETCH_TIMEOUT_MS),
+        });
         if (!res.ok) return null;
         const data = (await res.json()) as { keys?: JWK[] };
         if (!Array.isArray(data.keys)) return null;
@@ -190,7 +205,7 @@ export const verifyOidcIdToken = async (
         return {
             sub: payload.sub as string,
             email: payload.email as string | undefined,
-            email_verified: payload.email_verified as boolean | undefined,
+            email_verified: emailVerifiedClaim(payload.email_verified),
             tid: payload.tid as string | undefined,
             // Documented as boolean; normalize string encodings defensively
             // so a representation change can't silently flip accounts to

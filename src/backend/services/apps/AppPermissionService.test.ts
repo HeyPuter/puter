@@ -366,6 +366,39 @@ describe('AppPermissionService — app-root-dir rewriter', () => {
         ).toBe(true);
     });
 
+    it('resolves an app hosted on the private-app hosting domain', async () => {
+        const owner = await makeUser();
+        const sub = `apx${Math.random().toString(36).slice(2, 10)}`;
+        const entry = await server.stores.fsEntry.getEntryByPath(
+            `/${owner.user.username}/Desktop`,
+        );
+        await server.stores.subdomain.create({
+            userId: owner.user.id!,
+            subdomain: sub,
+            rootDirId: entry!.id as number,
+        });
+        const app = await makeApp(owner.user.id!, {
+            index_url: `https://${sub}.app.puter.localhost/`,
+        });
+        const target = await makeApp(owner.user.id!);
+
+        await runWithContext({ actor: owner }, () =>
+            permissions.grantUserAppPermission(
+                owner,
+                target.uid,
+                `app-root-dir:${app.uid}:read`,
+            ),
+        );
+
+        expect(
+            await server.stores.permission.hasUserAppPerm(
+                owner.user.id!,
+                target.id,
+                `fs:${entry!.uuid}:read`,
+            ),
+        ).toBe(true);
+    });
+
     it('revoke names the same row the grant wrote', async () => {
         const owner = await makeUser();
         const { app, entry } = await makeHostedApp(owner);

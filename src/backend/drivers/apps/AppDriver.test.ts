@@ -3267,9 +3267,5 @@ describe('AppDriver update merging into a bootstrap row', () => {
             );
             expect(viaOld.uid).toBe(stubUid);
         }
-        const { res: aliases } = await server.stores.kv.get({
-            key: `app:canonicalUidAliasReverse:${stubUid}`,
-        });
-        expect(aliases).toEqual([first.uid, second.uid]);
     });
 });

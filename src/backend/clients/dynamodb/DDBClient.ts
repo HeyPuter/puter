@@ -48,7 +48,10 @@ import {
     type AwsCredentials,
 } from '../../util/awsCredentials.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
-import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import {
+    chunk,
+    runWithConcurrencyLimitSettled,
+} from '../../util/concurrency.js';
 import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
 import {
@@ -112,18 +115,6 @@ const getOrCreateLocalDynaliteEndpoint = async (pathKey: string) => {
     return endpointPromise;
 };
 
-const chunkValues = <T>(values: T[], size: number): T[][] => {
-    if (values.length === 0) {
-        return [];
-    }
-
-    const chunks: T[][] = [];
-    for (let index = 0; index < values.length; index += size) {
-        chunks.push(values.slice(index, index + size));
-    }
-    return chunks;
-};
-
 type BatchWriteItems = NonNullable<BatchWriteCommandInput['RequestItems']>;
 type WriteRequest = BatchWriteItems[string][number];
 
@@ -149,6 +140,33 @@ class ConsumedCapacityTally {
         }));
     }
 }
+
+// Items still unprocessed after every retry mean sustained throttling: the
+// store is out of capacity, not the request at fault.
+const throttledBatchError = () =>
+    new HttpError(503, 'Service temporarily unavailable', {
+        code: 'db_unavailable',
+    });
+
+/** A put's or delete's refusal condition. */
+interface WriteCondition {
+    expression: string;
+    names?: Record<string, string>;
+    values?: Record<string, unknown>;
+}
+
+const conditionParams = (condition: WriteCondition | undefined) =>
+    condition
+        ? {
+              ConditionExpression: condition.expression,
+              ...(condition.names
+                  ? { ExpressionAttributeNames: condition.names }
+                  : {}),
+              ...(condition.values
+                  ? { ExpressionAttributeValues: condition.values }
+                  : {}),
+          }
+        : {};
 
 const sleep = async (ms: number) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
@@ -257,11 +275,7 @@ export class DDBClient extends PuterClient {
         item: T,
         opts?: {
             /** Refused (`ConditionalCheckFailedException`) unless it holds. */
-            condition?: {
-                expression: string;
-                names?: Record<string, string>;
-                values?: Record<string, unknown>;
-            };
+            condition?: WriteCondition;
             /** A refusal carries the refusing item, undecoded, as `Item`. */
             returnOldOnRefusal?: boolean;
         },
@@ -282,23 +296,7 @@ export class DDBClient extends PuterClient {
                                       'ALL_OLD' as const,
                               }
                             : {}),
-                        ...(condition
-                            ? {
-                                  ConditionExpression: condition.expression,
-                                  ...(condition.names
-                                      ? {
-                                            ExpressionAttributeNames:
-                                                condition.names,
-                                        }
-                                      : {}),
-                                  ...(condition.values
-                                      ? {
-                                            ExpressionAttributeValues:
-                                                condition.values,
-                                        }
-                                      : {}),
-                              }
-                            : {}),
+                        ...conditionParams(condition),
                     }),
                 ),
             () => `a put to ${table}`,
@@ -360,13 +358,7 @@ export class DDBClient extends PuterClient {
             },
         );
 
-        if (!drained) {
-            throw new HttpError(
-                400,
-                'Failed to batch get all items from DynamoDB',
-                { legacyCode: 'bad_request' },
-            );
-        }
+        if (!drained) throw throttledBatchError();
 
         return {
             Responses: Object.fromEntries(responsesByTable),
@@ -414,7 +406,7 @@ export class DDBClient extends PuterClient {
         let failed = false;
 
         const outcomes = await runWithConcurrencyLimitSettled(
-            chunkValues(params, MAX_BATCH_WRITE_ITEMS),
+            chunk(params, MAX_BATCH_WRITE_ITEMS),
             BATCH_WRITE_CONCURRENCY,
             async (chunk) => {
                 if (failed) return;
@@ -443,13 +435,7 @@ export class DDBClient extends PuterClient {
                                 BatchWriteItems | undefined;
                         },
                     );
-                    if (!drained) {
-                        throw new HttpError(
-                            400,
-                            'Failed to batch write all items to DynamoDB',
-                            { legacyCode: 'bad_request' },
-                        );
-                    }
+                    if (!drained) throw throttledBatchError();
                 } catch (error) {
                     failed = true;
                     throw error;
@@ -496,11 +482,7 @@ export class DDBClient extends PuterClient {
         opts?: {
             returnOld?: boolean;
             /** Refused (`ConditionalCheckFailedException`) unless it holds. */
-            condition?: {
-                expression: string;
-                names?: Record<string, string>;
-                values?: Record<string, unknown>;
-            };
+            condition?: WriteCondition;
             /** A refusal carries the refusing item, undecoded, as `Item`. */
             returnOldOnRefusal?: boolean;
         },
@@ -515,20 +497,7 @@ export class DDBClient extends PuterClient {
             ...(opts?.returnOldOnRefusal
                 ? { ReturnValuesOnConditionCheckFailure: 'ALL_OLD' as const }
                 : {}),
-            ...(opts?.condition
-                ? {
-                      ConditionExpression: opts.condition.expression,
-                      ...(opts.condition.names
-                          ? { ExpressionAttributeNames: opts.condition.names }
-                          : {}),
-                      ...(opts.condition.values
-                          ? {
-                                ExpressionAttributeValues:
-                                    opts.condition.values,
-                            }
-                          : {}),
-                  }
-                : {}),
+            ...conditionParams(opts?.condition),
         });
 
         const client = await this.#getDocumentClient();

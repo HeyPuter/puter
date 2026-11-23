@@ -113,6 +113,14 @@ export type AnyTokenPayload =
 
 // -- Session row (from `sessions` table) ----------------------------
 
+/** What `SessionStore.revokeCascades` revoked for one user. */
+export interface RevokedSessions {
+    userId: number;
+    uuids: string[];
+    /** Identities of the access tokens among them, whose grants go too. */
+    accessTokenUids: string[];
+}
+
 export interface SessionRow {
     id: number;
     uuid: string;

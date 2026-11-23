@@ -30,7 +30,7 @@ import type {
 import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { toClientShare } from './clientShare.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
-import { normalizeLimit } from '../../util/pagination.js';
+import { pageEnvelope, parsePageQuery } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
 import { SHARE_LIMIT, SHARE_LIST_LIMIT } from './limits.js';
 
@@ -297,21 +297,19 @@ export class ShareController extends PuterController {
         }>,
     ): Promise<void> {
         const actor = this.#requireActor(req);
-        const query = this.#query(req);
+        const page = await list(
+            actor,
+            parsePageQuery(this.#query(req), { cap: LIST_LIMIT_CAP }),
+        );
 
-        const page = await list(actor, {
-            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
-            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
-            includeTotal: query.includeTotal === 'true',
-        });
-
-        res.json({
-            items: await Promise.all(
-                page.items.map((share) => this.#toClientShare(share)),
-            ),
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(page.total !== undefined ? { total: page.total } : {}),
-        });
+        res.json(
+            pageEnvelope({
+                ...page,
+                items: await Promise.all(
+                    page.items.map((share) => this.#toClientShare(share)),
+                ),
+            }),
+        );
     }
 
     /**
@@ -330,19 +328,11 @@ export class ShareController extends PuterController {
     })
     async listSharedByMeApps(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const query = this.#query(req);
-
-        const page = await this.services.share.listSharedByMeApps(actor, {
-            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
-            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
-            includeTotal: query.includeTotal === 'true',
-        });
-
-        res.json({
-            items: page.items,
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(page.total !== undefined ? { total: page.total } : {}),
-        });
+        const page = await this.services.share.listSharedByMeApps(
+            actor,
+            parsePageQuery(this.#query(req), { cap: LIST_LIMIT_CAP }),
+        );
+        res.json(pageEnvelope(page));
     }
 
     /**
@@ -420,14 +410,14 @@ export class ShareController extends PuterController {
         if (typeof query.path === 'string')
             target.path = expandTildePath(query.path, actor.user?.username);
 
-        const page = await this.services.share.listGrantAudit(actor, target, {
-            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
-            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
-            includeTotal: query.includeTotal === 'true',
-        });
+        const page = await this.services.share.listGrantAudit(
+            actor,
+            target,
+            parsePageQuery(query, { cap: LIST_LIMIT_CAP }),
+        );
 
-        res.json({
-            items: page.items.map((entry) => ({
+        res.json(
+            pageEnvelope(page, (entry) => ({
                 action: entry.action,
                 permission: entry.permission,
                 entryUid: entry.entryUid,
@@ -437,9 +427,7 @@ export class ShareController extends PuterController {
                 appUid: entry.appUid,
                 createdAt: entry.createdAt,
             })),
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(page.total !== undefined ? { total: page.total } : {}),
-        });
+        );
     }
 
     // -- Blocking -----------------------------------------------------

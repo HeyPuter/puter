@@ -22,6 +22,7 @@ import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { PuterService } from '../types.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import { hashPassword } from '../../util/credentials.js';
 import { provisionUser } from '../../util/userProvisioning.js';
 import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserPolicy.js';
 import { UNLIMITED_SUBSCRIPTION } from '../metering/consts.js';
@@ -93,7 +94,7 @@ export class DefaultUserService extends PuterService {
     }
 
     async #createAdminUser(tmpPassword: string): Promise<UserRow> {
-        const passwordHash = await bcrypt.hash(tmpPassword, 8);
+        const passwordHash = await hashPassword(tmpPassword);
 
         const created = await provisionUser(
             {

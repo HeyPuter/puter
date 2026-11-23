@@ -26,7 +26,7 @@ import {
     PuterStore,
 } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
-import { runWithConcurrencyLimit } from '../../util/concurrency.js';
+import { chunk, runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { escapeLike } from '../../util/sqlLike.js';
 import {
@@ -114,6 +114,28 @@ const CLICKHOUSE_GROUP_BY_FORMATS = {
     month: 'toStartOfMonth(fromUnixTimestamp(ts))',
     year: 'toStartOfYear(fromUnixTimestamp(ts))',
 };
+const STATS_PERIODS = new Set([
+    'today',
+    'yesterday',
+    '7d',
+    '30d',
+    'this_week',
+    'last_week',
+    'this_month',
+    'last_month',
+    'this_year',
+    'last_year',
+    '12m',
+    'all',
+]);
+// Names the published docs use for three of the periods above.
+const STATS_PERIOD_ALIASES = {
+    month_to_date: 'this_month',
+    year_to_date: 'this_year',
+    last_12_months: '12m',
+};
+// Most buckets one grouped stats answer may hold.
+const MAX_STATS_BUCKETS = 10_000;
 
 // Columns that may not be set through `create` / `update` from user input
 // or from any patch map forwarded into the store. Defence-in-depth against
@@ -152,6 +174,12 @@ const READ_ONLY_COLUMNS = new Set([
     // Derived on read, not columns.
     'created_by_app',
     'filetype_associations',
+]);
+// The read-only columns an admin flow sets, through `setAdminFields`.
+const ADMIN_FLAG_COLUMNS = new Set([
+    'approved_for_listing',
+    'approved_for_opening_items',
+    'approved_for_incentive_program',
 ]);
 const COLUMN_NAME = /^[a-z_][a-z0-9_]*$/;
 // Unique-key columns `#getManyByProperty` may build an IN-list against.
@@ -246,20 +274,15 @@ export class AppStore extends PuterStore {
     /** Batched `#resolveByOldName`, keyed by lowercased old name. */
     async #resolveByOldNames(names) {
         const result = new Map();
-        for (
-            let offset = 0;
-            offset < names.length;
-            offset += BULK_QUERY_CHUNK_SIZE
-        ) {
-            const chunk = names.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
+        for (const batch of chunk(names, BULK_QUERY_CHUNK_SIZE)) {
             const rows = await this.clients.db.read(
                 `SELECT a.*, ${this.#createdEpochColumn('a.')}, o.\`name\` AS \`old_name\`
                  FROM \`apps\` AS a
                  INNER JOIN \`old_app_names\` AS o ON o.\`app_uid\` = a.\`uid\`
-                 WHERE o.\`name\` IN (${chunk.map(() => '?').join(', ')})
+                 WHERE o.\`name\` IN (${batch.map(() => '?').join(', ')})
                    AND o.\`timestamp\` >= ${this.#oldNameCutoffClause()}
                  ORDER BY o.\`timestamp\` DESC`,
-                chunk,
+                batch,
             );
             for (const { old_name: oldName, ...row } of rows) {
                 const key = String(oldName).toLowerCase();
@@ -332,20 +355,12 @@ export class AppStore extends PuterStore {
         );
         return this.#cache.getMany(prop, present, async (missing, primary) => {
             const apps = [];
-            for (
-                let offset = 0;
-                offset < missing.length;
-                offset += BULK_QUERY_CHUNK_SIZE
-            ) {
-                const chunk = missing.slice(
-                    offset,
-                    offset + BULK_QUERY_CHUNK_SIZE,
-                );
-                const placeholders = chunk.map(() => '?').join(', ');
+            for (const batch of chunk(missing, BULK_QUERY_CHUNK_SIZE)) {
+                const placeholders = batch.map(() => '?').join(', ');
                 const sql = `SELECT *, ${this.#createdEpochColumn()} FROM \`apps\` WHERE \`${prop}\` IN (${placeholders})`;
                 const rows = primary
-                    ? await this.clients.db.pread(sql, chunk)
-                    : await this.clients.db.read(sql, chunk);
+                    ? await this.clients.db.pread(sql, batch)
+                    : await this.clients.db.read(sql, batch);
                 const loaded = rows
                     .map((row) => this.#normalizeRow(row))
                     .filter(Boolean);
@@ -427,13 +442,8 @@ export class AppStore extends PuterStore {
         const chunkSize = uniqueCandidates.some((url) => url.includes('xn--'))
             ? INDEX_URL_CHUNK_SIZE / 2
             : INDEX_URL_CHUNK_SIZE;
-        for (
-            let offset = 0;
-            offset < uniqueCandidates.length;
-            offset += chunkSize
-        ) {
-            const chunk = uniqueCandidates.slice(offset, offset + chunkSize);
-            const { predicate, params } = this.#indexUrlMatch(chunk);
+        for (const batch of chunk(uniqueCandidates, chunkSize)) {
+            const { predicate, params } = this.#indexUrlMatch(batch);
             const rows = await this.clients.db.read(
                 `SELECT \`id\`, \`uid\`, \`owner_user_id\`, \`app_owner\`, \`index_url\` FROM \`apps\` WHERE ${predicate}`,
                 params,
@@ -474,7 +484,6 @@ export class AppStore extends PuterStore {
      *
      * @param {number} ownerUserId
      * @param {string[]} candidates
-     * @param {{ requirePrivate?: boolean }} [opts]
      * @returns {Promise<
      *     {
      *         id: number;
@@ -487,17 +496,12 @@ export class AppStore extends PuterStore {
      *     }[]
      * >}
      */
-    async listOwnedByIndexUrlCandidates(
-        ownerUserId,
-        candidates,
-        { requirePrivate = false } = {},
-    ) {
+    async listOwnedByIndexUrlCandidates(ownerUserId, candidates) {
         if (!Array.isArray(candidates) || candidates.length === 0) return [];
-        const entryKey = `${HOSTED_APP_CACHE_KEY_PREFIX}:${ownerUserId}:${
-            requirePrivate ? 1 : 0
-        }:${createHash('sha256')
+        const candidateHash = createHash('sha256')
             .update(JSON.stringify([...new Set(candidates)].sort()))
-            .digest('base64url')}`;
+            .digest('base64url');
+        const entryKey = `${HOSTED_APP_CACHE_KEY_PREFIX}:${ownerUserId}:${candidateHash}`;
         const generationKey = this.#listGenerationKey(ownerUserId);
         const changedKey = this.#hostedChangedKey(ownerUserId);
 
@@ -540,7 +544,6 @@ export class AppStore extends PuterStore {
         const sql =
             'SELECT `id`, `uid`, `name`, `title`, `is_private`, `owner_user_id`, `index_url` ' +
             'FROM `apps` WHERE `owner_user_id` = ? ' +
-            (requirePrivate ? `AND ${isPrivate} ` : '') +
             `AND ${predicate} ` +
             `ORDER BY CASE WHEN ${isPrivate} THEN 0 ELSE 1 END, \`id\` LIMIT 2`;
         // Changed moments ago: the replica may not have it yet.
@@ -598,13 +601,8 @@ export class AppStore extends PuterStore {
         const chunkSize = uniqueCandidates.some((url) => url.includes('xn--'))
             ? INDEX_URL_CHUNK_SIZE / 2
             : INDEX_URL_CHUNK_SIZE;
-        for (
-            let offset = 0;
-            offset < uniqueCandidates.length;
-            offset += chunkSize
-        ) {
-            const chunk = uniqueCandidates.slice(offset, offset + chunkSize);
-            const { predicate, params } = this.#indexUrlMatch(chunk);
+        for (const batch of chunk(uniqueCandidates, chunkSize)) {
+            const { predicate, params } = this.#indexUrlMatch(batch);
             const rows = await this.clients.db.read(
                 `SELECT ${this.#exactIndexUrlColumn()} AS index_url, ` +
                     `MIN(CASE WHEN \`is_private\` = ${this.clients.db.booleanLiteral(true)} THEN \`id\` END) AS private_id, ` +
@@ -635,7 +633,7 @@ export class AppStore extends PuterStore {
             'UPDATE `apps` SET `owner_user_id` = ? WHERE `id` = ? AND `owner_user_id` IS NULL',
             [userId, appId],
         );
-        const affected = (result?.affectedRows ?? result?.changes ?? 0) > 0;
+        const affected = result.anyRowsAffected;
         if (affected) {
             // Invalidating needs the uid and name; only the id is known. Not
             // `getById`: on a cache miss it would cache the replica's
@@ -644,10 +642,59 @@ export class AppStore extends PuterStore {
                 primary: true,
             });
             if (fresh) {
-                await this.invalidate(fresh);
+                await this.#invalidateWritten(fresh);
             }
         }
         return affected;
+    }
+
+    /**
+     * Sets admin-only columns `update` refuses: the approval flags, and
+     * `last_review` from unix seconds. With `guard`, writes only when a flag in
+     * `patch` differs (an unset flag reads as false). Returns the row as
+     * written, or null when nothing was.
+     *
+     * @param {number} appId
+     * @param {{
+     *     approved_for_listing?: boolean;
+     *     approved_for_opening_items?: boolean;
+     *     approved_for_incentive_program?: boolean;
+     *     last_review?: number;
+     * }} patch
+     * @param {{ guard?: boolean }} [options]
+     * @returns {Promise<object | null>}
+     */
+    async setAdminFields(appId, patch, { guard = false } = {}) {
+        const db = this.clients.db;
+        const sets = [];
+        const params = [];
+        const differs = [];
+        for (const [column, value] of Object.entries(patch)) {
+            if (value === undefined) continue;
+            if (column === 'last_review' && Number.isFinite(value)) {
+                sets.push(`\`last_review\` = ${db.timestampFromUnixSql()}`);
+                params.push(value);
+                continue;
+            }
+            if (!ADMIN_FLAG_COLUMNS.has(column) || typeof value !== 'boolean') {
+                throw new Error(`setAdminFields: invalid ${column}`);
+            }
+            sets.push(`\`${column}\` = ${db.booleanLiteral(value)}`);
+            differs.push(
+                value
+                    ? `(\`${column}\` IS NULL OR \`${column}\` = ${db.booleanLiteral(false)})`
+                    : `\`${column}\` = ${db.booleanLiteral(true)}`,
+            );
+        }
+        if (sets.length === 0) return null;
+        const where =
+            guard && differs.length ? ` AND (${differs.join(' OR ')})` : '';
+        const result = await db.write(
+            `UPDATE \`apps\` SET ${sets.join(', ')} WHERE \`id\` = ?${where}`,
+            [...params, appId],
+        );
+        if (!result.anyRowsAffected) return null;
+        return this.invalidateWrittenById(appId);
     }
 
     /**
@@ -922,13 +969,15 @@ export class AppStore extends PuterStore {
             typeof allowed.name === 'string' &&
             allowed.name !== before.name;
         if (renamed) {
-            await this.#recordOldAppName(before.uid, before.name);
-            // The new name now belongs to `appId`, so any redirect that
-            // used to point to a different app for that name is no
-            // longer accurate — drop it. Also covers the reclaim case
-            // where this same app's earlier (uid, newName) row would
-            // otherwise linger as a self-redirect.
-            await this.#clearOldAppNamesForName(allowed.name);
+            await Promise.all([
+                this.#recordOldAppName(before.uid, before.name),
+                // The new name now belongs to `appId`, so any redirect that
+                // used to point to a different app for that name is no
+                // longer accurate — drop it. Also covers the reclaim case
+                // where this same app's earlier (uid, newName) row would
+                // otherwise linger as a self-redirect.
+                this.#clearOldAppNamesForName(allowed.name),
+            ]);
         }
 
         // Read back persisted values instead of merging a pre-update snapshot.
@@ -959,11 +1008,15 @@ export class AppStore extends PuterStore {
      * icon set since is left alone.
      */
     async replaceDataUrlIcon(uid, iconUrl) {
-        await this.clients.db.write(
+        const result = await this.clients.db.write(
             "UPDATE `apps` SET `icon` = ? WHERE `uid` = ? AND `icon` LIKE 'data:%'",
             [iconUrl, uid],
         );
-        await this.invalidateByUid(uid);
+        if (!result.anyRowsAffected) return;
+        const app =
+            (await this.#cache.read(this.#cache.key('uid', uid))) ??
+            (await this.#readFromDb('uid', uid, { primary: true }));
+        if (app) await this.#invalidateWritten(app);
     }
 
     /**
@@ -983,15 +1036,19 @@ export class AppStore extends PuterStore {
             otherwise:
                 'ON CONFLICT(`app_uid`, `name`) DO UPDATE SET `timestamp` = CURRENT_TIMESTAMP',
         });
-        await this.clients.db.write(
-            `INSERT INTO \`old_app_names\` (\`app_uid\`, \`name\`) VALUES (?, ?) ${upsertClause}`,
-            [appUid, oldName],
-        );
-        // Reads only filter expired redirects, so this is where they're pruned.
-        await this.clients.db.write(
-            `DELETE FROM \`old_app_names\` WHERE \`app_uid\` = ? AND \`timestamp\` < ${this.#oldNameCutoffClause()}`,
-            [appUid],
-        );
+        // The prune can't reach the row just written: its timestamp is now.
+        await Promise.all([
+            this.clients.db.write(
+                `INSERT INTO \`old_app_names\` (\`app_uid\`, \`name\`) VALUES (?, ?) ${upsertClause}`,
+                [appUid, oldName],
+            ),
+            // Reads only filter expired redirects, so this is where they're
+            // pruned.
+            this.clients.db.write(
+                `DELETE FROM \`old_app_names\` WHERE \`app_uid\` = ? AND \`timestamp\` < ${this.#oldNameCutoffClause()}`,
+                [appUid],
+            ),
+        ]);
     }
 
     /**
@@ -1014,22 +1071,31 @@ export class AppStore extends PuterStore {
      * of the sites and workers that cascade away with it.
      */
     async delete(appId) {
-        const app = await this.getById(appId);
+        if (typeof appId !== 'number') return false;
+        // The primary's row, so the keys tombstoned below are the current ones.
+        const [app, sites] = await Promise.all([
+            this.#readFromDb('id', appId, { primary: true }),
+            this.stores.subdomain.listAppCascade({ appId }),
+        ]);
         if (!app) return false;
 
-        const sites = await this.stores.subdomain.listAppCascade({ appId });
-
         const owner = app.owner_user_id ?? null;
-        await this.clients.db.write(
-            `INSERT INTO \`deleted_apps\` (\`uid\`, \`owner_user_id\`) VALUES (?, ?) ${this.#deletedAppsUpsert()}`,
-            [app.uid, owner, owner],
-        );
-        await this.clients.db.write(
-            'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
-            [appId],
-        );
-        await this.clients.db.write('DELETE FROM `apps` WHERE `id` = ?', [
-            appId,
+        // One transaction: a failure leaves the app whole, and no deletion goes
+        // unrecorded.
+        await this.clients.db.batchWrite([
+            {
+                statement: `INSERT INTO \`deleted_apps\` (\`uid\`, \`owner_user_id\`) VALUES (?, ?) ${this.#deletedAppsUpsert()}`,
+                values: [app.uid, owner, owner],
+            },
+            {
+                statement:
+                    'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
+                values: [appId],
+            },
+            {
+                statement: 'DELETE FROM `apps` WHERE `id` = ?',
+                values: [appId],
+            },
         ]);
         // Tombstone, so a lagging replica can't cache the row back for a day.
         await this.markDeleted(app);
@@ -1058,15 +1124,10 @@ export class AppStore extends PuterStore {
     async getDeletedOwnersByUids(uids) {
         const unique = [...new Set(uids)];
         const out = new Map();
-        for (
-            let offset = 0;
-            offset < unique.length;
-            offset += BULK_QUERY_CHUNK_SIZE
-        ) {
-            const chunk = unique.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
+        for (const batch of chunk(unique, BULK_QUERY_CHUNK_SIZE)) {
             const rows = await this.clients.db.read(
-                `SELECT \`uid\`, \`owner_user_id\` FROM \`deleted_apps\` WHERE \`uid\` IN (${chunk.map(() => '?').join(', ')})`,
-                chunk,
+                `SELECT \`uid\`, \`owner_user_id\` FROM \`deleted_apps\` WHERE \`uid\` IN (${batch.map(() => '?').join(', ')})`,
+                batch,
             );
             for (const row of rows) {
                 const owner = Number(row.owner_user_id);
@@ -1085,18 +1146,9 @@ export class AppStore extends PuterStore {
 
     // -- Filetype associations ----------------------------------------
 
-    async getFiletypeAssociations(appId) {
-        const rows = await this.clients.db.read(
-            'SELECT `type` FROM `app_filetype_association` WHERE `app_id` = ?',
-            [appId],
-        );
-        return rows.map((r) => r.type);
-    }
-
     /**
-     * Batch sibling of {@link getFiletypeAssociations} — one query for many app
-     * ids, returns `Map<appId, string[]>` (every requested id is present, with
-     * `[]` for apps that have no associations).
+     * One query for many app ids, returns `Map<appId, string[]>` (every
+     * requested id is present, with `[]` for apps that have no associations).
      */
     async getFiletypeAssociationsByIds(appIds) {
         return this.#readFiletypesByIds(appIds);
@@ -1114,15 +1166,17 @@ export class AppStore extends PuterStore {
         for (const id of ids) out.set(id, []);
         if (ids.length === 0) return out;
 
-        const placeholders = ids.map(() => '?').join(',');
-        const sql = `SELECT \`app_id\`, \`type\` FROM \`app_filetype_association\`
-             WHERE \`app_id\` IN (${placeholders})`;
-        const rows = primary
-            ? await this.clients.db.pread(sql, ids)
-            : await this.clients.db.read(sql, ids);
-        for (const row of rows) {
-            const list = out.get(row.app_id);
-            if (list) list.push(row.type);
+        for (const batch of chunk(ids, BULK_QUERY_CHUNK_SIZE)) {
+            const placeholders = batch.map(() => '?').join(',');
+            const sql = `SELECT \`app_id\`, \`type\` FROM \`app_filetype_association\`
+                 WHERE \`app_id\` IN (${placeholders})`;
+            const rows = primary
+                ? await this.clients.db.pread(sql, batch)
+                : await this.clients.db.read(sql, batch);
+            for (const row of rows) {
+                const list = out.get(row.app_id);
+                if (list) list.push(row.type);
+            }
         }
         return out;
     }
@@ -1191,10 +1245,40 @@ export class AppStore extends PuterStore {
         return rows.map((r) => r.app_uid);
     }
 
+    /**
+     * Record that `userId` opened `appUid` at `ts` (seconds).
+     *
+     * @param {string} appUid
+     * @param {number} userId
+     * @param {number} ts
+     * @returns {Promise<void>}
+     */
+    async recordOpen(appUid, userId, ts) {
+        await this.clients.db.write(
+            'INSERT INTO `app_opens` (`app_uid`, `user_id`, `ts`) VALUES (?, ?, ?)',
+            [appUid, userId, ts],
+        );
+    }
+
+    /**
+     * Names of apps approved for listing, oldest first.
+     *
+     * @param {{ limit: number }} options
+     * @returns {Promise<string[]>}
+     */
+    async listApprovedNames({ limit }) {
+        const rows = await this.clients.db.read(
+            `SELECT \`name\` FROM \`apps\` WHERE \`approved_for_listing\` = ${this.clients.db.booleanLiteral(true)} ORDER BY \`id\` ASC LIMIT ?`,
+            [limit],
+        );
+        return rows.map((r) => r.name);
+    }
+
     async setFiletypeAssociations(appId, types) {
         // Replace-all semantics. Capture the previous extension set so we
         // can drop their cached app lists in addition to the new ones.
-        const previous = await this.getFiletypeAssociations(appId);
+        const previous =
+            (await this.#readFiletypesByIds([appId])).get(appId) ?? [];
         // Canonicalize before storing — readers match on the bare lowercase
         // extension. Dedupe after normalizing: '.docx' and 'docx' in the
         // same call are one association, not two rows.
@@ -1254,6 +1338,34 @@ export class AppStore extends PuterStore {
     async markDeleted(app) {
         await this.#cache.markDeleted(app);
         await this.#invalidateListCachesForApps([app]);
+    }
+
+    /** Tombstoned, so a lagging replica can't cache the pre-write row back. */
+    async #invalidateWritten(app) {
+        await this.tombstoneCacheKeys(this.#cacheKeysForApp(app));
+        await this.#invalidateListCachesForApps([app]);
+    }
+
+    /**
+     * After a write to the row outside `update`: re-reads it from the primary
+     * and tombstones its keys, so a lagging replica can't cache the old row
+     * back. Returns the fresh row, or null when it is gone.
+     *
+     * @param {number} id
+     * @returns {Promise<object | null>}
+     */
+    async invalidateWrittenById(id) {
+        // Not `getById`: on a cache miss it would cache the replica's row.
+        const fresh = await this.#readFromDb('id', id, { primary: true });
+        if (fresh) await this.#invalidateWritten(fresh);
+        return fresh;
+    }
+
+    /** `invalidateWrittenById` for a writer that holds the uid. */
+    async invalidateWrittenByUid(uid) {
+        const fresh = await this.#readFromDb('uid', uid, { primary: true });
+        if (fresh) await this.#invalidateWritten(fresh);
+        return fresh;
     }
 
     async invalidateById(id) {
@@ -1738,7 +1850,17 @@ export class AppStore extends PuterStore {
      *   used to bound the `all` period
      */
     async getAppStatsDetailed(appUid, options = {}) {
-        const period = options.period ?? 'all';
+        const requested = options.period ?? 'all';
+        const period = Object.hasOwn(STATS_PERIOD_ALIASES, requested)
+            ? STATS_PERIOD_ALIASES[requested]
+            : requested;
+        if (typeof period !== 'string' || !STATS_PERIODS.has(period)) {
+            throw new HttpError(
+                400,
+                `Invalid period. Supported: ${[...STATS_PERIODS].join(', ')}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
         const grouping = options.grouping;
         const timeRange = this.#computeTimeRange(period, options.createdAt);
         const clickhouse = this.clients.clickhouse;
@@ -1778,14 +1900,10 @@ export class AppStore extends PuterStore {
 
         const clickhouse = this.clients.clickhouse;
         if (clickhouse) {
-            const chunks = [];
-            for (let i = 0; i < uids.length; i += CLICKHOUSE_UIDS_PER_QUERY) {
-                chunks.push(uids.slice(i, i + CLICKHOUSE_UIDS_PER_QUERY));
-            }
             const results = await runWithConcurrencyLimit(
-                chunks,
+                chunk(uids, CLICKHOUSE_UIDS_PER_QUERY),
                 4,
-                async (chunk) => {
+                async (batch) => {
                     const res = await clickhouse.query({
                         query: `
                             SELECT app_uid,
@@ -1795,7 +1913,7 @@ export class AppStore extends PuterStore {
                             WHERE app_uid IN {uids:Array(String)}
                             GROUP BY app_uid
                         `,
-                        query_params: { uids: chunk.map((u) => String(u)) },
+                        query_params: { uids: batch.map((u) => String(u)) },
                         format: 'JSONEachRow',
                     });
                     return res.json();
@@ -2115,6 +2233,13 @@ export class AppStore extends PuterStore {
                     break;
                 default:
                     return out;
+            }
+            if (out.length >= MAX_STATS_BUCKETS) {
+                throw new HttpError(
+                    400,
+                    `Too many ${grouping} buckets for this period; pick a shorter period or a coarser grouping (at most ${MAX_STATS_BUCKETS})`,
+                    { legacyCode: 'bad_request' },
+                );
             }
             out.push({ period, count: 0 });
         }

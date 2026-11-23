@@ -36,6 +36,7 @@ import {
     unsupportedMediaTextPart,
 } from '../../../interfaces/chat/utils/mediaParts.js';
 import * as OpenAIUtil from '../../../protocols/openaiCompatible/OpenAIUtil.js';
+import { toolsToWire } from '../../../protocols/openaiCompatible/openaiParams.js';
 import { jsonCheckedFetch } from '../../../shared/jsonCheckedFetch.js';
 import { isMistralInputError } from '../inputError.js';
 import { MISTRAL_MODELS } from './models.js';
@@ -118,7 +119,10 @@ export class MistralAIProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiKey: string; apiBaseUrl?: string },
+        meteringService: MeteringService,
+    ) {
         const httpClient = new HTTPClient({ fetcher: jsonCheckedFetch });
         // The SDK strips service_tier during body serialization.
         httpClient.addHook('beforeRequest', async (request) => {
@@ -138,6 +142,7 @@ export class MistralAIProvider implements IChatProvider {
         this.#client = new Mistral({
             httpClient,
             apiKey: config.apiKey,
+            ...(config.apiBaseUrl ? { serverURL: config.apiBaseUrl } : {}),
         });
         this.#meteringService = meteringService;
     }
@@ -251,6 +256,7 @@ export class MistralAIProvider implements IChatProvider {
                     (m) => m.id === this.getDefaultModel(),
                 )!);
         const actor = Context.get('actor');
+        const wireTools = tools ? toolsToWire(tools, 'chat') : undefined;
         let completion: Awaited<
             ReturnType<Mistral['chat']['complete' | 'stream']>
         >;
@@ -260,7 +266,7 @@ export class MistralAIProvider implements IChatProvider {
             ](
                 {
                     model: selectedModel.id,
-                    ...(tools ? { tools: tools as any[] } : {}),
+                    ...(wireTools?.length ? { tools: wireTools as any[] } : {}),
                     ...(customParams.prompt_mode !== undefined
                         ? { promptMode: customParams.prompt_mode }
                         : {}),

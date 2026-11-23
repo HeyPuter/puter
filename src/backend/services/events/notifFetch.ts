@@ -21,7 +21,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { NotificationAudience } from '../notification/notificationTypes.js';
 import { resolveNotifAnchor, type NotifAnchorActor } from './anchors.js';
 import type { ProjectedNotifEvent } from './registry.js';
-import { parseSubject } from './subjects.js';
+import { notifSubject, parseSubject } from './subjects.js';
 
 /**
  * Catching up is a query, not a delivery: a client that was away asks the
@@ -217,7 +217,7 @@ export const projectNotifRow = (
     const replacedAt = replacedAtOf(row);
     return {
         id: String(row.uid),
-        subject: `notif:${appUid ?? userUuid}:${audience}`,
+        subject: notifSubject(appUid ?? userUuid, audience),
         op: 'post',
         uid: String(row.uid),
         type: String(row.type ?? ''),

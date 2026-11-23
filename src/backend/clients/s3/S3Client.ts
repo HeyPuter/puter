@@ -112,7 +112,6 @@ export class S3Client extends PuterClient {
     private awsConfig: Partial<S3ClientConfig> = {};
     private presignAwsConfig: Partial<S3ClientConfig> | null = null;
     private fauxqsServer: FauxqsServer | null = null;
-    private useProviderChain = false;
 
     /** Maximum size for a single PutObject call before switching to multipart. */
     maxSingleUploadSize = FAUXQS_SAFE_PUT_OBJECT_LIMIT_BYTES;
@@ -143,7 +142,6 @@ export class S3Client extends PuterClient {
             } = s3Conf.s3Config;
 
             if (useCredentialChain) {
-                this.useProviderChain = true;
                 this.awsConfig = {
                     credentials: withPresignHeadroom(fromNodeProviderChain()),
                 };

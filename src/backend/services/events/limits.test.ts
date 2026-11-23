@@ -28,7 +28,7 @@ import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
     ORG_SEAT_FREE_SUBSCRIPTION,
-} from '../../services/metering/consts.js';
+} from '../metering/consts.js';
 import {
     EVENTS_BROADCAST_DELIVERY_LIMIT,
     EVENTS_DURABLE_SUBSCRIPTIONS_MAX,

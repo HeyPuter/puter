@@ -60,6 +60,7 @@ import {
     isUpstreamTimeoutError,
     sanitizeUpstreamMessage,
 } from '../../../../util/upstreamErrors.js';
+import { SAMPLE_IMAGE_URL } from '../../../shared/testMode.js';
 
 const DEFAULT_MODEL = 'black-forest-labs/flux-schnell';
 const DEFAULT_RATIO = { w: 1024, h: 1024 };
@@ -204,7 +205,7 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
         const ratio = this.#normalizeRatio(params.ratio);
 
         if (test_mode) {
-            return 'https://puter-sample-data.puter.site/image_example.png';
+            return SAMPLE_IMAGE_URL;
         }
 
         assertImagePrompt(prompt);

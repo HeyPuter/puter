@@ -22,7 +22,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupTestServer } from '../../testUtil.ts';
 import { PuterServer } from '../../server.ts';
-import { generateDefaultFsentries } from '../../util/userProvisioning.ts';
 
 describe('UserAccountService', () => {
     let server: PuterServer;
@@ -47,121 +46,6 @@ describe('UserAccountService', () => {
         });
     };
 
-    describe('getUsageSignals', () => {
-        it('reports a freshly created account as unused', async () => {
-            const user = await seedUser();
-            const usage = await server.services.userAccount.getUsageSignals(
-                user.id,
-            );
-            expect(usage.inUse).toBe(false);
-            expect(usage.signals).toEqual([]);
-        });
-
-        it('still reads as unused with only the folders signup provisions', async () => {
-            // The whole delete decision hinges on this: a provisioned account
-            // nobody ever opened must not look like somebody's files.
-            const user = await seedUser();
-            await generateDefaultFsentries(
-                server.clients.db,
-                server.stores.user,
-                user,
-            );
-            const usage = await server.services.userAccount.getUsageSignals(
-                user.id,
-            );
-            expect(usage.signals).not.toContain('files');
-            expect(usage.inUse).toBe(false);
-        });
-
-        it('reports files once anything beyond the provisioned set exists', async () => {
-            const user = await seedUser();
-            await generateDefaultFsentries(
-                server.clients.db,
-                server.stores.user,
-                user,
-            );
-            const fresh = (await server.stores.user.getById(user.id, {
-                force: true,
-            }))!;
-            const now = Math.floor(Date.now() / 1000);
-            await server.clients.db.write(
-                'INSERT INTO `fsentries` (`uuid`, `parent_uid`, `user_id`, `name`, `is_dir`, `created`, `modified`) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [
-                    uuidv4(),
-                    fresh.desktop_uuid,
-                    user.id,
-                    'notes.txt',
-                    0,
-                    now,
-                    now,
-                ],
-            );
-
-            const usage = await server.services.userAccount.getUsageSignals(
-                user.id,
-            );
-            expect(usage.signals).toContain('files');
-            expect(usage.inUse).toBe(true);
-        });
-
-        // `stripe_customer_id` is deliberately absent: it is a prod-only column
-        // the self-hosted schema does not carry, which is exactly why the
-        // service reads the row through the store instead of naming columns.
-        it.each([
-            ['card_fingerprint', 'fp_123', 'card-verified'],
-            ['phone', '+14155550100', 'phone-verified'],
-        ])('reports %s as %s', async (column, value, signal) => {
-            const user = await seedUser();
-            await server.stores.user.update(user.id, { [column]: value });
-            const usage = await server.services.userAccount.getUsageSignals(
-                user.id,
-            );
-            expect(usage.signals).toContain(signal);
-            expect(usage.inUse).toBe(true);
-        });
-
-        it('reports an external identity link', async () => {
-            const user = await seedUser();
-            await server.stores.oidc.link(
-                user.id,
-                'custom-idp',
-                `sub-${uuidv4()}`,
-                null,
-            );
-            const usage = await server.services.userAccount.getUsageSignals(
-                user.id,
-            );
-            expect(usage.signals).toContain('oidc-link');
-        });
-
-        it('errs toward in-use when a signal query fails', async () => {
-            // A signal we cannot read is not a signal that is absent. Failing
-            // open here would mean an unreadable table makes accounts look
-            // deletable, and the collapse job deletes what looks unused.
-            const user = await seedUser();
-            const original = server.clients.db.read.bind(server.clients.db);
-            const read = vi
-                .spyOn(server.clients.db, 'read')
-                .mockImplementation(async (sql: string, params?: unknown[]) => {
-                    // Only the capped-count probes fail; the row read still
-                    // works, which is the realistic "one table is unhappy" case.
-                    if (sql.includes('FROM (SELECT 1 FROM')) {
-                        throw new Error('table gone');
-                    }
-                    return original(sql, params);
-                });
-            try {
-                const usage = await server.services.userAccount.getUsageSignals(
-                    user.id,
-                );
-                expect(usage.inUse).toBe(true);
-                expect(usage.signals).toContain('sessions');
-            } finally {
-                read.mockRestore();
-            }
-        });
-    });
-
     describe('cascadeDelete', () => {
         it('removes the row, its sessions and its cache entries', async () => {
             const user = await seedUser();
@@ -185,6 +69,35 @@ describe('UserAccountService', () => {
                 [user.id],
             )) as Array<{ n: number }>;
             expect(Number(sessions[0].n)).toBe(0);
+        });
+
+        it('announces the revoked sessions so open connections close', async () => {
+            const user = await seedUser();
+            const sessionUuid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `sessions` (`uuid`, `user_id`, `created_at`, `last_activity`) VALUES (?, ?, ?, ?)',
+                [sessionUuid, user.id, Date.now(), Date.now()],
+            );
+            const announced: Array<{ user_id: number; session_uids: string[] }> =
+                [];
+            const listener = (_key: string, data: unknown) => {
+                announced.push(
+                    data as { user_id: number; session_uids: string[] },
+                );
+            };
+            server.clients.event.on('outer.auth.sessions.revoked', listener);
+            try {
+                await server.services.userAccount.cascadeDelete(user.id);
+            } finally {
+                server.clients.event.off(
+                    'outer.auth.sessions.revoked',
+                    listener,
+                );
+            }
+            expect(announced).toContainEqual({
+                user_id: user.id,
+                session_uids: [sessionUuid],
+            });
         });
 
         /** A group with a grant, and `member` in it; returns the grant's row. */
@@ -1025,7 +938,7 @@ describe('UserAccountService', () => {
             const failing = vi
                 .spyOn(server.clients.db, 'pread')
                 .mockImplementation(async (sql: string, ...rest: never[]) => {
-                    if (sql === 'SELECT * FROM `user` WHERE `id` = ?')
+                    if (sql.startsWith('SELECT * FROM `user` WHERE `id` = ?'))
                         throw new Error('primary down');
                     return (pread as (...args: unknown[]) => never)(
                         sql,

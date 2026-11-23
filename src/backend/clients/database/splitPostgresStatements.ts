@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { readDollarQuoteTag } from './preparePostgresSql.js';
+
 type ScannerState =
     | { kind: 'normal' }
     | { kind: 'singleQuote' }
@@ -24,11 +26,6 @@ type ScannerState =
     | { kind: 'lineComment' }
     | { kind: 'blockComment' }
     | { kind: 'dollarQuote'; tag: string };
-
-const readDollarQuoteTag = (sql: string, index: number): string | null => {
-    const match = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/u.exec(sql.slice(index));
-    return match?.[0] ?? null;
-};
 
 export const splitPostgresStatements = (sql: string): string[] => {
     const statements: string[] = [];

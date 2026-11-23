@@ -20,6 +20,7 @@
 import type { Team2faLookup } from '../../core/http/middleware/gates.js';
 import { compare as bcryptCompare } from 'bcrypt';
 import type { Request, Response } from 'express';
+import { lookup as lookupMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -219,14 +220,19 @@ export class WebDAVController extends PuterController {
 
     @Copy(DAV_ROUTE, DAV_ROUTE_OPTIONS)
     copy(req: Request, res: Response): Promise<void> {
-        return this.#serve(req, res, (ctx) => this.#copy(req, res, ctx), {
-            credits: true,
-        });
+        return this.#serve(
+            req,
+            res,
+            (ctx) => this.#transfer('copy', req, res, ctx),
+            { credits: true },
+        );
     }
 
     @Move(DAV_ROUTE, DAV_ROUTE_OPTIONS)
     move(req: Request, res: Response): Promise<void> {
-        return this.#serve(req, res, (ctx) => this.#move(req, res, ctx));
+        return this.#serve(req, res, (ctx) =>
+            this.#transfer('move', req, res, ctx),
+        );
     }
 
     @Lock(DAV_ROUTE, DAV_ROUTE_OPTIONS)
@@ -913,88 +919,43 @@ export class WebDAVController extends PuterController {
         res.status(204).end();
     }
 
-    // -- COPY --------------------------------------------------------
+    // -- COPY / MOVE -------------------------------------------------
 
-    async #copy(
-        req: Request,
-        res: Response,
-        { actor, davPath, lockToken }: DavContext,
-    ): Promise<void> {
-        const destPath = await this.#parseDestination(req);
-        if (
-            !(await hasWritePermission(this.clients.redis, destPath, lockToken))
-        ) {
-            throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
-        }
-
-        const userId = actor.user!.id as number;
-        const source = await this.stores.fsEntry.getEntryByPath(davPath);
-        if (!source) throw davNotFound();
-        await this.#assertAccess(actor, source.path, 'read');
-        await this.#assertCreate(actor, destPath);
-
-        const overwrite = req.headers.overwrite !== 'F';
-        const destExists = await this.stores.fsEntry.getEntryByPath(destPath, {
-            foldedNames: true,
-        });
-        if (destExists && !overwrite)
-            throw new HttpError(412, 'Destination exists and Overwrite=F', {
-                legacyCode: 'conflict',
-            });
-
-        const destParent = await this.stores.fsEntry.getEntryByPath(
-            pathPosix.dirname(destPath),
-        );
-        if (!destParent?.isDir)
-            throw new HttpError(
-                409,
-                'Destination parent missing or not a directory',
-                { legacyCode: 'dest_is_not_a_directory' },
-            );
-
-        const copy = await this.services.fs.copy(userId, {
-            source,
-            destinationParent: destParent,
-            newName: pathPosix.basename(destPath),
-            overwrite,
-        });
-        // Announcing what the copy replaced keeps a ghost row off other clients.
-        this.#emitGuiEvent('outer.gui.item.added', copy, undefined, destExists);
-        res.status(destExists ? 204 : 201).end();
-    }
-
-    // -- MOVE --------------------------------------------------------
-
-    async #move(
+    async #transfer(
+        kind: 'copy' | 'move',
         req: Request,
         res: Response,
         { actor, davPath, lockToken }: DavContext,
     ): Promise<void> {
         const destPath = await this.#parseDestination(req);
         const r = this.clients.redis;
-        if (!(await hasWritePermission(r, davPath, lockToken)))
-            throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
-        if (!(await hasWritePermission(r, destPath, lockToken)))
+        // A copy leaves the source in place, so only a move needs its lock.
+        const [sourceWritable, destWritable] = await Promise.all([
+            kind === 'move' ? hasWritePermission(r, davPath, lockToken) : true,
+            hasWritePermission(r, destPath, lockToken),
+        ]);
+        if (!sourceWritable || !destWritable)
             throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
 
         const userId = actor.user!.id as number;
         const source = await this.stores.fsEntry.getEntryByPath(davPath);
         if (!source) throw davNotFound();
-        await this.#assertAccess(actor, source.path, 'write');
+        await this.#assertAccess(
+            actor,
+            source.path,
+            kind === 'move' ? 'write' : 'read',
+        );
         await this.#assertCreate(actor, destPath);
 
         const overwrite = req.headers.overwrite !== 'F';
-        const destExists = await this.stores.fsEntry.getEntryByPath(destPath, {
-            foldedNames: true,
-        });
+        const [destExists, destParent] = await Promise.all([
+            this.stores.fsEntry.getEntryByPath(destPath, { foldedNames: true }),
+            this.stores.fsEntry.getEntryByPath(pathPosix.dirname(destPath)),
+        ]);
         if (destExists && !overwrite)
             throw new HttpError(412, 'Destination exists and Overwrite=F', {
                 legacyCode: 'conflict',
             });
-
-        const destParent = await this.stores.fsEntry.getEntryByPath(
-            pathPosix.dirname(destPath),
-        );
         if (!destParent?.isDir)
             throw new HttpError(
                 409,
@@ -1002,18 +963,31 @@ export class WebDAVController extends PuterController {
                 { legacyCode: 'dest_is_not_a_directory' },
             );
 
-        const moved = await this.services.fs.move(userId, {
+        const transfer = {
             source,
             destinationParent: destParent,
             newName: pathPosix.basename(destPath),
             overwrite,
-        });
-        this.#emitGuiEvent(
-            'outer.gui.item.moved',
-            moved,
-            { old_path: davPath },
-            destExists,
-        );
+        };
+        // Announcing what the transfer replaced keeps a ghost row off other
+        // clients.
+        if (kind === 'copy') {
+            const copy = await this.services.fs.copy(userId, transfer);
+            this.#emitGuiEvent(
+                'outer.gui.item.added',
+                copy,
+                undefined,
+                destExists,
+            );
+        } else {
+            const moved = await this.services.fs.move(userId, transfer);
+            this.#emitGuiEvent(
+                'outer.gui.item.moved',
+                moved,
+                { old_path: davPath },
+                destExists,
+            );
+        }
         res.status(destExists ? 204 : 201).end();
     }
 
@@ -1383,7 +1357,7 @@ function propfindEntry(
 
     if (!isDir && entry) {
         props += `\n        <D:getcontentlength>${entry.size ?? 0}</D:getcontentlength>`;
-        const mime = mimeFromExt(pathPosix.extname(name));
+        const mime = lookupMime(name) || 'application/octet-stream';
         props += `\n        <D:getcontenttype>${escapeXml(mime)}</D:getcontenttype>`;
     }
 
@@ -1395,36 +1369,6 @@ function propfindEntry(
       <D:status>HTTP/1.1 200 OK</D:status>
     </D:propstat>
   </D:response>`;
-}
-
-const MIME_MAP: Record<string, string> = {
-    '.html': 'text/html',
-    '.htm': 'text/html',
-    '.css': 'text/css',
-    '.js': 'application/javascript',
-    '.mjs': 'application/javascript',
-    '.json': 'application/json',
-    '.xml': 'application/xml',
-    '.svg': 'image/svg+xml',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.ico': 'image/x-icon',
-    '.pdf': 'application/pdf',
-    '.txt': 'text/plain',
-    '.md': 'text/markdown',
-    '.csv': 'text/csv',
-    '.mp3': 'audio/mpeg',
-    '.mp4': 'video/mp4',
-    '.webm': 'video/webm',
-    '.zip': 'application/zip',
-    '.wasm': 'application/wasm',
-};
-
-function mimeFromExt(ext: string): string {
-    return MIME_MAP[ext.toLowerCase()] ?? 'application/octet-stream';
 }
 
 function lockResponseXml(

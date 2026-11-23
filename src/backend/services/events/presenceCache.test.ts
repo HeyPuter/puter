@@ -145,9 +145,32 @@ describe('the presence cache', () => {
         cache.bump(1); // touched again, so 2 is now the oldest
         cache.bump(3); // evicts 2, not 1
 
-        expect(cache.generationOf(2)).toBe(0);
-        expect(cache.generationOf(1)).toBeGreaterThan(0);
-        expect(cache.generationOf(3)).toBeGreaterThan(0);
+        // Evicted, 2 reads like a user this cache has never seen.
+        const unseen = cache.generationOf(99);
+        expect(cache.generationOf(2)).toBe(unseen);
+        expect(cache.generationOf(1)).not.toBe(unseen);
+        expect(cache.generationOf(3)).not.toBe(unseen);
+    });
+
+    it('serves nothing stale to a user bumped again after eviction', () => {
+        const cache = new PresenceCache(1_000, 1);
+        cache.bump(7);
+        cache.write(7, 'app-a', cache.generationOf(7), row({ west: 10 }));
+        cache.bump(7);
+        cache.bump(7);
+        cache.bump(8); // evicts 7
+        cache.bump(7);
+
+        expect(cache.read(7, 'app-a')).toBeNull();
+    });
+
+    it('serves nothing stale to an evicted user read before its first bump', () => {
+        const cache = new PresenceCache(1_000, 1);
+        cache.write(7, 'app-a', cache.generationOf(7), row({ west: 10 }));
+        cache.bump(7);
+        cache.bump(8); // evicts 7
+
+        expect(cache.read(7, 'app-a')).toBeNull();
     });
 });
 

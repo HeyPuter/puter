@@ -21,6 +21,7 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 
 import { HttpError } from '../../core/http/HttpError.js';
+import { readBoundedBody } from './fileInput.js';
 
 // -- Transport failures --
 
@@ -309,18 +310,68 @@ export const malformedUpstreamResponse = (
         fields: { provider },
     });
 
-/** The JSON body of a provider's 2xx answer. */
+/** A provider answered with more than the caller reads. */
+const upstreamTooLarge = (
+    provider: string,
+    providerLabel: string,
+    maxBytes: number,
+): HttpError =>
+    new HttpError(502, `${providerLabel} response exceeds ${maxBytes} bytes`, {
+        legacyCode: 'upstream_failed',
+        fields: { provider },
+    });
+
+/** The JSON body of a provider's 2xx answer, read up to `maxBytes`. */
 export const upstreamJson = async (
     provider: string,
     providerLabel: string,
     response: Response,
+    maxBytes: number,
 ): Promise<unknown> => {
+    const body = await readBoundedBody(response, maxBytes, () =>
+        upstreamTooLarge(provider, providerLabel, maxBytes),
+    );
     try {
-        return await response.json();
+        // Decoded as `Response.json()` decodes, BOM dropped.
+        return JSON.parse(new TextDecoder().decode(body));
     } catch {
         throw malformedUpstreamResponse(provider, providerLabel);
     }
 };
+
+/**
+ * `fetch` against a provider API whose verdict is in its JSON envelope: the
+ * body comes back parsed whatever the status, or as `{}` when it isn't a JSON
+ * object or array. `timeoutMs` bounds the body read too; a body over `maxBytes`
+ * rejects with `tooLarge`.
+ */
+export async function fetchBoundedJson<T extends object>(
+    url: string | URL,
+    init: RequestInit,
+    {
+        timeoutMs,
+        maxBytes,
+        tooLarge,
+    }: {
+        timeoutMs: number;
+        maxBytes: number;
+        tooLarge: (maxBytes: number) => Error;
+    },
+): Promise<{ response: Response; payload: Partial<T> }> {
+    const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+    });
+    const raw = await readBoundedBody(response, maxBytes, tooLarge);
+    let payload: Partial<T> = {};
+    try {
+        const parsed: unknown = JSON.parse(raw.toString('utf8'));
+        if (parsed && typeof parsed === 'object') payload = parsed as T;
+    } catch {
+        // Not JSON; the status alone decides.
+    }
+    return { response, payload };
+}
 
 /**
  * A provider's response body as a stream to hand straight to the caller. A

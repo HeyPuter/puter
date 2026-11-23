@@ -19,6 +19,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    driverRegistry,
     resolveDriverMeta,
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
@@ -554,5 +555,43 @@ describe('deprecated per-method resolver names', () => {
         expect(
             resolveDriverMethodConcurrent({ default: { limit: 3 } }, 'x'),
         ).toEqual({ limit: 3 });
+    });
+});
+
+describe('driverRegistry', () => {
+    const driver = (fields: Record<string, unknown>) =>
+        fields as Parameters<typeof driverRegistry>[0][string];
+
+    it('defaults an interface to its first driver unless one is flagged', () => {
+        const { defaults } = driverRegistry({
+            a: driver({ driverInterface: 'plain', driverName: 'first' }),
+            b: driver({ driverInterface: 'plain', driverName: 'second' }),
+            c: driver({ driverInterface: 'flagged', driverName: 'first' }),
+            d: driver({
+                driverInterface: 'flagged',
+                driverName: 'chosen',
+                isDefault: true,
+            }),
+        });
+        expect(defaults.get('plain')).toBe('first');
+        expect(defaults.get('flagged')).toBe('chosen');
+    });
+
+    it('resolves aliases, skips drivers without a name, and builds once per layer', () => {
+        const tts = driver({
+            driverInterface: 'tts',
+            driverName: 'ai-tts',
+            driverAliases: ['aws-polly'],
+        });
+        const layer = {
+            tts,
+            unnamed: driver({ driverInterface: 'tts' }),
+        };
+        const registry = driverRegistry(layer);
+        expect(registry.drivers.get('tts')?.get('aws-polly')).toBe(tts);
+        expect([...registry.meta.values()].map((m) => m.driverName)).toEqual([
+            'ai-tts',
+        ]);
+        expect(driverRegistry(layer)).toBe(registry);
     });
 });

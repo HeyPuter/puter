@@ -29,11 +29,12 @@ import {
     EVENTS_RETRY_MAX_MS,
     EVENTS_SOCKET_LEASE_MS,
     deliveryBackoffMs,
-} from '../../controllers/events/limits.js';
+} from '../../services/events/limits.js';
 import type {
     DeliverableEvent,
     GapMarker,
 } from '../../services/events/registry.js';
+import { chunk } from '../../util/concurrency.js';
 import { PuterStore } from '../types.js';
 
 /**
@@ -106,6 +107,9 @@ const RECONCILE_CLAIM_KEY = 'ev:qxr';
 
 /** How often the region counter is recomputed, region-wide. */
 export const RECONCILE_INTERVAL_SECONDS = 60;
+
+/** Claim key that lets one pending sweep stand for the whole region. */
+const SWEEP_CLAIM_KEY = 'ev:qxs';
 
 /**
  * Most index members one reconcile pass scans. A region already this wide is
@@ -279,13 +283,6 @@ const membersOf = (flat: readonly unknown[]): string[] => {
     const members: string[] = [];
     for (let i = 0; i < flat.length; i += 2) members.push(String(flat[i]));
     return members;
-};
-
-const batched = <T>(items: readonly T[], size = COMMAND_BATCH): T[][] => {
-    const batches: T[][] = [];
-    for (let i = 0; i < items.length; i += size)
-        batches.push(items.slice(i, i + size));
-    return batches;
 };
 
 export class PendingDeliveryStore extends PuterStore {
@@ -764,6 +761,22 @@ export class PendingDeliveryStore extends PuterStore {
     }
 
     /**
+     * Claim the region's pending sweep for `ttlMs`, so one node per interval
+     * works the shared index and the rest skip it. Same `SET NX` shape as the
+     * reconcile claim.
+     */
+    async claimSweepTick(ttlMs: number): Promise<boolean> {
+        const claimed = await this.clients.redis.set(
+            SWEEP_CLAIM_KEY,
+            '1',
+            'PX',
+            ttlMs,
+            'NX',
+        );
+        return claimed === 'OK';
+    }
+
+    /**
      * Recompute the region counter from the pending sets it is supposed to
      * total. The counter moves in a separate write from the removal it follows
      * (a settle's decrement, a shed's decrement-then-append), so a crash
@@ -794,7 +807,7 @@ export class PendingDeliveryStore extends PuterStore {
         let total = 0;
         // One command per subscription: the queues hash to different slots,
         // so under cluster mode they cannot share a pipeline.
-        for (const batch of batched(subIds, RECONCILE_CONCURRENCY)) {
+        for (const batch of chunk(subIds, RECONCILE_CONCURRENCY)) {
             const counts = await Promise.all(
                 batch.map((subId) => this.depth(subId)),
             );
@@ -937,7 +950,7 @@ export class PendingDeliveryStore extends PuterStore {
     /** Forget entries already out of the pending set, and the space they held. */
     async #forget(subId: string, entryIds: readonly string[]): Promise<void> {
         if (entryIds.length === 0) return;
-        for (const batch of batched(entryIds)) {
+        for (const batch of chunk(entryIds, COMMAND_BATCH)) {
             const drop = this.clients.redis.pipeline();
             drop.hdel(entriesKey(subId), ...batch);
             drop.zrem(leaseKey(subId), ...batch);

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { chunk } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { cleanEmail, isSameAddress } from '../../util/email.js';
 import { normalizeReferralCode } from '../../util/referralCode.js';
@@ -269,16 +270,11 @@ export class UserStore extends PuterStore {
                 ),
             ),
         ];
-        for (
-            let offset = 0;
-            offset < unique.length;
-            offset += BULK_QUERY_CHUNK_SIZE
-        ) {
-            const chunk = unique.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
-            const placeholders = chunk.map(() => '?').join(', ');
+        for (const batch of chunk(unique, BULK_QUERY_CHUNK_SIZE)) {
+            const placeholders = batch.map(() => '?').join(', ');
             const rows = (await this.clients.db.pread(
                 `SELECT \`id\`, \`suspended\` FROM \`user\` WHERE \`id\` IN (${placeholders})`,
-                chunk,
+                batch,
             )) as Array<{ id: number; suspended: unknown }>;
             for (const row of rows) {
                 out.set(Number(row.id), Boolean(row.suspended));
@@ -304,6 +300,16 @@ export class UserStore extends PuterStore {
         );
     }
 
+    /** Whether an account with this uuid exists, from the primary, uncached. */
+    async existsByUuidOnPrimary(uuid: string): Promise<boolean> {
+        if (!uuid || typeof uuid !== 'string') return false;
+        const rows = await this.clients.db.pread(
+            'SELECT 1 AS found FROM `user` WHERE `uuid` = ? LIMIT 1',
+            [uuid],
+        );
+        return rows.length > 0;
+    }
+
     /** `getByIds` from the primary, uncached: for a row a replica may lack. */
     async getByIdsFromPrimary(ids: number[]): Promise<Map<number, UserRow>> {
         const users = await this.#readByIds([...new Set(ids)], true);
@@ -312,18 +318,13 @@ export class UserStore extends PuterStore {
 
     async #readByIds(ids: number[], primary: boolean): Promise<UserRow[]> {
         const users: UserRow[] = [];
-        for (
-            let offset = 0;
-            offset < ids.length;
-            offset += BULK_QUERY_CHUNK_SIZE
-        ) {
-            const chunk = ids.slice(offset, offset + BULK_QUERY_CHUNK_SIZE);
-            const placeholders = chunk.map(() => '?').join(', ');
+        for (const batch of chunk(ids, BULK_QUERY_CHUNK_SIZE)) {
+            const placeholders = batch.map(() => '?').join(', ');
             const sql = `SELECT * FROM \`user\` WHERE \`id\` IN (${placeholders})`;
             const rows = (
                 primary
-                    ? await this.clients.db.pread(sql, chunk)
-                    : await this.clients.db.tryHardRead(sql, chunk, {
+                    ? await this.clients.db.pread(sql, batch)
+                    : await this.clients.db.tryHardRead(sql, batch, {
                           race: false,
                       })
             ) as Array<Record<string, unknown>>;
@@ -360,6 +361,29 @@ export class UserStore extends PuterStore {
         if (!row || !isSameAddress(row.clean_email, cleanEmailValue))
             return null;
         return this.getById(row.id as number, opts);
+    }
+
+    /**
+     * The account a billing customer id is recorded on. Not cached: the column
+     * isn't an identifying property. `force` reads the primary.
+     */
+    async getByStripeCustomerId(
+        customerId: string,
+        opts: { force?: boolean; excludeUserId?: number } = {},
+    ): Promise<UserRow | null> {
+        if (!customerId || typeof customerId !== 'string') return null;
+        const exclude = opts.excludeUserId !== undefined;
+        const sql =
+            'SELECT * FROM `user` WHERE `stripe_customer_id` = ?' +
+            (exclude ? ' AND `id` <> ?' : '') +
+            ' LIMIT 1';
+        const params = exclude
+            ? [customerId, opts.excludeUserId]
+            : [customerId];
+        const rows = await (opts.force
+            ? this.clients.db.pread(sql, params)
+            : this.clients.db.tryHardRead(sql, params));
+        return rows[0] ? this.#normalizeRow(rows[0]) : null;
     }
 
     /**
@@ -735,6 +759,87 @@ export class UserStore extends PuterStore {
     }
 
     /**
+     * Record the account's billing customer id only while it has none, so a
+     * later one can't replace the first. True when it wrote.
+     */
+    async setStripeCustomerIdIfUnset(
+        userUuid: string,
+        customerId: string,
+    ): Promise<boolean> {
+        const user = await this.getByUuid(userUuid);
+        if (!user) return false;
+        return this.#write(
+            user.id,
+            { stripe_customer_id: customerId },
+            "(`stripe_customer_id` IS NULL OR `stripe_customer_id` = '')",
+        );
+    }
+
+    /**
+     * Puts `previous` back while the row still holds `written`, so a change
+     * made meanwhile stands. True when it wrote.
+     */
+    async revertStripeCustomerId(
+        userId: number,
+        written: string,
+        previous: string | null,
+    ): Promise<boolean> {
+        return this.#write(
+            userId,
+            { stripe_customer_id: previous },
+            '`stripe_customer_id` = ?',
+            [written],
+        );
+    }
+
+    /**
+     * Suspends an account that is active or held by a suspension in
+     * `replaceable`, in one guarded write that emits `user.suspended`. False
+     * when it is suspended otherwise, so overlapping batches suspend it once.
+     */
+    async claimSuspension(
+        userId: number,
+        {
+            reason,
+            replaceable = [],
+        }: { reason: string; replaceable?: readonly string[] },
+    ): Promise<boolean> {
+        const db = this.clients.db;
+        const replaced = replaceable.length
+            ? ` OR \`suspended_reason\` IN (${replaceable.map(() => '?').join(', ')})`
+            : '';
+        return this.#write(
+            userId,
+            {
+                suspended: true,
+                suspended_at: Math.floor(Date.now() / 1000),
+                suspended_reason: reason,
+            },
+            `(\`suspended\` IS NULL OR \`suspended\` = ${db.booleanLiteral(false)}${replaced})`,
+            [...replaceable],
+        );
+    }
+
+    /**
+     * Flips the developer incentive approval only if it differs (unset reads as
+     * false), so two concurrent flips change it once. True when it wrote.
+     */
+    async setDevIncentiveApproval(
+        userId: number,
+        approved: boolean,
+    ): Promise<boolean> {
+        const db = this.clients.db;
+        const column = '`dev_approved_for_incentive_program`';
+        return this.#write(
+            userId,
+            { dev_approved_for_incentive_program: approved },
+            approved
+                ? `(${column} IS NULL OR ${column} = ${db.booleanLiteral(false)})`
+                : `${column} = ${db.booleanLiteral(true)}`,
+        );
+    }
+
+    /**
      * Cache-aware write path. `guard` is extra SQL ANDed into the WHERE clause;
      * a guarded write reports false when it matches no row.
      */
@@ -837,22 +942,68 @@ export class UserStore extends PuterStore {
         return true;
     }
 
+    /**
+     * Merge `patch` into the user's `metadata` in one statement, so a
+     * concurrent merge of other keys is kept. Refreshes the cached row from the
+     * primary.
+     */
     async updateMetadata(
         userId: number,
         patch: Record<string, unknown>,
     ): Promise<void> {
-        const user = await this.getById(userId);
-        const current: Record<string, unknown> = user?.metadata ?? {};
-        const merged = { ...current, ...patch };
-
-        await this.clients.db.write(
-            'UPDATE `user` SET `metadata` = ? WHERE `id` = ?',
-            [JSON.stringify(merged), userId],
+        const entries = Object.entries(patch).filter(
+            ([, value]) => value !== undefined,
         );
-        if (user) {
-            const refreshed: UserRow = { ...user, metadata: merged };
-            await this.#cache.refresh(refreshed);
+        if (entries.length === 0) return;
+        for (const [key] of entries) {
+            if (/["\\]/.test(key)) {
+                throw new Error(`invalid metadata key: ${key}`);
+            }
         }
+        const db = this.clients.db;
+        const pair = db.case({
+            mysql: '?, CAST(? AS JSON)',
+            postgres: '?::text, ?::jsonb',
+            otherwise: '?, json(?)',
+        });
+        const pairs = entries.map(() => pair).join(', ');
+        const set = db.case({
+            mysql: `JSON_SET(COALESCE(\`metadata\`, JSON_OBJECT()), ${pairs})`,
+            postgres: `COALESCE(\`metadata\`, '{}'::jsonb) || jsonb_build_object(${pairs})`,
+            otherwise: `json_set(COALESCE(\`metadata\`, '{}'), ${pairs})`,
+        });
+        const params = entries.flatMap(([key, value]) => [
+            db.case({ postgres: key, otherwise: `$."${key}"` }),
+            JSON.stringify(value),
+        ]);
+        await db.write(
+            `UPDATE \`user\` SET \`metadata\` = ${set} WHERE \`id\` = ?`,
+            [...params, userId],
+        );
+        const [row] = (await db.pread('SELECT * FROM `user` WHERE `id` = ?', [
+            userId,
+        ])) as Array<Record<string, unknown>>;
+        if (row) await this.#cache.refresh(this.#normalizeRow(row));
+    }
+
+    /** Single-key form of `updateMetadata`. */
+    async setMetadataKey(
+        userId: number,
+        key: string,
+        value: string | number | boolean | null,
+    ): Promise<void> {
+        await this.updateMetadata(userId, { [key]: value });
+    }
+
+    /**
+     * Move `last_activity_ts` forward to `ts` (a SQL timestamp string), never
+     * back. Left out of the cache: a few minutes' drift there doesn't matter.
+     */
+    async touchLastActivity(userId: number, ts: string): Promise<void> {
+        await this.clients.db.write(
+            'UPDATE `user` SET `last_activity_ts` = ? WHERE `id` = ? AND (`last_activity_ts` IS NULL OR `last_activity_ts` < ?)',
+            [ts, userId, ts],
+        );
     }
 
     /**
@@ -966,6 +1117,16 @@ export class UserStore extends PuterStore {
         if (cached) return this.markDeleted(cached);
         // No cached copy to name the rest, but the id key is always this row's.
         await this.tombstoneCacheKeys([idKey]);
+    }
+
+    /**
+     * Delete the row and tombstone its cache keys. `row`, read before the
+     * delete, names every key; without it the cached copy does.
+     */
+    async deleteById(id: number, row?: UserRow | null): Promise<void> {
+        await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [id]);
+        if (row) await this.markDeleted(row);
+        else await this.markDeletedById(id);
     }
 
     // -- Internals ----------------------------------------------------

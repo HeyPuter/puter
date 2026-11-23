@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { settleWithin } from './concurrency.js';
 import { shutdownTelemetry } from './telemetryShutdown.js';
 
 /** What a graceful shutdown drives; `PuterServer` satisfies it. */
@@ -43,10 +44,32 @@ export interface GracefulShutdownOptions {
     exit?: (code: number) => void;
 }
 
-export const DEFAULT_TELEMETRY_SHUTDOWN_TIMEOUT_MS = 5_000;
-export const DEFAULT_SHUTDOWN_HARD_LIMIT_MS = 25_000;
+const DEFAULT_TELEMETRY_SHUTDOWN_TIMEOUT_MS = 5_000;
+const DEFAULT_SHUTDOWN_HARD_LIMIT_MS = 25_000;
 /** Cap on one component's final flush, so teardown fits the hard limit. */
 export const FINAL_FLUSH_TIMEOUT_MS = 5_000;
+
+/**
+ * Run a component's last flush within {@link FINAL_FLUSH_TIMEOUT_MS}. `flush`
+ * gets the deadline so it can skip work it can't finish; a failure or an
+ * overrun is logged under `tag`, never thrown.
+ */
+export async function finalFlush(
+    tag: string,
+    flush: (deadline: number) => Promise<void>,
+): Promise<void> {
+    const deadline = Date.now() + FINAL_FLUSH_TIMEOUT_MS;
+    const run = async () => {
+        try {
+            await flush(deadline);
+        } catch (err) {
+            console.warn(`[${tag}] final flush failed`, err);
+        }
+    };
+    if (!(await settleWithin(run(), FINAL_FLUSH_TIMEOUT_MS))) {
+        console.warn(`[${tag}] final flush timed out`);
+    }
+}
 
 /**
  * The process's one shutdown sequence: stop accepting connections, drain, tear

@@ -30,20 +30,24 @@ import {
     schedulesUnavailable,
     type ScheduleServiceContract,
 } from '../../core/schedules.js';
-import { normalizeLimit } from '../../util/pagination.js';
+import {
+    normalizeLimit,
+    pageEnvelope,
+    parsePageQuery,
+} from '../../util/pagination.js';
 import { PuterController } from '../types.js';
 import { EVENTS_WORKER_PREFIX } from '../../services/events/workerRuntime.js';
+import { EVENTS_FETCH_LIMIT_CAP } from '../../services/events/limits.js';
+import {
+    EventsWorkerDeployer,
+    LocalEventsInvokeTransport,
+} from '../../services/events/workerDeploy.js';
 import {
     EVENTS_FETCH_LIMIT,
-    EVENTS_FETCH_LIMIT_CAP,
     EVENTS_HANDLER_LIST_LIMIT,
     EVENTS_LIST_LIMIT,
     EVENTS_WORKER_LIST_LIMIT,
 } from './limits.js';
-import {
-    EventsWorkerDeployer,
-    LocalEventsInvokeTransport,
-} from './workerDeploy.js';
 
 /**
  * The durable half of the events surface. Session subscriptions arrive over the
@@ -96,19 +100,11 @@ export class EventsController extends PuterController {
     })
     async list(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const query = (req.query ?? {}) as Record<string, unknown>;
-
-        const page = await this.services.events.listDurable(actor, {
-            limit: normalizeLimit(query.limit, { cap: DURABLE_LIST_LIMIT_CAP }),
-            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
-            includeTotal: query.includeTotal === 'true',
-        });
-
-        res.json({
-            items: page.items,
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(page.total !== undefined ? { total: page.total } : {}),
-        });
+        const page = await this.services.events.listDurable(
+            actor,
+            parsePageQuery(req.query, { cap: DURABLE_LIST_LIMIT_CAP }),
+        );
+        res.json(pageEnvelope(page));
     }
 
     /**
@@ -219,21 +215,11 @@ export class EventsController extends PuterController {
     })
     async listSchedules(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const query = (req.query ?? {}) as Record<string, unknown>;
-
-        const page = await this.#schedules().list(actor, {
-            limit: normalizeLimit(query.limit, {
-                cap: SCHEDULE_LIST_LIMIT_CAP,
-            }),
-            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
-            includeTotal: query.includeTotal === 'true',
-        });
-
-        res.json({
-            items: page.items,
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(page.total !== undefined ? { total: page.total } : {}),
-        });
+        const page = await this.#schedules().list(
+            actor,
+            parsePageQuery(req.query, { cap: SCHEDULE_LIST_LIMIT_CAP }),
+        );
+        res.json(pageEnvelope(page));
     }
 
     @Post('/schedules/update', {
@@ -334,24 +320,16 @@ export class EventsController extends PuterController {
     })
     async listKvHandles(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const query = (req.query ?? {}) as Record<string, unknown>;
-
-        const page = await this.services.kvShare.listKvHandles(actor, {
-            limit: normalizeLimit(query.limit, {
-                cap: KV_HANDLE_LIST_LIMIT_CAP,
-            }),
-            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
-            includeTotal: query.includeTotal === 'true',
-        });
-
-        res.json({
-            items: page.items.map(({ holderUsername, ...row }) => ({
+        const page = await this.services.kvShare.listKvHandles(
+            actor,
+            parsePageQuery(req.query, { cap: KV_HANDLE_LIST_LIMIT_CAP }),
+        );
+        res.json(
+            pageEnvelope(page, ({ holderUsername, ...row }) => ({
                 ...row,
                 granteeUsername: holderUsername,
             })),
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(page.total !== undefined ? { total: page.total } : {}),
-        });
+        );
     }
 
     /**

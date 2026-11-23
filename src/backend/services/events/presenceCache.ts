@@ -69,6 +69,13 @@ export class PresenceCache {
     readonly #users = new Map<number, UserEntry>();
     readonly #maxEntries: number;
     readonly #maxUsers: number;
+    /**
+     * Epochs come from one counter, so a user re-created after eviction never
+     * repeats one an old entry still carries.
+     */
+    #lastEpoch = 0;
+    /** What a user with no entry reads as: at or past every evicted epoch. */
+    #evictedEpoch = 0;
 
     constructor(
         maxEntries: number = PRESENCE_CACHE_MAX_ENTRIES,
@@ -84,7 +91,7 @@ export class PresenceCache {
 
     /** The epoch a read must capture before going to the table. */
     generationOf(userId: number): number {
-        return this.#users.get(userId)?.epoch ?? 0;
+        return this.#users.get(userId)?.epoch ?? this.#evictedEpoch;
     }
 
     /**
@@ -144,7 +151,7 @@ export class PresenceCache {
         )
             return;
         this.#setUser(userId, {
-            epoch: (user?.epoch ?? 0) + 1,
+            epoch: ++this.#lastEpoch,
             redisGeneration: generation ?? user?.redisGeneration ?? null,
         });
     }
@@ -171,6 +178,12 @@ export class PresenceCache {
         while (this.#users.size > this.#maxUsers) {
             const oldest = this.#users.keys().next();
             if (oldest.done) break;
+            const evicted = this.#users.get(oldest.value);
+            if (evicted)
+                this.#evictedEpoch = Math.max(
+                    this.#evictedEpoch,
+                    evicted.epoch,
+                );
             this.#users.delete(oldest.value);
         }
     }

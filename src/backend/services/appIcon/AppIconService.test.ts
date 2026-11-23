@@ -62,8 +62,13 @@ describe('AppIconService.ensureIconsDirectory', () => {
     // must be idempotent even when the guard wrongly reports "absent".
     it('is idempotent when the existence cache reports the subdomain absent but the row exists', async () => {
         const subdomains = server.stores.subdomain;
-        expect(await subdomains.existsBySubdomain(APP_ICONS_SUBDOMAIN)).toBe(
-            true,
+        // Boot's own ensure isn't awaited; let it land first.
+        await vi.waitFor(
+            async () =>
+                expect(
+                    await subdomains.existsBySubdomain(APP_ICONS_SUBDOMAIN),
+                ).toBe(true),
+            { timeout: 10_000 },
         );
 
         // Reproduce the stale-negative-cache: write the negative marker for a

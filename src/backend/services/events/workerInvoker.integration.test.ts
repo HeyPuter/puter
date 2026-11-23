@@ -47,7 +47,7 @@ import {
     EVENTS_HANDLER_DEPTH,
     deliveryBackoffMs,
     limitFor,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';

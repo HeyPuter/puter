@@ -118,7 +118,6 @@ const systemHostError = () =>
 // resolving to the joined row. TTL keeps abandoned entries from
 // accumulating indefinitely.
 const APP_UID_ALIAS_KEY_PREFIX = 'app:canonicalUidAlias';
-const APP_UID_ALIAS_REVERSE_KEY_PREFIX = 'app:canonicalUidAliasReverse';
 const APP_UID_ALIAS_TTL_SECONDS = 60 * 60 * 24 * 90;
 
 const hasIndexUrlUniquenessExemption = (candidates) => {
@@ -218,10 +217,10 @@ export class AppDriver extends PuterDriver {
         // Puter-hosted index_url handling (custom domains included). Order
         // matches v1 AppES:
         //   1. Refuse if the index_url's site isn't owned by this user.
-        //   2. Try to merge into an existing row with the same index_url
-        //      (origin-bootstrap takeover, or claiming an unowned row).
-        //   3. Otherwise enforce index_url uniqueness so two rows can't
-        //      share a hosted URL.
+        //   2. Merge into an existing row with the same index_url
+        //      (origin-bootstrap takeover, or claiming an unowned row), or
+        //      refuse when one exists that can't be merged, so two rows
+        //      can't share a hosted URL.
         // The name lookup runs alongside so the host checks add no round
         // trip of their own.
         const nameTaken = awaitLater(this.appStore.existsByName(fields.name));
@@ -243,10 +242,6 @@ export class AppDriver extends PuterDriver {
         if (joinedApp) {
             return joinedApp;
         }
-        await this.#ensureIndexUrlNotAlreadyInUse({
-            indexUrl: fields.index_url,
-            customSite,
-        });
         if (await onGodmodeHost) throw systemHostError();
 
         // Name conflict handling
@@ -471,11 +466,6 @@ export class AppDriver extends PuterDriver {
             if (joinedApp) {
                 return joinedApp;
             }
-            await this.#ensureIndexUrlNotAlreadyInUse({
-                indexUrl: fields.index_url,
-                excludeAppId: app.id,
-                customSite,
-            });
             if (await onGodmodeHost) throw systemHostError();
             if (
                 app.is_private &&
@@ -1064,27 +1054,6 @@ export class AppDriver extends PuterDriver {
             : Promise.resolve(null);
     }
 
-    async #ensureIndexUrlNotAlreadyInUse({
-        indexUrl,
-        excludeAppId,
-        customSite,
-    } = {}) {
-        const conflictRow = await this.#findIndexUrlConflictRow({
-            indexUrl,
-            excludeAppId,
-            customSite,
-        });
-        if (conflictRow) {
-            throw new HttpError(400, 'App index_url already in use', {
-                legacyCode: 'app_index_url_already_in_use',
-                fields: {
-                    index_url: indexUrl,
-                    app_uid: conflictRow.uid,
-                },
-            });
-        }
-    }
-
     async #ensurePuterSiteSubdomainIsOwned(indexUrl, user, customSite) {
         if (!user) return;
         const subdomain =
@@ -1118,33 +1087,15 @@ export class AppDriver extends PuterDriver {
         }
     }
 
-    // -- Canonical-uid alias kvstore pair -----------------------------
+    // -- Canonical-uid alias ------------------------------------------
     //
     // After a merge, the source app uid → canonical uid mapping is
     // kept in `stores.kv` (system namespace) so any client that still
     // holds the old uid keeps resolving to the joined row via
-    // `#getByUidWithAlias`. Reverse map lets callers enumerate aliases
-    // for a canonical uid (matches v1 plumbing).
+    // `#getByUidWithAlias`.
 
     #buildCanonicalAppUidAliasKey(oldAppUid) {
         return `${APP_UID_ALIAS_KEY_PREFIX}:${oldAppUid}`;
-    }
-
-    #buildCanonicalAppUidAliasReverseKey(canonicalAppUid) {
-        return `${APP_UID_ALIAS_REVERSE_KEY_PREFIX}:${canonicalAppUid}`;
-    }
-
-    #normalizeCanonicalAliasUidList(value) {
-        if (!Array.isArray(value)) return [];
-        const out = [];
-        const seen = new Set();
-        for (const item of value) {
-            if (typeof item !== 'string' || !item) continue;
-            if (seen.has(item)) continue;
-            seen.add(item);
-            out.push(item);
-        }
-        return out;
     }
 
     async #readCanonicalAppUidAlias(oldAppUid) {
@@ -1165,28 +1116,12 @@ export class AppDriver extends PuterDriver {
         if (oldAppUid === canonicalAppUid) return;
 
         const key = this.#buildCanonicalAppUidAliasKey(oldAppUid);
-        const reverseKey =
-            this.#buildCanonicalAppUidAliasReverseKey(canonicalAppUid);
         const expireAt =
             Math.floor(Date.now() / 1000) + APP_UID_ALIAS_TTL_SECONDS;
         try {
-            const { res: reverseValue } = await this.stores.kv.get({
-                key: reverseKey,
-            });
-            const reverseAliases =
-                this.#normalizeCanonicalAliasUidList(reverseValue);
-            if (!reverseAliases.includes(oldAppUid)) {
-                reverseAliases.push(oldAppUid);
-            }
-
             await this.stores.kv.set({
                 key,
                 value: canonicalAppUid,
-                expireAt,
-            });
-            await this.stores.kv.set({
-                key: reverseKey,
-                value: reverseAliases,
                 expireAt,
             });
         } catch {
@@ -1214,20 +1149,8 @@ export class AppDriver extends PuterDriver {
         customSite,
     } = {}) {
         const indexUrl = object?.index_url;
-        // Alias-group hosts (`app_origin_aliases`) and custom domains get the
-        // same merge treatment as puter-hosted subdomains. Without this, a
-        // bootstrap stub on such a host could never be absorbed — and since
-        // `#findIndexUrlConflictRow` *does* honor them, the uniqueness check
-        // below would hard-reject the owner's own create/update instead of
-        // merging into the stub.
-        if (
-            !this.#isPuterHostedIndexUrl(indexUrl) &&
-            !this.#findOriginAliasGroupForIndexUrl(indexUrl) &&
-            !customSite
-        ) {
-            return null;
-        }
-
+        // Puter-hosted subdomains, alias-group hosts (`app_origin_aliases`) and
+        // custom domains; any other URL finds no conflict row.
         const conflictRow = await this.#findIndexUrlConflictRow({
             indexUrl,
             excludeAppId,

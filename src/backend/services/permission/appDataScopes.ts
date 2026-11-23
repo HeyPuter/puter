@@ -163,6 +163,25 @@ export const appDataOwnerOf = (path: string): string | null => {
         : null;
 };
 
+/** An app's own folder in a user's home. */
+export const appDataRootPath = (username: string, appUid: string): string =>
+    `/${username}/AppData/${appUid}`;
+
+/**
+ * The AppData root an app-scoped actor is confined to, or undefined for an
+ * actor no app scopes (or one with no username to root it under).
+ */
+export const appDataScopeForActor = (actor: {
+    effectiveApp?: { uid: string } | null;
+    user?: { username?: string | null } | null;
+}): string | undefined => {
+    const app = actor.effectiveApp;
+    const username = actor.user?.username;
+    if (!app || typeof username !== 'string' || username.length === 0)
+        return undefined;
+    return appDataRootPath(username, app.uid);
+};
+
 /**
  * Whether `app` lets other apps reach its per-user data.
  *

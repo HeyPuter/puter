@@ -177,7 +177,7 @@ describe('OllamaChatProvider construction', () => {
 describe('OllamaChatProvider model discovery', () => {
     it('coerces /api/tags entries into the driver model shape and caches them', async () => {
         axiosRequestMock.mockResolvedValueOnce({
-            data: { models: [{ name: 'llama3.2', size: 4096 }] },
+            data: { models: [{ name: 'llama3.2', size: 2_019_393_189 }] },
         });
         const provider = makeProvider({
             apiBaseUrl: 'http://ollama.internal:11434',
@@ -194,7 +194,7 @@ describe('OllamaChatProvider model discovery', () => {
             {
                 id: 'ollama:ollama/llama3.2',
                 name: 'llama3.2 (Ollama)',
-                max_tokens: 4096,
+                max_tokens: 8192,
                 costs_currency: 'usd-cents',
                 costs: { tokens: 1_000_000, input_token: 0, output_token: 0 },
             },

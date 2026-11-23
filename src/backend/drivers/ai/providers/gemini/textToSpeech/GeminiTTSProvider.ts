@@ -35,8 +35,8 @@ import {
 import {
     geminiUpstreamFailure as upstreamFailure,
     postGeminiJson,
-    geminiTokenCount as tokenCount,
 } from '../geminiRest.js';
+import { catalogTokenCount as tokenCount } from '../../../shared/catalogPrice.js';
 import { decodeStrictBase64InSlices } from '../../../../../util/mediaSniff.js';
 import { isUpstreamTimeoutError } from '../../../../util/upstreamErrors.js';
 import { SAMPLE_AUDIO_URL } from '../../../shared/testMode.js';

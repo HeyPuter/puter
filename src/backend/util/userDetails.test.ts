@@ -27,6 +27,7 @@ import type { IConfig } from '../types.js';
 import type { UserRow } from '../stores/user/UserStore.js';
 import {
     buildUserDetails,
+    isTemporaryAccount,
     passwordTag,
     scrubSensitive,
     withoutSecrets,
@@ -340,5 +341,43 @@ describe('passwordTag', () => {
         expect(tag).not.toContain('firsthash');
         expect(passwordTag({ password: null })).toBeNull();
         expect(passwordTag({})).toBeNull();
+    });
+});
+
+describe('isTemporaryAccount', () => {
+    it('is an account with neither a password nor an email', () => {
+        expect(isTemporaryAccount({ password: null, email: null })).toBe(true);
+        expect(isTemporaryAccount({})).toBe(true);
+        expect(isTemporaryAccount({ password: null, email: 'a@b.c' })).toBe(
+            false,
+        );
+        expect(isTemporaryAccount({ password: 'hash', email: null })).toBe(
+            false,
+        );
+    });
+
+    it('reads hasPassword before password', () => {
+        expect(isTemporaryAccount({ hasPassword: true, email: null })).toBe(
+            false,
+        );
+        expect(
+            isTemporaryAccount({ hasPassword: false, password: 'hash' }),
+        ).toBe(true);
+    });
+
+    it('counts an empty string as missing only with blankIsMissing', () => {
+        expect(isTemporaryAccount({ password: null, email: '' })).toBe(false);
+        expect(
+            isTemporaryAccount(
+                { password: null, email: '' },
+                { blankIsMissing: true },
+            ),
+        ).toBe(true);
+        expect(
+            isTemporaryAccount(
+                { password: '', email: null },
+                { blankIsMissing: true },
+            ),
+        ).toBe(true);
     });
 });

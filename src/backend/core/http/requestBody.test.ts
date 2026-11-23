@@ -19,7 +19,7 @@
 
 import type { Request } from 'express';
 import { describe, expect, it } from 'vitest';
-import { bodyRecord } from './requestBody';
+import { asRecord, bodyRecord } from './requestBody';
 
 const req = (body: unknown) => ({ body }) as Request;
 
@@ -38,5 +38,22 @@ describe('bodyRecord', () => {
                 }),
             );
         }
+    });
+});
+
+describe('asRecord', () => {
+    it.each([
+        ['null', null],
+        ['undefined', undefined],
+        ['a number', 42],
+        ['a string', 'nope'],
+        ['an array', [1, 2]],
+    ])('returns an empty record for %s', (_label, value) => {
+        expect(asRecord(value)).toEqual({});
+    });
+
+    it('passes an object through unchanged', () => {
+        const source = { a: 1 };
+        expect(asRecord(source)).toBe(source);
     });
 });

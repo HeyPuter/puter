@@ -26,9 +26,28 @@ export const EVENTS_RETRY_BASE_MS = 2_000;
 /** Longest wait between retries, however many have failed. */
 export const EVENTS_RETRY_MAX_MS = 5 * 60 * 1000;
 
+/** `baseMs` after the first failure, doubling per failure up to `maxMs`. */
+export const doublingBackoffMs = (
+    attempts: number,
+    { baseMs, maxMs }: { baseMs: number; maxMs: number },
+): number => Math.min(maxMs, baseMs * 2 ** Math.max(0, attempts - 1));
+
 /** How long to wait after `attempts` failures in a row. */
 export const deliveryBackoffMs = (attempts: number): number =>
-    Math.min(
-        EVENTS_RETRY_MAX_MS,
-        EVENTS_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1),
-    );
+    doublingBackoffMs(attempts, {
+        baseMs: EVENTS_RETRY_BASE_MS,
+        maxMs: EVENTS_RETRY_MAX_MS,
+    });
+
+/**
+ * A `Retry-After` header in ms: decimal seconds or an HTTP date (a past date
+ * reads as 0). Null when absent or unreadable.
+ */
+export const parseRetryAfterMs = (value: unknown): number | null => {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed) * 1000;
+    const at = Date.parse(trimmed);
+    return Number.isNaN(at) ? null : Math.max(0, at - Date.now());
+};

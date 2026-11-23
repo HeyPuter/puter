@@ -27,7 +27,7 @@
  * controller (the unit under test) and provider/driver internals
  * (which have their own tests). Tests cover route registration,
  * actor gating, body validation, response shape (non-stream and SSE),
- * model-listing endpoints, and the HMAC-gated video proxy guards.
+ * and model-listing endpoints.
  */
 
 import { Readable } from 'node:stream';
@@ -199,7 +199,6 @@ describe('PuterAIController.registerRoutes', () => {
                 'get /puterai/image/models/details',
                 'get /puterai/video/models',
                 'get /puterai/video/models/details',
-                'get /puterai/video/proxy',
             ]),
         );
 
@@ -322,9 +321,7 @@ describe('PuterAIController.registerRoutes', () => {
         controller.registerRoutes(router as never);
 
         // The catalogue is fetched before a client has any reason to
-        // authenticate, and the proxy streams a video the account already
-        // paid to generate to whoever holds the signed link — neither has a
-        // plan to read, let alone one to charge for.
+        // authenticate, so it has no plan to read.
         const openPaths = [
             '/puterai/chat/models',
             '/puterai/chat/models/details',
@@ -332,7 +329,6 @@ describe('PuterAIController.registerRoutes', () => {
             '/puterai/image/models/details',
             '/puterai/video/models',
             '/puterai/video/models/details',
-            '/puterai/video/proxy',
             '/puterai/anthropic/v1/models',
             '/puterai/anthropic/v1/models/:id',
         ];
@@ -1407,194 +1403,6 @@ describe('PuterAIController model listing', () => {
         } finally {
             // Drop the own property so the prototype impl shows through again.
             Reflect.deleteProperty(driver, 'list');
-        }
-    });
-});
-
-// ── Video proxy (HMAC-gated) ────────────────────────────────────────
-
-describe('PuterAIController videoProxy', () => {
-    const captureProxyHandler = (): ((
-        req: Request,
-        res: Response,
-    ) => Promise<void>) => {
-        let handler: ((req: Request, res: Response) => Promise<void>) | null =
-            null;
-        const router = {
-            post: vi.fn(),
-            get: vi.fn((path: string, _opts: unknown, h: never) => {
-                if (path === '/puterai/video/proxy') {
-                    handler = h;
-                }
-            }),
-        };
-        controller.registerRoutes(router as never);
-        if (!handler)
-            throw new Error('did not capture /puterai/video/proxy handler');
-        return handler;
-    };
-
-    it('rejects requests with an invalid fileId character', async () => {
-        const handler = captureProxyHandler();
-        const { res, captured } = makeRes();
-        await handler(
-            makeReq({
-                query: {
-                    fileId: 'has spaces!',
-                    expires: '9999999999',
-                    signature: 'abc',
-                },
-            }),
-            res,
-        );
-        expect(captured.statusCode).toBe(400);
-    });
-
-    it('rejects requests missing expires/signature with 403', async () => {
-        const handler = captureProxyHandler();
-        const { res, captured } = makeRes();
-        await handler(makeReq({ query: { fileId: 'abc' } }), res);
-        expect(captured.statusCode).toBe(403);
-    });
-
-    it('rejects expired signatures with 403', async () => {
-        const handler = captureProxyHandler();
-        const { res, captured } = makeRes();
-        await handler(
-            makeReq({
-                query: {
-                    fileId: 'abc',
-                    expires: '1',
-                    signature: '00',
-                },
-            }),
-            res,
-        );
-        expect(captured.statusCode).toBe(403);
-    });
-
-    it('rejects an invalid signature with 403 once expiry/format checks pass', async () => {
-        const handler = captureProxyHandler();
-        // The default test config provides a signature secret, so a
-        // bogus signature with a future expiry should reach the
-        // timingSafeEqual gate and fail with 403. (The secret-missing
-        // 500 branch is unreachable when running against the default
-        // wired config.)
-        const { res, captured } = makeRes();
-        await handler(
-            makeReq({
-                query: {
-                    fileId: 'abc',
-                    expires: String(Math.floor(Date.now() / 1000) + 60),
-                    signature: 'deadbeef',
-                },
-            }),
-            res,
-        );
-        expect(captured.statusCode).toBe(403);
-    });
-
-    it('500s when url_signature_secret is not configured', async () => {
-        // Temporarily blank the secret so the controller hits the
-        // 500 branch instead of the constant-time-compare gate.
-        const cfg = (
-            controller as unknown as { config: Record<string, unknown> }
-        ).config;
-        const orig = cfg.url_signature_secret;
-        cfg.url_signature_secret = undefined;
-        try {
-            const handler = captureProxyHandler();
-            const { res, captured } = makeRes();
-            await handler(
-                makeReq({
-                    query: {
-                        fileId: 'abc',
-                        expires: String(Math.floor(Date.now() / 1000) + 60),
-                        signature: 'deadbeef',
-                    },
-                }),
-                res,
-            );
-            expect(captured.statusCode).toBe(500);
-        } finally {
-            cfg.url_signature_secret = orig;
-        }
-    });
-
-    it('rejects unsupported providers with 400 after passing the HMAC gate', async () => {
-        // Hit the post-signature `provider !== 'gemini'` branch by
-        // computing a valid signature for a known fileId/expires combo
-        // and then sending a different provider in the query.
-        const cfg = (
-            controller as unknown as { config: Record<string, unknown> }
-        ).config;
-        const secret = cfg.url_signature_secret as string;
-        const fileId = 'abc-123';
-        const expires = String(Math.floor(Date.now() / 1000) + 60);
-        const crypto = await import('node:crypto');
-        const signature = crypto
-            .createHash('sha256')
-            .update(`${fileId}/video-proxy/${secret}/${expires}`)
-            .digest('hex');
-
-        const handler = captureProxyHandler();
-        const { res, captured } = makeRes();
-        await handler(
-            makeReq({
-                query: {
-                    fileId,
-                    expires,
-                    signature,
-                    provider: 'not-gemini',
-                },
-            }),
-            res,
-        );
-        expect(captured.statusCode).toBe(400);
-    });
-
-    it('500s when provider=gemini but no Gemini API key is configured', async () => {
-        const cfg = (
-            controller as unknown as {
-                config: Record<string, unknown> & {
-                    providers?: Record<
-                        string,
-                        Record<string, unknown> | undefined
-                    >;
-                };
-            }
-        ).config;
-        const secret = cfg.url_signature_secret as string;
-        const fileId = 'gemini-no-key';
-        const expires = String(Math.floor(Date.now() / 1000) + 60);
-        const crypto = await import('node:crypto');
-        const signature = crypto
-            .createHash('sha256')
-            .update(`${fileId}/video-proxy/${secret}/${expires}`)
-            .digest('hex');
-
-        const origProviders = cfg.providers;
-        // Wipe out the gemini-video-generation key for the call.
-        cfg.providers = { ...(origProviders ?? {}) };
-        delete cfg.providers['gemini-video-generation'];
-
-        try {
-            const handler = captureProxyHandler();
-            const { res, captured } = makeRes();
-            await handler(
-                makeReq({
-                    query: {
-                        fileId,
-                        expires,
-                        signature,
-                        provider: 'gemini',
-                    },
-                }),
-                res,
-            );
-            expect(captured.statusCode).toBe(500);
-        } finally {
-            cfg.providers = origProviders;
         }
     });
 });

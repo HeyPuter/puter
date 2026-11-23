@@ -38,7 +38,6 @@ import type {
     AlertHandler,
     AlertPayload,
     CallHandler,
-    KnownErrorRule,
 } from './types';
 
 export type {
@@ -50,7 +49,6 @@ export type {
     AlertHandler,
     AlertPayload,
     CallHandler,
-    KnownErrorRule,
 } from './types';
 export type { PagerSeverity } from '../../types';
 
@@ -67,14 +65,6 @@ interface RegisteredHandler {
 
 /** Severity used when neither the call site nor config picks one. */
 const FALLBACK_SEVERITY: PagerSeverity = 'critical';
-/**
- * How many recent occurrences an alarm keeps. A hot alarm repeats for as long
- * as the fault lasts, so retaining every occurrence means retaining every
- * message and field set it was ever raised with, request bodies and actors
- * included. The last few are what a human reads; the rest is only a count, and
- * `count` keeps that.
- */
-const OCCURRENCE_HISTORY_LIMIT = 20;
 /**
  * An alarm that hasn't recurred for this long is forgotten; its next occurrence
  * is a new alarm with a fresh count. Kept far past the chat transport's repeat
@@ -211,10 +201,8 @@ function cleanFields(fields: AlarmFields): Record<string, string> {
 export class AlarmClient extends PuterClient {
     /** Ordered by last occurrence: a repeat moves its alarm to the back. */
     private alarms = new Map<string, Alarm>();
-    private aliases = new Map<string, Alarm>();
     private alertHandlers: RegisteredHandler[] = [];
     private callHandlers: CallHandler[] = [];
-    private knownErrors: KnownErrorRule[] = [];
     private draining = false;
     private drainLogged = false;
 
@@ -362,13 +350,11 @@ export class AlarmClient extends PuterClient {
             // `recordOccurrence` below stamps the first occurrence; seeding one
             // here too would report every alarm as one occurrence ahead.
             count: 0,
-            timestamps: [],
-            occurrences: [],
+            lastSeen: 0,
         };
         if (fields.error) alarm.error = fields.error;
 
         this.alarms.set(id, alarm);
-        this.aliases.set(alarm.shortId, alarm);
         this.recordOccurrence(alarm, message, fields);
         this.evict();
         this.handleNew(alarm);
@@ -379,20 +365,14 @@ export class AlarmClient extends PuterClient {
         const alarm = this.alarms.get(id);
         if (!alarm) return;
 
-        this.forget(alarm);
+        this.alarms.delete(id);
         console.log(`[alarm] CLEAR ${displayId(alarm)} :: ${alarm.message}`);
-    }
-
-    /** Look up an alarm by its full ID or short ID. */
-    get(id: string): Alarm | undefined {
-        return this.alarms.get(id) ?? this.aliases.get(id);
     }
 
     /**
      * Register an additional alert handler. Handlers are called for every alarm
-     * that isn't suppressed by a known-error rule or muted by config, and whose
-     * severity falls inside the handler's own `minSeverity`..`maxSeverity`
-     * window (default: everything).
+     * that isn't muted by config and whose severity falls inside the handler's
+     * own `minSeverity`..`maxSeverity` window (default: everything).
      */
     addAlertHandler(
         handler: AlertHandler,
@@ -419,11 +399,6 @@ export class AlarmClient extends PuterClient {
         this.callHandlers.push(handler);
     }
 
-    /** Add rules that can suppress or adjust severity of known errors. */
-    setKnownErrors(rules: KnownErrorRule[]): void {
-        this.knownErrors = rules;
-    }
-
     // -- Internals ----------------------------------------------------
 
     /**
@@ -433,22 +408,13 @@ export class AlarmClient extends PuterClient {
     private evict(): void {
         const now = Date.now();
         for (const alarm of this.alarms.values()) {
-            const lastSeen = alarm.timestamps.at(-1) ?? alarm.started;
             if (
                 this.alarms.size <= MAX_TRACKED_ALARMS &&
-                now - lastSeen < ALARM_IDLE_TTL_MS
+                now - alarm.lastSeen < ALARM_IDLE_TTL_MS
             ) {
                 return;
             }
-            this.forget(alarm);
-        }
-    }
-
-    private forget(alarm: Alarm): void {
-        this.alarms.delete(alarm.id);
-        // Short ids can collide; leave an alias that now names another alarm.
-        if (this.aliases.get(alarm.shortId) === alarm) {
-            this.aliases.delete(alarm.shortId);
+            this.alarms.delete(alarm.id);
         }
     }
 
@@ -457,74 +423,27 @@ export class AlarmClient extends PuterClient {
         message: string,
         fields: AlarmFields,
     ): void {
-        const now = Date.now();
         alarm.message = message;
         alarm.fields = { ...alarm.fields, ...fields };
         alarm.count++;
+        alarm.lastSeen = Date.now();
         if (fields.error) alarm.error = fields.error;
-
-        alarm.timestamps.push(now);
-        alarm.occurrences.push({ message, fields, timestamp: now });
-
-        if (alarm.timestamps.length > OCCURRENCE_HISTORY_LIMIT) {
-            alarm.timestamps.splice(
-                0,
-                alarm.timestamps.length - OCCURRENCE_HISTORY_LIMIT,
-            );
-            alarm.occurrences.splice(
-                0,
-                alarm.occurrences.length - OCCURRENCE_HISTORY_LIMIT,
-            );
-        }
-    }
-
-    private applyKnownErrors(alarm: Alarm): void {
-        for (const rule of this.knownErrors) {
-            if (!this.ruleMatches(rule, alarm)) continue;
-
-            switch (rule.action.type) {
-                case 'no-alert':
-                    alarm.noAlert = true;
-                    break;
-                case 'severity':
-                    alarm.severity = rule.action.value;
-                    break;
-            }
-        }
-    }
-
-    private ruleMatches(rule: KnownErrorRule, alarm: Alarm): boolean {
-        const { match } = rule;
-        if (match.id !== alarm.id) return false;
-        if (match.message && match.message !== alarm.message) return false;
-        if (match.fields) {
-            for (const [key, value] of Object.entries(match.fields)) {
-                if (alarm.fields[key] !== value) return false;
-            }
-        }
-        return true;
     }
 
     private handleNew(alarm: Alarm): void {
-        this.applyKnownErrors(alarm);
-
         console.error(`[alarm] ACTIVE ${displayId(alarm)} :: ${alarm.message}`);
 
         if (alarm.error) {
             console.error(alarm.error);
         }
 
-        if (alarm.noAlert) return;
-
         this.dispatchAlert(alarm);
     }
 
     private handleRepeat(alarm: Alarm): void {
-        this.applyKnownErrors(alarm);
-
         if (!shouldReportRepeat(alarm.count)) {
             // Too frequent to report, but still firing: keep its call open.
-            if (alarm.call && !alarm.noAlert) this.refreshCall(alarm);
+            if (alarm.call) this.refreshCall(alarm);
             return;
         }
 
@@ -532,15 +451,12 @@ export class AlarmClient extends PuterClient {
             `[alarm] REPEAT ${displayId(alarm)} :: ${alarm.message} (${alarm.count})`,
         );
 
-        if (alarm.noAlert) return;
-
         this.dispatchAlert(alarm);
     }
 
     /**
-     * Call-site severity, then any known-error rule (both already on the
-     * alarm), then the config override — so an operator always has the last
-     * word over what the code asked for.
+     * Call-site severity, then the config override, so an operator always has
+     * the last word over what the code asked for.
      */
     private resolveSeverity(alarm: Alarm): SeverityRule {
         const base =

@@ -142,14 +142,11 @@ export class Context {
      * `unknown`. Returns `undefined` when called outside a request scope or
      * when the key hasn't been set.
      */
-    /** Get the entire context store (no-arg form). */
-    static get(): ContextStore | undefined;
     static get<K extends keyof KnownContextFields>(
         key: K,
     ): KnownContextFields[K] | undefined;
     static get(key: string): unknown;
-    static get(key?: string): unknown {
-        if (key === undefined) return als.getStore();
+    static get(key: string): unknown {
         const store = als.getStore();
         if (!store) return undefined;
         if (KNOWN_KEYS.has(key)) {

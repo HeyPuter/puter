@@ -578,7 +578,7 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         return Boolean(
             this.db
                 .prepare(
-                    `SELECT 1 FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
+                    `SELECT 1 FROM pragma_table_info(${this.sqlStringLiteral(table)}) WHERE name = ?`,
                 )
                 .get(column),
         );
@@ -587,7 +587,7 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
     private columnAllowsNull(table: string, column: string): boolean {
         const info = this.db
             .prepare(
-                `SELECT * FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
+                `SELECT * FROM pragma_table_info(${this.sqlStringLiteral(table)}) WHERE name = ?`,
             )
             .get(column) as { notnull: number } | undefined;
 
@@ -597,7 +597,7 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
     private columnTypeIs(table: string, column: string, type: string): boolean {
         const info = this.db
             .prepare(
-                `SELECT type FROM pragma_table_info(${this.quoteSqlString(table)}) WHERE name = ?`,
+                `SELECT type FROM pragma_table_info(${this.sqlStringLiteral(table)}) WHERE name = ?`,
             )
             .get(column) as { type: string } | undefined;
 
@@ -610,10 +610,6 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         } catch {
             return false;
         }
-    }
-
-    private quoteSqlString(value: string): string {
-        return `'${value.replaceAll("'", "''")}'`;
     }
 
     private applySqlMigration(name: string, contents: string): void {

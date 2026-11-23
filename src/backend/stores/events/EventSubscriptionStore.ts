@@ -20,7 +20,7 @@
 import {
     EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE,
     EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
-} from '../../controllers/events/limits.js';
+} from '../../services/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { kvHandleFromSubject } from '../../services/events/subjects.js';
 import { bumpGeneration } from '../../util/redisGeneration.js';

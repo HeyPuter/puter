@@ -23,6 +23,7 @@ import {
     costKeys,
     isOutputCostKey,
 } from '../../../interfaces/chat/utils/pricing.js';
+import { catalogTokenCount } from '../../../shared/catalogPrice.js';
 import { XAI_MODELS } from './models.js';
 
 export const XAI_BASE_URL = 'https://api.x.ai/v1';
@@ -64,15 +65,14 @@ const inclusiveLongContext = ({
 export const XAI_CHAT_MODELS: IChatModel[] =
     XAI_MODELS.map(inclusiveLongContext);
 
-const isCount = (value: unknown): value is number =>
-    Number.isSafeInteger(value) && (value as number) >= 0;
-
 /**
  * USD cents per 100M tokens as cents per 1M; undefined when absent or not the
  * documented non-negative integer.
  */
-const centsPerMTok = (value: unknown): number | undefined =>
-    isCount(value) ? value / 100 : undefined;
+const centsPerMTok = (value: unknown): number | undefined => {
+    const count = catalogTokenCount(value);
+    return count === undefined ? undefined : count / 100;
+};
 
 const isStringArray = (value: unknown): value is string[] =>
     Array.isArray(value) && value.every((item) => typeof item === 'string');
@@ -129,8 +129,8 @@ export const mapXaiCatalogModel = (
         if (rate > 0) longCosts[key] = rate;
     }
     // A zero threshold means no long tier, which contradicts a long amount.
-    const threshold = raw.long_context_threshold;
-    if (!isCount(threshold)) return null;
+    const threshold = catalogTokenCount(raw.long_context_threshold);
+    if (threshold === undefined) return null;
     const hasLongTier = Object.keys(longCosts).length > 0;
     if (hasLongTier && threshold === 0) return null;
 
@@ -159,8 +159,9 @@ export const fetchXaiCatalog = async (
     apiKey: string,
     signal: AbortSignal,
     previous: IChatModel[] = XAI_CHAT_MODELS,
+    baseUrl: string = XAI_BASE_URL,
 ): Promise<IChatModel[]> => {
-    const response = await axios.get(`${XAI_BASE_URL}/language-models`, {
+    const response = await axios.get(`${baseUrl}/language-models`, {
         headers: { Authorization: `Bearer ${apiKey}` },
         signal,
         maxContentLength: 8 * 1024 * 1024,

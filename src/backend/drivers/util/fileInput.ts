@@ -21,6 +21,7 @@ import { posix as pathPosix } from 'node:path';
 import { Readable } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import type { Actor } from '../../core/actor.js';
+import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSService } from '../../services/fs/FSService.js';
 import { expandTildePath, resolveNode } from '../../services/fs/resolveNode.js';
@@ -30,6 +31,7 @@ import type { S3ObjectStore } from '../../stores/fs/S3ObjectStore.js';
 import { mimeFromName } from '../../util/fileSigning.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { dataUriBytes, parseDataUri } from './dataUri.js';
+import { isUpstreamTimeoutError } from './upstreamErrors.js';
 
 /**
  * Resolve a file-like input sent through the drivers API into a Buffer.
@@ -88,6 +90,9 @@ export interface OpenedFileInput {
     mimeType: string;
     fsEntry: NonNullable<LoadedFile['fsEntry']>;
 }
+
+/** How long a file input given as a web URL may take to download. */
+const WEB_FILE_INPUT_TIMEOUT_MS = 60_000;
 
 type FileInputStores = { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
@@ -155,27 +160,7 @@ export async function resolveFileInput(
         (input.startsWith('https://') || input.startsWith('http://')) &&
         options.acceptWebInput
     ) {
-        const response = await secureFetch(input);
-        if (!response.ok) {
-            await response.body?.cancel();
-            throw new HttpError(
-                400,
-                `Failed to fetch URL (status ${response.status})`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-        const buffer = await readBoundedBody(response, options.maxBytes);
-        const contentType = response.headers.get('content-type');
-        const mime =
-            contentType?.split(';')[0]?.trim() ||
-            mimeFromName(input) ||
-            'application/octet-stream';
-        return alreadyLoaded({
-            buffer,
-            filename: inferFilenameFromUrlOrPath(input),
-            mimeType: mime,
-            fsEntry: null,
-        });
+        return alreadyLoaded(await fetchWebFileInput(input, options.maxBytes));
     }
 
     // Path string or object reference → resolve into FSEntry; S3 read on load.
@@ -207,6 +192,53 @@ export async function resolveFileInput(
                 };
             })()),
     };
+}
+
+/**
+ * A web URL input's bytes, fetched within {@link WEB_FILE_INPUT_TIMEOUT_MS} and
+ * dropped if the caller hangs up first.
+ */
+async function fetchWebFileInput(
+    url: string,
+    maxBytes: number | undefined,
+): Promise<LoadedFile> {
+    const timeout = AbortSignal.timeout(WEB_FILE_INPUT_TIMEOUT_MS);
+    const requestSignal = Context.get('abortSignal');
+    const signal = requestSignal
+        ? AbortSignal.any([requestSignal, timeout])
+        : timeout;
+    try {
+        const response = await secureFetch(url, { signal });
+        if (!response.ok) {
+            await response.body?.cancel();
+            throw new HttpError(
+                400,
+                `Failed to fetch URL (status ${response.status})`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        const buffer = await readBoundedBody(response, maxBytes);
+        const contentType = response.headers.get('content-type');
+        const mime =
+            contentType?.split(';')[0]?.trim() ||
+            mimeFromName(url) ||
+            'application/octet-stream';
+        return {
+            buffer,
+            filename: inferFilenameFromUrlOrPath(url),
+            mimeType: mime,
+            fsEntry: null,
+        };
+    } catch (err) {
+        if (isUpstreamTimeoutError(err)) {
+            throw new HttpError(
+                400,
+                `Timed out fetching URL after ${WEB_FILE_INPUT_TIMEOUT_MS} ms`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        throw err;
+    }
 }
 
 const alreadyLoaded = (loaded: LoadedFile): ResolvedFileInput => ({

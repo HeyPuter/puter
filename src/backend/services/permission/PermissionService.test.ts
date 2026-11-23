@@ -836,12 +836,12 @@ describe('PermissionService (integration)', () => {
         });
     });
 
-    describe('queryIssuerHolderPermissionsByPrefix', () => {
+    describe('queryIssuerHolderPermissionsByPrefixes', () => {
         it('returns [] for actors without user.id', async () => {
-            const out = await permService.queryIssuerHolderPermissionsByPrefix(
+            const out = await permService.queryIssuerHolderPermissionsByPrefixes(
                 { user: undefined } as unknown as Actor,
                 { user: undefined } as unknown as Actor,
-                'service:',
+                ['service:'],
             );
             expect(out).toEqual([]);
         });
@@ -2886,6 +2886,31 @@ describe('PermissionService — scan paths', () => {
             }
         });
 
+        it('checkMany does not cache the answer of a check that threw', async () => {
+            const { row, actor } = await makeLooseUser();
+            const permission = `zztest:flaky-${uuidv4()}:ii:read`;
+            await server.stores.permission.setFlatUserPerm(row.id, permission, {
+                permission,
+                deleted: false,
+                issuer_user_id: row.id,
+            } as never);
+
+            const spy = vi
+                .spyOn(permService, 'check')
+                .mockRejectedValueOnce(new Error('store unavailable'));
+            try {
+                expect(
+                    await permService.checkMany(actor, [permission]),
+                ).toEqual(new Map([[permission, false]]));
+                // Once the failure clears, the grant is seen.
+                expect(
+                    await permService.checkMany(actor, [permission]),
+                ).toEqual(new Map([[permission, true]]));
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
         it('checkMany drops empty permission strings', async () => {
             const { actor } = await makeLooseUser();
             expect(await permService.checkMany(actor, ['', ''])).toEqual(
@@ -2895,74 +2920,59 @@ describe('PermissionService — scan paths', () => {
     });
 
     describe('issuer queries', () => {
-        it('lists the apps and users an issuer has granted a prefix to', async () => {
+        it('lists what an issuer granted a holder under several prefixes', async () => {
             const { row: issuer, actor: issuerActor } = await makeGroupedUser();
-            const { row: holder } = await makeGroupedUser();
-            const app = await makeApp(issuer.id);
+            const { row: holder, actor: holderActor } =
+                await makeGroupedUser();
             const prefix = `zztest:iss-${uuidv4()}`;
+            const other = `zztest:iss-${uuidv4()}`;
             const userPerm = `${prefix}:ii:read`;
-            const appPerm = `${prefix}:ii:write`;
+            const otherPerm = `${other}:ii:read`;
 
-            for (const p of [userPerm, `manage:${userPerm}`]) {
-                await server.stores.permission.setFlatUserPerm(issuer.id, p, {
-                    permission: p,
-                    deleted: false,
-                    issuer_user_id: issuer.id,
-                } as never);
+            for (const p of [userPerm, otherPerm]) {
+                await server.stores.permission.setFlatUserPerm(
+                    issuer.id,
+                    `manage:${p}`,
+                    {
+                        permission: `manage:${p}`,
+                        deleted: false,
+                        issuer_user_id: issuer.id,
+                    } as never,
+                );
+                await runWithContext({ actor: issuerActor }, () =>
+                    permService.grantUserUserPermission(
+                        issuerActor,
+                        holder.username,
+                        p,
+                    ),
+                );
             }
-            await runWithContext({ actor: issuerActor }, () =>
-                permService.grantUserUserPermission(
-                    issuerActor,
-                    holder.username,
-                    userPerm,
-                ),
-            );
-            await runWithContext({ actor: issuerActor }, () =>
-                permService.grantUserAppPermission(
-                    issuerActor,
-                    app.uid,
-                    appPerm,
-                ),
-            );
-            await vi.waitFor(async () => {
-                const rows =
-                    await server.stores.permission.readLinkedUserUserPerms(
-                        holder.id,
-                        [userPerm],
-                    );
-                expect(rows.length).toBeGreaterThan(0);
-            });
 
-            const result = await permService.queryIssuerPermissionsByPrefix(
-                { id: issuer.id },
-                prefix,
-            );
-            expect(result.users).toEqual([
-                {
-                    user: {
-                        id: holder.id,
-                        uuid: holder.uuid,
-                        username: holder.username,
-                        email: holder.email,
-                    },
-                    permission: userPerm,
-                },
-            ]);
-            expect(result.apps).toEqual([
-                {
-                    app: { id: app.id, uid: app.uid, name: expect.any(String) },
-                    permission: appPerm,
-                },
-            ]);
+            expect(
+                (
+                    await permService.queryIssuerHolderPermissionsByPrefixes(
+                        issuerActor,
+                        holderActor,
+                        [prefix, other],
+                    )
+                ).sort(),
+            ).toEqual([userPerm, otherPerm].sort());
+            expect(
+                await permService.queryIssuerHolderPermissionsByPrefixes(
+                    issuerActor,
+                    holderActor,
+                    [prefix],
+                ),
+            ).toEqual([userPerm]);
         });
 
         it('returns nothing for an issuer or holder that is not a user actor', async () => {
             const { actor } = await makeGroupedUser();
             expect(
-                await permService.queryIssuerHolderPermissionsByPrefix(
+                await permService.queryIssuerHolderPermissionsByPrefixes(
                     { user: {} },
                     actor,
-                    'fs:',
+                    ['fs:'],
                 ),
             ).toEqual([]);
         });

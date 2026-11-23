@@ -902,6 +902,8 @@ export class SocketService extends PuterService {
             socket.disconnect(true);
         };
 
+        // Looked up alongside the first slot; it never rejects.
+        const userLimit = this.#socketLimitFor(actor);
         const perOrigin = await acquireConcurrent(
             `socket:conn:${userId}:${originKey}`,
             SocketService.MAX_SOCKETS_PER_ORIGIN,
@@ -911,7 +913,7 @@ export class SocketService extends PuterService {
 
         const perUser = await acquireConcurrent(
             `socket:conn:${userId}`,
-            await this.#socketLimitFor(actor),
+            await userLimit,
         );
         if (!perUser.ok) return void (await reject());
         slots.push(perUser);
