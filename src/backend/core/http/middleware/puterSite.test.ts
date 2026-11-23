@@ -2187,6 +2187,53 @@ describe('createPuterSiteMiddleware — private app sign-in token', () => {
         });
     });
 
+    /** A same-origin fetch from the sign-in page, token in a header. */
+    const fetchWithHeaderToken = async (headerToken: string) => {
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({
+                hostname: host,
+                path: '/',
+                originalUrl: '/?puter.app_instance_id=i&a=1',
+                query: { 'puter.app_instance_id': 'i', a: '1' },
+                headers: {
+                    'sec-fetch-dest': 'empty',
+                    'x-puter-auth-token': headerToken,
+                },
+            }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return out;
+    };
+
+    it('sets the cookie for a fetch that sends the app token in a header, without redirecting', async () => {
+        const appToken = await server.services.auth.getUserAppToken(
+            actorFor(visitor),
+            appUid,
+        );
+        const out = await fetchWithHeaderToken(appToken);
+        expect(out.redirected).toBeUndefined();
+        expect(out.statusCode).toBe(200);
+        expect(out.cookies[cookieName()]).toBeTruthy();
+    });
+
+    it('ignores a header token minted for another app', async () => {
+        const other = await server.stores.app.create(
+            { name: `${sub}-other`, title: 'other', index_url: 'http://other.test/' },
+            { ownerUserId: owner.id },
+        );
+        const wrongToken = await server.services.auth.getUserAppToken(
+            actorFor(visitor),
+            other.uid,
+        );
+        const out = await fetchWithHeaderToken(wrongToken);
+        expect(String(out.body)).toContain('Sign in required');
+        expect(out.cookies[cookieName()]).toBeUndefined();
+    });
+
     it('serves without redirecting when the cookie could not be minted', async () => {
         // Without the cookie, the clean URL would bounce back to sign-in.
         const spy = vi
