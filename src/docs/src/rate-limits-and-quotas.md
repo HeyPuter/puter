@@ -233,6 +233,10 @@ Image and video inputs to [`txt2img()`](/AI/txt2img/) and [`txt2vid()`](/AI/txt2
 puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary Puter file for the call. It counts against the user's storage until puter.js deletes it after the call.
 
 
+### Provider model monitoring
+
+The provider model monitor checks catalogs every 30 minutes. Each scan reads at most 1,000 pages and 20,000 distinct model IDs per configured catalog. Each page request times out after 15 seconds and accepts at most 8 MiB. A complete snapshot is limited to 350 KiB. A failed or incomplete scan preserves the previous snapshot.
+
 ### Chat service speed catalogs
 
 OpenRouter speed endpoint catalogs are cached for 15 minutes, with at most 256 model entries per backend process. A catalog fetch times out after 10 seconds and accepts at most 2 MiB. Failed fetches are remembered for 30 seconds. If no usable speed offering is available, the request uses standard service.

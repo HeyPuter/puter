@@ -7,7 +7,7 @@ import { readProviderKey } from '@heyputer/backend/src/util/aiProviderKey.js';
 import { runWithConcurrencyLimit } from '@heyputer/backend/src/util/concurrency.js';
 
 const EVERY_MS = 30 * 60_000;
-const MAX_PAGES = 100;
+const MAX_PAGES = 1_000;
 const MAX_MODELS = 20_000;
 
 type Format = 'openai' | 'claude' | 'gemini' | 'elevenlabs' | 'replicate';

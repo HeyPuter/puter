@@ -220,7 +220,7 @@ it('caps pagination rather than treating a truncated listing as complete', async
         last_id: `m-${page}`,
     });
     await service('claude').scan(ctx());
-    expect(requests).toHaveLength(100);
+    expect(requests).toHaveLength(1_000);
     expect(alerts.at(-1)?.message).toBe(
         'AI provider model catalog fetch failed',
     );
@@ -349,6 +349,17 @@ it('follows same-origin Replicate pages and reads owner/name identifiers', async
               };
     await service('replicate-image-generation').scan(ctx());
     expect(requests).toHaveLength(2);
+    expect(alerts).toHaveLength(0);
+});
+
+it('completes a Replicate catalog with more than 100 pages', async () => {
+    let page = 0;
+    responder = () => ({
+        results: [{ owner: 'vendor', name: `model-${++page}` }],
+        next: page < 101 ? `${origin}/models?cursor=${page}` : null,
+    });
+    await service('replicate-image-generation').scan(ctx());
+    expect(requests).toHaveLength(101);
     expect(alerts).toHaveLength(0);
 });
 
