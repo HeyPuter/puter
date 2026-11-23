@@ -54,7 +54,7 @@ void fetch('data:text/plain,dispatcher-guard').catch(() => {
 // claimed dispatcher to give every plain fetch a 10-minute budget instead.
 // secureFetch is unaffected: it passes its own explicit dispatchers, keeping
 // undici's tighter defaults for user-supplied URLs.
-const OUTBOUND_FETCH_TIMEOUT_MS = 10 * 60 * 1000;
+export const OUTBOUND_FETCH_TIMEOUT_MS = 10 * 60 * 1000;
 // Symbol.for so a re-imported copy of this module (fresh module registry,
 // same process) recognizes an already-wrapped dispatcher and doesn't re-wrap.
 // A set, not a marker property: compose() can return a Proxy, which would
@@ -123,5 +123,3 @@ for (const slot of DISPATCHER_SLOTS) {
     wrappedDispatchers.add(wrapped);
     globalSlots[slot] = wrapped;
 }
-
-export {};
