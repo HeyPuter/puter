@@ -95,6 +95,12 @@ const INDEX_URL_UNIQUENESS_EXEMPTION_CANDIDATES = [
     'https://dev-center.puter.com/coming-soon',
 ];
 
+// Static page Dev Center points a new app at until its first deploy. It
+// sits on Dev Center's own host, so the godmode-host check lets this exact
+// URL through.
+const NEW_APP_PLACEHOLDER_INDEX_URL =
+    'https://console.puter.com/coming-soon.html';
+
 // Sentinel host for builtin apps. The GUI rewrites index_urls on this
 // host to `<gui origin>/builtin/<name>` (see launchApp.js), so rows
 // carrying it are reserved for migration-seeded builtins — a user app
@@ -1049,6 +1055,9 @@ export class AppDriver extends PuterDriver {
 
     /** A godmode app whose origin `indexUrl` would share. */
     #findGodmodeHostApp(indexUrl, excludeAppId) {
+        if (indexUrl === NEW_APP_PLACEHOLDER_INDEX_URL) {
+            return Promise.resolve(null);
+        }
         const host = URL.parse(indexUrl)?.host;
         return host
             ? this.appStore.findGodmodeOnHost(host, { excludeAppId })
