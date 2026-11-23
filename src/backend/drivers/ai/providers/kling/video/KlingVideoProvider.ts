@@ -47,7 +47,7 @@ import {
 } from './models.js';
 
 const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
-const DEFAULT_MODEL = 'kling-3.0-turbo';
+const DEFAULT_MODEL = 'kling-4.0';
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 /** A Puter file Kling fetches itself as the source video. */
 export const KLING_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
@@ -98,16 +98,7 @@ const sourceUnreadableError = () =>
         },
     );
 
-/**
- * Kling AI video generation (Kling 3.0, 3.0 Omni, O1, 2.6, 2.5 Turbo).
- *
- * Each model has its own create path; a task id comes back and is polled on
- * `/tasks` until it leaves submitted/processing. Billing is per second of
- * output at a rate set by resolution, native audio and whether a source video
- * is edited. An edit renders as long as its source, so it is held at the
- * longest source Kling accepts and billed for the clip it returns.
- * https://kling.ai/document-api/api/video/3-0-omni/text-to-video
- */
+/** Kling 4 video generation, billed per second at the output resolution's rate. */
 export class KlingVideoProvider extends VideoProvider {
     #apiKey: string;
     #baseUrl: string | undefined;

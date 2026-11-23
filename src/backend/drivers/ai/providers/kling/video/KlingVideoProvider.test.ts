@@ -47,7 +47,6 @@ import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import type { IGenerateVideoParams } from '../../../interfaces/video/types.js';
 import { VIDEO_POLL_WINDOW_MS } from '../../../shared/polling.js';
 import { KlingVideoProvider } from './KlingVideoProvider.js';
-import { KLING_VIDEO_GENERATION_MODELS } from './models.js';
 
 // -- Test harness ----------------------------------------------------
 
@@ -142,12 +141,19 @@ const generate = (params: Partial<IGenerateVideoParams>) =>
         makeProvider().generate({ prompt: 'a ball rolls', ...params }),
     );
 
-const rate = (id: string, key: string) =>
-    KLING_VIDEO_GENERATION_MODELS.find((m) => m.id === id)!.costs![key]!;
+describe('KlingVideoProvider catalog', () => {
+    it('defaults to Kling 4.0 and lists only the supported models', () => {
+        const provider = makeProvider();
+        expect(provider.getDefaultModel()).toBe('kling-4.0');
+        expect(provider.models().map((model) => model.id)).toEqual([
+            'kling-4.0',
+            'kling-4.0-flash',
+        ]);
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+});
 
-// -- Construction / catalog ------------------------------------------
-
-describe('KlingVideoProvider construction and catalog', () => {
+describe('KlingVideoProvider requests', () => {
     it('throws when no apiKey is supplied', () => {
         expect(
             () =>
@@ -159,30 +165,10 @@ describe('KlingVideoProvider construction and catalog', () => {
         ).toThrow(/API key/i);
     });
 
-    it('defaults to Kling 3.0 Turbo and lists the supported models', () => {
-        const provider = makeProvider();
-        expect(provider.getDefaultModel()).toBe('kling-3.0-turbo');
-        expect(provider.models().map((m) => m.id)).toEqual([
-            'kling-4.0',
-            'kling-4.0-flash',
-            'kling-3.0-turbo',
-            'kling-3.0',
-            'kling-3.0-omni',
-            'kling-o1',
-            'kling-2.6',
-            'kling-2.5-turbo',
-        ]);
-        expect(fetchSpy).not.toHaveBeenCalled();
-    });
-});
-
-// -- Request shape ---------------------------------------------------
-
-describe('KlingVideoProvider.generate request shape', () => {
     it('sends text-to-video to the model path and polls /tasks', async () => {
         mockTaskFlow(succeededTask());
         const result = await generate({
-            model: 'kling-3.0',
+            model: 'kling-4.0',
             seconds: 7,
             size: '1080p',
             width: 720,
@@ -191,7 +177,7 @@ describe('KlingVideoProvider.generate request shape', () => {
 
         expect(result).toBe('https://kling.example/out.mp4');
         expect(sentUrl()).toBe(
-            'https://api-singapore.klingai.com/text-to-video/kling-3.0',
+            'https://api-singapore.klingai.com/text-to-video/kling-4.0',
         );
         const init = fetchSpy.mock.calls[0]![1] as RequestInit & {
             headers: Record<string, string>;
@@ -202,7 +188,6 @@ describe('KlingVideoProvider.generate request shape', () => {
             prompt: 'a ball rolls',
             settings: {
                 resolution: '1080p',
-                audio: 'off',
                 duration: 7,
                 aspect_ratio: '9:16',
             },
@@ -213,25 +198,9 @@ describe('KlingVideoProvider.generate request shape', () => {
         );
     });
 
-    it('asks for native audio when generate_audio is true', async () => {
-        mockTaskFlow(succeededTask());
-        await generate({ model: 'kling-3.0', generate_audio: true });
-        expect(sentBody().settings.audio).toBe('native');
-    });
-
-    it('sends no audio switch to 3.0 Turbo or 2.5 Turbo', async () => {
-        mockTaskFlow(succeededTask());
-        await generate({ model: 'kling-3.0-turbo' });
-        expect(sentBody().settings.audio).toBeUndefined();
-
-        mockTaskFlow(succeededTask());
-        await generate({ model: 'kling-2.5-turbo' });
-        expect(sentBody(2).settings.audio).toBeUndefined();
-    });
-
     it('defaults the aspect ratio to 16:9 and ignores ratios Kling lacks', async () => {
         mockTaskFlow(succeededTask());
-        await generate({ model: 'kling-2.6', width: 1000, height: 300 });
+        await generate({ model: 'kling-4.0', width: 1000, height: 300 });
         expect(sentBody().settings.aspect_ratio).toBe('16:9');
     });
 
@@ -247,20 +216,18 @@ describe('KlingVideoProvider.generate request shape', () => {
                 prompt: 'hi',
             }),
         );
-        expect(sentUrl()).toBe(
-            'https://kling.proxy/text-to-video/kling-3.0-turbo',
-        );
+        expect(sentUrl()).toBe('https://kling.proxy/text-to-video/kling-4.0');
     });
 
     it('sends frames to image-to-video, stripping the data URI prefix', async () => {
         mockTaskFlow(succeededTask());
         await generate({
-            model: 'kling-3.0',
+            model: 'kling-4.0',
             input_reference: 'data:image/png;base64,AAAA',
             last_frame: 'https://example.com/last.png',
         });
         expect(sentUrl()).toBe(
-            'https://api-singapore.klingai.com/image-to-video/kling-3.0',
+            'https://api-singapore.klingai.com/image-to-video/kling-4.0',
         );
         const body = sentBody();
         expect(body.contents).toEqual([
@@ -269,82 +236,6 @@ describe('KlingVideoProvider.generate request shape', () => {
             { type: 'last_frame', url: 'https://example.com/last.png' },
         ]);
         expect(body.settings.aspect_ratio).toBeUndefined();
-    });
-
-    it('sends references to the omni path with an aspect ratio', async () => {
-        mockTaskFlow(succeededTask());
-        await generate({
-            model: 'kling-3.0-omni',
-            reference_images: ['https://example.com/a.png', 'BBBB'],
-        });
-        expect(sentUrl()).toBe(
-            'https://api-singapore.klingai.com/omni-video/kling-3.0-omni',
-        );
-        const body = sentBody();
-        expect(body.contents).toEqual([
-            { type: 'prompt', text: 'a ball rolls' },
-            { type: 'refer_image', url: 'https://example.com/a.png' },
-            { type: 'refer_image', url: 'BBBB' },
-        ]);
-        expect(body.settings).toMatchObject({
-            aspect_ratio: '16:9',
-            audio: 'off',
-            duration: 5,
-        });
-    });
-
-    it('edits a source video: base_video, single shot, original sound, no duration', async () => {
-        mockTaskFlow(succeededTask());
-        await generate({
-            model: 'kling-3.0-omni',
-            input_video: 'https://example.com/source.mp4',
-            seconds: 3,
-        });
-        const body = sentBody();
-        expect(body.contents).toEqual([
-            { type: 'prompt', text: 'a ball rolls' },
-            { type: 'base_video', url: 'https://example.com/source.mp4' },
-        ]);
-        expect(body.settings).toEqual({
-            resolution: '720p',
-            audio: 'original',
-            multi_shot: false,
-        });
-    });
-
-    it('drops the source sound when generate_audio is false', async () => {
-        mockTaskFlow(succeededTask());
-        await generate({
-            model: 'kling-o1',
-            input_video: 'https://example.com/source.mp4',
-            generate_audio: false,
-        });
-        expect(sentBody().settings.audio).toBe('off');
-    });
-
-    it.each([
-        [3, 5],
-        [7, 5],
-        [15, 10],
-    ])('snaps O1 first-frame-only %is to %is', async (requested, expected) => {
-        mockTaskFlow(succeededTask());
-        await generate({
-            model: 'kling-o1',
-            input_reference: 'https://example.com/first.png',
-            seconds: requested,
-        });
-        expect(sentBody().settings.duration).toBe(expected);
-    });
-
-    it('keeps O1 durations outside the ladder when there are references', async () => {
-        mockTaskFlow(succeededTask());
-        await generate({
-            model: 'kling-o1',
-            input_reference: 'https://example.com/first.png',
-            reference_images: ['https://example.com/ref.png'],
-            seconds: 3,
-        });
-        expect(sentBody().settings.duration).toBe(3);
     });
 
     it('keeps polling while the task is missing from the list', async () => {
@@ -369,226 +260,10 @@ describe('KlingVideoProvider.generate request shape', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
-});
-
-// -- Validation ------------------------------------------------------
-
-describe('KlingVideoProvider.generate rejects invalid input before calling Kling', () => {
-    it.each<[string, Partial<IGenerateVideoParams>]>([
-        [
-            'a last frame without a first frame',
-            { model: 'kling-3.0', last_frame: 'https://example.com/l.png' },
-        ],
-        [
-            'a last frame on 3.0 Turbo',
-            {
-                model: 'kling-3.0-turbo',
-                input_reference: 'https://example.com/f.png',
-                last_frame: 'https://example.com/l.png',
-            },
-        ],
-        [
-            'a last frame at 720p on 2.5 Turbo',
-            {
-                model: 'kling-2.5-turbo',
-                size: '720p',
-                input_reference: 'https://example.com/f.png',
-                last_frame: 'https://example.com/l.png',
-            },
-        ],
-        [
-            'audio with a last frame on 2.6',
-            {
-                model: 'kling-2.6',
-                size: '1080p',
-                generate_audio: true,
-                input_reference: 'https://example.com/f.png',
-                last_frame: 'https://example.com/l.png',
-            },
-        ],
-        [
-            'audio on 2.5 Turbo',
-            { model: 'kling-2.5-turbo', generate_audio: true },
-        ],
-        ['audio on O1', { model: 'kling-o1', generate_audio: true }],
-        [
-            'audio at 720p on 2.6',
-            { model: 'kling-2.6', size: '720p', generate_audio: true },
-        ],
-        [
-            'reference images on a non-omni model',
-            {
-                model: 'kling-3.0',
-                reference_images: ['https://example.com/r.png'],
-            },
-        ],
-        [
-            'more than 7 reference images',
-            {
-                model: 'kling-3.0-omni',
-                reference_images: Array(8).fill('https://example.com/r.png'),
-            },
-        ],
-        [
-            'more than 4 reference images with a source video',
-            {
-                model: 'kling-3.0-omni',
-                input_video: 'https://example.com/v.mp4',
-                reference_images: Array(5).fill('https://example.com/r.png'),
-            },
-        ],
-        [
-            'a data URI source video',
-            {
-                model: 'kling-3.0-omni',
-                input_video: 'data:video/mp4;base64,AA',
-            },
-        ],
-        [
-            'a source video with frames',
-            {
-                model: 'kling-3.0-omni',
-                input_video: 'https://example.com/v.mp4',
-                input_reference: 'https://example.com/f.png',
-            },
-        ],
-        [
-            'a prompt over 2500 characters on 2.6',
-            { model: 'kling-2.6', prompt: 'x'.repeat(2501) },
-        ],
-        [
-            'a prompt over 3072 characters on 3.0',
-            { model: 'kling-3.0', prompt: 'x'.repeat(3073) },
-        ],
-        [
-            'a prompt over 2500 characters with a first frame on 3.0 Turbo',
-            {
-                model: 'kling-3.0-turbo',
-                prompt: 'x'.repeat(2501),
-                input_reference: 'https://example.com/f.png',
-            },
-        ],
-        [
-            'reference images with a first and last frame on O1',
-            {
-                model: 'kling-o1',
-                input_reference: 'https://example.com/f.png',
-                last_frame: 'https://example.com/l.png',
-                reference_images: ['https://example.com/r.png'],
-            },
-        ],
-        ['a blank prompt', { prompt: '  ' }],
-    ])('rejects %s', async (_label, params) => {
-        await expect(generate(params)).rejects.toMatchObject({
-            statusCode: 400,
-            legacyCode: 'bad_request',
-        });
-        expect(fetchSpy).not.toHaveBeenCalled();
-    });
-
-    it('accepts a 3072-character prompt on 3.0', async () => {
-        mockTaskFlow(succeededTask());
-        await generate({ model: 'kling-3.0', prompt: 'x'.repeat(3072) });
-        expect(fetchSpy).toHaveBeenCalled();
-    });
-
-    it('accepts a 3072-character text-to-video prompt on 3.0 Turbo', async () => {
-        mockTaskFlow(succeededTask());
-        await generate({
-            model: 'kling-3.0-turbo',
-            prompt: 'x'.repeat(3072),
-        });
-        expect(fetchSpy).toHaveBeenCalled();
-    });
-});
-
-// -- Billing ---------------------------------------------------------
-
-describe('KlingVideoProvider billing', () => {
-    it.each<[Partial<IGenerateVideoParams>, string, string, number]>([
-        [{ model: 'kling-3.0', seconds: 6 }, 'kling-3.0', 'per-second:720p', 6],
-        [
-            {
-                model: 'kling-3.0',
-                seconds: 6,
-                size: '4k',
-                generate_audio: true,
-            },
-            'kling-3.0',
-            'per-second:4k:audio',
-            6,
-        ],
-        [
-            {
-                model: 'kling-2.6',
-                seconds: 10,
-                size: '1080p',
-                generate_audio: true,
-            },
-            'kling-2.6',
-            'per-second:1080p:audio',
-            10,
-        ],
-        [
-            { model: 'kling-v2-5-turbo' },
-            'kling-2.5-turbo',
-            'per-second:720p',
-            5,
-        ],
-    ])(
-        'meters %o under its cost key for the requested seconds',
-        async (params, id, key, secs) => {
-            mockTaskFlow(succeededTask());
-            await generate(params);
-            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
-            const [, usageType, amount, cost] =
-                incrementUsageSpy.mock.calls[0]!;
-            expect(usageType).toBe(`kling-video-generation:${id}:${key}`);
-            expect(amount).toBe(secs);
-            expect(cost).toBeCloseTo(secs * rate(id, key) * 1_000_000);
-        },
-    );
-
-    it('bills an edit on the rounded length of the returned clip', async () => {
-        mockTaskFlow(
-            succeededTask({
-                outputs: [
-                    {
-                        type: 'video',
-                        url: 'https://kling.example/out.mp4',
-                        duration: '7.6',
-                    },
-                ],
-            }),
-        );
-        await generate({
-            model: 'kling-3.0-omni',
-            size: '1080p',
-            input_video: 'https://example.com/source.mp4',
-        });
-        const [, usageType, amount, cost] = incrementUsageSpy.mock.calls[0]!;
-        expect(usageType).toBe(
-            'kling-video-generation:kling-3.0-omni:per-second:1080p:video-input',
-        );
-        expect(amount).toBe(8);
-        expect(cost).toBeCloseTo(8 * 16.8 * 1_000_000);
-    });
-
-    it('holds a 3.0 Omni edit at 16 seconds, covering a 15.5-second source', async () => {
-        const perSecond = rate('kling-3.0-omni', 'per-second:720p:video-input');
-        remainingUsageSpy.mockResolvedValue(15.5 * perSecond * 1_000_000);
-        await expect(
-            generate({
-                model: 'kling-3.0-omni',
-                input_video: 'https://example.com/source.mp4',
-            }),
-        ).rejects.toMatchObject({ statusCode: 402 });
-        expect(fetchSpy).not.toHaveBeenCalled();
-    });
 
     it('rejects with insufficient_funds before creating a task it cannot afford', async () => {
         remainingUsageSpy.mockResolvedValue(1000);
-        await expect(generate({ model: 'kling-3.0' })).rejects.toMatchObject({
+        await expect(generate({ model: 'kling-4.0' })).rejects.toMatchObject({
             statusCode: 402,
         });
         expect(fetchSpy).not.toHaveBeenCalled();
@@ -607,25 +282,6 @@ describe('KlingVideoProvider failures', () => {
         await expect(generate({})).rejects.toMatchObject({
             statusCode: 502,
             legacyCode: 'upstream_failed',
-        });
-        expect(incrementUsageSpy).not.toHaveBeenCalled();
-    });
-
-    it("maps Kling failing to decode an edit's source to a bad request", async () => {
-        mockTaskFlow({
-            id: 'task-1',
-            status: 'failed',
-            message:
-                'VideoNormalize failed, code: 90001, message: ffmpeg error, code 1',
-        });
-        await expect(
-            generate({
-                model: 'kling-3.0-omni',
-                input_video: 'https://example.com/source.mp4',
-            }),
-        ).rejects.toMatchObject({
-            statusCode: 400,
-            legacyCode: 'upstream_bad_request',
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });

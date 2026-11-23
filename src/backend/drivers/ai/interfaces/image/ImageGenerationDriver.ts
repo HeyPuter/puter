@@ -39,7 +39,6 @@ import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import { BytePlusImageProvider } from '../../providers/byteplus/image/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from '../../providers/cloudflare/image/CloudflareImageProvider.js';
 import { GeminiImageProvider } from '../../providers/gemini/image/GeminiImageProvider.js';
-import { KlingImageProvider } from '../../providers/kling/image/KlingImageProvider.js';
 import { OpenAiImageProvider } from '../../providers/openai/image/OpenAiImageProvider.js';
 import { ReplicateImageGenerationProvider } from '../../providers/replicate/image/ReplicateImageGenerationProvider.js';
 import { resolveImageSize } from './imageDimensions.js';
@@ -74,7 +73,6 @@ export class ImageGenerationDriver extends PuterDriver {
         'xai-image-generation',
         'replicate-image-generation',
         'byteplus-image-generation',
-        'kling-image-generation',
     ];
     readonly isDefault = true;
 
@@ -497,20 +495,6 @@ export class ImageGenerationDriver extends PuterDriver {
                     },
                     m,
                 );
-        }
-
-        // One `kling` key covers video, image and TTS.
-        const klingCfg = (providers['kling-image-generation'] ??
-            providers['kling']) as Record<string, unknown> | undefined;
-        const klingKey = readProviderKey(klingCfg);
-        if (klingKey) {
-            this.#providers['kling-image-generation'] = new KlingImageProvider(
-                {
-                    apiKey: klingKey,
-                    apiBaseUrl: klingCfg?.apiBaseUrl as string | undefined,
-                },
-                m,
-            );
         }
     }
 

@@ -18,8 +18,8 @@
  */
 
 /**
- * Kling AI's REST API, shared by the video, image and TTS providers. One API
- * key authenticates every endpoint as a Bearer token.
+ * Kling AI's REST API for video generation. One API key authenticates every
+ * endpoint as a Bearer token.
  * https://kling.ai/document-api/api/get-started/authentication
  */
 

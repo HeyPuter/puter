@@ -43,8 +43,8 @@ Additional settings for the generation request.
 | `input_reference` | `String \| Blob` | Image the clip starts from (image-to-video), on every provider. See [Image inputs](#image-inputs) for the formats it takes |
 | `last_frame` | `String \| Blob` | Image the clip ends on, same formats. See [Model-specific features](#model-specific-features) |
 | `reference_images` | `Array<String \| Blob>` | Images the model keeps consistent as subjects or style, same formats. See [Model-specific features](#model-specific-features) |
-| `inputVideo` | `String \| Blob` | Video to edit, with the prompt describing the change. Only Gemini Omni, FLUX 3, Kling 3.0 Omni and Kling O1 accept it. See [Video input](#video-input) |
-| `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio (Seedance, Kling and Together AI models with audio) |
+| `inputVideo` | `String \| Blob` | Video to edit, with the prompt describing the change. Only Gemini Omni and FLUX 3 accept it. See [Video input](#video-input) |
+| `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio (Seedance and Together AI models with audio) |
 | `puter_output_path` | `String` | When set, the generated video is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
 | `provider` | `String` | Pin the request to one provider: `'together-video-generation'`, `'byteplus-video-generation'`, `'gemini-video-generation'`, `'kling-video-generation'` or `'minimax-video-generation'`. Only needed when a model id exists on more than one provider |
 | `test_mode` | `Boolean` | When `true`, returns a sample video without using credits |
@@ -108,7 +108,7 @@ puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary f
 
 ## Video input
 
-These models can change a video you supply: Gemini Omni (`gemini-omni-1.1-flash` and `gemini-omni-1.2-flash`), FLUX 3 on Together AI (`black-forest-labs/flux-3`), and Kling 3.0 Omni (`kling-3.0-omni`) and Kling O1 (`kling-o1`). Pass the video as `inputVideo` and describe the change in the prompt, such as "Make this dog a dinosaur". The result is a new clip that keeps the scene and motion of your video.
+These models can change a video you supply: Gemini Omni (`gemini-omni-1.1-flash` and `gemini-omni-1.2-flash`) and FLUX 3 on Together AI (`black-forest-labs/flux-3`). Pass the video as `inputVideo` and describe the change in the prompt, such as "Make this dog a dinosaur". The result is a new clip that keeps the scene and motion of your video.
 
 ```js
 const video = await puter.ai.txt2vid("Make this dog a dinosaur", {
@@ -284,54 +284,28 @@ Gemini Omni has no length control, so it's never shortened. Before generating, P
 
 ### Kling models
 
-Available when using a Kling model (provider `'kling-video-generation'`). Every model also answers to `kling/<model>` and to Kling's own model name, listed as the alias. Kling models take any whole number of seconds in their range and work in resolution tiers: pass `size` as a tier, or as `'WIDTHxHEIGHT'`, which selects the tier of the shorter side and the aspect ratio. They render at 24 frames per second.
+Available when using a Kling model with provider `'kling-video-generation'`. Every model also accepts `kling/<model>` and `kling:kling/<model>`. Pass `size` as a resolution tier or as `'WIDTHxHEIGHT'`. Both models render at 24 frames per second and include audio.
 
-| Model | Alias | Duration (s) | Resolutions | Audio | Last frame | Reference images | `inputVideo` |
-|-------|-------|--------------|-------------|-------|------------|------------------|--------------|
-| `kling-4.0` | | 3 to 30, default 5 | `720p`, `1080p` | Always | Yes | No | No |
-| `kling-4.0-flash` | | 3 to 20, default 5 | `720p` | Always | No | No | No |
-| `kling-3.0-turbo` (default) | `kling-v3-turbo` | 3 to 15, default 5 | `720p`, `1080p` | Always | No | No | No |
-| `kling-3.0` | `kling-v3` | 3 to 15, default 5 | `720p`, `1080p`, `4k` | Optional | Yes | No | No |
-| `kling-3.0-omni` | `kling-v3-omni` | 3 to 15, default 5 | `720p`, `1080p`, `4k` | Optional | Yes | Up to 7 | Yes |
-| `kling-o1` | `kling-video-o1` | 3 to 10, default 5. 5 or 10 with only `input_reference` | `720p`, `1080p` | No | Yes | Up to 7 | Yes |
-| `kling-2.6` | `kling-v2-6` | 5 or 10 | `720p`, `1080p` | Optional, at `1080p` only | At `1080p`, without audio | No | No |
-| `kling-2.5-turbo` | `kling-v2-5-turbo` | 5 or 10 | `720p`, `1080p` | No | At `1080p` | No | No |
-
-The first resolution listed is the default. Prices are per second of output:
-
-| Model | 720p | 1080p | 4K |
-|-------|------|-------|----|
-| `kling-4.0` | $0.157 | $0.2355 | |
-| `kling-4.0-flash` | $0.0942 | | |
-| `kling-3.0-turbo` | $0.112 | $0.14 | |
-| `kling-3.0` | $0.084, $0.126 with audio | $0.112, $0.168 with audio | $0.42 |
-| `kling-3.0-omni` | $0.084, $0.112 with audio, $0.126 with `inputVideo` | $0.112, $0.14 with audio, $0.168 with `inputVideo` | $0.42 |
-| `kling-o1` | $0.084, $0.126 with `inputVideo` | $0.112, $0.168 with `inputVideo` | |
-| `kling-2.6` | $0.042 | $0.07, $0.14 with audio | |
-| `kling-2.5-turbo` | $0.042 | $0.07 | |
-
-A clip is shortened to fit the balance, as described in [Cost and clip length](#cost-and-clip-length). An edit of an `inputVideo` is as long as its source, so Puter holds the price of the longest source the model accepts (16 seconds on Kling 3.0 Omni, 10 on Kling O1) and charges for the length of the clip Kling returns.
+| Model | Duration (s) | Resolutions | Last frame | Price per second |
+|-------|--------------|-------------|------------|------------------|
+| `kling-4.0` (default) | 3 to 30, default 5 | `720p`, `1080p` | Yes | $0.157 at 720p, $0.2355 at 1080p |
+| `kling-4.0-flash` | 3 to 20, default 5 | `720p` | No | $0.0942 |
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Video model to use, from the table above (full id or alias) |
-| `prompt` | `String` | Up to 26,000 characters in English or 11,000 in other languages on Kling 4.0 and 4.0 Flash, 3,072 characters on the Kling 3.0 models, 2,500 on the others and on Kling 3.0 Turbo with `input_reference` |
-| `seconds` | `Number` | Clip length, from the table above. Any other value falls back to `5`. Ignored with `inputVideo` |
-| `size` | `String` | Resolution tier: `'720p'`, `'1080p'` or `'4k'` (case-insensitive), or `'WIDTHxHEIGHT'`. The `resolution` option is an alias |
-| `width` | `Number` | Optional. Only the ratio of `width` to `height` is used, to pick the aspect ratio: `16:9`, `9:16` or `1:1`. Any other ratio gives `16:9`. A clip from `input_reference` or `inputVideo` takes the image's or video's shape |
-| `height` | `Number` | Works the same way as `width` |
-| `generate_audio` | `Boolean` | Generate a soundtrack on models with optional audio. Defaults to `false`. With `inputVideo`, the clip keeps the source video's sound unless this is `false` |
-| `input_reference` | `String \| Blob` | Image used as the first frame, in any [image input](#image-inputs) format. JPEG or PNG, at least 300 pixels per side |
-| `last_frame` | `String \| Blob` | Image used as the last frame, same formats. Requires `input_reference` |
-| `reference_images` | `Array<String \| Blob>` | Images the model uses as subject, style or scene references, same formats. Kling O1 doesn't take them with `last_frame` |
+| `model` | `String` | Video model from the table above |
+| `prompt` | `String` | Up to 26,000 English characters or 11,000 characters in other languages |
+| `seconds` | `Number` | Whole number of seconds in the model's range. Other values fall back to `5` |
+| `size` | `String` | Resolution tier or `'WIDTHxHEIGHT'`. Defaults to `'720p'`. The `resolution` option is an alias |
+| `width` | `Number` | Used with `height` to pick the aspect ratio from `16:9`, `9:16` or `1:1`. Other ratios fall back to `16:9` |
+| `height` | `Number` | Used with `width` to pick the aspect ratio |
+| `input_reference` | `String \| Blob` | First-frame JPEG or PNG image, at least 300 pixels per side. The clip uses the image's shape |
+| `last_frame` | `String \| Blob` | Last-frame image on Kling 4.0. Requires `input_reference` |
+| `generate_audio` | `Boolean` | Ignored. Both models include audio |
 
-An option the model lacks, or a combination it doesn't support, is rejected with `bad_request` before any credits are spent. Clips carry no watermark. Kling returns a hosted URL that stays available for 30 days.
+A clip is shortened to fit the balance as described in [Cost and clip length](#cost-and-clip-length). Unsupported options are rejected with `bad_request` before credits are spent. Clips carry no watermark. Kling returns a hosted URL that stays available for 30 days.
 
-On Kling 4.0 and 4.0 Flash, a prompt that mixes English with another language is within the limit when its English characters divided by 26,000 plus its other characters divided by 11,000 come to 1 or less. A prompt over 26,000 characters fails with `bad_request`. Kling rejects a shorter prompt that is over the limit for its language with `upstream_bad_request`. Neither is charged.
-
-Kling 3.0 Omni and Kling O1 edit a video passed as `inputVideo`. The video must be MP4 or QuickTime, up to 200 MiB for a Puter file, and 3 to 15.5 seconds long on Kling 3.0 Omni or 3 to 10 seconds on Kling O1. Kling doesn't take a `data:` URI. It fetches a URL itself, and gets a Puter file as a link that works for 19 minutes, which it fetches when the job starts. A video Kling can't decode fails with `upstream_bad_request` and isn't charged. Up to 4 `reference_images` can go with the video.
-
-For more details, see the [Kling video API reference](https://kling.ai/document-api/api/video/3-0-omni/text-to-video).
+A prompt that mixes English with another language is within the limit when its English characters divided by 26,000 plus its other characters divided by 11,000 come to 1 or less. A prompt over 26,000 characters fails with `bad_request`. Kling rejects a shorter prompt that is over the limit for its language with `upstream_bad_request`. Neither is charged.
 
 ### MiniMax models
 
