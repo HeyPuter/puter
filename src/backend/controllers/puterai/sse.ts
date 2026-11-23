@@ -110,6 +110,15 @@ const STREAM_ERROR_TYPES: Record<number, string> = {
 const jsonOf = (value: unknown): string =>
     typeof value === 'string' ? value : JSON.stringify(value ?? {});
 
+const isCompleteJson = (text: string): boolean => {
+    try {
+        JSON.parse(text);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 type OpenBlockKind =
     | 'text'
     | 'thinking'
@@ -121,6 +130,14 @@ type OpenBlockKind =
 interface OpenBlock {
     kind: OpenBlockKind;
     id?: string;
+}
+
+/** A tool call waiting for the open tool block to end, with its pieces so far. */
+interface WaitingToolCall {
+    id: unknown;
+    name: unknown;
+    pieces: string[];
+    ended: boolean;
 }
 
 /**
@@ -141,6 +158,10 @@ export class AnthropicSseWriter {
     #sawToolUse = false;
     /** Tool calls already opened by `tool_use_start`. */
     #startedToolIds = new Set<unknown>();
+    /** Calls that started while another tool block was open, in start order. */
+    #waitingTools: WaitingToolCall[] = [];
+    /** The open tool block's input so far. */
+    #openToolInput = '';
     #ended = false;
 
     constructor(
@@ -202,6 +223,52 @@ export class AnthropicSseWriter {
             index: this.#index,
         });
         this.#open = null;
+    }
+
+    #openToolBlock(id: unknown, name: unknown): void {
+        this.#openBlock(
+            'tool_use',
+            { type: 'tool_use', id, name, input: {} },
+            id as string | undefined,
+        );
+        this.#openToolInput = '';
+    }
+
+    #toolDelta(partialJson: string): void {
+        this.#openToolInput += partialJson;
+        this.#delta({ type: 'input_json_delta', partial_json: partialJson });
+    }
+
+    /**
+     * Whether a new call should wait rather than close the open one: only while
+     * the open call's input is still incomplete JSON, or others already wait. A
+     * call without a distinct id can't be told apart, so it never waits.
+     */
+    #canWait(id: unknown): boolean {
+        if (typeof id !== 'string' || !id || id === this.#open?.id) {
+            return false;
+        }
+        if (this.#waitingTools.some((call) => call.id === id)) return false;
+        if (this.#waitingTools.length) return true;
+        return (
+            this.#open?.kind === 'tool_use' &&
+            !isCompleteJson(this.#openToolInput)
+        );
+    }
+
+    /**
+     * Opens each waiting call in turn and writes its pieces so far. A call that
+     * hasn't ended stays open to stream the rest, unless `all` closes it too.
+     */
+    #writeWaitingTools({ all }: { all: boolean }): void {
+        while (this.#waitingTools.length) {
+            const call = this.#waitingTools.shift()!;
+            this.#close();
+            this.#openToolBlock(call.id, call.name);
+            for (const piece of call.pieces) this.#toolDelta(piece);
+            if (!call.ended && !all) return;
+            this.#close();
+        }
     }
 
     #ensureText(): void {
@@ -299,35 +366,59 @@ export class AnthropicSseWriter {
                 break;
             case 'tool_use_start':
                 this.#startedToolIds.add(ev.id);
+                // Blocks can't overlap, so a call that starts while another is
+                // open waits for it instead of closing it under its pieces.
+                if (this.#canWait(ev.id)) {
+                    this.#waitingTools.push({
+                        id: ev.id,
+                        name: ev.name,
+                        pieces: [],
+                        ended: false,
+                    });
+                    break;
+                }
                 this.#close();
-                this.#openBlock(
-                    'tool_use',
-                    { type: 'tool_use', id: ev.id, name: ev.name, input: {} },
-                    ev.id as string | undefined,
-                );
+                this.#openToolBlock(ev.id, ev.name);
                 break;
             case 'tool_input_delta':
+                if (typeof ev.partialJson !== 'string') break;
                 if (
                     this.#open?.kind === 'tool_use' &&
-                    this.#open.id === ev.id &&
-                    typeof ev.partialJson === 'string'
+                    this.#open.id === ev.id
                 ) {
-                    this.#delta({
-                        type: 'input_json_delta',
-                        partial_json: ev.partialJson,
-                    });
+                    this.#toolDelta(ev.partialJson);
+                } else {
+                    this.#waitingTools
+                        .find((call) => call.id === ev.id)
+                        ?.pieces.push(ev.partialJson);
                 }
                 break;
-            case 'tool_use':
+            case 'tool_use': {
                 this.#sawToolUse = true;
+                const waiting = this.#waitingTools.find(
+                    (call) => call.id === ev.id,
+                );
                 if (
                     this.#open?.kind === 'tool_use' &&
                     this.#open.id === ev.id
                 ) {
                     this.#close(); // already streamed incrementally
+                    this.#writeWaitingTools({ all: false });
+                } else if (waiting) {
+                    waiting.ended = true;
                 } else if (this.#startedToolIds.has(ev.id)) {
-                    // Streamed and closed already (a parallel call that ended
-                    // after the next one opened) — never emit it twice.
+                    // Another block closed it already; never emit it twice, but
+                    // let the calls waiting behind it go.
+                    if (this.#open?.kind !== 'tool_use') {
+                        this.#writeWaitingTools({ all: false });
+                    }
+                } else if (this.#canWait(ev.id)) {
+                    this.#waitingTools.push({
+                        id: ev.id,
+                        name: ev.name,
+                        pieces: [jsonOf(ev.input)],
+                        ended: true,
+                    });
                 } else {
                     this.#close();
                     this.#openBlock(
@@ -347,6 +438,7 @@ export class AnthropicSseWriter {
                     this.#close();
                 }
                 break;
+            }
             case 'server_tool':
                 this.#serverBlock(ev.block as Record<string, unknown>);
                 break;
@@ -396,6 +488,7 @@ export class AnthropicSseWriter {
 
     #finish(ev: Record<string, unknown>): void {
         this.#close();
+        this.#writeWaitingTools({ all: true });
         const stopReason = promoteStopForToolCalls(
             (ev.stopReason as string | undefined) ??
                 (this.#sawToolUse ? 'tool_use' : 'end_turn'),
@@ -403,16 +496,13 @@ export class AnthropicSseWriter {
             'tool_use',
         );
         const stopDetails = ev.stopDetails as
-            | Record<string, unknown>
-            | null
-            | undefined;
+            Record<string, unknown> | null | undefined;
         const usageDetails = (ev.usageDetails as UsageDetails | undefined) ?? {
             inputTokens: 0,
             outputTokens: 0,
         };
         const contextManagement = ev.contextManagement as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         this.#sse.write('message_delta', {
             type: 'message_delta',
             delta: {
