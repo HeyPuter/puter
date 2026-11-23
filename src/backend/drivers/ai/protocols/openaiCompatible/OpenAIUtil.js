@@ -659,11 +659,17 @@ export const create_chat_stream_handler =
         // so an index alone doesn't always name a call.
         const blocksById = new Map();
         /**
+         * The latest call at each index, and every call opened there by id.
+         *
          * @type {Map<
          *     number,
          *     {
          *         block: import('../../interfaces/chat/utils/Streaming.js').AIChatToolUseStream;
          *         id?: string;
+         *         byId: Map<
+         *             string,
+         *             import('../../interfaces/chat/utils/Streaming.js').AIChatToolUseStream
+         *         >;
          *     }
          * >}
          */
@@ -754,13 +760,17 @@ export const create_chat_stream_handler =
                             : undefined;
                     let block;
                     if (atIndex) {
-                        // A new id that brings its own name is another call
-                        // sharing the index; without a name it continues one.
+                        // An id already opened at this index continues that
+                        // call, even after another call took the index. A new
+                        // id that brings its own name is another call; without
+                        // a name it continues the latest one.
+                        block =
+                            id !== undefined ? atIndex.byId.get(id) : undefined;
                         const startsAnother =
                             id !== undefined &&
                             id !== atIndex.id &&
                             !!tool_call.function?.name;
-                        if (!startsAnother) block = atIndex.block;
+                        if (!block && !startsAnother) block = atIndex.block;
                     } else if (index === undefined) {
                         block =
                             id !== undefined ? blocksById.get(id) : toolblock;
@@ -776,8 +786,11 @@ export const create_chat_stream_handler =
                         });
                         opened_tool_blocks.push(block);
                         if (id !== undefined) blocksById.set(id, block);
-                        if (index !== undefined)
-                            blocksByIndex.set(index, { block, id });
+                        if (index !== undefined) {
+                            const byId = atIndex?.byId ?? new Map();
+                            if (id !== undefined) byId.set(id, block);
+                            blocksByIndex.set(index, { block, id, byId });
+                        }
                     }
                     toolblock = block;
                     const args = toolCallArgumentsText(

@@ -1328,6 +1328,29 @@ describe('create_chat_stream_handler', () => {
             ]);
         });
 
+        it('routes pieces by id when calls sharing an index alternate', async () => {
+            const piece = (id: string, args: string, name?: string) =>
+                toolCallChunk([
+                    {
+                        index: 0,
+                        id,
+                        function: name
+                            ? { name, arguments: args }
+                            : { arguments: args },
+                    },
+                ]);
+            const tools = await streamToolUses([
+                piece('a', '{"x":', 'f'),
+                piece('b', '{"y":', 'g'),
+                piece('a', '1}'),
+                piece('b', '2}'),
+            ]);
+            expect(tools.map((e) => [e.id, e.name, e.input])).toEqual([
+                ['a', 'f', { x: 1 }],
+                ['b', 'g', { y: 2 }],
+            ]);
+        });
+
         it('keys calls by id when the upstream omits index', async () => {
             const tools = await streamToolUses([
                 toolCallChunk(
