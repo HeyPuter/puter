@@ -25,7 +25,7 @@ vi.mock('../UIWindowSaveAccount.js', () => ({ default: vi.fn() }));
 vi.mock('../../helpers/dashboardAppLaunch.js', () => ({
     DESKTOP_URL: 'https://desktop.puter.com/',
     openAppInNewTab: vi.fn(),
-    openDesktopInNewTab: vi.fn(),
+    openSiteInNewTab: vi.fn(),
 }));
 
 globalThis.$ = jQuery;
@@ -36,7 +36,7 @@ window.icons = {};
 window.launch_apps = { recent: [] };
 
 const { default: TabHome, formatTrialEnd } = await import('./TabHome.js');
-const { openAppInNewTab, openDesktopInNewTab } = await import('../../helpers/dashboardAppLaunch.js');
+const { openAppInNewTab, openSiteInNewTab } = await import('../../helpers/dashboardAppLaunch.js');
 
 describe('TabHome recently used', () => {
     const mount = () => {
@@ -117,21 +117,22 @@ describe('TabHome Open Desktop card', () => {
     };
 
     it('links to the desktop and opens it signed in on a plain click', () => {
-        openDesktopInNewTab.mockReturnValue(Promise.resolve());
+        openSiteInNewTab.mockReturnValue(Promise.resolve());
         const card = mount();
         expect(card.getAttribute('href')).toBe('https://desktop.puter.com/');
 
         expect(click(card).defaultPrevented).toBe(true);
-        expect(openDesktopInNewTab).toHaveBeenCalledTimes(1);
+        expect(openSiteInNewTab).toHaveBeenCalledTimes(1);
+        expect(openSiteInNewTab).toHaveBeenCalledWith('https://desktop.puter.com/');
     });
 
     it('stays a plain link on a modified click, or when the tab was refused', () => {
-        openDesktopInNewTab.mockReset();
+        openSiteInNewTab.mockReset();
         const card = mount();
         expect(click(card, { metaKey: true }).defaultPrevented).toBe(false);
-        expect(openDesktopInNewTab).not.toHaveBeenCalled();
+        expect(openSiteInNewTab).not.toHaveBeenCalled();
 
-        openDesktopInNewTab.mockReturnValue(null);
+        openSiteInNewTab.mockReturnValue(null);
         expect(click(card).defaultPrevented).toBe(false);
     });
 });

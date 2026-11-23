@@ -23,6 +23,7 @@ import launch_app from '../../helpers/launchApp.js';
 import revokeAppSessions from '../../helpers/revokeAppSessions.js';
 import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { createAppBrowser } from './AppBrowser.js';
+import { openSiteInNewTab } from '../../helpers/dashboardAppLaunch.js';
 
 export default createAppBrowser({
     actions: {
@@ -32,5 +33,6 @@ export default createAppBrowser({
         revokeAppSessions,
         beginTileLaunch: begin_dashboard_tile_launch,
         settleTileLaunch: settle_dashboard_tile_launch,
+        openSite: openSiteInNewTab,
     },
 });

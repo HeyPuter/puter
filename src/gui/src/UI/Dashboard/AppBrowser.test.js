@@ -251,17 +251,37 @@ describe('shared app browser', () => {
         expect(browser._launchingApps.size).toBe(0);
     });
 
-    it('launches the app store from the dashboard add-app dialog', async () => {
+    it.each([
+        ['browse', 'https://apps.puter.com/'],
+        ['ai', 'https://builder.puter.com/'],
+    ])('opens the %s option of the add-app dialog as a signed-in site in a new tab', async (option, site) => {
+        const actions = {
+            launchApp: vi.fn(async () => {}),
+            openSite: vi.fn(() => Promise.resolve()),
+        };
+        await mount({ editable: true, onLaunch: undefined, actions });
+        $('.myapps-add-tile').trigger('click');
+        $(`.myapps-add-option[data-add-option="${option}"]`).trigger('click');
+        expect(actions.openSite).toHaveBeenCalledWith(site);
+        expect(actions.launchApp).not.toHaveBeenCalled();
+        expect($('.myapps-add-modal')).toHaveLength(0);
+    });
+
+    it.each([
+        ['browse', 'app-center'],
+        ['ai', 'builder'],
+    ])('opens the %s option\'s app in-page when the browser refuses the tab', async (option, appName) => {
         const actions = {
             launchApp: vi.fn(async () => {}),
             settleTileLaunch: vi.fn(),
+            openSite: vi.fn(() => null),
         };
         puter.apps = { get: async name => ({ name, title: name }) };
         await mount({ editable: true, onLaunch: undefined, actions });
         $('.myapps-add-tile').trigger('click');
-        $('.myapps-add-option[data-add-option="browse"]').trigger('click');
+        $(`.myapps-add-option[data-add-option="${option}"]`).trigger('click');
         await vi.waitFor(() => expect(actions.launchApp).toHaveBeenCalledWith(
-            expect.objectContaining({ name: 'app-center', maximized: true }),
+            expect.objectContaining({ name: appName, maximized: true }),
         ));
         expect($('.myapps-add-modal')).toHaveLength(0);
     });

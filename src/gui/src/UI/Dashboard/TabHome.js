@@ -26,7 +26,7 @@ import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import {
     DESKTOP_URL,
     openAppInNewTab,
-    openDesktopInNewTab,
+    openSiteInNewTab,
 } from '../../helpers/dashboardAppLaunch.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 import { intlLocale } from '../../i18n/intlLocale.js';
@@ -410,7 +410,7 @@ const TabHome = {
         // stays a plain link.
         $el_window.on('click', '.bento-desktop', function (e) {
             if (e.metaKey || e.ctrlKey || e.shiftKey) return;
-            if (openDesktopInNewTab()) e.preventDefault();
+            if (openSiteInNewTab(DESKTOP_URL)) e.preventDefault();
         });
 
         // Handle "View details" link clicks

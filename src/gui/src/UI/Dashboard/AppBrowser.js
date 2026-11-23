@@ -59,7 +59,7 @@ const KV_READ_FAILED = Symbol('kv read failed');
  * @param {{ editable?: boolean, onLaunch?: (app: { appName: string, targetLink?: string }) => void, actions?: Object, guestApps?: Object[] }} options
  */
 export function createAppBrowser ({ editable = true, onLaunch, actions = {}, guestApps } = {}) {
-    const { showContextMenu, showAlert, launchApp, revokeAppSessions, beginTileLaunch, settleTileLaunch } = actions;
+    const { showContextMenu, showAlert, launchApp, revokeAppSessions, beginTileLaunch, settleTileLaunch, openSite } = actions;
 
     /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
     const APP_NAMES_NO_UNINSTALL = new Set([
@@ -68,10 +68,15 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
     ]);
 
     // -- Add-an-app tile --
-    /** Puter's app marketplace — the add-an-app tile's route to installing one. */
-    const APP_CENTER_APP_NAME = 'app-center';
-    /** Puter's AI app builder, which generates an app from a description. */
-    const BUILDER_APP_NAME = 'builder';
+    /**
+     * Where each of the add-an-app modal's app options goes: a site opened
+     * signed in, in a new tab, or the app opened in-page when the browser
+     * refuses the tab.
+     */
+    const ADD_APP_DESTINATIONS = {
+        browse: { site: 'https://apps.puter.com/', appName: 'app-center' },
+        ai: { site: 'https://builder.puter.com/', appName: 'builder' },
+    };
 
     // -- Drag-to-reorder tuning --
     const DRAG_START_DISTANCE = 5;      // px a pointer must travel before a drag begins
@@ -724,7 +729,8 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             else close();
         });
 
-        // Opened exactly like an /app/<name> landing: the same pedagogical
+        // When the browser refuses the site's tab, the app opens in-page,
+        // exactly like an /app/<name> landing: the same pedagogical
         // click→morph→open intro plays (see beginDeepLinkLaunch) — and since
         // choosing App Center or the AI builder is usually asking for an app the
         // grid doesn't have yet, the intro is also what INSTALLS it: the tile
@@ -784,10 +790,12 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                 showPane('request');
                 return;
             }
-            // An app is opening — the modal has nothing left to say.
+            const destination = ADD_APP_DESTINATIONS[key];
+            if ( ! destination ) return;
+            // Something is opening — the modal has nothing left to say.
             close();
-            if ( key === 'browse' ) openApp(APP_CENTER_APP_NAME);
-            else if ( key === 'ai' ) openApp(BUILDER_APP_NAME);
+            // Opened here, inside the click, so popup blockers allow the tab.
+            if ( ! openSite?.(destination.site) ) openApp(destination.appName);
         });
 
         // Nothing to send until something has been written.
