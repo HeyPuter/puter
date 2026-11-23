@@ -281,6 +281,20 @@ describe('LocalWorkerService.cfCallLocal', () => {
         }
     }, 60_000);
 
+    it('answers 502 for a worker whose script the runtime rejects', async () => {
+        const name = `lws-broken-${Date.now()}`;
+        const src = await writeSource(
+            `${name}.js`,
+            "router.get('/', () => {",
+        );
+        await seedWorkerRow(name, { root_dir_id: src.id });
+        const res = await localWorkers.cfCallLocal(
+            name,
+            new Request('http://x.localhost/'),
+        );
+        expect(res.status).toBe(502);
+    }, 60_000);
+
     it('retries the deploy on the request after a failed first one', async () => {
         const name = `lws-retry-${Date.now()}`;
         const src = await writeSource(
@@ -385,6 +399,28 @@ describe('LocalWorkerService.cfDeployLocal', () => {
             const during = await call();
             expect(await during.text()).toBe('v2');
             expect((await redeploy).success).toBe(true);
+        } finally {
+            await localWorkers.cfDeleteLocal(name);
+        }
+    }, 60_000);
+
+    it('keeps serving the last good deploy when a redeploy cannot start', async () => {
+        const name = `lws-keep-${Date.now()}`;
+        const call = () =>
+            localWorkers.cfCallLocal(name, new Request('http://x.localhost/'));
+        try {
+            await localWorkers.cfDeployLocal(
+                name,
+                'auth',
+                "addEventListener('fetch', (e) => e.respondWith(new Response('v1')));",
+            );
+            const redeploy = await localWorkers.cfDeployLocal(
+                name,
+                'auth',
+                "addEventListener('fetch', (e) => {",
+            );
+            expect(redeploy.success).toBe(false);
+            expect(await (await call()).text()).toBe('v1');
         } finally {
             await localWorkers.cfDeleteLocal(name);
         }
