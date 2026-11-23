@@ -25,6 +25,8 @@ export interface AlarmFields {
 }
 
 export interface AlarmOptions {
+    /** Plain-language chat summary shown in place of the diagnostic field grid. */
+    summary?: string;
     /**
      * Collapse repeats of this alarm id into a single incident on transports
      * that de-duplicate (PagerDuty). Only right when the id already pins down
@@ -62,6 +64,11 @@ export interface Alarm extends AlarmOptions {
 }
 
 export interface AlertPayload {
+    /**
+     * Plain-language chat summary; diagnostic fields remain available to other
+     * transports.
+     */
+    summary?: string;
     id: string;
     /**
      * Key a de-duplicating transport groups by. Equal to `id` for alarms raised

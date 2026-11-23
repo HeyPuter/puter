@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { AlarmClient } from '../src/backend/clients/alarm/AlarmClient';
+import { buildSlackMessage } from '../src/backend/clients/alarm/slack';
 import { JobScheduler } from '../src/backend/services/jobs/JobScheduler';
 import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest';
@@ -94,6 +95,14 @@ it('baselines quietly, persists across instances, and reports additions and remo
                 alert.channel === 'ai_providers' && alert.severity === 'info',
         ),
     ).toBe(true);
+    expect(alerts.map((alert) => alert.summary)).toEqual([
+        'New OpenAI model: new',
+        'Removed OpenAI model: old',
+    ]);
+    const message = buildSlackMessage(alerts[0], { serverId: 'sydney' });
+    expect(message.text).toBe(':information_source: New OpenAI model: new');
+    expect(message.attachments[0].fields).toEqual([]);
+    expect(message.attachments[0].footer).not.toContain(alerts[0].id);
     const restarted = new AIModelMonitorService(
         {
             providers: {
@@ -138,9 +147,30 @@ it('keeps failures isolated and never includes upstream error text or credential
     body = { error: 'secret-response' };
     await monitor.scan(ctx());
     expect(alerts).toHaveLength(1);
+    expect(alerts[0].summary).toBe('OpenAI model catalog could not be fetched');
     expect(JSON.stringify(alerts)).not.toContain('secret-response');
     expect(JSON.stringify(alerts)).not.toContain(`fixture-${seq}`);
 });
+
+it.each([
+    'openrouter',
+    'together-ai',
+    'together-image-generation',
+    'together-video-generation',
+    'infron',
+    'neuralwatt',
+    'alibaba',
+    'xai',
+    'xai-image-generation',
+    'cloudflare-image-generation',
+])(
+    'skips %s because its model catalog includes pricing automatically',
+    async (configKey) => {
+        await service(configKey).scan(ctx());
+        expect(requests).toHaveLength(0);
+        expect(alerts).toHaveLength(0);
+    },
+);
 
 it('follows Claude pagination with the correct authentication', async () => {
     responder = (url) =>

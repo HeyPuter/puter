@@ -20,6 +20,30 @@ const alert = (over: Partial<AlertPayload> = {}): AlertPayload => ({
 });
 
 describe('buildSlackMessage', () => {
+    it('shows a plain-language summary without the diagnostic field grid or full alarm id', () => {
+        const msg = buildSlackMessage(
+            alert({
+                summary: 'New Replicate model: vendor/image',
+                severity: 'info',
+            }),
+            { serverId: 'sydney' },
+        );
+        expect(msg.text).toBe(
+            ':information_source: New Replicate model: vendor/image',
+        );
+        expect(msg.attachments[0].fields).toEqual([]);
+        expect(msg.attachments[0].footer).toBe('amber-delta-fox • sydney');
+    });
+
+    it('escapes Slack mentions and links in upstream model summaries', () => {
+        const msg = buildSlackMessage(
+            alert({ summary: 'New model: <!channel> & <https://example.com>' }),
+        );
+        expect(msg.text).toContain(
+            '&lt;!channel&gt; &amp; &lt;https://example.com&gt;',
+        );
+    });
+
     it('renders severity, message and fields', () => {
         const msg = buildSlackMessage(alert(), {
             channel: '#alerts',
