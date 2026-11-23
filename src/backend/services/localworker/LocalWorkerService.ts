@@ -25,6 +25,7 @@ const IDLE_SWEEP_INTERVAL_MS = 60 * 1000; // sweep cadence
 const activeWorkers = new Map<string, Miniflare>();
 // Registry key -> last dispatch/deploy time (ms). Drives the idle sweep.
 const lastAccess = new Map<string, number>();
+// Worker name -> its first-request deploy, while that deploy is running.
 const inflightColdStarts = new Map<string, Promise<void>>();
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -87,7 +88,7 @@ export class LocalWorkerService extends PuterService {
         code: string,
         extraBindings: Record<string, string>,
     ) {
-        const previousMf = activeWorkers.get(key);
+        const previous = activeWorkers.get(key);
         try {
             const mf = new Miniflare({
                 modules: false,
@@ -115,15 +116,11 @@ export class LocalWorkerService extends PuterService {
                 },
                 script: code,
             } as WorkerOptions);
+            // Registered before the old instance goes, so a request never
+            // finds the key empty mid-redeploy.
             activeWorkers.set(key, mf);
             this.#touch(key);
-            if (previousMf && previousMf !== mf) {
-                try {
-                    await previousMf.dispose(); // releases the old instance's port after swap
-                } catch {
-                    /* best-effort teardown */
-                }
-            }
+            await this.#disposeInstance(previous);
             return {
                 success: true,
                 errors: [],
@@ -146,37 +143,20 @@ export class LocalWorkerService extends PuterService {
     async cfCallLocal(workerName: string, request: Request) {
         let mf = activeWorkers.get(workerName);
         if (!mf) {
+            // Concurrent first requests share one deploy: a second one would
+            // dispose the instance the first is being served by.
             let pending = inflightColdStarts.get(workerName);
             if (!pending) {
-                pending = (async () => {
-                    // cfDeployLocal here
-                    const existingSub: SubdomainRow | null =
-                        await this.stores.subdomain.getBySubdomain(
-                            'workers.puter.' + workerName,
-                        );
-
-                    if (!existingSub) {
-                        return;
-                    }
-                    // A suspended owner's worker answers as one that doesn't exist.
-                    const owner = await this.stores.user.getById(
-                        existingSub.user_id,
-                    );
-                    if (owner?.suspended) {
-                        return;
-                    }
-                    const [_, authorization, code] =
-                        await this.reconstructDeployArgs(
-                            workerName,
-                            existingSub,
-                        );
-                    await this.cfDeployLocal(workerName, authorization, code);
-                })().finally(() => {
-                    inflightColdStarts.delete(workerName);
-                });
+                pending = this.#coldStart(workerName);
                 inflightColdStarts.set(workerName, pending);
             }
-            await pending;
+            try {
+                await pending;
+            } finally {
+                if (inflightColdStarts.get(workerName) === pending) {
+                    inflightColdStarts.delete(workerName);
+                }
+            }
             mf = activeWorkers.get(workerName);
             if (!mf) {
                 return new Response('subdomain not found', { status: 404 });
@@ -195,6 +175,23 @@ export class LocalWorkerService extends PuterService {
             ...(hasBody ? { duplex: 'half' } : {}),
         } as unknown as MiniflareRequestInit);
     }
+    /** Deploys a worker from its subdomain row, if it has one to serve. */
+    async #coldStart(workerName: string): Promise<void> {
+        const existingSub: SubdomainRow | null =
+            await this.stores.subdomain.getBySubdomain(
+                'workers.puter.' + workerName,
+            );
+        if (!existingSub) return;
+        // A suspended owner's worker answers as one that doesn't exist.
+        const owner = await this.stores.user.getById(existingSub.user_id);
+        if (owner?.suspended) return;
+        const [_, authorization, code] = await this.reconstructDeployArgs(
+            workerName,
+            existingSub,
+        );
+        await this.cfDeployLocal(workerName, authorization, code);
+    }
+
     /**
      * Dispatch into a resident worker without the subdomain-row lookup
      * `cfCallLocal` falls back to — `null` means "not deployed here", which is
@@ -241,12 +238,15 @@ export class LocalWorkerService extends PuterService {
         const mf = activeWorkers.get(workerName);
         activeWorkers.delete(workerName);
         lastAccess.delete(workerName);
-        if (mf) {
-            try {
-                await mf.dispose(); // releases the instance's port
-            } catch {
-                /* best-effort teardown */
-            }
+        await this.#disposeInstance(mf);
+    }
+
+    async #disposeInstance(mf: Miniflare | undefined): Promise<void> {
+        if (!mf) return;
+        try {
+            await mf.dispose(); // releases the instance's port
+        } catch {
+            /* best-effort teardown */
         }
     }
 
