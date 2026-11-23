@@ -63,13 +63,13 @@ const SPEECHIFY_TTS_VOICES = [
 ];
 
 /**
- * Plain text goes inside `<speak>`, so a bare `&` and a `<` that opens no tag
- * are escaped.
+ * Plain text goes inside `<speak>`, so an `&` that starts no XML entity and a
+ * `<` that starts no complete tag are escaped.
  */
 const escapeSsmlText = (text: string): string =>
     text
-        .replace(/&(?!(?:[a-z]+|#\d+|#x[\da-f]+);)/gi, '&amp;')
-        .replace(/<(?![a-z/!?])/gi, '&lt;');
+        .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);)/gi, '&amp;')
+        .replace(/<(?!\/?[a-z][\w:.-]*(?:\s[^<>]*)?>)/gi, '&lt;');
 
 const CONTENT_TYPES: Record<string, string> = {
     mp3: 'audio/mpeg',

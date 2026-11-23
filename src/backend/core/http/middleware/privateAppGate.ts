@@ -157,15 +157,12 @@ function longestFirst(domains: string[]): string[] {
     return [...domains].sort((a, b) => b.length - a.length);
 }
 
+/** `hostingDomains` as `buildHostingConfig` orders them: longest first. */
 export function subdomainFromHost(
     host: string,
     hostingDomains: string[],
 ): string {
-    return subdomainFromSortedHost(host, longestFirst(hostingDomains));
-}
-
-function subdomainFromSortedHost(host: string, sorted: string[]): string {
-    for (const d of sorted) {
+    for (const d of hostingDomains) {
         const suffix = `.${d}`;
         if (host === d) return '';
         if (host.endsWith(suffix)) {
@@ -204,10 +201,7 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const host = normalizeHost(opts.host ?? opts.req.hostname);
     if (!host) return null;
 
-    const hostedSubdomain = subdomainFromSortedHost(
-        host,
-        opts.config.hostingDomains,
-    );
+    const hostedSubdomain = subdomainFromHost(host, opts.config.hostingDomains);
     if (!hostedSubdomain) return null;
 
     // Build host variants with AND without port, then cross each with both
@@ -688,7 +682,7 @@ export function buildPrivateHostRedirect(
     if (!privateDomain) return null;
     const host = normalizeHost(req.hostname);
     if (!host) return null;
-    const subdomain = subdomainFromSortedHost(host, config.hostingDomains);
+    const subdomain = subdomainFromHost(host, config.hostingDomains);
     if (!subdomain) return null;
     try {
         const protocol = config.protocol || req.protocol || 'https';
@@ -716,7 +710,7 @@ export function buildPublicHostRedirect(
     if (!publicDomain) return null;
     const host = normalizeHost(req.hostname);
     if (!host) return null;
-    const subdomain = subdomainFromSortedHost(host, config.hostingDomains);
+    const subdomain = subdomainFromHost(host, config.hostingDomains);
     if (!subdomain) return null;
     try {
         const protocol = config.protocol || req.protocol || 'https';

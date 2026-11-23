@@ -372,7 +372,7 @@ export class PeerForwardQueue {
 
 const sizeOf = (item: ForwardItem): number => {
     try {
-        return JSON.stringify(item).length;
+        return Buffer.byteLength(JSON.stringify(item));
     } catch {
         return 0;
     }

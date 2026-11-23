@@ -60,6 +60,7 @@ import type {
     AccessTokenPayload,
     AnyTokenPayload,
     AppUnderUserTokenPayload,
+    RevokedSessions,
     SessionRow,
     SessionTokenPayload,
 } from './types';
@@ -990,13 +991,11 @@ export class AuthService extends PuterService {
      * the two entry points leave the same state behind.
      */
     async revokeSession(uuid: string): Promise<void> {
-        // Read first — after the cascade these rows carry `revoked_at` and
-        // no longer count as active.
-        const tokenUids = (await this.stores.session.accessTokenUidsForCascade(
+        const revoked = (await this.stores.session.revokeCascade(
             uuid,
-        )) as string[];
-        this.#announceRevocation(await this.stores.session.revokeCascade(uuid));
-        await this.#dropAccessTokenGrants(tokenUids);
+        )) as RevokedSessions | null;
+        this.#announceRevocation(revoked);
+        await this.#dropAccessTokenGrants(revoked?.accessTokenUids ?? []);
     }
 
     /**
@@ -1037,7 +1036,7 @@ export class AuthService extends PuterService {
      * running on a credential that no longer exists.
      */
     #announceRevocation(
-        revoked: { userId: number; uuids: string[] } | null | undefined,
+        revoked: Pick<RevokedSessions, 'userId' | 'uuids'> | null | undefined,
     ): void {
         if (!revoked?.userId || revoked.uuids.length === 0) return;
         const payload = {
@@ -1076,38 +1075,23 @@ export class AuthService extends PuterService {
                 ids.slice(offset, offset + 200),
                 { primary: true },
             )) as SessionRow[];
-            await this.#revokeCascades(
-                rows.map((row) => row.uuid),
-                rows,
-            );
+            await this.#revokeCascades(rows.map((row) => row.uuid));
         }
     }
 
     /**
      * Revoke `rootUuids` and the rows derived from them, then drop the grants
-     * of the access tokens among them. `rows` holds every live row of the users
-     * involved.
+     * of the access tokens among them.
      */
-    async #revokeCascades(
-        rootUuids: string[],
-        rows: SessionRow[],
-    ): Promise<void> {
+    async #revokeCascades(rootUuids: string[]): Promise<void> {
         if (rootUuids.length === 0) return;
-        const roots = new Set(rootUuids);
-        const tokenUids = rows
-            .filter(
-                (row) =>
-                    row.kind === 'access_token' &&
-                    (roots.has(row.uuid) ||
-                        roots.has(row.parent_session_id ?? '')),
-            )
-            .map((row) => row.access_token_uid ?? row.legacy_token_uid)
-            .filter((uid): uid is string => !!uid);
         const revoked = (await this.stores.session.revokeCascades(
             rootUuids,
-        )) as { userId: number; uuids: string[] }[];
+        )) as RevokedSessions[];
         for (const entry of revoked) this.#announceRevocation(entry);
-        await this.#dropAccessTokenGrants(tokenUids);
+        await this.#dropAccessTokenGrants(
+            revoked.flatMap((entry) => entry.accessTokenUids),
+        );
     }
 
     /**
@@ -1222,7 +1206,6 @@ export class AuthService extends PuterService {
                         row.kind === DEBUG_APP_SESSION_KIND,
                 )
                 .map((row) => row.uuid),
-            rows,
         );
     }
 
@@ -1256,7 +1239,6 @@ export class AuthService extends PuterService {
                         : row.kind === 'app' && opts.includeApps,
                 )
                 .map((row) => row.uuid),
-            rows,
         );
     }
 
@@ -2111,11 +2093,10 @@ export class AuthService extends PuterService {
     }): Promise<void> {
         // Not announced as a session revocation: that closes every socket of
         // the account, and the desktop that asked is still signed in.
-        const tokenUids = (await this.stores.session.accessTokenUidsForCascade(
+        const revoked = (await this.stores.session.revokeCascade(
             row.uuid,
-        )) as string[];
-        await this.stores.session.revokeCascade(row.uuid);
-        await this.#dropAccessTokenGrants(tokenUids);
+        )) as RevokedSessions | null;
+        await this.#dropAccessTokenGrants(revoked?.accessTokenUids ?? []);
         if (row.access_token_uid) {
             this.clients.event?.emit(
                 'outer.auth.access-token.revoked',
@@ -2820,21 +2801,17 @@ export class AuthService extends PuterService {
                 (await this.stores.session.findActiveByAccessTokenUid(tokenUid))
             )?.uuid;
         const mayBeFullAccess = opts.mayBeFullAccess !== false;
-        const childTokenUids =
-            rowUuid && mayBeFullAccess
-                ? (
-                      (await this.stores.session.accessTokenUidsForCascade(
-                          rowUuid,
-                      )) as string[]
-                  ).filter((uid) => uid !== tokenUid)
-                : [];
         if (rowUuid) {
             await this.stores.session.removeByUuid(rowUuid);
             if (mayBeFullAccess) {
-                await this.stores.session.revokeCascade(rowUuid);
+                const revoked = (await this.stores.session.revokeCascade(
+                    rowUuid,
+                )) as RevokedSessions | null;
+                await this.#dropAccessTokenGrants(
+                    revoked?.accessTokenUids ?? [],
+                );
             }
         }
-        await this.#dropAccessTokenGrants(childTokenUids);
 
         // Only a token the handshake admits has a socket to drop.
         if (mayBeFullAccess) {

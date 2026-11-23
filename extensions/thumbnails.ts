@@ -104,12 +104,6 @@ const isStoragePointer = (pointer: string, bucketEndpoint: string): boolean =>
     (pointer.startsWith('https') &&
         pointer.includes(new URL(bucketEndpoint).hostname));
 
-/** Without a dedicated store, thumbnails go to the main bucket unless named. */
-export const fallbackThumbnailBucket = (config: {
-    thumbnailStore?: { name?: string };
-    s3_bucket?: string;
-}): string => config.thumbnailStore?.name || config.s3_bucket || 'puter-local';
-
 // S3 client + bucket config — lazily resolved after boot from config.
 let s3Client: S3Client | null = null;
 let s3PresignClient: S3Client | null = null;
@@ -147,7 +141,6 @@ function resolveClients(): { send: S3Client; presign: S3Client } {
         const wrapper = clients.s3;
         s3Client = wrapper.get();
         s3PresignClient = wrapper.getForPresign();
-        thumbnailBucketName = fallbackThumbnailBucket(extension.config);
     }
     return { send: s3Client, presign: s3PresignClient };
 }

@@ -84,12 +84,13 @@ describe('subdomainFromHost', () => {
     it('prefers longest-matching hosting domain (avoids over-stripping)', () => {
         // `bar.puter.app` is configured as a hosting domain itself, so a
         // visit to `foo.bar.puter.app` should pull `foo`, not `foo.bar`.
-        expect(
-            subdomainFromHost('foo.bar.puter.app', [
-                'puter.app',
-                'bar.puter.app',
-            ]),
-        ).toBe('foo');
+        const { hostingDomains } = buildHostingConfig({
+            static_hosting_domain: 'puter.app',
+            private_app_hosting_domain: 'bar.puter.app',
+        } as IConfig);
+        expect(subdomainFromHost('foo.bar.puter.app', hostingDomains)).toBe(
+            'foo',
+        );
     });
 
     it('returns empty for the bare hosting domain', () => {

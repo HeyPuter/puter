@@ -307,6 +307,24 @@ describe('LocalWorkerService.cfCallLocal', () => {
     }, 60_000);
 });
 
+describe('LocalWorkerService deploy of a script the runtime rejects', () => {
+    it('reports the failure and keeps no instance', async () => {
+        const name = `lws-unloadable-${Date.now()}`;
+        const deployed = await localWorkers.cfDeployLocal(
+            name,
+            'test-authorization',
+            'addEventListener("fetch", (e) => {',
+        );
+        expect(deployed).toEqual({ success: false, errors: [], url: null });
+        // Nothing resident, so a call looks the worker up and finds no row.
+        const res = await localWorkers.cfCallLocal(
+            name,
+            new Request('http://x.localhost/'),
+        );
+        expect(res.status).toBe(404);
+    }, 60_000);
+});
+
 describe('LocalWorkerService.cfDeleteLocal', () => {
     it('mirrors the upstream delete response shape', async () => {
         expect(await localWorkers.cfDeleteLocal('never-deployed')).toEqual({

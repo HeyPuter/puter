@@ -864,6 +864,53 @@ describe('AuthService (integration)', () => {
             }
         });
 
+        it('listSessions keeps a session renamed moments ago, under its new label', async () => {
+            const user = await makeUser();
+            const session = (await authService.createSessionToken(user, {}))
+                .session as { uuid: string };
+            const actor = {
+                user: { id: user.id, uuid: user.uuid },
+            } as unknown as Actor;
+            await authService.setSessionLabel(actor, session.uuid, 'Laptop');
+
+            const listed = (await authService.listSessions(actor)).find(
+                (row) => (row as { uuid: string }).uuid === session.uuid,
+            );
+            expect(listed).toMatchObject({ label: 'Laptop' });
+        });
+
+        it('revokeSession drops the grants of a token minted under a derived web session', async () => {
+            const user = await makeUser();
+            const root = (await authService.createSessionToken(user, {}))
+                .session as { uuid: string };
+            const sessions = server.stores.session;
+            const page = await sessions.create(user.id, {
+                kind: 'web',
+                parent_session_id: root.uuid,
+            });
+            const tokenUid = uuidv4();
+            await sessions.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: page.uuid,
+                access_token_uid: tokenUid,
+            });
+            const permissions = server.stores.permission;
+            await permissions.insertAccessTokenPerms(
+                tokenUid,
+                { userId: user.id, appId: null },
+                [{ permission: 'driver:puter-kvstore' }],
+            );
+            expect(await permissions.listAccessTokenPerms(tokenUid)).toEqual([
+                'driver:puter-kvstore',
+            ]);
+
+            await authService.revokeSession(root.uuid);
+
+            expect(await permissions.listAccessTokenPerms(tokenUid)).toEqual(
+                [],
+            );
+        });
+
         it('revokeSession removes the session row', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});

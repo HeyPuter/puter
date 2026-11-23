@@ -26,7 +26,6 @@ import { PuterServer } from '../src/backend/server.ts';
 import { setupTestServer } from '../src/backend/testUtil.ts';
 import { generateDefaultFsentries } from '../src/backend/util/userProvisioning.ts';
 import {
-    fallbackThumbnailBucket,
     handleFsCopyNodeThumbnail,
     handleFsRemoveNodeThumbnail,
     handleThumbnailCreated,
@@ -73,21 +72,6 @@ const streamToBuffer = async (
     if (!body) throw new Error('s3 GetObject returned no body');
     return Buffer.from(await body.transformToByteArray());
 };
-
-describe('thumbnails extension — fallbackThumbnailBucket', () => {
-    it('uses the named thumbnail bucket, else the main one', () => {
-        expect(
-            fallbackThumbnailBucket({
-                thumbnailStore: { name: 'thumbs' },
-                s3_bucket: 'main',
-            }),
-        ).toBe('thumbs');
-        expect(
-            fallbackThumbnailBucket({ thumbnailStore: {}, s3_bucket: 'main' }),
-        ).toBe('main');
-        expect(fallbackThumbnailBucket({})).toBe('puter-local');
-    });
-});
 
 describe('thumbnails extension — handleThumbnailCreated', () => {
     let server: PuterServer;

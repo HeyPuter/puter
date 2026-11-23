@@ -1080,20 +1080,22 @@ export class AppStore extends PuterStore {
         if (!app) return false;
 
         const owner = app.owner_user_id ?? null;
-        // Recorded before the row goes, so a failure leaves no unrecorded
-        // deletion.
-        await Promise.all([
-            this.clients.db.write(
-                `INSERT INTO \`deleted_apps\` (\`uid\`, \`owner_user_id\`) VALUES (?, ?) ${this.#deletedAppsUpsert()}`,
-                [app.uid, owner, owner],
-            ),
-            this.clients.db.write(
-                'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
-                [appId],
-            ),
-        ]);
-        await this.clients.db.write('DELETE FROM `apps` WHERE `id` = ?', [
-            appId,
+        // One transaction: a failure leaves the app whole, and no deletion goes
+        // unrecorded.
+        await this.clients.db.batchWrite([
+            {
+                statement: `INSERT INTO \`deleted_apps\` (\`uid\`, \`owner_user_id\`) VALUES (?, ?) ${this.#deletedAppsUpsert()}`,
+                values: [app.uid, owner, owner],
+            },
+            {
+                statement:
+                    'DELETE FROM `app_filetype_association` WHERE `app_id` = ?',
+                values: [appId],
+            },
+            {
+                statement: 'DELETE FROM `apps` WHERE `id` = ?',
+                values: [appId],
+            },
         ]);
         // Tombstone, so a lagging replica can't cache the row back for a day.
         await this.markDeleted(app);
@@ -1355,6 +1357,13 @@ export class AppStore extends PuterStore {
     async invalidateWrittenById(id) {
         // Not `getById`: on a cache miss it would cache the replica's row.
         const fresh = await this.#readFromDb('id', id, { primary: true });
+        if (fresh) await this.#invalidateWritten(fresh);
+        return fresh;
+    }
+
+    /** `invalidateWrittenById` for a writer that holds the uid. */
+    async invalidateWrittenByUid(uid) {
+        const fresh = await this.#readFromDb('uid', uid, { primary: true });
         if (fresh) await this.#invalidateWritten(fresh);
         return fresh;
     }

@@ -271,13 +271,13 @@ describe('SpeechifyTTSProvider.synthesize request shape', () => {
         expect(body.input).toBe('<speak>already SSML</speak>');
     });
 
-    it('escapes a bare ampersand and a `<` that opens no tag in plain text', async () => {
+    it('escapes an `&` that starts no XML entity and a `<` that starts no tag', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         await withTestActor(() =>
             provider.synthesize({
-                text: 'Tom & Jerry <3 <break time="1s"/> &amp; more',
+                text: 'Tom & Jerry <3 <break time="1s"/> &amp; more, a<b &nbsp;',
             }),
         );
 
@@ -285,7 +285,7 @@ describe('SpeechifyTTSProvider.synthesize request shape', () => {
             (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
         );
         expect(body.input).toBe(
-            '<speak>Tom &amp; Jerry &lt;3 <break time="1s"/> &amp; more</speak>',
+            '<speak>Tom &amp; Jerry &lt;3 <break time="1s"/> &amp; more, a&lt;b &amp;nbsp;</speak>',
         );
     });
 

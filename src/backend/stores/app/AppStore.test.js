@@ -1856,15 +1856,27 @@ describe('AppStore detailed stats', () => {
         },
     );
 
-    it.each(['month_to_date', 'year_to_date', 'last_12_months'])(
-        'reads the documented %s period as its window',
-        async (period) => {
-            const stats = await appStore.getAppStatsDetailed(APP_UID, {
-                period,
-            });
-            expect(stats.open_count).toBe(2);
-        },
-    );
+    it('reads each documented alias as its own window', async () => {
+        const uid = `${APP_UID}-aliases`;
+        // One account per window, each outside the narrower ones.
+        for (const [userId, at] of [
+            [11, NOW],
+            [12, new Date('2026-05-20T12:00:00Z')],
+            [13, new Date('2025-11-10T12:00:00Z')],
+            [14, new Date('2025-01-10T12:00:00Z')],
+        ]) {
+            await db.write(
+                'INSERT INTO app_opens (app_uid, user_id, ts) VALUES (?, ?, ?)',
+                [uid, userId, Math.floor(at.getTime() / 1000) - 60],
+            );
+        }
+        const opens = async (period) =>
+            (await appStore.getAppStatsDetailed(uid, { period })).open_count;
+        expect(await opens('month_to_date')).toBe(1);
+        expect(await opens('year_to_date')).toBe(2);
+        expect(await opens('last_12_months')).toBe(3);
+        expect(await opens('all')).toBe(4);
+    });
 
     it('refuses a grouping that would need more than 10,000 buckets', async () => {
         await expect(

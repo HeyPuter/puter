@@ -371,9 +371,8 @@ export class AlarmClient extends PuterClient {
 
     /**
      * Register an additional alert handler. Handlers are called for every alarm
-     * that isn't suppressed by a known-error rule or muted by config, and whose
-     * severity falls inside the handler's own `minSeverity`..`maxSeverity`
-     * window (default: everything).
+     * that isn't muted by config and whose severity falls inside the handler's
+     * own `minSeverity`..`maxSeverity` window (default: everything).
      */
     addAlertHandler(
         handler: AlertHandler,

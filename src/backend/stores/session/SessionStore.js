@@ -198,8 +198,8 @@ export class SessionStore extends PuterStore {
 
     /**
      * `getByUserId` for several users in one query. The caller bounds the list.
-     * `dropRecentlyEnded` leaves out rows whose uuid key is tombstoned: rows
-     * that ended moments ago and that a lagging replica still shows live.
+     * `dropRecentlyEnded` leaves out rows that ended moments ago and that a
+     * lagging replica still shows live.
      *
      * @param {number[]} userIds
      * @param {{
@@ -228,12 +228,29 @@ export class SessionStore extends PuterStore {
             .map((r) => this.#normalizeRow(r))
             .filter(Boolean);
         if (!dropRecentlyEnded || rows.length === 0) return rows;
-        const ended = await this.tombstonedCacheKeys(
+        const marked = await this.tombstonedCacheKeys(
             rows.map((r) => this.#cacheKey(r.uuid)),
         );
-        return ended.size === 0
-            ? rows
-            : rows.filter((r) => !ended.has(this.#cacheKey(r.uuid)));
+        if (marked.size === 0) return rows;
+        // A tombstone also marks a row that only changed (a rename), so the
+        // primary says which of them are still live.
+        const live = new Map();
+        const uuids = rows
+            .filter((r) => marked.has(this.#cacheKey(r.uuid)))
+            .map((r) => r.uuid);
+        for (const batch of chunk(uuids, REVOKE_CHUNK_SIZE)) {
+            const found = await this.clients.db.pread(
+                `SELECT * FROM \`sessions\` WHERE \`uuid\` IN (${batch.map(() => '?').join(', ')}) AND \`revoked_at\` IS NULL`,
+                batch,
+            );
+            for (const r of found) {
+                const row = this.#normalizeRow(r);
+                if (row) live.set(row.uuid, row);
+            }
+        }
+        return rows.flatMap((r) =>
+            marked.has(this.#cacheKey(r.uuid)) ? (live.get(r.uuid) ?? []) : r,
+        );
     }
 
     /**
@@ -562,9 +579,10 @@ export class SessionStore extends PuterStore {
      * it via `parent_session_id`. Broadcasts cache invalidation for each
      * affected row's uuid + composite keys.
      *
-     * Returns which rows were revoked — `{ userId, uuids }`, or null when there
-     * was nothing active to revoke. Callers use it to tear down anything else
-     * holding the session open; the rows are read here anyway, so reporting
+     * Returns which rows were revoked — `{ userId, uuids, accessTokenUids }`,
+     * or null when there was nothing active to revoke. Callers use it to tear
+     * down anything else holding the session open and to drop the grants of the
+     * access tokens among them; the rows are read here anyway, so reporting
      * them costs no extra query.
      */
     async revokeCascade(rootUuid) {
@@ -575,7 +593,8 @@ export class SessionStore extends PuterStore {
     /**
      * `revokeCascade` over many roots, batched so revoking all of a user's
      * sessions costs a few primary round trips rather than a few per session.
-     * Returns `{ userId, uuids }` for each user that had rows revoked.
+     * Returns `{ userId, uuids, accessTokenUids }` for each user that had rows
+     * revoked.
      *
      * A first-party page's session, revoked under its sign-in, is cascaded from
      * in turn: it has derived rows of its own.
@@ -585,7 +604,7 @@ export class SessionStore extends PuterStore {
     async revokeCascades(rootUuids) {
         const roots = [...new Set(rootUuids.filter(Boolean).map(String))];
         const queued = new Set(roots);
-        const uuidsByUser = new Map();
+        const byUser = new Map();
         // `roots` grows as it is walked, so each pass takes what is there.
         for (let i = 0; i < roots.length; ) {
             const batch = roots.slice(i, i + REVOKE_CHUNK_SIZE);
@@ -600,7 +619,7 @@ export class SessionStore extends PuterStore {
             // `getOrCreateApp` would short-circuit to the freshly-revoked row.
             // Primary read: see `removeByUuid`.
             const rows = await this.clients.db.pread(
-                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` ' +
+                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `access_token_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` ' +
                     `FROM \`sessions\` WHERE ${scope}`,
                 scopeParams,
             );
@@ -619,8 +638,16 @@ export class SessionStore extends PuterStore {
 
             for (const r of rows) {
                 const userId = Number(r.user_id);
-                if (!uuidsByUser.has(userId)) uuidsByUser.set(userId, []);
-                uuidsByUser.get(userId).push(String(r.uuid));
+                if (!byUser.has(userId)) {
+                    byUser.set(userId, { uuids: [], accessTokenUids: [] });
+                }
+                const entry = byUser.get(userId);
+                entry.uuids.push(String(r.uuid));
+                // v2 rows carry `access_token_uid`; v1 rows the legacy uid.
+                const tokenUid = r.access_token_uid ?? r.legacy_token_uid;
+                if (r.kind === 'access_token' && tokenUid) {
+                    entry.accessTokenUids.push(String(tokenUid));
+                }
                 if (
                     r.kind === 'web' &&
                     r.parent_session_id &&
@@ -631,7 +658,7 @@ export class SessionStore extends PuterStore {
                 }
             }
         }
-        return [...uuidsByUser].map(([userId, uuids]) => ({ userId, uuids }));
+        return [...byUser].map(([userId, entry]) => ({ userId, ...entry }));
     }
 
     /**
@@ -755,30 +782,6 @@ export class SessionStore extends PuterStore {
             [userId],
         );
         await this.#dropChangedRowKeys(rows);
-    }
-
-    /**
-     * Access-token identities among the rows `revokeCascade(rootUuid)` would
-     * affect — the root itself when it is a token row, plus any token row
-     * parented to it. Callers use these to drop grants that would otherwise
-     * outlive the revoked row. Must be read _before_ the cascade, while the
-     * rows still qualify as active.
-     *
-     * Both identity columns are consulted: v2 rows carry `access_token_uid`
-     * from mint, v1 rows get `legacy_token_uid` backfilled on first verify.
-     */
-    async accessTokenUidsForCascade(rootUuid) {
-        if (!rootUuid) return [];
-        const rows = await this.clients.db.pread(
-            "SELECT `access_token_uid`, `legacy_token_uid` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `kind` = 'access_token' AND `revoked_at` IS NULL",
-            [rootUuid, rootUuid],
-        );
-        const uids = [];
-        for (const row of rows) {
-            const uid = row.access_token_uid ?? row.legacy_token_uid;
-            if (uid) uids.push(uid);
-        }
-        return uids;
     }
 
     /**
