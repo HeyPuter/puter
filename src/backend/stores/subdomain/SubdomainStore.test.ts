@@ -1244,8 +1244,17 @@ describe('SubdomainStore.subdomainsRootedUnder', () => {
         expect(new Set(await store.subdomainsRootedUnder([base], 10))).toEqual(
             new Set([names[0], names[1]]),
         );
-        expect(await store.subdomainsRootedUnder([base], 1)).toHaveLength(1);
         expect(await store.subdomainsRootedUnder([], 10)).toEqual([]);
+
+        // A page at a time, in name order, until a short page ends it.
+        const [first, second] = [names[0], names[1]].sort();
+        expect(await store.subdomainsRootedUnder([base], 1)).toEqual([first]);
+        expect(await store.subdomainsRootedUnder([base], 1, first)).toEqual([
+            second,
+        ]);
+        expect(await store.subdomainsRootedUnder([base], 1, second)).toEqual(
+            [],
+        );
     });
 });
 

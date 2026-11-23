@@ -364,11 +364,12 @@ export class SubdomainStore extends PuterStore {
 
     /**
      * Names of the sites whose root folder is one of `dirs` or anywhere below
-     * them, at most `limit`.
+     * them, in name order: at most `limit`, starting past `after`.
      */
     async subdomainsRootedUnder(
         dirs: string[],
         limit: number,
+        after?: string,
     ): Promise<string[]> {
         if (dirs.length === 0 || limit < 1) return [];
         const conditions: string[] = [];
@@ -379,10 +380,15 @@ export class SubdomainStore extends PuterStore {
             );
             values.push(dir, `${escapeLike(dir)}/%`);
         }
+        if (after !== undefined) values.push(after);
         const rows = await this.clients.db.read(
             'SELECT DISTINCT `subdomains`.`subdomain` FROM `fsentries`' +
                 ' JOIN `subdomains` ON `fsentries`.`id` = `subdomains`.`root_dir_id`' +
-                ` WHERE ${conditions.join(' OR ')} LIMIT ?`,
+                ` WHERE (${conditions.join(' OR ')})` +
+                (after === undefined
+                    ? ''
+                    : ' AND `subdomains`.`subdomain` > ?') +
+                ' ORDER BY `subdomains`.`subdomain` LIMIT ?',
             [...values, limit],
         );
         return (rows as Array<{ subdomain: string }>).map(
