@@ -358,6 +358,7 @@ export class AlarmClient extends PuterClient {
             severity,
             dedup: opts.dedup,
             channel: opts.channel,
+            summary: opts.summary,
             started: Date.now(),
             // `recordOccurrence` below stamps the first occurrence; seeding one
             // here too would report every alarm as one occurrence ahead.
@@ -610,6 +611,7 @@ export class AlarmClient extends PuterClient {
             repeatCount,
             isRepeat: repeatCount > 1,
             ...(alarm.channel ? { channel: alarm.channel } : {}),
+            ...(alarm.summary ? { summary: alarm.summary } : {}),
             ...(callGroup ? { callGroup } : {}),
             custom: {
                 fields: fieldsClean,
