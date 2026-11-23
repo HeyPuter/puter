@@ -45,7 +45,7 @@ import { AIChatStream } from '../../interfaces/chat/utils/Streaming.js';
 // captured chunks back out so assertions can inspect the live
 // shape — no method spies on the stream classes.
 
-const makeCapturingChatStream = () => {
+const makeCapturingChatStream = (opts: { streamToolInput?: boolean } = {}) => {
     const chunks: string[] = [];
     const sink = new Writable({
         write(chunk, _enc, cb) {
@@ -53,7 +53,7 @@ const makeCapturingChatStream = () => {
             cb();
         },
     });
-    const chatStream = new AIChatStream({ stream: sink });
+    const chatStream = new AIChatStream({ stream: sink, ...opts });
     return {
         chatStream,
         events: () =>
@@ -1276,6 +1276,233 @@ describe('create_chat_stream_handler', () => {
         );
         const usage = events.find((e) => e.type === 'usage');
         expect(usage?.usage).toEqual({ prompt_tokens: 1 });
+    });
+
+    describe('tool-call deltas that differ from OpenAI’s shape', () => {
+        const toolCallChunk = (toolCalls: unknown[]) => ({
+            choices: [{ delta: { tool_calls: toolCalls } }],
+        });
+
+        /** Every chunk the stream wrote for `chunks` plus a closing usage chunk. */
+        const streamEvents = async (
+            chunks: unknown[],
+            opts: { streamToolInput?: boolean } = {},
+        ) => {
+            const init = create_chat_stream_handler({
+                deviations: undefined,
+                completion: asAsyncIterable([
+                    ...chunks,
+                    {
+                        choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+                        usage: { prompt_tokens: 1 },
+                    },
+                ]),
+                usage_calculator: () => ({}),
+            });
+            const harness = makeCapturingChatStream(opts);
+            await init({ chatStream: harness.chatStream });
+            return harness.events();
+        };
+
+        const streamToolUses = async (chunks: unknown[]) =>
+            (await streamEvents(chunks)).filter((e) => e.type === 'tool_use');
+
+        const twoCalls = [
+            {
+                index: 0,
+                id: 'a',
+                function: { name: 'f', arguments: '{"x":1}' },
+            },
+            {
+                index: 0,
+                id: 'b',
+                function: { name: 'g', arguments: '{"y":2}' },
+            },
+        ];
+
+        it('opens a separate call for each id that shares an index', async () => {
+            const tools = await streamToolUses([toolCallChunk(twoCalls)]);
+            expect(tools.map((e) => [e.id, e.name, e.input])).toEqual([
+                ['a', 'f', { x: 1 }],
+                ['b', 'g', { y: 2 }],
+            ]);
+        });
+
+        it('routes pieces by id when calls sharing an index alternate', async () => {
+            const piece = (id: string, args: string, name?: string) =>
+                toolCallChunk([
+                    {
+                        index: 0,
+                        id,
+                        function: name
+                            ? { name, arguments: args }
+                            : { arguments: args },
+                    },
+                ]);
+            const tools = await streamToolUses([
+                piece('a', '{"x":', 'f'),
+                piece('b', '{"y":', 'g'),
+                piece('a', '1}'),
+                piece('b', '2}'),
+            ]);
+            expect(tools.map((e) => [e.id, e.name, e.input])).toEqual([
+                ['a', 'f', { x: 1 }],
+                ['b', 'g', { y: 2 }],
+            ]);
+        });
+
+        it('keys calls by id when the upstream omits index', async () => {
+            const tools = await streamToolUses([
+                toolCallChunk(
+                    twoCalls.map(({ index: _index, ...call }) => call),
+                ),
+            ]);
+            expect(tools.map((e) => [e.id, e.name, e.input])).toEqual([
+                ['a', 'f', { x: 1 }],
+                ['b', 'g', { y: 2 }],
+            ]);
+        });
+
+        it('keeps a call together when every delta repeats its id', async () => {
+            const tools = await streamToolUses([
+                toolCallChunk([
+                    {
+                        index: 0,
+                        id: 'a',
+                        function: { name: 'f', arguments: '{"q":' },
+                    },
+                ]),
+                toolCallChunk([
+                    { index: 0, id: 'a', function: { arguments: '"p"}' } },
+                ]),
+            ]);
+            expect(tools).toHaveLength(1);
+            expect(tools[0].input).toEqual({ q: 'p' });
+        });
+
+        it('treats an empty id on a continuation as no id', async () => {
+            const tools = await streamToolUses([
+                toolCallChunk([
+                    {
+                        index: 0,
+                        id: 'a',
+                        function: { name: 'f', arguments: '{"q":' },
+                    },
+                ]),
+                toolCallChunk([
+                    { index: 0, id: '', function: { arguments: '"p"}' } },
+                ]),
+            ]);
+            expect(tools).toHaveLength(1);
+            expect(tools[0].id).toBe('a');
+            expect(tools[0].input).toEqual({ q: 'p' });
+        });
+
+        it('keeps a continuation that brings a new id but no name on its call', async () => {
+            const tools = await streamToolUses([
+                toolCallChunk([
+                    {
+                        index: 0,
+                        id: 'a',
+                        function: { name: 'f', arguments: '{"x":' },
+                    },
+                ]),
+                toolCallChunk([
+                    { index: 0, id: 'a2', function: { arguments: '1}' } },
+                ]),
+            ]);
+            expect(tools.map((e) => [e.id, e.name, e.input])).toEqual([
+                ['a', 'f', { x: 1 }],
+            ]);
+        });
+
+        it('keeps calls at different indexes apart when they repeat an id', async () => {
+            const tools = await streamToolUses([
+                toolCallChunk([
+                    {
+                        index: 0,
+                        id: 'a',
+                        function: { name: 'f', arguments: '{"x":1}' },
+                    },
+                ]),
+                toolCallChunk([
+                    {
+                        index: 1,
+                        id: 'a',
+                        function: { name: 'g', arguments: '{"y":2}' },
+                    },
+                ]),
+            ]);
+            expect(tools.map((e) => [e.name, e.input])).toEqual([
+                ['f', { x: 1 }],
+                ['g', { y: 2 }],
+            ]);
+        });
+
+        it('treats a delta without arguments as empty', async () => {
+            const tools = await streamToolUses([
+                toolCallChunk([{ index: 0, id: 'a', function: { name: 'f' } }]),
+                toolCallChunk([
+                    { index: 0, function: { arguments: '{"x":1}' } },
+                ]),
+            ]);
+            expect(tools).toHaveLength(1);
+            expect(tools[0].input).toEqual({ x: 1 });
+        });
+
+        it('serializes object arguments', async () => {
+            const tools = await streamToolUses([
+                toolCallChunk([
+                    {
+                        index: 0,
+                        id: 'a',
+                        function: { name: 'f', arguments: { x: 1 } },
+                    },
+                ]),
+            ]);
+            expect(tools).toHaveLength(1);
+            expect(tools[0].input).toEqual({ x: 1 });
+        });
+
+        it('emits the tool call when content and tool_calls share a delta', async () => {
+            const events = (
+                await streamEvents([
+                    {
+                        choices: [
+                            {
+                                delta: {
+                                    content: 'calling',
+                                    tool_calls: [
+                                        {
+                                            index: 0,
+                                            id: 'a',
+                                            function: {
+                                                name: 'f',
+                                                arguments: '{"x":1}',
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                ])
+            ).filter((e) => e.type === 'text' || e.type === 'tool_use');
+            expect(events.map((e) => e.type)).toEqual(['text', 'tool_use']);
+            expect(events[0].text).toBe('calling');
+            expect(events[1].input).toEqual({ x: 1 });
+        });
+
+        it('streams one tool_use_start per call when streamToolInput is set', async () => {
+            const events = await streamEvents([toolCallChunk(twoCalls)], {
+                streamToolInput: true,
+            });
+            expect(
+                events
+                    .filter((e) => e.type === 'tool_use_start')
+                    .map((e) => e.id),
+            ).toEqual(['a', 'b']);
+        });
     });
 });
 
