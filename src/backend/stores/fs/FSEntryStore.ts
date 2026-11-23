@@ -28,6 +28,10 @@ import type {
     BatchEntry,
     WriteResult,
 } from '../../clients/database/DatabaseClient.js';
+import {
+    execTogether,
+    type RedisStep,
+} from '../../clients/redis/execTogether.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { LayerInstances } from '../../types.js';
 import {
@@ -442,19 +446,20 @@ export class FSEntryStore extends PuterStore {
     async #writeEntriesToCache(entries: FSEntry[]): Promise<void> {
         if (entries.length === 0) return;
         try {
-            const pipeline = this.clients.redis.pipeline();
+            const steps: RedisStep[] = [];
             for (const entry of entries) {
                 if (!entry.path) continue;
                 const serialized = JSON.stringify(entry);
                 for (const cacheKey of this.#entryCacheKeys(entry)) {
-                    pipeline.setex(
+                    steps.push([
+                        'setex',
                         cacheKey,
                         ENTRY_CACHE_TTL_SECONDS,
                         serialized,
-                    );
+                    ]);
                 }
             }
-            await pipeline.exec();
+            await execTogether(this.clients.redis, steps);
         } catch {
             // Best effort cache write.
         }

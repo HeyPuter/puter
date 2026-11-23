@@ -277,7 +277,7 @@ describe('SpeechifyTTSProvider.synthesize request shape', () => {
 
         await withTestActor(() =>
             provider.synthesize({
-                text: 'Tom & Jerry <3 <break time="1s"/> &amp; more, a<b &nbsp;',
+                text: 'Tom & Jerry <3 <break time="1s"/> &amp; more, a<b &nbsp; Hello<break/>world',
             }),
         );
 
@@ -285,7 +285,7 @@ describe('SpeechifyTTSProvider.synthesize request shape', () => {
             (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
         );
         expect(body.input).toBe(
-            '<speak>Tom &amp; Jerry &lt;3 <break time="1s"/> &amp; more, a&lt;b &amp;nbsp;</speak>',
+            '<speak>Tom &amp; Jerry &lt;3 <break time="1s"/> &amp; more, a&lt;b &amp;nbsp; Hello<break/>world</speak>',
         );
     });
 

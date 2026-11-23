@@ -20,6 +20,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
+import { execTogether } from '../../clients/redis/execTogether.js';
 import { awaitLater, chunk } from '../../util/concurrency.js';
 import {
     isMissingParentViolation,
@@ -559,16 +560,16 @@ export class SessionStore extends PuterStore {
                 }
             }
             if (revoked.length === 0) return;
-            const pipeline = this.clients.redis.pipeline();
-            for (const row of revoked) {
-                pipeline.set(
+            await execTogether(
+                this.clients.redis,
+                revoked.map((row) => [
+                    'set',
                     this.#cacheKey(row.uuid),
                     JSON.stringify(row),
                     'EX',
                     CACHE_TTL_SECONDS,
-                );
-            }
-            await pipeline.exec();
+                ]),
+            );
         } catch {
             // No entry is the safe miss; the tombstone sends it to the primary.
         }

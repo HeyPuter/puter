@@ -2458,8 +2458,16 @@ describe('MeteringService', () => {
             expect(allowed.remaining).toBe(sub.monthUsageAllowance - 1_000_000);
         });
 
-        it('charges concurrent first usages of a month to the allowance once each', async () => {
+        it('folds the legacy baseline in exactly once under concurrent increments', async () => {
             const sub = await target.getActorSubscription(actor);
+            const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
+
+            // Legacy spend with no split recorded — one page load then fires
+            // many metered requests at once, all seeing the field absent.
+            await server.stores.meteringBuffer.incr({
+                key: `${METRICS_V2_PREFIX}:actor:${actor.user.uuid}:${month}`,
+                pathAndAmountMap: { total: 10_000 },
+            });
 
             await Promise.all(
                 Array.from({ length: 8 }, () =>
@@ -2469,10 +2477,12 @@ describe('MeteringService', () => {
 
             const { usage } =
                 await target.getActorCurrentMonthUsageDetails(actor);
-            expect(usage.total).toBe(8_000);
-            expect(usage.allowanceUsed).toBe(8_000);
+            expect(usage.total).toBe(18_000);
+            // Without the claim, every concurrent settle re-adds the ~10_000
+            // baseline and the month reads as nearly exhausted.
+            expect(usage.allowanceUsed).toBe(18_000);
             const allowed = await target.getAllowedUsage(actor);
-            expect(allowed.remaining).toBe(sub.monthUsageAllowance - 8_000);
+            expect(allowed.remaining).toBe(sub.monthUsageAllowance - 18_000);
         });
 
         it('counts consumed credits from prior months against the credit pool only', async () => {

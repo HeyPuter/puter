@@ -48,6 +48,11 @@ export type UsageByType = {
      */
     allowanceUsed?: number;
     /**
+     * Claim counter for folding the pre-split baseline into `allowanceUsed`; 1
+     * for the winner, higher for racers.
+     */
+    allowanceUsedBaselined?: number;
+    /**
      * Claim for the month's recurring charges (`MONTHLY_CHARGE_CLAIM`): the
      * token of the attempt that took it, or a claim count on older records.
      */

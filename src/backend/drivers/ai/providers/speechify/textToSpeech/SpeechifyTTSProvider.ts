@@ -69,7 +69,7 @@ const SPEECHIFY_TTS_VOICES = [
 const escapeSsmlText = (text: string): string =>
     text
         .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[\da-f]+);)/gi, '&amp;')
-        .replace(/<(?!\/?[a-z][\w:.-]*(?:\s[^<>]*)?>)/gi, '&lt;');
+        .replace(/<(?!\/?[a-z][\w:.-]*(?:\s[^<>]*)?\/?>)/gi, '&lt;');
 
 const CONTENT_TYPES: Record<string, string> = {
     mp3: 'audio/mpeg',

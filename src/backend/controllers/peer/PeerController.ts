@@ -23,6 +23,7 @@ import { abortOnDisconnect } from '../../core/http/abortOnDisconnect.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { computeNetworkFingerprint } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
+import type { UsageInput } from '../../services/metering/types.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { PuterController } from '../types.js';
 import { PEER_COSTS } from './costs.js';
@@ -212,7 +213,8 @@ export class PeerController extends PuterController {
                             ? verifyGuestGrant({
                                   grant: (
                                       req.body as
-                                          { grant?: unknown } | undefined
+                                          | { grant?: unknown }
+                                          | undefined
                                   )?.grant,
                                   secret,
                               })
@@ -430,8 +432,8 @@ export class PeerController extends PuterController {
     /**
      * POST /turn/ingest-usage — internal-only TURN egress metering. an external
      * service that knows the usage information from cloudflare will send it to
-     * us here. Meters each record directly against the owning user via
-     * `services.metering.incrementUsage` multiplied by turn:egress-bytes cost.
+     * us here. Meters each record against the owning user at the
+     * turn:egress-bytes cost, one metering call per user.
      */
     #ingestUsage = async (req: Request, res: Response): Promise<void> => {
         const { records } = req.body ?? {};
@@ -441,8 +443,8 @@ export class PeerController extends PuterController {
             });
         }
 
-        // One metering call per user, for the bytes of all their records.
-        const bytesByUser = new Map<string, number>();
+        // One metering call per user, each record still its own usage.
+        const usagesByUser = new Map<string, UsageInput[]>();
         for (const record of records) {
             if (!record || typeof record !== 'object') continue;
             const egressBytes = Number(record.egressBytes ?? 0);
@@ -452,21 +454,22 @@ export class PeerController extends PuterController {
                 ? base64urlToUuid(String(record.userId))
                 : null;
             if (!userUuid) continue;
-            bytesByUser.set(
-                userUuid,
-                (bytesByUser.get(userUuid) ?? 0) + egressBytes,
-            );
+            const usages = usagesByUser.get(userUuid) ?? [];
+            usages.push({
+                usageType: 'turn:egress-bytes',
+                usageAmount: egressBytes,
+                costOverride: egressBytes * PEER_COSTS['turn:egress-bytes'],
+            });
+            usagesByUser.set(userUuid, usages);
         }
 
         await runWithConcurrencyLimit(
-            [...bytesByUser],
+            [...usagesByUser],
             INGEST_CONCURRENCY,
-            async ([userUuid, egressBytes]) => {
+            async ([userUuid, usages]) => {
                 try {
                     const user = await this.stores.user.getByUuid(userUuid);
                     if (!user) return;
-                    const costInMicrocents =
-                        egressBytes * PEER_COSTS['turn:egress-bytes'];
                     const actor = makeActor({
                         user: {
                             uuid: user.uuid,
@@ -475,11 +478,9 @@ export class PeerController extends PuterController {
                             email: user.email ?? null,
                         },
                     });
-                    await this.services.metering.incrementUsage(
+                    await this.services.metering.batchIncrementUsages(
                         actor,
-                        'turn:egress-bytes',
-                        egressBytes,
-                        costInMicrocents,
+                        usages,
                     );
                 } catch (e) {
                     console.warn(

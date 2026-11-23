@@ -21,6 +21,7 @@ import type { TeamStoreContract } from '../core/teams.js';
 
 import type { puterClients } from '../clients';
 import { sendAsUndo } from '../clients/redis/commandTimeout.js';
+import { execTogether, type RedisStep } from '../clients/redis/execTogether.js';
 import type { IExtensionClientInstances } from '../clients/types';
 import type { IConfig, LayerInstances, WithLifecycle } from '../types';
 
@@ -98,16 +99,17 @@ export interface RowCacheOptions<T> {
 
 type InFlightLoad = { json: string | null } | { error: unknown };
 
-/** One pipelined round of GETs; a miss, or any failure, reads as null. */
+/** One round of GETs; a miss, or any failure, reads as null. */
 export const readCacheValues = async (
     redis: Pick<LayerInstances<typeof puterClients>['redis'], 'pipeline'>,
     keys: string[],
 ): Promise<Array<string | null>> => {
     if (keys.length === 0) return [];
     try {
-        const pipeline = redis.pipeline();
-        for (const key of keys) pipeline.get(key);
-        const results = (await pipeline.exec()) ?? [];
+        const results = await execTogether(
+            redis,
+            keys.map((key) => ['get', key]),
+        );
         return keys.map((_, i) => {
             const raw = results[i]?.[1];
             return typeof raw === 'string' ? raw : null;
@@ -282,13 +284,20 @@ export class RowCache<T extends object> {
                 (e) => !e.keys.some((key) => before.has(key)),
             );
             if (live.length === 0) return;
-            const pipeline = this.host.redis().pipeline();
-            for (const { keys, json } of live) {
-                for (const key of keys) {
-                    pipeline.set(key, json, 'EX', this.options.ttlSeconds);
-                }
-            }
-            await pipeline.exec();
+            await execTogether(
+                this.host.redis(),
+                live.flatMap(({ keys, json }) =>
+                    keys.map(
+                        (key): RedisStep => [
+                            'set',
+                            key,
+                            json,
+                            'EX',
+                            this.options.ttlSeconds,
+                        ],
+                    ),
+                ),
+            );
             // A row cached under a live tombstone is never re-checked.
             const after = await this.host.tombstoned(
                 live.flatMap((e) => e.keys),
@@ -393,16 +402,14 @@ export const PuterStore = class PuterStore implements WithLifecycle {
         );
 
         try {
-            const pipeline = this.clients.redis.pipeline();
-            if (serializedData === undefined) {
-                for (const key of keys) pipeline.del(key);
-            } else {
-                for (const key of keys) {
-                    pipeline.set(key, serializedData, 'EX', ttl);
-                }
-            }
+            const steps = keys.map(
+                (key): RedisStep =>
+                    serializedData === undefined
+                        ? ['del', key]
+                        : ['set', key, serializedData, 'EX', ttl],
+            );
             // Sent while failing fast: a dropped one leaves the old entry live.
-            await sendAsUndo(() => pipeline.exec());
+            await sendAsUndo(() => execTogether(this.clients.redis, steps));
         } catch {
             console.warn(
                 '[PuterStore] publishCacheKeys failed to update local cache:',
@@ -497,11 +504,13 @@ export const PuterStore = class PuterStore implements WithLifecycle {
         const tombstoned = new Set<string>();
         if (keys.length === 0) return { raw, tombstoned };
         try {
-            const pipeline = this.clients.redis.pipeline();
-            for (const key of keys) {
-                pipeline.get(key).exists(key + CACHE_TOMBSTONE_SUFFIX);
-            }
-            const results = (await pipeline.exec()) ?? [];
+            const results = await execTogether(
+                this.clients.redis,
+                keys.flatMap((key): RedisStep[] => [
+                    ['get', key],
+                    ['exists', key + CACHE_TOMBSTONE_SUFFIX],
+                ]),
+            );
             keys.forEach((key, i) => {
                 const value = results[2 * i]?.[1];
                 raw[i] = typeof value === 'string' ? value : null;
@@ -518,11 +527,10 @@ export const PuterStore = class PuterStore implements WithLifecycle {
         const deleted = new Set<string>();
         if (keys.length === 0) return deleted;
         try {
-            const pipeline = this.clients.redis.pipeline();
-            for (const key of keys) {
-                pipeline.exists(key + CACHE_TOMBSTONE_SUFFIX);
-            }
-            const results = (await pipeline.exec()) ?? [];
+            const results = await execTogether(
+                this.clients.redis,
+                keys.map((key) => ['exists', key + CACHE_TOMBSTONE_SUFFIX]),
+            );
             keys.forEach((key, i) => {
                 if (Number(results[i]?.[1]) > 0) deleted.add(key);
             });

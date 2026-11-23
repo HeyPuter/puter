@@ -23,6 +23,7 @@ import {
     PuterStore,
     readCacheValues,
 } from '../types';
+import { execTogether } from '../../clients/redis/execTogether.js';
 import type { LayerInstances } from '../../types';
 import type { puterStores } from '../index';
 import { PermissionUtil } from '../../services/permission/permissionUtil';
@@ -2176,7 +2177,7 @@ export class PermissionStore extends PuterStore {
     ): Promise<Map<string, boolean>> {
         const out = new Map<string, boolean>();
         if (permissions.length === 0) return out;
-        // Pipelined GETs, not MGET: the keys span cluster slots.
+        // Single-key GETs, not MGET: the keys span cluster slots.
         const raw = await readCacheValues(
             this.clients.redis,
             permissions.map((p) =>
@@ -2198,17 +2199,17 @@ export class PermissionStore extends PuterStore {
         ttlSeconds: number = PERMISSION_SCAN_CACHE_TTL_SECONDS,
     ): Promise<void> {
         if (entries.length === 0) return;
-        const pipeline = this.clients.redis.pipeline();
-        for (const { permission, granted } of entries) {
-            pipeline.set(
-                this.#checkCacheKey(actorUid, permission, generation),
-                granted ? '1' : '0',
-                'EX',
-                ttlSeconds,
-            );
-        }
         try {
-            await pipeline.exec();
+            await execTogether(
+                this.clients.redis,
+                entries.map(({ permission, granted }) => [
+                    'set',
+                    this.#checkCacheKey(actorUid, permission, generation),
+                    granted ? '1' : '0',
+                    'EX',
+                    ttlSeconds,
+                ]),
+            );
         } catch {
             // Best-effort cache write.
         }

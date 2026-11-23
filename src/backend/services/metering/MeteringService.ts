@@ -2923,6 +2923,14 @@ export class MeteringService extends PuterService {
      * lifetime credit pool. Each spend lands in exactly one pool, which is what
      * lets `remainingFrom` sum them independently.
      *
+     * A month record without `allowanceUsed` predates the split; its first
+     * settled increment folds the fallback baseline into the write, so the
+     * record answers directly from then on and no balance moves on the deploy
+     * that introduced the field. Writing the baseline is guarded by a claim
+     * counter (the `monthlyChargesApplied` pattern): concurrent increments —
+     * one page load meters many responses at once — all see the field absent,
+     * and without the claim each would add the baseline again.
+     *
      * Returns the month's allowance-charged spend as of after this settle —
      * `usageRecord` itself predates the write, so callers deciding on the
      * balance must use this rather than re-read the record they hold.
@@ -2949,6 +2957,19 @@ export class MeteringService extends PuterService {
             incrementCost,
         );
 
+        let baseline = 0;
+        if (usageRecord.allowanceUsed === undefined && usedBefore > 0) {
+            const { res } = await this.stores.meteringBuffer.incr({
+                key: actorUsageKey,
+                pathAndAmountMap: { allowanceUsedBaselined: 1 },
+            });
+            const claim = (res as unknown as UsageByType)
+                .allowanceUsedBaselined;
+            if (claim === 1) {
+                baseline = usedBefore;
+            }
+        }
+
         const headroom = Math.max(0, monthUsageAllowance - usedBefore);
         const allowanceCharge = Math.min(incrementCost, headroom);
         const overage = incrementCost - allowanceCharge;
@@ -2966,11 +2987,13 @@ export class MeteringService extends PuterService {
                 }),
             );
         }
-        if (allowanceCharge > 0) {
+        if (baseline + allowanceCharge > 0) {
             writes.push(
                 this.stores.meteringBuffer.incr({
                     key: actorUsageKey,
-                    pathAndAmountMap: { allowanceUsed: allowanceCharge },
+                    pathAndAmountMap: {
+                        allowanceUsed: baseline + allowanceCharge,
+                    },
                 }),
             );
         }

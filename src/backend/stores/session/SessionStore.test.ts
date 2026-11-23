@@ -647,6 +647,35 @@ describe('SessionStore', () => {
             ).not.toBeNull();
         });
 
+        it('keeps a revoked row revoked on a cluster that cannot pipeline a row with its tombstone', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id);
+            const live = { [session.uuid]: await rawRow(session.uuid) };
+            const redis = server.clients.redis;
+            const realPipeline = redis.pipeline.bind(redis);
+            // What ioredis answers when a pipeline's keys span shards.
+            const sharded = vi.spyOn(redis, 'pipeline').mockImplementation(() => {
+                const pipeline = realPipeline();
+                pipeline.exec = () =>
+                    Promise.reject(
+                        new Error(
+                            'All keys in the pipeline should belong to the same slots allocation group',
+                        ),
+                    );
+                return pipeline;
+            });
+            const restore = lagReplica(live);
+            try {
+                await target.revokeCascade(session.uuid);
+                // A peer region holds the tombstone but no row.
+                await redis.del(`sessions:v2:uuid:${session.uuid}`);
+                expect(await target.getByUuid(session.uuid)).toBeNull();
+            } finally {
+                restore();
+                sharded.mockRestore();
+            }
+        });
+
         it('revokes a session the replica has not seen yet', async () => {
             const user = await makeUser();
             const parent = await target.create(user.id);
