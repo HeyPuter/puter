@@ -206,9 +206,7 @@ describe('ZAIProvider model catalog', () => {
 
     it('prices glm-5.3-flashx at its list rates', () => {
         const { provider } = makeProvider();
-        const flashx = provider
-            .models()
-            .find((m) => m.id === 'glm-5.3-flashx');
+        const flashx = provider.models().find((m) => m.id === 'glm-5.3-flashx');
         expect(flashx?.costs).toMatchObject({
             prompt_tokens: 37,
             completion_tokens: 125,
@@ -223,7 +221,11 @@ describe('ZAIProvider model catalog', () => {
         const imageIds = models
             .filter((m) => modelSupportsModality(m, 'image'))
             .map((m) => m.id);
-        expect(imageIds).toEqual(['glm-5.3-flash', 'glm-5.3-flashx']);
+        expect(imageIds).toEqual([
+            'glm-5.3-flashx-legal',
+            'glm-5.3-flash',
+            'glm-5.3-flashx',
+        ]);
         for (const m of models) {
             expect(m.modalities?.output).toEqual(['text']);
             expect(modelSupportsModality(m, 'video')).toBe(false);

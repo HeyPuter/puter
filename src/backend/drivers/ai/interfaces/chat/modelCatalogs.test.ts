@@ -43,8 +43,8 @@
  *
  * Add new static catalogs to CATALOGS below — the last test in this file fails
  * if one is missing, since a catalog nobody registered is a catalog none of
- * this checks. (Its scan keys on filenames containing "model"; see the note
- * on that test.)
+ * this checks. (Its scan keys on filenames containing "model"; see the note on
+ * that test.)
  */
 
 import { existsSync, readdirSync } from 'node:fs';
@@ -263,3 +263,42 @@ describe('CATALOGS', () => {
         expect([...found].sort()).toEqual([...registered.keys()].sort());
     });
 });
+
+describe('provider catalog additions', () => {
+    it.each([
+        [MISTRAL_MODELS, 'zai-glm-5-3-flash', 15, 50, 3],
+        [MISTRAL_MODELS, 'deepseek-v4-1-flash-1017', 30, 120, 0.7],
+        [ZAI_MODELS, 'glm-5.3-flashx-legal', 37, 125, 7.5],
+        [MINIMAX_MODELS, 'minimax-m3.1-flash', 15, 60, 1.5],
+        [BYTEPLUS_MODELS, 'deepseek-v4-1-flash-261017', 30, 120, 0.6],
+        [BYTEPLUS_MODELS, 'deepseek-v4-1-flash-economy-261017', 24, 96, 0.5],
+    ] as const)(
+        'publishes verified prices for %s / %s',
+        (models, id, input, output, cached) => {
+            const model = models.find((entry) => entry.id === id);
+            expect(model?.costs).toMatchObject({
+                prompt_tokens: input,
+                completion_tokens: output,
+                cached_tokens: cached,
+            });
+            expect(model?.modalities?.input).toContain('image');
+        },
+    );
+});
+
+it.each([
+    ['mindlab/macaron-v1.1-venti-pro', 200, 1000, 10],
+    ['kimi-k3.1-pro', 200, 1000, 20],
+    ['ZHIPU/GLM-5.3', 140, 440, 26],
+] as const)(
+    'publishes Alibaba International prices for %s',
+    (id, input, output, cached) => {
+        expect(
+            ALIBABA_MODELS.find((model) => model.id === id)?.costs,
+        ).toMatchObject({
+            prompt_tokens: input,
+            completion_tokens: output,
+            cached_tokens: cached,
+        });
+    },
+);

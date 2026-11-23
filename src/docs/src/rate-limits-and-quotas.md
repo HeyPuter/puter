@@ -196,7 +196,7 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 
 ### Video generation
 
-[`puter.ai.txt2vid()`](/AI/txt2vid) waits up to 14 minutes for a clip. These limits apply to Gemini Omni (`gemini-omni-1.1-flash`) on top of the AI limits above:
+[`puter.ai.txt2vid()`](/AI/txt2vid) waits up to 14 minutes for a clip. These limits apply to Gemini Omni (`gemini-omni-1.1-flash` and `gemini-omni-1.2-flash`) on top of the AI limits above:
 
 | Limit | Value |
 |-------|-------|

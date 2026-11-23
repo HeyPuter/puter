@@ -21,6 +21,63 @@ import type { IChatModel } from '../../../interfaces/chat/types.js';
 
 // Hardcoded from https://models.dev/api.json
 export const ALIBABA_MODELS: IChatModel[] = [
+    {
+        puterId: 'alibaba:mindlab/macaron-v1.1-venti-pro',
+        id: 'mindlab/macaron-v1.1-venti-pro',
+        name: 'Macaron V1.1 Venti Pro',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 1_048_576,
+        max_tokens: 131_072,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200,
+            completion_tokens: 1000,
+            cached_tokens: 10,
+        },
+    },
+    {
+        puterId: 'alibaba:moonshotai/kimi-k3.1-pro',
+        id: 'kimi-k3.1-pro',
+        name: 'Kimi K3.1 Pro',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        context: 1_048_576,
+        max_tokens: 1048576,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200,
+            completion_tokens: 1000,
+            cached_tokens: 20,
+        },
+    },
+    {
+        puterId: 'alibaba:zhipu/glm-5.3',
+        id: 'ZHIPU/GLM-5.3',
+        name: 'GLM-5.3',
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        context: 1_048_576,
+        max_tokens: 131072,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 140,
+            completion_tokens: 440,
+            cached_tokens: 26,
+        },
+    },
     // -- Commercial flagship ----------------------------------------
     {
         puterId: 'alibaba:qwen/qwen-max',

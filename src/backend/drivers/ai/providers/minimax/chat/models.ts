@@ -30,6 +30,31 @@ export const MINIMAX_MODELS: MiniMaxChatModel[] = [
     // -- MiniMax M3 (Flagship) --------------------------------------
     // MiniMax Sparse Attention, 1M context, native multimodal input.
     {
+        puterId: 'minimax:minimax/minimax-m3.1-flash',
+        id: 'minimax-m3.1-flash',
+        apiModel: 'MiniMax-M3.1-Flash',
+        name: 'MiniMax M3.1 Flash',
+        aliases: [
+            'minimax/minimax-m3.1-flash',
+            'MiniMax-M3.1-Flash',
+            'minimax/MiniMax-M3.1-Flash',
+        ],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        context: 1_048_576,
+        max_tokens: 512_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 15,
+            completion_tokens: 60,
+            cached_tokens: 1.5,
+        },
+    },
+    {
         puterId: 'minimax:minimax/minimax-m3',
         id: 'minimax-m3',
         apiModel: 'MiniMax-M3',
