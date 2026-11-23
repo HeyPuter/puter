@@ -2634,7 +2634,17 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async emptyTrash () {
-        await window.empty_trash();
+        await window.empty_trash({
+            confirm: async () => await UIDashboardDialog({
+                message: i18n('empty_trash_confirmation'),
+                tone: 'danger',
+                buttons: [
+                    { label: i18n('cancel', [], false), value: false, type: 'quiet' },
+                    { label: i18n('empty_trash', [], false), value: true, type: 'danger' },
+                ],
+                $container: this.$el_window,
+            }) === true,
+        });
         this.syncEmptiedTrash();
     },
 
@@ -5094,6 +5104,7 @@ const TabFiles = {
                 await _this.restoreRows([el]);
             },
             onPasteInto: (destPath) => _this.pasteClipboardInto(destPath),
+            onEmptyTrash: () => _this.emptyTrash(),
             // The people filter and its counts, the empty notice and the
             // footer all come from the listing.
             onRemovedFromShared: () => {

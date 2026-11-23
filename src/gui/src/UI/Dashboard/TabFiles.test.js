@@ -97,6 +97,28 @@ describe('TabFiles emptying the Trash', () => {
         expect(footer()).toContain('0 items');
     });
 
+    it('asks in the dashboard\'s own dialog and empties only on confirm', async () => {
+        mountListing(['a.txt']);
+        const { default: UIDashboardDialog } = await import('./UIDashboardDialog.js');
+        const answers = [];
+        window.empty_trash = vi.fn(async ({ confirm }) => {
+            answers.push(await confirm());
+        });
+
+        UIDashboardDialog.mockClear();
+        UIDashboardDialog.mockResolvedValueOnce(false);
+        await TabFiles.emptyTrash();
+        UIDashboardDialog.mockResolvedValueOnce(true);
+        await TabFiles.emptyTrash();
+
+        expect(UIDashboardDialog).toHaveBeenCalledWith(expect.objectContaining({
+            tone: 'danger',
+            $container: TabFiles.$el_window,
+        }));
+        expect(UIDashboardDialog.mock.calls[0][0].message).toMatch(/permanently delete the items in Trash/);
+        expect(answers).toEqual([false, true]);
+    });
+
     it('leaves a Trash the user chose not to empty as it was', async () => {
         mountListing(['a.txt']);
         window.empty_trash = vi.fn(async () => {});
