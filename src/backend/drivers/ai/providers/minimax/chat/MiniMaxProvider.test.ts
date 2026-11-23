@@ -148,7 +148,7 @@ describe('MiniMaxProvider model catalog', () => {
 
     it('uses MiniMax completion-token limits instead of the context window', () => {
         for (const model of MINIMAX_MODELS) {
-            if (model.id === 'minimax-m3') {
+            if (['minimax-m3', 'minimax-m3.1-flash'].includes(model.id)) {
                 expect(model.context).toBe(1_048_576);
                 expect(model.max_tokens).toBe(512_000);
                 continue;

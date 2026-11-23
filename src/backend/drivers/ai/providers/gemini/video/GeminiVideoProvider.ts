@@ -47,6 +47,7 @@ import { VideoProvider } from '../../../interfaces/video/VideoProvider.js';
 import {
     GEMINI_OMNI_COSTS,
     GEMINI_OMNI_MODEL,
+    GEMINI_OMNI_MODEL_COSTS,
     GEMINI_VIDEO_GENERATION_MODELS,
 } from './models.js';
 
@@ -122,6 +123,7 @@ interface OmniSize {
 }
 
 interface OmniRequest extends OmniSize {
+    model: string;
     prompt: string;
     inputReference?: string;
     inputVideo?: string;
@@ -193,8 +195,7 @@ interface Interaction {
 }
 
 type CountTokensPart =
-    | { text: string }
-    | { inlineData: { mimeType: string; data: string } };
+    { text: string } | { inlineData: { mimeType: string; data: string } };
 
 interface CountTokensRequest {
     contents: { parts: CountTokensPart[] }[];
@@ -330,6 +331,7 @@ export class GeminiVideoProvider extends VideoProvider {
                 : await this.#loadImage(actor, request.inputReference, signal);
 
         const inputTokens = await this.#countTokens(
+            request.model,
             request.prompt,
             image,
             signal,
@@ -344,7 +346,7 @@ export class GeminiVideoProvider extends VideoProvider {
 
         // The video allowance covers verified 4K usage, with a separate text
         // and thinking allowance. Neither is a guaranteed spending bound.
-        const costs = GEMINI_OMNI_COSTS;
+        const costs = GEMINI_OMNI_MODEL_COSTS[request.model];
         const videoInputAllowance =
             request.inputVideo === undefined
                 ? 0
@@ -354,7 +356,7 @@ export class GeminiVideoProvider extends VideoProvider {
             VIDEO_RESERVATION_ALLOWANCE * costs.outputVideo +
             TEXT_RESERVATION_ALLOWANCE * costs.outputText;
         const metering = this.#deps.metering;
-        const usagePrefix = `gemini-video-generation:${GEMINI_OMNI_MODEL}`;
+        const usagePrefix = `gemini-video-generation:${request.model}`;
         const hold = await metering.reserveAiCredits(
             actor,
             usagePrefix,
@@ -423,7 +425,12 @@ export class GeminiVideoProvider extends VideoProvider {
 
     /** Validates every option before any I/O, test mode included. */
     #readRequest(params: IGenerateVideoParams): OmniRequest {
-        if (params.model !== undefined && params.model !== GEMINI_OMNI_MODEL) {
+        if (
+            params.model !== undefined &&
+            !GEMINI_VIDEO_GENERATION_MODELS.some(
+                (model) => model.id === params.model,
+            )
+        ) {
             throw badRequest(
                 `Unsupported model: ${String(params.model)}. Expected: ${GEMINI_OMNI_MODEL}`,
             );
@@ -472,6 +479,7 @@ export class GeminiVideoProvider extends VideoProvider {
             );
         }
         return {
+            model: params.model ?? GEMINI_OMNI_MODEL,
             prompt,
             ...this.#readSize(params),
             ...(isSet(inputReference)
@@ -642,6 +650,7 @@ export class GeminiVideoProvider extends VideoProvider {
 
     /** Input tokens for the prompt and image, counted as they will be sent. */
     async #countTokens(
+        model: string,
         prompt: string,
         image: InlineImage | undefined,
         signal: AbortSignal | undefined,
@@ -652,7 +661,7 @@ export class GeminiVideoProvider extends VideoProvider {
         const request: CountTokensRequest = { contents: [{ parts }] };
         const reply = await postGeminiJson<CountTokensReply>(
             this.#apiKey,
-            `models/${GEMINI_OMNI_MODEL}:countTokens`,
+            `models/${model}:countTokens`,
             request,
             {
                 label: 'Gemini token count',
@@ -687,7 +696,7 @@ export class GeminiVideoProvider extends VideoProvider {
                   data: image.data,
               };
         const body: InteractionRequest = {
-            model: GEMINI_OMNI_MODEL,
+            model: request.model,
             input: media
                 ? [media, { type: 'text', text: request.prompt }]
                 : request.prompt,

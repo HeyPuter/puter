@@ -64,6 +64,22 @@ const VISION = ['text', 'image', 'video'];
 // is deliberately left out of `modalities` to keep metering honest.
 export const BYTEPLUS_MODELS: IChatModel[] = [
     bytePlusModel(
+        'deepseek-v4-1-flash-261017',
+        'DeepSeek V4.1 Flash 1017',
+        1_024 * K,
+        384 * K,
+        usdPerMToken(0.3, 1.2, 0.006),
+        { input: ['text', 'image'] },
+    ),
+    bytePlusModel(
+        'deepseek-v4-1-flash-economy-261017',
+        'DeepSeek V4.1 Flash Economy 1017',
+        1_024 * K,
+        384 * K,
+        usdPerMToken(0.24, 0.96, 0.005),
+        { input: ['text', 'image'] },
+    ),
+    bytePlusModel(
         'dola-seed-2-1-turbo-260628',
         'Dola Seed 2.1 Turbo',
         256 * K,

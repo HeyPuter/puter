@@ -108,7 +108,7 @@ puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary f
 
 ## Video input
 
-Four models can change a video you supply: Gemini Omni (`gemini-omni-1.1-flash`), FLUX 3 on Together AI (`black-forest-labs/flux-3`), and Kling 3.0 Omni (`kling-3.0-omni`) and Kling O1 (`kling-o1`). Pass the video as `inputVideo` and describe the change in the prompt, such as "Make this dog a dinosaur". The result is a new clip that keeps the scene and motion of your video.
+These models can change a video you supply: Gemini Omni (`gemini-omni-1.1-flash` and `gemini-omni-1.2-flash`), FLUX 3 on Together AI (`black-forest-labs/flux-3`), and Kling 3.0 Omni (`kling-3.0-omni`) and Kling O1 (`kling-o1`). Pass the video as `inputVideo` and describe the change in the prompt, such as "Make this dog a dinosaur". The result is a new clip that keeps the scene and motion of your video.
 
 ```js
 const video = await puter.ai.txt2vid("Make this dog a dinosaur", {
@@ -245,7 +245,7 @@ For more details, see the [BytePlus ModelArk video generation reference](https:/
 
 ### Gemini Omni models
 
-Available when using `gemini-omni-1.1-flash` (provider `'gemini-video-generation'`), which also answers to `google/gemini-omni-1.1-flash`. It generates a clip from a prompt, from a prompt and one starting image, or from a prompt and a video to edit. The model picks the clip length and renders at 24 frames per second. When editing an `inputVideo`, the prompt can also ask it to continue the clip past its end.
+Available when using `gemini-omni-1.1-flash` or `gemini-omni-1.2-flash` (provider `'gemini-video-generation'`). Each also answers to its `google/` prefixed name. It generates a clip from a prompt, from a prompt and one starting image, or from a prompt and a video to edit. The model picks the clip length and renders at 24 frames per second. When editing an `inputVideo`, the prompt can also ask it to continue the clip past its end.
 
 | `size` | 16:9 (default) | 9:16 |
 |--------|----------------|------|

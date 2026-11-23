@@ -327,6 +327,24 @@ const pngDataUri = `data:image/png;base64,${PNG_BASE64}`;
 // -- Catalog and routing --
 
 describe('GeminiVideoProvider catalog', () => {
+    it('routes Omni 1.2 and bills its lower video token rate', async () => {
+        const model = 'gemini-omni-1.2-flash';
+        reply();
+        const { actor } = await makeUser();
+        await withActor(actor, () => generate({ model }));
+        expect(sent(0).url).toContain(`${model}:countTokens`);
+        expect(sent(1).body.model).toBe(model);
+        const videoUsage = metered().find(
+            (usage) => usage.usageType === `${PROVIDER}:${model}:output:video`,
+        );
+        expect(videoUsage).toBeDefined();
+        expect(videoUsage?.costOverride).toBe(videoUsage!.usageAmount * 1200);
+        expect(
+            (await videoDriver.models()).find((entry) => entry.id === model)
+                ?.costs?.['output:video'],
+        ).toBe(0.0012);
+    });
+
     it('lists Gemini Omni with per-token cent rates and no duration or size ladder', async () => {
         const model = (await videoDriver.models()).find(
             (m) => m.provider === PROVIDER,
@@ -353,7 +371,11 @@ describe('GeminiVideoProvider catalog', () => {
         expect(
             videoDriver
                 .getReportedCosts()
-                .filter((c) => c.source === `driver:aiVideo/${PROVIDER}`),
+                .filter(
+                    (c) =>
+                        c.source === `driver:aiVideo/${PROVIDER}` &&
+                        c.usageType.startsWith(`${PROVIDER}:${MODEL}:`),
+                ),
         ).toEqual([
             {
                 usageType: `${PROVIDER}:${MODEL}:input`,

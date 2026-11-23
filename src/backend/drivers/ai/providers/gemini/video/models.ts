@@ -37,23 +37,31 @@ export const GEMINI_OMNI_COSTS: GeminiOmniCosts = {
     outputVideo: 1750, // $17.50 per 1M tokens
 };
 
+export const GEMINI_OMNI_MODEL_COSTS: Record<string, GeminiOmniCosts> = {
+    [GEMINI_OMNI_MODEL]: GEMINI_OMNI_COSTS,
+    'gemini-omni-1.2-flash': { ...GEMINI_OMNI_COSTS, outputVideo: 1200 },
+};
+
 // Billed per token, so no `durationSeconds` or `dimensions`: the driver would
 // otherwise inject a duration and rewrite sizes this model does not take.
-export const GEMINI_VIDEO_GENERATION_MODELS: IVideoModel[] = [
-    {
-        id: GEMINI_OMNI_MODEL,
-        puterId: `google:google/${GEMINI_OMNI_MODEL}`,
-        name: 'Gemini Omni 1.1 Flash',
-        costs_currency: 'usd-cents',
-        output_cost_key: 'output:video',
-        // Cents per token, matching the usage types the provider records.
-        costs: {
-            input: GEMINI_OMNI_COSTS.input / 1_000_000,
-            'output:text': GEMINI_OMNI_COSTS.outputText / 1_000_000,
-            'output:video': GEMINI_OMNI_COSTS.outputVideo / 1_000_000,
-        },
-        promptLength: { min: 1, max: 4000 },
-        videoInput: true,
-        defaultUsageKey: `gemini-video-generation:${GEMINI_OMNI_MODEL}:output:video`,
+export const GEMINI_VIDEO_GENERATION_MODELS: IVideoModel[] = Object.keys(
+    GEMINI_OMNI_MODEL_COSTS,
+).map((id) => ({
+    id,
+    puterId: `google:google/${id}`,
+    name:
+        id === GEMINI_OMNI_MODEL
+            ? 'Gemini Omni 1.1 Flash'
+            : 'Gemini Omni 1.2 Flash',
+    costs_currency: 'usd-cents',
+    output_cost_key: 'output:video',
+    // Cents per token, matching the usage types the provider records.
+    costs: {
+        input: GEMINI_OMNI_MODEL_COSTS[id].input / 1_000_000,
+        'output:text': GEMINI_OMNI_MODEL_COSTS[id].outputText / 1_000_000,
+        'output:video': GEMINI_OMNI_MODEL_COSTS[id].outputVideo / 1_000_000,
     },
-];
+    promptLength: { min: 1, max: 4000 },
+    videoInput: true,
+    defaultUsageKey: `gemini-video-generation:${id}:output:video`,
+}));

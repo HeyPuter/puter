@@ -51,6 +51,14 @@ const textModel = (
 // Hardcoded from live Z.AI /models and https://docs.z.ai/guides/overview/pricing.
 export const ZAI_MODELS: IChatModel[] = [
     textModel(
+        'glm-5.3-flashx-legal',
+        'GLM-5.3-FlashX Legal',
+        1_000 * K,
+        128 * K,
+        usdPerMToken(0.37, 1.25, 0.075),
+        imageInput,
+    ),
+    textModel(
         'glm-5.3',
         'GLM-5.3',
         1_000 * K,
