@@ -153,6 +153,14 @@ describe('pagination util', () => {
             expect(() => normalizeLimit(-5)).toThrowError(HttpError);
             expect(() => normalizeLimit('abc')).toThrowError(HttpError);
         });
+
+        it('throws 400 on a fraction that floors to zero', () => {
+            expect(() => normalizeLimit(0.5)).toThrowError(
+                'limit must be a positive number',
+            );
+            expect(() => normalizeLimit('0.99')).toThrowError(HttpError);
+            expect(normalizeLimit(1.5)).toBe(1);
+        });
     });
 
     describe('normalizeOffset', () => {

@@ -179,13 +179,12 @@ export const normalizeLimit = (
     { cap, label = 'limit' }: { cap?: number; label?: string } = {},
 ): number | undefined => {
     if (limit === undefined || limit === null) return undefined;
-    const parsed = Number(limit);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
+    const floored = Math.floor(Number(limit));
+    if (!Number.isFinite(floored) || floored < 1) {
         throw new HttpError(400, `${label} must be a positive number`, {
             legacyCode: 'bad_request',
         });
     }
-    const floored = Math.floor(parsed);
     return cap !== undefined ? Math.min(floored, cap) : floored;
 };
 
