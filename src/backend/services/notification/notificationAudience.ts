@@ -118,3 +118,30 @@ export const ownedAppUids = async (
         return new Set();
     }
 };
+
+/**
+ * The rows of one recipient's mailbox `actor` may see, with ownership of each
+ * developer row's app resolved in one lookup.
+ */
+export const visibleNotificationRows = async <
+    R extends Record<string, unknown>,
+>(
+    apps: AppOwnerLookup,
+    actor: Pick<Actor, 'effectiveApp' | 'user'>,
+    rows: R[],
+): Promise<R[]> => {
+    if (rows.length === 0) return rows;
+    const scopes = rows.map(notificationRowScope);
+    const owned = await ownedAppUids(
+        apps,
+        Number(actor.user?.id),
+        scopes.flatMap((s) =>
+            s.audience === 'developer' && s.appUid ? [s.appUid] : [],
+        ),
+    );
+    return rows.filter((_row, i) =>
+        canViewNotification(scopes[i], actor, {
+            recipientOwnsApp: owned.has(scopes[i].appUid ?? ''),
+        }),
+    );
+};

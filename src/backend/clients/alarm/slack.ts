@@ -80,10 +80,16 @@ export function buildSlackMessage(
     const call = alert.callGroup
         ? ` :telephone_receiver: calling \`${alert.callGroup}\``
         : '';
-    const headline = `${style.emoji} *[${alert.severity.toUpperCase()}]* ${alert.message}${repeat}${call}`;
+    const summary = alert.summary
+        ?.replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    const headline = summary
+        ? `${style.emoji} ${summary}${repeat}${call}`
+        : `${style.emoji} *[${alert.severity.toUpperCase()}]* ${alert.message}${repeat}${call}`;
 
     const fields: SlackField[] = [];
-    for (const [key, value] of Object.entries(alert.fields)) {
+    for (const [key, value] of Object.entries(summary ? {} : alert.fields)) {
         if (fields.length >= MAX_FIELDS) break;
         // `error` is already rendered as the trace block below.
         if (key === 'error') continue;
@@ -95,7 +101,7 @@ export function buildSlackMessage(
         });
     }
 
-    const footerParts = [alert.shortId, alert.id];
+    const footerParts = summary ? [alert.shortId] : [alert.shortId, alert.id];
     if (opts.serverId) footerParts.push(opts.serverId);
 
     return {
@@ -245,13 +251,10 @@ async function slackFetch<T>(
     init: RequestInit,
     read: (res: Response) => Promise<T>,
 ): Promise<T> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-        return await read(
-            await fetch(url, { ...init, signal: controller.signal }),
-        );
-    } finally {
-        clearTimeout(timer);
-    }
+    return read(
+        await fetch(url, {
+            ...init,
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        }),
+    );
 }

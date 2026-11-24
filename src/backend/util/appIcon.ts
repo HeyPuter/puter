@@ -17,15 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import {
-    SVG_SNIFF_WINDOW,
-    decodeStrictBase64,
-    sniffImageMime,
-} from './mediaSniff.js';
+import { decodeStrictBase64, sniffImageMime } from './mediaSniff.js';
 import { APP_ICONS_SUBDOMAIN } from './systemSite.js';
-
-// Re-exported for existing importers.
-export { SVG_SNIFF_WINDOW, sniffImageMime };
 
 // Icon URLs come in a pair. `getAppIconUrl` builds the backend
 // `/app-icon/<uid>/<size>` endpoint URL, which self-heals — it falls back to

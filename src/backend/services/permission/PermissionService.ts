@@ -27,7 +27,11 @@ import {
 } from '../../core/actor';
 import { Context, runInDerivedContext } from '../../core/context';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
-import { isOwnHomePath, parseFsPathPermission } from './fsPathPermission.js';
+import {
+    isOwnHomePath,
+    parseFsEntryPermission,
+    parseFsPathPermission,
+} from './fsPathPermission.js';
 import { isMissingParentViolation } from '../../util/dbError.js';
 import { Span } from '../../util/span.js';
 import { PuterService } from '../types';
@@ -169,9 +173,7 @@ export class PermissionService extends PuterService {
         if (!parsed || !actor.user?.username) return;
         if (isOwnHomePath(parsed.path, actor.user.username)) return;
 
-        const parts = PermissionUtil.split(rewritten);
-        const fsIndex = parts[0] === MANAGE_PERM_PREFIX ? 1 : 0;
-        const uid = parts[fsIndex + 1];
+        const uid = parseFsEntryPermission(rewritten)?.uid;
         if (!uid || uid.startsWith('/')) return;
 
         if (await this.check(actor, PermissionUtil.join('fs', uid, 'see'))) {
@@ -336,7 +338,7 @@ export class PermissionService extends PuterService {
             return out;
         }
 
-        // -- Cache pass: one pipelined MGET --
+        // -- Cache pass: one pipelined read --
         const aUid = actorUid(actor);
         const generation = await this.#cacheGenerationTag(actor);
         const cached = await this.stores.permission.getMultiCheckCache(
@@ -362,16 +364,19 @@ export class PermissionService extends PuterService {
                         granted: await this.check(actor, permission, {
                             noCache: true,
                         }),
+                        failed: false,
                     };
                 } catch {
-                    return { permission, granted: false };
+                    return { permission, granted: false, failed: true };
                 }
             }),
         );
         const writeBack: Array<{ permission: string; granted: boolean }> = [];
-        for (const { permission, granted } of checked) {
+        for (const { permission, granted, failed } of checked) {
             out.set(permission, granted);
-            writeBack.push({ permission, granted });
+            // A check that threw is denied for this call only: caching it
+            // would keep refusing after the failure clears.
+            if (!failed) writeBack.push({ permission, granted });
         }
 
         // Backfill cache (best-effort, fire-and-forget would also be
@@ -1171,20 +1176,21 @@ export class PermissionService extends PuterService {
         );
     }
 
-    /** The group analogue of `queryIssuerHolderPermissionsByPrefix`. */
-    async queryIssuerGroupPermissionsByPrefix(
+    /** The group analogue of `queryIssuerHolderPermissionsByPrefixes`. */
+    async queryIssuerGroupPermissionsByPrefixes(
         issuer: Actor,
         groupUid: string,
-        prefix: string,
+        prefixes: string[],
     ): Promise<string[]> {
-        if (!issuer.user?.id) return [];
+        if (!issuer.user?.id || prefixes.length === 0) return [];
         const groupId = await this.stores.permission.resolveGroupId(groupUid);
         if (groupId === null) return [];
-        return this.stores.permission.queryIssuerGroupPermsByPrefix(
-            issuer.user.id,
-            groupId,
-            prefix,
-        );
+        const rows =
+            await this.stores.permission.queryIssuerGroupPermsByPrefixes(
+                [{ issuerUserId: issuer.user.id, groupId }],
+                prefixes,
+            );
+        return rows.map((row) => row.permission);
     }
 
     async grantUserGroupPermission(
@@ -1283,6 +1289,72 @@ export class PermissionService extends PuterService {
     }
 
     /**
+     * {@link revokeUserGroupPermission} for several permissions of one group and
+     * issuer: one delete and one generation bump. Returns the ones removed.
+     */
+    async revokeUserGroupPermissions(
+        actor: Actor,
+        groupUid: string,
+        permissions: readonly string[],
+        meta: GrantMeta = {},
+        opts: { issuerUserId?: number } = {},
+    ): Promise<string[]> {
+        const rewritten = [
+            ...new Set(
+                await Promise.all(
+                    permissions.map((permission) =>
+                        this.rewritePermissionForActor(actor, permission),
+                    ),
+                ),
+            ),
+        ];
+        if (rewritten.length === 0) return [];
+        const groupId = await this.#requireGroupId(groupUid);
+        const actorUserId = this.#requireUserId(actor);
+        const issuerId = opts.issuerUserId ?? actorUserId;
+
+        await Promise.all(
+            rewritten.map((permission) =>
+                this.#assertCanManage(actor, permission),
+            ),
+        );
+
+        const { removed, members } =
+            await this.stores.permission.deleteUserGroupPerms(
+                groupId,
+                issuerId,
+                rewritten,
+            );
+
+        for (const permission of rewritten) {
+            this.#audit(
+                this.stores.permission.auditUserGroupPerm({
+                    group_id: groupId,
+                    issuer_user_id: issuerId,
+                    permission,
+                    action: 'revoke',
+                    reason: meta.reason ?? 'revoked via PermissionService',
+                    extra: this.#auditActorContext(actor),
+                }),
+                'user-group revoke',
+            );
+        }
+
+        await this.#bumpGroupCacheGeneration(
+            groupId,
+            members
+                .map((member) => member.uuid)
+                .filter((uuid): uuid is string => Boolean(uuid)),
+        );
+        for (const permission of removed) {
+            for (const member of members) {
+                this.#announceRevoked(member.id, null, permission);
+            }
+        }
+        return removed;
+    }
+
+    /**
      * Remove the grant `actor` issued, or the one named by `opts.issuerUserId`
      * when the caller has established authority over another issuer's grant (a
      * resource owner clearing a delegate's re-grant).
@@ -1298,71 +1370,14 @@ export class PermissionService extends PuterService {
         meta: GrantMeta = {},
         opts: { issuerUserId?: number } = {},
     ): Promise<boolean> {
-        permission = await this.rewritePermissionForActor(actor, permission);
-        const user = await this.#requireUser(username);
-        const issuerId = this.#requireUserId(actor);
-        const grantIssuerId = opts.issuerUserId ?? issuerId;
-
-        // Giving up access you hold needs no authority over the permission —
-        // it can only ever narrow what you can reach.
-        if (user.id !== issuerId) {
-            await this.#assertCanManage(actor, permission);
-        }
-
-        // Awaited (unlike the grant-path upsert): the generation bump below
-        // guarantees the holder's very next check re-derives from SQL, so a
-        // fire-and-forget delete here could lose the race and let that scan
-        // resurrect the revoked grant into the flat view. If this fails the
-        // caller gets the error — the permission is then still effectively
-        // granted (flat falls back to the surviving SQL row), which is the
-        // consistent, retryable outcome.
-        const revoked = await this.stores.permission.deleteUserUserPermByHolder(
-            user.id,
-            permission,
-            grantIssuerId,
+        const removed = await this.revokeUserUserPermissions(
+            actor,
+            username,
+            [permission],
+            meta,
+            opts,
         );
-
-        // The flat key isn't issuer-scoped, so it may only go once no issuer
-        // grants this any more. Dropping it while another grant stands would
-        // cut access outright for a `manage:`-only issuer, whose grant the
-        // linked chain can't resolve.
-        //
-        // Must read the primary: the delete above just landed there, and a
-        // replica (or the row cache the plain read would re-warm from it) can
-        // still show the deleted row. Skipping the flat delete on that stale
-        // view leaves a no-TTL flat grant standing with no SQL rows behind
-        // it — permanent, invisible access.
-        const remaining =
-            await this.stores.permission.readLinkedUserUserPermsFromPrimary(
-                user.id,
-                [permission],
-            );
-        if (remaining.length === 0) {
-            await this.stores.permission.delFlatUserPerm(user.id, permission);
-        }
-
-        // Only record a revoke that happened.
-        if (revoked) {
-            this.#audit(
-                this.stores.permission.auditUserUserPerm({
-                    holder_user_id: user.id,
-                    issuer_user_id: grantIssuerId,
-                    permission,
-                    action: 'revoke',
-                    reason: meta.reason ?? 'revoked via PermissionService',
-                    extra: this.#revokeAuditExtra(actor, grantIssuerId),
-                }),
-                'user-user revoke',
-            );
-        }
-
-        // Unconditional: the flat delete above can't report what it removed, so
-        // skipping the bump on a no-op risks leaving a cached allow standing.
-        if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
-        // A revoke of a grant that was not there settled nothing; announcing
-        // it would only cost every listener a read.
-        if (revoked) this.#announceRevoked(user.id, null, permission);
-        return revoked;
+        return removed.length > 0;
     }
 
     /**
@@ -1391,6 +1406,7 @@ export class PermissionService extends PuterService {
         const issuerId = this.#requireUserId(actor);
         const grantIssuerId = opts.issuerUserId ?? issuerId;
 
+        // Giving up access you hold needs no authority over the permission.
         if (user.id !== issuerId) {
             await Promise.all(
                 rewritten.map((permission) =>
@@ -1406,8 +1422,9 @@ export class PermissionService extends PuterService {
                 grantIssuerId,
             );
 
-        // As the single revoke: the flat key goes only where no issuer's grant
-        // remains, read from the primary the delete just landed on.
+        // The flat key isn't issuer-scoped, so it goes only where no issuer's
+        // grant remains. Read from the primary the delete just landed on: a
+        // stale replica would leave a no-TTL flat grant with no row behind it.
         const remaining = new Set(
             (
                 await this.stores.permission.readLinkedUserUserPermsFromPrimary(
@@ -1436,6 +1453,8 @@ export class PermissionService extends PuterService {
             );
         }
 
+        // Unconditional: the flat delete can't report what it removed, so
+        // skipping the bump on a no-op risks leaving a cached allow standing.
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
         for (const permission of removed)
             this.#announceRevoked(user.id, null, permission);
@@ -1871,69 +1890,19 @@ export class PermissionService extends PuterService {
         );
     }
 
-    // -- Issuer queries (share discovery et al) -----------------------
+    // -- Issuer queries ----------------------------------------------
 
-    async queryIssuerPermissionsByPrefix(
-        issuer: { id: number },
-        prefix: string,
-    ): Promise<{
-        users: Array<{ user: UserRowSummary | null; permission: string }>;
-        apps: Array<{
-            app: { id: number; uid: string; name?: string } | null;
-            permission: string;
-        }>;
-    }> {
-        const [userRows, appRows] = await Promise.all([
-            this.stores.permission.queryIssuerUserPermsByPrefix(
-                issuer.id,
-                prefix,
-            ),
-            this.stores.permission.queryIssuerAppPermsByPrefix(
-                issuer.id,
-                prefix,
-            ),
-        ]);
-        const [usersById, appsById] = await Promise.all([
-            this.stores.user.getByIds(userRows.map((r) => r.holder_user_id)),
-            this.stores.app.getByIds(appRows.map((r) => r.app_id)),
-        ]);
-        const users = userRows.map((r) => {
-            const u = usersById.get(r.holder_user_id);
-            return {
-                user: u
-                    ? {
-                          id: u.id,
-                          uuid: u.uuid,
-                          username: u.username,
-                          email: u.email,
-                      }
-                    : null,
-                permission: r.permission,
-            };
-        });
-        const apps = appRows.map((r) => {
-            const a = appsById.get(r.app_id);
-            return {
-                app: a ? { id: a.id, uid: a.uid, name: a.name } : null,
-                permission: r.permission,
-            };
-        }) as Array<{
-            app: { id: number; uid: string; name?: string } | null;
-            permission: string;
-        }>;
-        return { users, apps };
-    }
-
-    async queryIssuerHolderPermissionsByPrefix(
+    /** What `issuer` granted `holder` under any of `prefixes`, in one read. */
+    async queryIssuerHolderPermissionsByPrefixes(
         issuer: Actor,
         holder: Actor,
-        prefix: string,
+        prefixes: string[],
     ): Promise<string[]> {
         if (!issuer.user?.id || !holder.user?.id) return [];
-        return this.stores.permission.queryIssuerHolderPermsByPrefix(
+        return this.stores.permission.queryIssuerHolderPermsByPrefixes(
             issuer.user.id,
             holder.user.id,
-            prefix,
+            prefixes,
         );
     }
 
@@ -2060,12 +2029,4 @@ export class PermissionService extends PuterService {
         };
         return { user: actorUser, effectiveApp: null };
     }
-}
-
-// Minimal structural summary of a user row used in public return types.
-interface UserRowSummary {
-    id: number;
-    uuid: string;
-    username: string;
-    email?: string | null;
 }

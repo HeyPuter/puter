@@ -2501,7 +2501,8 @@ window.upload_items = async function (items, dest_path, { onUploaded } = {}) {
     );
 };
 
-window.empty_trash = async function () {
+/** The desktop's confirmation for emptying the Trash. */
+const confirm_empty_trash = async () => {
     const alert_resp = await UIAlert({
         message: i18n('empty_trash_confirmation'),
         buttons: [
@@ -2516,10 +2517,18 @@ window.empty_trash = async function () {
             },
         ],
     });
-    if ( alert_resp === 'no' )
-    {
-        return;
-    }
+    return alert_resp !== 'no';
+};
+
+/**
+ * Empties the Trash once the user confirms.
+ *
+ * @param {{ confirm?: () => Promise<boolean> }} [options] - asks the user;
+ *   resolves true to go ahead. Defaults to the desktop's UIAlert.
+ * @returns {Promise<void>}
+ */
+window.empty_trash = async function ({ confirm = confirm_empty_trash } = {}) {
+    if ( ! await confirm() ) return;
 
     // only show progress window if it takes longer than 500ms to create folder
     let init_ts = Date.now();

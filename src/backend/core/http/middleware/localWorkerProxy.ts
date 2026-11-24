@@ -23,6 +23,7 @@ import type { puterClients } from '../../../clients';
 import type { puterServices } from '../../../services';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
+import { normalizeHost } from '../../../util/hosts.js';
 
 interface Layers {
     clients: LayerInstances<typeof puterClients>;
@@ -42,13 +43,6 @@ interface FetchResponse {
     status: number;
     headers: { forEach(cb: (value: string, key: string) => void): void };
     body: ReadableStream<Uint8Array> | null;
-}
-
-function normalizeHost(value: string | undefined | null): string | null {
-    if (typeof value !== 'string') return null;
-    const trimmed = value.trim().toLowerCase().replace(/^\./, '');
-    if (!trimmed) return null;
-    return trimmed.split(':')[0] || null;
 }
 
 // `<name>.workers.puter.localhost` → `name`. Returns null for the bare zone or

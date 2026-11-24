@@ -192,7 +192,7 @@ const PROVIDERS: ProviderCase[] = [
         name: 'azure-chat',
         dialect: 'chat',
         make: () =>
-            new AzureChatProvider(metering(), stores, fsService, {
+            new AzureChatProvider(metering(), {
                 apiKey: 'k',
                 apiURL: 'https://azure.test',
             }),
@@ -201,7 +201,7 @@ const PROVIDERS: ProviderCase[] = [
         name: 'azure-responses',
         dialect: 'responses',
         make: () =>
-            new AzureResponsesProvider(metering(), stores, fsService, {
+            new AzureResponsesProvider(metering(), {
                 apiKey: 'k',
                 apiURL: 'https://azure.test',
             }),

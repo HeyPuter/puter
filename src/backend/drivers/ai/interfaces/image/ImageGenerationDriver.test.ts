@@ -1409,6 +1409,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         // the unguarded global one — its body lands in the user's FS.
         expect(secureFetchMock).toHaveBeenCalledWith('https://oai/img.png', {
             skipProxy: true,
+            signal: expect.any(AbortSignal),
         });
         expect(fetchSpy).not.toHaveBeenCalled();
     });

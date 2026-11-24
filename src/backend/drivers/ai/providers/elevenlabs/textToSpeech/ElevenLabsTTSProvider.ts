@@ -47,6 +47,8 @@ const VOICES_TTL_MS = 10 * 60 * 1000;
 // ElevenLabs voice IDs are 20 alphanumeric characters.
 const VOICE_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
 const VOICE_SEARCH_MAX_PAGES = 5;
+/** Largest voice-listing reply read; an account's library runs to megabytes. */
+const MAX_VOICES_REPLY_BYTES = 32 * 1024 * 1024;
 // OpenAI-style `response_format` names. ElevenLabs ignored the body field
 // these used to travel in, so callers passing them always got MP3; map them to
 // the closest native format instead of letting the vendor reject them.
@@ -145,7 +147,12 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
     private async fetchVoices(): Promise<ITTSVoice[]> {
         const res = await this.request('/v1/voices');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data: any = await upstreamJson('elevenlabs', 'ElevenLabs', res);
+        const data: any = await upstreamJson(
+            'elevenlabs',
+            'ElevenLabs',
+            res,
+            MAX_VOICES_REPLY_BYTES,
+        );
         const voices = (
             Array.isArray(data?.voices)
                 ? data.voices
@@ -223,6 +230,7 @@ export class ElevenLabsTTSProvider implements ITTSProvider {
                 'elevenlabs',
                 'ElevenLabs',
                 res,
+                MAX_VOICES_REPLY_BYTES,
             );
             for (const entry of Array.isArray(data?.voices)
                 ? data.voices

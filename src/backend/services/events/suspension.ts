@@ -21,7 +21,7 @@ import {
     EVENTS_NO_CREDIT_BACKLOG_TTL_MS,
     EVENTS_SUSPENDED_BACKLOG_TTL_MS,
     EVENTS_SUSPENDED_PENDING_CAP,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import type { DurableSubscription } from '../../stores/events/types.js';
 import {
     SUSPENDED_REASONS,

@@ -145,6 +145,26 @@ export async function fetchImageBytes(
     }
 }
 
+/**
+ * An input-image string as bytes: an http(s) URL is fetched (SSRF-guarded), a
+ * data-URI or raw base64 decoded. The MIME type is the declared one, else
+ * `mimeHint` for raw base64, else image/png.
+ */
+export async function inputImageBytes(
+    img: string,
+    mimeHint?: string,
+): Promise<{ bytes: Buffer; mime: string }> {
+    if (isHttpUrl(img)) {
+        const { bytes, mime } = await fetchImageBytes(img);
+        return { bytes, mime };
+    }
+    const uri = parseDataUri(img);
+    return {
+        bytes: Buffer.from(uri?.base64 ?? img, 'base64'),
+        mime: uri?.mime ?? mimeHint ?? 'image/png',
+    };
+}
+
 /** Fetch an http(s) image and return raw base64 + mime (SSRF-guarded). */
 export async function fetchImageAsBase64(
     url: string,

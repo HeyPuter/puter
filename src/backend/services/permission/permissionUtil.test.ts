@@ -107,20 +107,6 @@ describe('PermissionUtil.stripManageArms', () => {
     });
 });
 
-describe('PermissionUtil.permission_scan_cache_prefix_for_app_under_user', () => {
-    it('builds a stable, escaped cache prefix for an app-under-user actor', () => {
-        const prefix =
-            PermissionUtil.permission_scan_cache_prefix_for_app_under_user(
-                'user-uuid',
-                'app-uid',
-            );
-        // The actor uid contains colons, so it arrives escaped in the key.
-        expect(prefix).toBe(
-            'permission-scan:app-under-user\\Cuser-uuid\\Capp-uid:options-list',
-        );
-    });
-});
-
 describe('readingHasTerminal', () => {
     it('is true for a reading containing an option node', () => {
         expect(readingHasTerminal([{ $: 'option', permission: 'p' }])).toBe(

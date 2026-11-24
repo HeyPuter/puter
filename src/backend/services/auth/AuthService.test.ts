@@ -864,6 +864,53 @@ describe('AuthService (integration)', () => {
             }
         });
 
+        it('listSessions keeps a session renamed moments ago, under its new label', async () => {
+            const user = await makeUser();
+            const session = (await authService.createSessionToken(user, {}))
+                .session as { uuid: string };
+            const actor = {
+                user: { id: user.id, uuid: user.uuid },
+            } as unknown as Actor;
+            await authService.setSessionLabel(actor, session.uuid, 'Laptop');
+
+            const listed = (await authService.listSessions(actor)).find(
+                (row) => (row as { uuid: string }).uuid === session.uuid,
+            );
+            expect(listed).toMatchObject({ label: 'Laptop' });
+        });
+
+        it('revokeSession drops the grants of a token minted under a derived web session', async () => {
+            const user = await makeUser();
+            const root = (await authService.createSessionToken(user, {}))
+                .session as { uuid: string };
+            const sessions = server.stores.session;
+            const page = await sessions.create(user.id, {
+                kind: 'web',
+                parent_session_id: root.uuid,
+            });
+            const tokenUid = uuidv4();
+            await sessions.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: page.uuid,
+                access_token_uid: tokenUid,
+            });
+            const permissions = server.stores.permission;
+            await permissions.insertAccessTokenPerms(
+                tokenUid,
+                { userId: user.id, appId: null },
+                [{ permission: 'driver:puter-kvstore' }],
+            );
+            expect(await permissions.listAccessTokenPerms(tokenUid)).toEqual([
+                'driver:puter-kvstore',
+            ]);
+
+            await authService.revokeSession(root.uuid);
+
+            expect(await permissions.listAccessTokenPerms(tokenUid)).toEqual(
+                [],
+            );
+        });
+
         it('revokeSession removes the session row', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
@@ -3418,6 +3465,12 @@ describe('AuthService (integration)', () => {
                     { token_uid },
                     {},
                 );
+                // That would close the desktop's own socket too.
+                expect(emit).not.toHaveBeenCalledWith(
+                    'outer.auth.sessions.revoked',
+                    expect.anything(),
+                    expect.anything(),
+                );
             } finally {
                 vi.mocked(Date.now).mockRestore();
                 emit.mockRestore();
@@ -4393,6 +4446,80 @@ describe('AuthService (integration)', () => {
                 [tokenUid],
             )) as unknown[];
             expect(rows).toHaveLength(0);
+        });
+    });
+
+    describe('grant cleanup on every revoke path', () => {
+        const seedTokenUnder = async (userId: number, parentUuid: string) => {
+            const tokenUid = uuidv4();
+            await server.stores.session.create(userId, {
+                kind: 'access_token',
+                parent_session_id: parentUuid,
+                access_token_uid: tokenUid,
+            });
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `authorizer_app_id`, `permission`, `extra`) VALUES (?, ?, ?, ?, ?)',
+                [tokenUid, userId, null, 'driver:test:call', '{}'],
+            );
+            return tokenUid;
+        };
+        const grantCount = async (tokenUid: string) =>
+            (
+                (await server.clients.db.read(
+                    'SELECT 1 FROM `access_token_permissions` WHERE `token_uid` = ?',
+                    [tokenUid],
+                )) as unknown[]
+            ).length;
+
+        it('signing out drops the grants of tokens under the session and announces it', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                {},
+            );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            const tokenUid = await seedTokenUnder(user.id, sessionUuid);
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await authService.removeSessionByToken(token);
+                const announced = emit.mock.calls
+                    .filter(([key]) => key === 'outer.auth.sessions.revoked')
+                    .map(([, data]) => data as { session_uids: string[] });
+                expect(announced).toHaveLength(1);
+                expect(announced[0].session_uids).toContain(sessionUuid);
+            } finally {
+                emit.mockRestore();
+            }
+            expect(await grantCount(tokenUid)).toBe(0);
+        });
+
+        it('revokeAllSessions with apps drops the grants of their tokens', async () => {
+            const user = await makeUser();
+            const appSession = await server.stores.session.create(user.id, {
+                kind: 'app',
+                app_uid: `app-${uuidv4()}`,
+            });
+            const tokenUid = await seedTokenUnder(user.id, appSession.uuid);
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+
+            await authService.revokeAllSessions(actor, { includeApps: true });
+
+            expect(await grantCount(tokenUid)).toBe(0);
+        });
+
+        it('revoking every session of a user drops every token grant', async () => {
+            const user = await makeUser();
+            const web = await authService.createSessionToken(user, {});
+            const tokenUid = await seedTokenUnder(
+                user.id,
+                (web.session as { uuid: string }).uuid,
+            );
+
+            await authService.revokeAllSessionsForUserId(user.id);
+
+            expect(await grantCount(tokenUid)).toBe(0);
         });
     });
 
@@ -5464,6 +5591,47 @@ describe('AuthService.appUidFromOrigin — aliased hosts', () => {
         expect(result.get(alphaOrigin)).toBe(
             await authService.appUidFromOrigin(alphaOrigin),
         );
+    });
+});
+
+describe('AuthService.canonicalizeOrigin — hosting domains', () => {
+    let server: PuterServer;
+    let authService: AuthService;
+
+    beforeAll(async () => {
+        server = await setupTestServer({
+            protocol: 'http',
+            static_hosting_domain: 'site.hosted.localhost:4100',
+            private_app_hosting_domain: 'app.hosted.localhost',
+        } as never);
+        authService = server.services.auth as unknown as AuthService;
+    }, 60_000);
+
+    afterAll(async () => {
+        await server?.shutdown();
+    }, 60_000);
+
+    it('moves a hosted origin onto the first configured domain, port kept', () => {
+        expect(
+            authService.canonicalizeOrigin('https://demo.app.hosted.localhost'),
+        ).toBe('http://demo.site.hosted.localhost:4100');
+        expect(
+            authService.canonicalizeOrigin(
+                'http://demo.site.hosted.localhost:4100',
+            ),
+        ).toBe('http://demo.site.hosted.localhost:4100');
+    });
+
+    it('keeps only the first label of a multi-label subdomain', () => {
+        expect(
+            authService.canonicalizeOrigin('https://a.b.app.hosted.localhost'),
+        ).toBe('http://a.site.hosted.localhost:4100');
+    });
+
+    it('leaves a hosting domain apex as it is', () => {
+        expect(
+            authService.canonicalizeOrigin('https://app.hosted.localhost'),
+        ).toBe('https://app.hosted.localhost');
     });
 });
 

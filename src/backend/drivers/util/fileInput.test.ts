@@ -617,4 +617,53 @@ describe('loadFileInput web URL', () => {
         });
         expect(state.cancelled).toBe(true);
     });
+
+    it('answers 400 when the download runs out of time', async () => {
+        const { actor } = await makeUser();
+        secureFetchMock.mockImplementationOnce(
+            async (_url: string, init: { signal?: AbortSignal }) => {
+                expect(init.signal).toBeInstanceOf(AbortSignal);
+                throw new DOMException(
+                    'The operation was aborted due to timeout',
+                    'TimeoutError',
+                );
+            },
+        );
+
+        await expect(
+            callLoadFileInput(actor, 'https://example.com/slow.mp3', {
+                acceptWebInput: true,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: expect.stringContaining('Timed out fetching URL'),
+        });
+    });
+
+    it('stops the download when the caller hangs up', async () => {
+        const { actor } = await makeUser();
+        const hangUp = new AbortController();
+        let fetchSignal: AbortSignal | undefined;
+        secureFetchMock.mockImplementationOnce(
+            async (_url: string, init: { signal?: AbortSignal }) => {
+                fetchSignal = init.signal;
+                hangUp.abort();
+                throw fetchSignal!.reason;
+            },
+        );
+
+        await expect(
+            runWithContext({ actor, abortSignal: hangUp.signal }, () =>
+                loadFileInput(
+                    server.stores,
+                    server.services.fs,
+                    actor,
+                    'https://example.com/slow.mp3',
+                    { acceptWebInput: true },
+                ),
+            ),
+        ).rejects.toBeDefined();
+        expect(fetchSignal?.aborted).toBe(true);
+    });
 });

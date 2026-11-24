@@ -17,7 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { SVG_SNIFF_WINDOW, sniffImageMime } from '../../../../util/appIcon.js';
+import {
+    SVG_SNIFF_WINDOW,
+    sniffImageMime,
+} from '../../../../util/mediaSniff.js';
 
 // Base64 chars needed to recover SVG_SNIFF_WINDOW decoded bytes.
 const SNIFF_BASE64_CHARS = Math.ceil((SVG_SNIFF_WINDOW * 4) / 3);

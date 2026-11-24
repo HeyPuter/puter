@@ -31,7 +31,7 @@ globalThis.i18n = key => key;
 
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
-const { openAppInNewTab, openDesktopInNewTab } = await import('./dashboardAppLaunch.js');
+const { openAppInNewTab, openSiteInNewTab, DESKTOP_URL } = await import('./dashboardAppLaunch.js');
 
 describe('openAppInNewTab', () => {
     let opened;
@@ -93,7 +93,7 @@ describe('openAppInNewTab', () => {
     });
 });
 
-describe('openDesktopInNewTab', () => {
+describe('openSiteInNewTab', () => {
     const DESKTOP = 'https://desktop.puter.com';
     let tab;
 
@@ -130,7 +130,7 @@ describe('openDesktopInNewTab', () => {
 
     it('sends the tab to the desktop with the launch params and hands its token over on request', async () => {
         answerTokenRequest(200, { token: 'app-token', app_uid: 'app-desktop' });
-        await openDesktopInNewTab();
+        await openSiteInNewTab(DESKTOP_URL);
 
         expect(window.open).toHaveBeenCalledWith('', '_blank');
         const [endpoint, request] = fetch.mock.calls[0];
@@ -159,22 +159,35 @@ describe('openDesktopInNewTab', () => {
 
     it('opens the desktop without launch params when no token came back', async () => {
         answerTokenRequest(500, null);
-        await openDesktopInNewTab();
+        await openSiteInNewTab(DESKTOP_URL);
         expect(tab.location.href).toBe(`${DESKTOP}/`);
     });
 
     it('leaves a tab the user closed alone', async () => {
         answerTokenRequest(200, { token: 'app-token', app_uid: 'app-desktop' });
-        const launch = openDesktopInNewTab();
+        const launch = openSiteInNewTab(DESKTOP_URL);
         tab.closed = true;
         await launch;
         expect(tab.location.href).toBe('');
     });
 
+    it('ignores a second click on a site while its token loads, without holding up another site', async () => {
+        answerTokenRequest(200, { token: 'app-token', app_uid: 'app-desktop' });
+        const first = openSiteInNewTab(DESKTOP_URL);
+        openSiteInNewTab(DESKTOP_URL);
+        expect(window.open).toHaveBeenCalledTimes(1);
+        const other = openSiteInNewTab('https://apps.puter.com/');
+        expect(window.open).toHaveBeenCalledTimes(2);
+        await Promise.all([first, other]);
+
+        await openSiteInNewTab(DESKTOP_URL);
+        expect(window.open).toHaveBeenCalledTimes(3);
+    });
+
     it('returns null when the browser refuses the tab', () => {
         window.open.mockReturnValue(null);
         vi.stubGlobal('fetch', vi.fn());
-        expect(openDesktopInNewTab()).toBeNull();
+        expect(openSiteInNewTab(DESKTOP_URL)).toBeNull();
         expect(fetch).not.toHaveBeenCalled();
     });
 });

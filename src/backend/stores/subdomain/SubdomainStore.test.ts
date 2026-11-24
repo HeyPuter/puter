@@ -21,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import {
     WORKER_SUBDOMAIN_PREFIX,
     type SubdomainStore,
@@ -845,12 +846,12 @@ describe('SubdomainStore listing and counting', () => {
         expect(await store.count()).toBeGreaterThanOrEqual(2);
     });
 
-    it('countByUserId and existsBySubdomain answer the quota checks', async () => {
+    it('count and existsBySubdomain answer the quota checks', async () => {
         const userId = await makeUser();
         const p = prefix();
         await createFor(userId, `${p}x`);
 
-        expect(Number(await store.countByUserId(userId))).toBe(1);
+        expect(await store.count({ userId })).toBe(1);
         expect(await store.existsBySubdomain(`${p}x`)).toBe(true);
         expect(await store.existsBySubdomain(`${p}missing`)).toBe(false);
     });
@@ -1208,6 +1209,52 @@ describe('SubdomainStore.trashedRootDirIds', () => {
         } finally {
             spy.mockRestore();
         }
+    });
+});
+
+describe('SubdomainStore.subdomainsRootedUnder', () => {
+    it('names the sites rooted at a folder or below it', async () => {
+        const userId = await makeUser();
+        const user = (await server.stores.user.getById(userId))!;
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            user,
+        );
+        // LIKE wildcards in the folder name must not widen the match.
+        const base = `/${user.username}/100%_done`;
+        const paths = [
+            base,
+            `${base}/app`,
+            `/${user.username}/100abc_done/app`,
+            `/${user.username}/elsewhere`,
+        ];
+        const names: string[] = [];
+        for (const [i, path] of paths.entries()) {
+            await server.services.fs.mkdir(userId, {
+                path,
+                createMissingParents: true,
+            });
+            const entry = await server.stores.fsEntry.getEntryByPath(path);
+            const subdomain = `sru-${i}-${Math.random().toString(36).slice(2, 8)}`;
+            await store.create({ userId, subdomain, rootDirId: entry!.id });
+            names.push(subdomain);
+        }
+
+        expect(new Set(await store.subdomainsRootedUnder([base], 10))).toEqual(
+            new Set([names[0], names[1]]),
+        );
+        expect(await store.subdomainsRootedUnder([], 10)).toEqual([]);
+
+        // A page at a time, in name order, until a short page ends it.
+        const [first, second] = [names[0], names[1]].sort();
+        expect(await store.subdomainsRootedUnder([base], 1)).toEqual([first]);
+        expect(await store.subdomainsRootedUnder([base], 1, first)).toEqual([
+            second,
+        ]);
+        expect(await store.subdomainsRootedUnder([base], 1, second)).toEqual(
+            [],
+        );
     });
 });
 

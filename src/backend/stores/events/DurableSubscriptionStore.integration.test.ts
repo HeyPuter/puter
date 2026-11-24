@@ -37,7 +37,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
     EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
     EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
-} from '../../controllers/events/limits.js';
+} from '../../services/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
@@ -365,6 +365,53 @@ describe('handler scope', () => {
         } finally {
             pread.mockRestore();
         }
+    });
+
+    it('reads one row`s scope off the replica when it has the row', async () => {
+        const { row } = await durable().create(
+            input({ appUid, handlerName: 'h', handlerScope: 'user' }),
+        );
+        const read = vi.spyOn(env.server.clients.db, 'read');
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        try {
+            await expect(durable().handlerScopeOf(row.subId)).resolves.toBe(
+                'user',
+            );
+            expect(read).toHaveBeenCalledTimes(1);
+            expect(pread).not.toHaveBeenCalled();
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    });
+
+    it('asks the primary for a row the replica lacks', async () => {
+        const { row } = await durable().create(
+            input({ appUid, handlerName: 'h', handlerScope: 'user' }),
+        );
+        const read = vi
+            .spyOn(env.server.clients.db, 'read')
+            .mockResolvedValueOnce([]);
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        try {
+            await expect(durable().handlerScopeOf(row.subId)).resolves.toBe(
+                'user',
+            );
+            expect(pread).toHaveBeenCalledTimes(1);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    });
+
+    it('answers null for a row neither has, and app for an app scope', async () => {
+        await expect(
+            durable().handlerScopeOf('missing#sub'),
+        ).resolves.toBeNull();
+        const { row } = await durable().create(
+            input({ appUid, handlerName: 'h' }),
+        );
+        await expect(durable().handlerScopeOf(row.subId)).resolves.toBe('app');
     });
 
     it('carries the scope through the schedule join', async () => {

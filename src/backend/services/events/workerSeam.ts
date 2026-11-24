@@ -23,6 +23,7 @@ import type {
 } from '../../clients/events/EventsWorkerInvokerClient.js';
 import type { Actor } from '../../core/actor.js';
 import type { HandlerScopeKind } from '../../stores/events/types.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import type { DeliverableEvent, ScheduleEvent } from './registry.js';
 
 export type { ScheduleEvent } from './registry.js';
@@ -135,11 +136,11 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
     readonly #address: EventsWorkerAddresser;
     readonly #available: () => boolean;
     readonly #userHandlersEnabled: () => boolean;
-    /**
-     * Script -> when it was last logged, so a failing script floods once a
-     * minute.
-     */
-    readonly #warned = new Map<string, number>();
+    /** Scripts logged this minute, so a failing script floods once a minute. */
+    readonly #warned = new BoundedTtlMap<string, true>({
+        maxEntries: WARN_MAP_MAX_ENTRIES,
+        ttlMs: WARN_INTERVAL_MS,
+    });
 
     constructor(
         client: Pick<EventsWorkerInvokerClient, 'invoke'>,
@@ -237,17 +238,7 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
     }
 
     #warnRetriable(script: string, appUid: string, error: string): void {
-        const now = Date.now();
-        const last = this.#warned.get(script);
-        if (last !== undefined && now - last < WARN_INTERVAL_MS) return;
-        this.#warned.set(script, now);
-        if (this.#warned.size > WARN_MAP_MAX_ENTRIES) {
-            for (const [key, ts] of this.#warned)
-                if (now - ts >= WARN_INTERVAL_MS) this.#warned.delete(key);
-            // Nothing was stale enough to drop, so forget the window rather
-            // than let the map grow with the number of failing scripts.
-            if (this.#warned.size > WARN_MAP_MAX_ENTRIES) this.#warned.clear();
-        }
+        if (!this.#warned.shouldEmit(script)) return;
         console.warn('[events] invoke failed', { appUid, script, error });
     }
 }

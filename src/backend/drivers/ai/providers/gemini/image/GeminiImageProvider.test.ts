@@ -45,7 +45,10 @@ import { setupTestServer } from '../../../../../testUtil.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { GEMINI_IMAGE_GENERATION_MODELS } from './models.js';
-import { GeminiImageProvider } from './GeminiImageProvider.js';
+import {
+    GEMINI_IMAGE_TIMEOUT_MS,
+    GeminiImageProvider,
+} from './GeminiImageProvider.js';
 
 // ── Google GenAI SDK mock ───────────────────────────────────────────
 
@@ -160,6 +163,33 @@ describe('Gemini image response errors', () => {
             expect(incrementUsageSpy).not.toHaveBeenCalled();
         },
     );
+
+    it('gives up at its deadline with a TimeoutError and charges nothing', async () => {
+        const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+        vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) =>
+            ms === GEMINI_IMAGE_TIMEOUT_MS
+                ? AbortSignal.abort(new DOMException('late', 'TimeoutError'))
+                : realTimeout(ms),
+        );
+        generateContentMock.mockImplementationOnce(
+            async ({ config }: { config: { abortSignal: AbortSignal } }) => {
+                config.abortSignal.throwIfAborted();
+                return {};
+            },
+        );
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: 'gemini-3.1-flash-image',
+                    prompt: 'A cup',
+                }),
+            ),
+        ).rejects.toMatchObject({
+            name: 'TimeoutError',
+            message: 'Gemini request timed out',
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
 
     it('preserves a transport failure with a socket cause', async () => {
         const error = new TypeError('fetch failed', {

@@ -78,6 +78,10 @@ A chat completion counts as a concurrent request until the model finishes it, ev
 
 An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. A chat request to a Gemini model can include up to 4 video URLs. A video URL over a limit, or one that doesn't finish downloading within 30 seconds, isn't sent to the model, and the model is told the video couldn't be loaded. OCR input limits are under [OCR](#ocr).
 
+A URL given as the audio for [`speech2txt()`](/AI/speech2txt/) (OpenAI and Gemini models) or [`speech2speech()`](/AI/speech2speech/), or as the input for [`img2txt()`](/AI/img2txt/), has 60 seconds to finish downloading. A slower one fails with `400 bad_request`.
+
+With `puter_output_path` set on [`txt2img()`](/AI/txt2img/) or [`txt2vid()`](/AI/txt2vid/), a result the model returns as a URL is downloaded into the file within 5 minutes and up to 256 MiB. A slower download fails with `504 upstream_timeout` and a larger one with `502 internal_error`. The generation is still charged.
+
 The standard chat timeout is 10 minutes for a response to start, or to finish if it isn't streamed. Stream durations depend on the provider. Native Gemini applies the 10-minute timeout to the whole response, including streaming. Groq uses 60 seconds to start a response. Mistral streams have no timeout of their own. If the caller disconnects, a stream that's still running gets 10 more minutes to finish, and is then stopped. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
 
 GPT-6.2 Astra, GPT-6.2 Sol, and GPT-6.1 Terra have a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
@@ -86,7 +90,9 @@ Gemini 4 Carbon, Gemini 4 Hydrogen and Gemini 4 Neon accept text and images with
 
 A `gemini-4-argon` or `gemini-4-carbon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
-Text-to-speech calls to ElevenLabs, xAI, Speechify and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
+Text-to-speech calls to OpenAI, ElevenLabs, xAI, Speechify and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
+
+A Speechify text-to-speech reply is capped at 64 MiB, an xAI speech-to-text reply at 32 MiB, and an ElevenLabs voice listing at 32 MiB. A larger reply fails with `502 upstream_failed` and isn't charged.
 
 A Gemini text-to-speech reply is capped at 64 MiB, enough for the full audio budget. A readable Gemini text-to-speech reply is charged for the token usage it reports, even when it fails or returns no audio. A reply that times out or exceeds the cap reports no usage, so it is charged the full reservation and fails with `504 upstream_timeout` or `400 input_too_large`; split long text into shorter requests. Requests with an unreadable reply are not charged.
 
@@ -188,6 +194,7 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 | Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Steps: Schnell 1–8; Lucid Origin 1–40; Phoenix and FLUX.2 Dev 1–50; Klein exactly 4; SDXL and Inpainting 1–20. A call times out after 5 minutes and fails with `504 upstream_timeout`. A reply over 64 MiB fails with `502 upstream_failed`. Neither is charged. |
 | Replicate | At most 10 references, or the model's lower limit; FLUX 1.1 Pro accepts one. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For other models with width/height controls, dimensions round to multiples of 8 and clamp to the schema bounds (64–4096 per side if none are given). A call has 10 minutes for its predictions, which are polled every 2 seconds. A prediction that a model's safety checker rejects is run again up to two more times when no `seed` is set. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
 | BytePlus | Pro: 10 references; other Seedream models: 14. |
+| Gemini | A call times out after 5 minutes and fails with `504 upstream_timeout`. It isn't charged. |
 | BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Sizes under 921,600 total pixels are treated as aspect-ratio hints, not exact sizes. |
 
 See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
@@ -508,6 +515,7 @@ These apply to signing in to Puter itself, through the sign-in screen or [`puter
 | Wrong two-factor or recovery codes | 10 per 30 min | Per account being signed into |
 | Wrong email confirmation codes | 10/hour, 20/day | Per account |
 | Email confirmation code lifetime | 1 hour from when it was sent | Per code |
+| Response time of a sign-in provider (Google, Apple, Microsoft) | 10 s, then that sign-in fails | Per call to the provider |
 
 Only wrong passwords and wrong codes count toward the per-account limits; a right one costs nothing.
 
@@ -543,6 +551,7 @@ A worker's name may be up to 50 characters. A [`puter.workers.create()`](/Worker
 | App icon                                                           | 12,000/min                      | Per network |
 | App landing page (`/app/<name>`)                                   | 600/min                         | Per network |
 | Names per batch app lookup (`GET /apps/:names`, `POST /query/app`) | 200, up to 200 characters each  |             |
+| Buckets in one `puter.apps.get()` stats answer (`stats_grouping`)  | 10,000                          |             |
 | `metadata`                                                         | 16 KiB, measured as JSON        |             |
 | `filetypeAssociations`                                             | 200 entries, 60 characters each |             |
 
@@ -942,6 +951,8 @@ The relay checks each token against Puter, at most **300 checks/min** per relay 
 | Relay credentials for guests | 60/min | Shared by all guests of one host account |
 
 Relay traffic a guest sends is billed to the account that issued the grant. Issue a grant for the session you mean to host and let it expire rather than reusing it.
+
+A request for relay credentials, from a host or a guest, fails with `504 upstream_timeout` if the relay provider doesn't answer within 10 seconds.
 
 ### Live connections
 

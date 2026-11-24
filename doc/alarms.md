@@ -62,6 +62,11 @@ there, not as a way to quiet an alarm you haven't diagnosed
 An extension whose signals are all one tier and channel can fix both in its
 own local alarm helper instead of repeating them at every call site.
 
+A call can pass a plain-language `summary` in its options. Slack shows it instead
+of the diagnostic field grid and keeps only the short reference and region in
+the footer. The alarm record and other transports retain the diagnostic fields
+and full alarm id.
+
 ## Channel keys
 
 `{ channel: '<key>' }` names the area that owns an alarm. Config maps each key
@@ -190,8 +195,8 @@ prefix ending in `*`; the exact id beats a pattern, and the longest matching
 prefix wins among patterns. Values are a severity, or `mute` to drop the
 alarm before any transport sees it.
 
-It is applied *after* the call site's severity and any known-error rule, so
-config always has the last word.
+It is applied *after* the call site's severity, so config always has the last
+word.
 
 ### Repeat throttling
 

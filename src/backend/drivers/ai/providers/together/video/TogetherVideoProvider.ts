@@ -36,6 +36,10 @@ import type {
     IVideoModel,
 } from '../../../interfaces/video/types.js';
 import { capSecondsToRemainingCredits } from '../../../interfaces/video/creditCap.js';
+import {
+    positiveWholeSeconds,
+    snapAspectRatio,
+} from '../../../interfaces/video/videoParams.js';
 import { VideoProvider } from '../../../interfaces/video/VideoProvider.js';
 import {
     JobHold,
@@ -194,9 +198,7 @@ export class TogetherVideoProvider extends VideoProvider {
             throw new Error(`No pricing configured for video model ${model}`);
         }
 
-        let normalizedSeconds = this.#coercePositiveInteger(
-            seconds ?? duration,
-        );
+        let normalizedSeconds = positiveWholeSeconds(seconds ?? duration);
 
         if (!no_extra_params) {
             normalizedSeconds ??= DEFAULT_DURATION_SECONDS;
@@ -265,10 +267,10 @@ export class TogetherVideoProvider extends VideoProvider {
             }
             if (resolutionTier !== undefined) {
                 createPayload.resolution = resolutionTier;
-                const ratio = this.#deriveRatio(
-                    width,
-                    height,
-                    selectedModel?.ratios,
+                const ratio = snapAspectRatio(
+                    this.#isFiniteNumber(width) ? Number(width) : undefined,
+                    this.#isFiniteNumber(height) ? Number(height) : undefined,
+                    selectedModel?.ratios ?? [],
                 );
                 if (ratio) {
                     createPayload.ratio = ratio;
@@ -499,43 +501,6 @@ export class TogetherVideoProvider extends VideoProvider {
             if (match) return match;
         }
         return tiers[0];
-    }
-
-    /** Snap width/height to one of the model's `ratio` strings. */
-    #deriveRatio(
-        width?: number,
-        height?: number,
-        ratios?: string[] | null,
-    ): string | undefined {
-        if (
-            !ratios?.length ||
-            !this.#isFiniteNumber(width) ||
-            !this.#isFiniteNumber(height)
-        ) {
-            return undefined;
-        }
-        const w = Math.round(Number(width));
-        const h = Math.round(Number(height));
-        if (w <= 0 || h <= 0) return undefined;
-        const gcd = (a: number, b: number): number =>
-            b === 0 ? a : gcd(b, a % b);
-        const d = gcd(w, h) || 1;
-        const candidate = `${w / d}:${h / d}`;
-        return ratios.includes(candidate) ? candidate : undefined;
-    }
-
-    #coercePositiveInteger(value: unknown): number | undefined {
-        if (typeof value === 'number' && Number.isFinite(value)) {
-            const rounded = Math.round(value);
-            return rounded > 0 ? rounded : undefined;
-        }
-        if (typeof value === 'string') {
-            const numeric = Number.parseInt(value, 10);
-            return Number.isFinite(numeric) && numeric > 0
-                ? numeric
-                : undefined;
-        }
-        return undefined;
     }
 
     #isFiniteNumber(value: unknown): boolean {

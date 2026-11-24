@@ -204,6 +204,21 @@ describe('shared app browser', () => {
         expect(onLaunch).toHaveBeenCalled();
     });
 
+    it('offers Copy link, not Open in new tab, and copies the app\'s index_url', async () => {
+        installed = [{ name: 'editor', title: 'Editor', index_url: 'https://editor.puter.site/' }];
+        saved = new Map();
+        const actions = { showContextMenu: vi.fn() };
+        await mount({ editable: true, actions });
+        window.copy_to_clipboard = vi.fn();
+        $('.myapps-tile[data-app-name="editor"]').trigger('contextmenu');
+        const { items } = actions.showContextMenu.mock.calls[0][0];
+        const labels = items.filter(item => item !== '-').map(item => item.html);
+        expect(labels).toContain('copy_link');
+        expect(labels).not.toContain('open_in_new_tab');
+        await items.find(item => item.html === 'copy_link').onClick();
+        expect(window.copy_to_clipboard).toHaveBeenCalledWith('https://editor.puter.site/');
+    });
+
     it('retains the dashboard editing controls and isolates component state', async () => {
         await mount({ editable: true });
         expect($('.myapps-reorder-btn, .myapps-add-tile')).toHaveLength(2);
@@ -251,17 +266,37 @@ describe('shared app browser', () => {
         expect(browser._launchingApps.size).toBe(0);
     });
 
-    it('launches the app store from the dashboard add-app dialog', async () => {
+    it.each([
+        ['browse', 'https://apps.puter.com/'],
+        ['ai', 'https://builder.puter.com/'],
+    ])('opens the %s option of the add-app dialog as a signed-in site in a new tab', async (option, site) => {
+        const actions = {
+            launchApp: vi.fn(async () => {}),
+            openSite: vi.fn(() => Promise.resolve()),
+        };
+        await mount({ editable: true, onLaunch: undefined, actions });
+        $('.myapps-add-tile').trigger('click');
+        $(`.myapps-add-option[data-add-option="${option}"]`).trigger('click');
+        expect(actions.openSite).toHaveBeenCalledWith(site);
+        expect(actions.launchApp).not.toHaveBeenCalled();
+        expect($('.myapps-add-modal')).toHaveLength(0);
+    });
+
+    it.each([
+        ['browse', 'app-center'],
+        ['ai', 'builder'],
+    ])('opens the %s option\'s app in-page when the browser refuses the tab', async (option, appName) => {
         const actions = {
             launchApp: vi.fn(async () => {}),
             settleTileLaunch: vi.fn(),
+            openSite: vi.fn(() => null),
         };
         puter.apps = { get: async name => ({ name, title: name }) };
         await mount({ editable: true, onLaunch: undefined, actions });
         $('.myapps-add-tile').trigger('click');
-        $('.myapps-add-option[data-add-option="browse"]').trigger('click');
+        $(`.myapps-add-option[data-add-option="${option}"]`).trigger('click');
         await vi.waitFor(() => expect(actions.launchApp).toHaveBeenCalledWith(
-            expect.objectContaining({ name: 'app-center', maximized: true }),
+            expect.objectContaining({ name: appName, maximized: true }),
         ));
         expect($('.myapps-add-modal')).toHaveLength(0);
     });

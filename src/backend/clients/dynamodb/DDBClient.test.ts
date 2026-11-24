@@ -673,16 +673,15 @@ describe('DDBClient — unprocessed batch items', () => {
         ]);
     });
 
-    it('gives up with a bad-request error when items never drain', async () => {
+    it('gives up with a 503 when items never drain', async () => {
         requestCount = 0;
         responses = Array.from({ length: 12 }, () => unprocessed('stuck'));
 
         await expect(
             stubClient().batchPut([{ table: TABLE, item: { pk: 'stuck' } }]),
         ).rejects.toMatchObject({
-            statusCode: 400,
-            legacyCode: 'bad_request',
-            message: 'Failed to batch write all items to DynamoDB',
+            statusCode: 503,
+            code: 'db_unavailable',
         });
         // One initial attempt plus the full retry budget.
         expect(requestCount).toBe(9);
@@ -787,16 +786,15 @@ describe('DDBClient — unprocessed batch keys', () => {
         ]);
     });
 
-    it('gives up with a bad-request error when keys never drain', async () => {
+    it('gives up with a 503 when keys never drain', async () => {
         requestCount = 0;
         responses = Array.from({ length: 12 }, () => unprocessed('stuck'));
 
         await expect(
             stubClient().batchGet([{ table: TABLE, items: { pk: 'stuck' } }]),
         ).rejects.toMatchObject({
-            statusCode: 400,
-            legacyCode: 'bad_request',
-            message: 'Failed to batch get all items from DynamoDB',
+            statusCode: 503,
+            code: 'db_unavailable',
         });
         // One initial attempt plus the full retry budget.
         expect(requestCount).toBe(9);

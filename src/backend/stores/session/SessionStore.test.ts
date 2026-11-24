@@ -408,6 +408,25 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('deleteAllForUser', () => {
+        it("deletes every row of the user's, revoked ones included, and no other user's", async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const live = await target.create(user.id);
+            const revoked = await target.create(user.id);
+            await target.removeByUuid(revoked.uuid);
+            const kept = await target.create(other.id);
+            await target.getByUuid(live.uuid);
+
+            await target.deleteAllForUser(user.id);
+
+            expect(await rawRow(live.uuid)).toBeFalsy();
+            expect(await rawRow(revoked.uuid)).toBeFalsy();
+            expect(await target.getByUuid(live.uuid)).toBeNull();
+            expect(await rawRow(kept.uuid)).toBeTruthy();
+        });
+    });
+
     describe('removeByUuid', () => {
         it('soft-revokes — row remains in DB with revoked_at set', async () => {
             const user = await makeUser();
@@ -626,6 +645,35 @@ describe('SessionStore', () => {
                     )) as string,
                 ).revoked_at,
             ).not.toBeNull();
+        });
+
+        it('keeps a revoked row revoked on a cluster that cannot pipeline a row with its tombstone', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id);
+            const live = { [session.uuid]: await rawRow(session.uuid) };
+            const redis = server.clients.redis;
+            const realPipeline = redis.pipeline.bind(redis);
+            // What ioredis answers when a pipeline's keys span shards.
+            const sharded = vi.spyOn(redis, 'pipeline').mockImplementation(() => {
+                const pipeline = realPipeline();
+                pipeline.exec = () =>
+                    Promise.reject(
+                        new Error(
+                            'All keys in the pipeline should belong to the same slots allocation group',
+                        ),
+                    );
+                return pipeline;
+            });
+            const restore = lagReplica(live);
+            try {
+                await target.revokeCascade(session.uuid);
+                // A peer region holds the tombstone but no row.
+                await redis.del(`sessions:v2:uuid:${session.uuid}`);
+                expect(await target.getByUuid(session.uuid)).toBeNull();
+            } finally {
+                restore();
+                sharded.mockRestore();
+            }
         });
 
         it('revokes a session the replica has not seen yet', async () => {
@@ -1953,6 +2001,24 @@ describe('SessionStore', () => {
         it('returns false on falsy uuid / userId', async () => {
             expect(await target.setLabel('', 1, 'x')).toBe(false);
             expect(await target.setLabel('some-uuid', 0, 'x')).toBe(false);
+        });
+
+        it('serves the new label while a replica still has the old one', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id, { label: 'old' });
+            const stale = await rawRow(session.uuid);
+
+            expect(await target.setLabel(session.uuid, user.id, 'new')).toBe(
+                true,
+            );
+            const restore = lagReplica({ [session.uuid]: stale });
+            try {
+                expect((await target.getByUuid(session.uuid))?.label).toBe(
+                    'new',
+                );
+            } finally {
+                restore();
+            }
         });
     });
 

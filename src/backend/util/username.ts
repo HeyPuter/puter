@@ -24,7 +24,7 @@ import { isUniqueViolation } from './dbError.js';
 import { generate_identifier } from './identifier.js';
 import { isReservedUsername } from './reservedUsernames.js';
 
-export const USERNAME_REGEX = /^\w{1,}$/;
+const USERNAME_REGEX = /^\w{1,}$/;
 export const USERNAME_MAX_LENGTH = 45;
 const GENERATE_ATTEMPTS = 20;
 
@@ -79,13 +79,14 @@ export const usernameConflict = async (
     username: string,
     ownId?: number,
 ): Promise<'account' | 'home' | null> => {
-    const holder = await stores.user.getByUsername(username);
+    // Read together: a free name, the usual case, needs both answers.
+    const [holder, homeTaken] = await Promise.all([
+        stores.user.getByUsername(username),
+        stores.fsEntry.findHomePathConflict(username, ownId, {
+            includeDescendants: true,
+        }),
+    ]);
     if (holder && holder.id !== ownId) return 'account';
-    const homeTaken = await stores.fsEntry.findHomePathConflict(
-        username,
-        ownId,
-        { includeDescendants: true },
-    );
     return homeTaken ? 'home' : null;
 };
 

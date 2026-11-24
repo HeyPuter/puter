@@ -37,7 +37,7 @@ import {
     EVENTS_HANDLERS_PER_APP,
     EVENTS_HANDLER_SOURCE_MAX_BYTES,
     EVENTS_USER_HANDLERS_PER_SCOPE,
-} from '../../controllers/events/limits.js';
+} from '../../services/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';

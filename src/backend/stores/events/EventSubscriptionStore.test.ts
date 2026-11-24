@@ -22,7 +22,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE,
     EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
-} from '../../controllers/events/limits.js';
+} from '../../services/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types.js';
 import {

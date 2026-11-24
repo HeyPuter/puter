@@ -46,6 +46,7 @@ A `Promise` that will resolve to the [`App`](/Objects/app/) object with the give
 |------|------|
 | `not_found` | No app has this name, or no app runs at this URL's origin. |
 | `bad_request` | The URL isn't an `http://`, `https://`, or browser extension URL. |
+| `bad_request` | The `stats_period` isn't one of the listed values. |
 | `app_blocked` | The URL's origin is blocked from using Puter. |
 | `forbidden` | The app is protected and you don't have access to it. |
 

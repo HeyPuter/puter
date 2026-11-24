@@ -29,6 +29,7 @@ import {
     signedPuterVideoUrl,
 } from '../../../shared/mediaInput.js';
 import { capSecondsToRemainingCredits } from '../../../interfaces/video/creditCap.js';
+import { snapAspectRatio } from '../../../interfaces/video/videoParams.js';
 import type {
     IGenerateVideoParams,
     IVideoModel,
@@ -257,7 +258,7 @@ export class KlingVideoProvider extends VideoProvider {
                 resolutionKey,
                 audio,
                 seconds: cappedSeconds,
-                aspectRatio: this.#aspectRatio(width, height),
+                aspectRatio: snapAspectRatio(width, height, ASPECT_RATIOS),
                 firstFrame,
                 endFrame,
                 references,
@@ -573,27 +574,5 @@ export class KlingVideoProvider extends VideoProvider {
             numeric > 0
             ? Math.round(numeric)
             : undefined;
-    }
-
-    /** Snap width/height to one of Kling's aspect ratios. */
-    #aspectRatio(width?: number, height?: number): string | undefined {
-        if (
-            typeof width !== 'number' ||
-            typeof height !== 'number' ||
-            !Number.isFinite(width) ||
-            !Number.isFinite(height) ||
-            width <= 0 ||
-            height <= 0
-        ) {
-            return undefined;
-        }
-        const gcd = (a: number, b: number): number =>
-            b === 0 ? a : gcd(b, a % b);
-        const w = Math.round(width);
-        const h = Math.round(height);
-        const d = gcd(w, h) || 1;
-        const candidate = `${w / d}:${h / d}`;
-        // Other ratios are left to Kling's 16:9 default.
-        return ASPECT_RATIOS.includes(candidate) ? candidate : undefined;
     }
 }

@@ -26,7 +26,6 @@ import {
     SHARE_RECIPIENT_PARAM,
     shareDeepLink,
     sharedViewLink,
-    shareTargetLink,
 } from './shareDeepLink.js';
 
 const UID = '11111111-2222-4333-8444-555555555555';
@@ -257,24 +256,5 @@ describe('sharedViewLink', () => {
         expect(
             link.length + `&shared=${encodeURIComponent(paths[shared.length])}`.length,
         ).toBeGreaterThan(SHARE_DEEP_LINK_MAX_LENGTH);
-    });
-});
-
-describe('shareTargetLink', () => {
-    it('links an addressable target and nothing else', () => {
-        expect(
-            shareTargetLink('https://puter.com', {
-                name: 'a.txt',
-                uid: UID,
-                ownerUsername: 'alice',
-            }),
-        ).toBe(`https://puter.com/?shared=%2Falice%2F${UID}%2Fa.txt`);
-        expect(
-            shareTargetLink('https://puter.com', {
-                name: 'a.txt',
-                uid: '',
-                ownerUsername: 'alice',
-            }),
-        ).toBeNull();
     });
 });

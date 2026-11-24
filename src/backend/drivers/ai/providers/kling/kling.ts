@@ -24,8 +24,10 @@
  */
 
 import { HttpError } from '../../../../core/http/HttpError.js';
-import { readBoundedBody } from '../../../util/fileInput.js';
-import { sanitizeUpstreamMessage } from '../../../util/upstreamErrors.js';
+import {
+    fetchBoundedJson,
+    sanitizeUpstreamMessage,
+} from '../../../util/upstreamErrors.js';
 
 export const KLING_API_BASE = 'https://api-singapore.klingai.com';
 
@@ -133,27 +135,25 @@ export async function klingRequest<T>(
         timeoutMs = REQUEST_TIMEOUT_MS,
     }: { body?: object; baseUrl?: string; timeoutMs?: number } = {},
 ): Promise<T> {
-    const response = await fetch(`${baseUrl}${path}`, {
-        method,
-        headers: {
-            Authorization: `Bearer ${apiKey}`,
-            ...(body ? { 'Content-Type': 'application/json' } : {}),
+    const { response, payload: envelope } = await fetchBoundedJson<
+        KlingEnvelope<T>
+    >(
+        `${baseUrl}${path}`,
+        {
+            method,
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                ...(body ? { 'Content-Type': 'application/json' } : {}),
+            },
+            ...(body ? { body: JSON.stringify(body) } : {}),
         },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-        signal: AbortSignal.timeout(timeoutMs),
-    });
-    const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES, () =>
-        klingError(undefined, 'Kling response too large', 502),
+        {
+            timeoutMs,
+            maxBytes: MAX_RESPONSE_BYTES,
+            tooLarge: () =>
+                klingError(undefined, 'Kling response too large', 502),
+        },
     );
-    let envelope: KlingEnvelope<T> = {};
-    try {
-        const parsed: unknown = JSON.parse(raw.toString('utf8'));
-        if (parsed && typeof parsed === 'object') {
-            envelope = parsed as KlingEnvelope<T>;
-        }
-    } catch {
-        // Not JSON; the status alone decides.
-    }
     const code = typeof envelope.code === 'number' ? envelope.code : undefined;
     if (!response.ok || (code !== undefined && code !== 0)) {
         throw klingError(

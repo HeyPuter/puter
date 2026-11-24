@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import { EVENTS_COALESCE_WINDOW_MS } from '../events/limits.js';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
@@ -25,6 +25,7 @@ import {
     mailboxPath,
     puterEmailAddressesOf,
     puterEmailUsername,
+    refusalReasonText,
     stampSenderAuth,
     storeInboxMessage,
 } from './mailbox.js';
@@ -93,6 +94,18 @@ describe('addresses', () => {
             'dan@puter.email',
             'dan@puterstaging.email',
         ]);
+    });
+});
+
+describe('refusalReasonText', () => {
+    test('keeps one short line of printable ASCII', () => {
+        expect(refusalReasonText('  bad\r\nsender\u00e9  ')).toBe('bad sender');
+        expect(refusalReasonText('x'.repeat(300))).toHaveLength(200);
+    });
+
+    test('falls back when nothing usable is left', () => {
+        expect(refusalReasonText(null)).toBe('Message refused');
+        expect(refusalReasonText('\u0000\u00ff')).toBe('Message refused');
     });
 });
 

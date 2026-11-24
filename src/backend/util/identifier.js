@@ -264,20 +264,6 @@ function generate_identifier(separator = '_', rng = Math.random) {
     ].join(separator);
 }
 
-const HUMAN_READABLE_CASE_INSENSITIVE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-
-function generate_random_code(
-    n,
-    { rng = Math.random, chars = HUMAN_READABLE_CASE_INSENSITIVE } = {},
-) {
-    let code = '';
-    for (let i = 0; i < n; i++) {
-        code += randomItem(chars, rng);
-    }
-    return code;
-}
-
 module.exports = {
     generate_identifier,
-    generate_random_code,
 };

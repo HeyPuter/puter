@@ -2237,6 +2237,7 @@ window.initgui = async function (options) {
             // assertVerifiedAccount): email → phone (SMS) → card, or card →
             // phone → email when the account clears email last.
             let card_gate_cleared_by_fallback = false;
+            let card_gate_verified = false;
             const emailGate = async () => {
                 if (whoami.requires_email_confirmation) {
                     let is_verified;
@@ -2284,7 +2285,8 @@ window.initgui = async function (options) {
             const cardGate = async () => {
                 if (
                     whoami.requires_card_verification &&
-                    !card_gate_cleared_by_fallback
+                    !card_gate_cleared_by_fallback &&
+                    !card_gate_verified
                 ) {
                     let is_verified;
                     do {
@@ -2297,12 +2299,15 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    card_gate_verified = true;
                     await refreshWhoami(whoami);
                 }
             };
             if (whoami.email_gate_last) {
                 await cardGate();
                 await phoneGate();
+                // Verifying a phone can add a card requirement.
+                await cardGate();
                 await emailGate();
             } else {
                 await emailGate();
@@ -2556,6 +2561,7 @@ window.initgui = async function (options) {
             // assertVerifiedAccount): email → phone (SMS) → card, or card →
             // phone → email when the account clears email last.
             let card_gate_cleared_by_fallback = false;
+            let card_gate_verified = false;
             // A framed email confirmation asks for the code itself, in a
             // window the user can close.
             const confirmsEmailInAction =
@@ -2609,7 +2615,8 @@ window.initgui = async function (options) {
             const cardGate = async () => {
                 if (
                     whoami.requires_card_verification &&
-                    !card_gate_cleared_by_fallback
+                    !card_gate_cleared_by_fallback &&
+                    !card_gate_verified
                 ) {
                     let is_verified;
                     do {
@@ -2624,12 +2631,15 @@ window.initgui = async function (options) {
                             },
                         });
                     } while (!is_verified);
+                    card_gate_verified = true;
                     await refreshWhoami(whoami);
                 }
             };
             if (whoami.email_gate_last) {
                 await cardGate();
                 await phoneGate();
+                // Verifying a phone can add a card requirement.
+                await cardGate();
                 await emailGate();
             } else {
                 await emailGate();

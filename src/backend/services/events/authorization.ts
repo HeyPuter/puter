@@ -340,6 +340,10 @@ export const assertCrossAppKvAuthorized = async (
     throw new HttpError(403, 'Permission denied', { legacyCode: 'forbidden' });
 };
 
+/** A scoped access token, whoever issued it: neither the account nor the app. */
+export const isScopedToken = (actor: Actor): boolean =>
+    isAccessTokenActor(actor) && !isAccountContext(actor);
+
 /**
  * Whether a row is inside what this actor may see and remove. An app token is
  * confined to the rows its own app created; the account sees everything of
@@ -354,7 +358,7 @@ export const rowInActorScope = (
     // Unresolved is not "no app": reading it that way is what would hand an
     // app the account-wide view.
     if (app === undefined) return false;
-    if (isAccessTokenActor(actor) && !isAccountContext(actor)) return false;
+    if (isScopedToken(actor)) return false;
     if (app === null) return isAccountContext(actor);
     return row.appUid === app.uid;
 };

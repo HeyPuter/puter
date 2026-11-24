@@ -189,25 +189,6 @@ export const outputFormatFromResponseFormat = (
     };
 };
 
-/** Responses `text.format` → normalized `OutputFormat`, json_schema only. */
-export const outputFormatFromResponsesText = (
-    text: unknown,
-): OutputFormat | undefined => {
-    if (!text || typeof text !== 'object') return undefined;
-    const format = (text as Record<string, unknown>).format;
-    if (!format || typeof format !== 'object') return undefined;
-    const f = format as Record<string, unknown>;
-    if (f.type !== 'json_schema' || !f.schema || typeof f.schema !== 'object') {
-        return undefined;
-    }
-    return {
-        type: 'json_schema',
-        schema: f.schema as Record<string, unknown>,
-        ...(typeof f.name === 'string' ? { name: f.name } : {}),
-        ...(typeof f.strict === 'boolean' ? { strict: f.strict } : {}),
-    };
-};
-
 // -- gpt-5/6 reasoning_effort clamp ------------------------------------------
 
 /** `none < minimal < low < medium < high < xhigh < max`. */

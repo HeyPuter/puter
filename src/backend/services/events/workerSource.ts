@@ -18,7 +18,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { EVENTS_WORKER_SOURCE_MAX_BYTES } from '../../controllers/events/limits.js';
+import { EVENTS_WORKER_SOURCE_MAX_BYTES } from './limits.js';
 import type { EventHandler } from '../../stores/events/EventHandlerStore.js';
 
 /**

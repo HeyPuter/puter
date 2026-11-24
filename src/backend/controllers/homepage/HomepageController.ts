@@ -153,7 +153,6 @@ export class HomepageController extends PuterController {
     registerRoutes(router: PuterRouter) {
         const homepage = this.services
             .homepage as unknown as PuterHomepageService;
-        if (!homepage) return;
 
         const defaultMeta = (req: express.Request): PageMeta => ({
             title: String(this.config.gui_params?.title ?? 'Puter'),

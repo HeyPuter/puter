@@ -53,20 +53,24 @@ describe('FSEntryStore', () => {
                 quoteIdentifier: (identifier: string) => `"${identifier}"`,
                 read: async (query: string) => {
                     queries.push(query);
-                    if (query.includes('SUM(size)')) {
-                        return [{ totalUsage: 321 }];
-                    }
-                    return [{ freeStorage: 654 }];
+                    return query.includes('SUM(size)')
+                        ? [{ totalUsage: 321 }]
+                        : [];
                 },
             },
             event: {
                 emitAndWaitConcurrently: async () => undefined,
             },
         };
+        const stores = {
+            user: {
+                getById: async () => ({ id: 42, uuid: 'u', free_storage: 654 }),
+            },
+        };
         const store = new FSEntryStore(
             config,
             clients as ConstructorParameters<typeof FSEntryStore>[1],
-            {} as ConstructorParameters<typeof FSEntryStore>[2],
+            stores as unknown as ConstructorParameters<typeof FSEntryStore>[2],
         );
 
         await expect(store.getUserStorageAllowance(42)).resolves.toEqual({
@@ -75,7 +79,6 @@ describe('FSEntryStore', () => {
         });
         expect(queries).toEqual([
             'SELECT COALESCE(SUM(size), 0) AS "totalUsage" FROM fsentries WHERE user_id = ?',
-            'SELECT uuid, free_storage AS "freeStorage" FROM "user" WHERE id = ? LIMIT 1',
         ]);
     });
 });
@@ -259,7 +262,7 @@ describe('FSEntryStore subdomain aggregation', () => {
 });
 
 describe('FSEntryStore cache invalidation', () => {
-    it('invalidates every key of an entry addressed by path, uuid or id', async () => {
+    it('invalidates every key of an entry addressed by uuid or id', async () => {
         const user = await makeUser();
         const file = await createFile(user, `${user.home}/Documents/cache.txt`);
         const keys = [
@@ -269,14 +272,6 @@ describe('FSEntryStore cache invalidation', () => {
         ];
 
         for (const [label, invalidate] of [
-            [
-                'path',
-                () =>
-                    store.invalidateEntryCacheByPathForUser(
-                        user.userId,
-                        file.path,
-                    ),
-            ],
             ['uuid', () => store.invalidateEntryCacheByUuid(file.uuid)],
             ['id', () => store.invalidateEntryCacheById(file.id)],
         ] as Array<[string, () => Promise<void>]>) {
@@ -290,17 +285,20 @@ describe('FSEntryStore cache invalidation', () => {
         }
     });
 
-    it('still clears the path key when no row exists at that path', async () => {
+    it('drops the old path key of an entry cached before a move', async () => {
         const user = await makeUser();
-        const key = `prodfsv2:fsentry:path:any:${user.home}/Documents/stale.txt`;
-        await server.clients.redis.setex(key, 60, '{"uuid":"stale"}');
-
-        await store.invalidateEntryCacheByPathForUser(
-            user.userId,
-            `${user.home}/Documents/stale.txt`,
+        const file = await createFile(user, `${user.home}/Documents/moved.txt`);
+        await store.getEntryByUuid(file.uuid);
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE id = ?',
+            [`${user.home}/Documents/renamed.txt`, 'renamed.txt', file.id],
         );
 
-        await expect(server.clients.redis.get(key)).resolves.toBeNull();
+        await store.invalidateEntryCacheById(file.id);
+
+        await expect(
+            server.clients.redis.get(`prodfsv2:fsentry:path:any:${file.path}`),
+        ).resolves.toBeNull();
     });
 
     it('falls back to the cached copy to find the keys of a deleted entry', async () => {
@@ -2364,7 +2362,7 @@ describe('FSEntryStore read-path cache backfill', () => {
                     }) as typeof pipeline.setex;
                     const exec = pipeline.exec.bind(pipeline);
                     pipeline.exec = (async () => {
-                        await gate;
+                        if (keys.length > 0) await gate;
                         return exec();
                     }) as typeof pipeline.exec;
                     return pipeline;
@@ -2377,29 +2375,6 @@ describe('FSEntryStore read-path cache backfill', () => {
             release: () => {
                 release();
                 pipelineSpy.mockRestore();
-                setexSpy.mockRestore();
-            },
-        };
-    };
-
-    /** Holds every SETEX sent one at a time until released. */
-    const holdSetex = () => {
-        const redis = server.clients.redis;
-        const realSetex = redis.setex.bind(redis);
-        let release!: () => void;
-        const gate = new Promise<void>((resolve) => {
-            release = resolve;
-        });
-        const setexSpy = vi.spyOn(redis, 'setex').mockImplementation((async (
-            ...args: Parameters<typeof realSetex>
-        ) => {
-            await gate;
-            return realSetex(...args);
-        }) as typeof redis.setex);
-        return {
-            setexSpy,
-            release: () => {
-                release();
                 setexSpy.mockRestore();
             },
         };
@@ -2475,12 +2450,12 @@ describe('FSEntryStore read-path cache backfill', () => {
 
         for (const read of reads) {
             await server.clients.redis.flushall?.();
-            const held = holdSetex();
+            const held = holdPipelines();
             let reading!: Promise<FSEntry | null | undefined>;
             try {
                 reading = read();
                 expect(await stillPending(reading)).toBe(true);
-                expect(held.setexSpy).toHaveBeenCalled();
+                expect(held.queued.some((keys) => keys.length > 0)).toBe(true);
             } finally {
                 held.release();
             }
@@ -2497,9 +2472,6 @@ describe('FSEntryStore read-path cache backfill', () => {
         await server.clients.redis.flushall?.();
 
         const redis = server.clients.redis;
-        const setexSpy = vi
-            .spyOn(redis, 'setex')
-            .mockRejectedValue(new Error('cache down'));
         const realPipeline = redis.pipeline.bind(redis);
         const pipelineSpy = vi
             .spyOn(redis, 'pipeline')
@@ -2519,10 +2491,8 @@ describe('FSEntryStore read-path cache backfill', () => {
             await expect(store.listChildren(file.parentUid!)).resolves.toEqual([
                 expect.objectContaining({ uuid: file.uuid }),
             ]);
-            expect(setexSpy).toHaveBeenCalled();
             expect(pipelineSpy).toHaveBeenCalled();
         } finally {
-            setexSpy.mockRestore();
             pipelineSpy.mockRestore();
         }
     });
@@ -3590,20 +3560,15 @@ describe('FSEntryStore pending upload sessions', () => {
         );
     });
 
-    it('records completed, failed and aborted transitions', async () => {
+    it('records failed and aborted transitions', async () => {
         const user = await makeUser();
-        const completed = makeSession(user);
         const failed = makeSession(user);
         const aborted = makeSession(user);
-        await store.batchCreatePendingEntries([completed, failed, aborted]);
+        await store.batchCreatePendingEntries([failed, aborted]);
 
-        await store.markPendingEntryCompleted(completed.sessionId);
         await store.markPendingEntryFailed(failed.sessionId, 'upload broke');
         await store.abortPendingEntry(aborted.sessionId, 'caller aborted');
 
-        await expect(
-            store.getPendingEntryBySessionId(completed.sessionId),
-        ).resolves.toMatchObject({ status: 'completed', failureReason: null });
         await expect(
             store.getPendingEntryBySessionId(failed.sessionId),
         ).resolves.toMatchObject({
@@ -3874,18 +3839,18 @@ describe('FSEntryStore pending upload sessions', () => {
             const legacy = makeSession(user);
             await seedUnpartitioned(legacy);
 
-            await store.markPendingEntryCompleted(legacy.sessionId);
+            await store.markPendingEntryFailed(legacy.sessionId, 'broke');
 
             await expect(
                 readStored(legacy.sessionId, true),
-            ).resolves.toMatchObject({ status: 'completed' });
+            ).resolves.toMatchObject({ status: 'failed' });
             // The partition wins over the stale copy left behind.
             await expect(
                 readStored(legacy.sessionId, false),
             ).resolves.toMatchObject({ status: 'pending' });
             await expect(
                 store.getPendingEntryBySessionId(legacy.sessionId),
-            ).resolves.toMatchObject({ status: 'completed' });
+            ).resolves.toMatchObject({ status: 'failed' });
         });
     });
 });
@@ -3992,10 +3957,12 @@ describe('FSEntryStore storage allowance', () => {
             usageSpy.mockRestore();
             await askedOnce;
 
-            const userSpy = failOn('free_storage');
+            const userSpy = vi
+                .spyOn(server.stores.user, 'getById')
+                .mockRejectedValue(new Error('user row'));
             await expect(
                 store.getUserStorageAllowance(user.userId),
-            ).rejects.toThrow('free_storage');
+            ).rejects.toThrow('user row');
             userSpy.mockRestore();
             await new Promise((resolve) => setTimeout(resolve, 50));
             expect(asked).toHaveLength(1);

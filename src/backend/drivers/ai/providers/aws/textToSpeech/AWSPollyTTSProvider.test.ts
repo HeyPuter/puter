@@ -237,6 +237,22 @@ describe('AWSPollyTTSProvider catalog', () => {
         }
     });
 
+    it('shares one DescribeVoices call between concurrent listings', async () => {
+        const provider = makeProvider();
+        sendDispatch();
+        await Promise.all([provider.listVoices(), provider.listVoices()]);
+        expect(pollySendMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks again after a failed DescribeVoices call', async () => {
+        const provider = makeProvider();
+        sendDispatch(() => Promise.reject(new Error('throttled')));
+        await expect(provider.listVoices()).rejects.toThrow('throttled');
+        sendDispatch();
+        await expect(provider.listVoices()).resolves.not.toHaveLength(0);
+        expect(pollySendMock).toHaveBeenCalledTimes(2);
+    });
+
     it('listVoices filters to voices that support the requested engine', async () => {
         const provider = makeProvider();
         sendDispatch();

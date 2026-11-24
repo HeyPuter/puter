@@ -38,7 +38,7 @@ import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_KV_HANDLE_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
-} from '../../controllers/events/limits.js';
+} from '../events/limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import {

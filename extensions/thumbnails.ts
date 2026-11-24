@@ -10,6 +10,10 @@ import { extension } from '@heyputer/backend/src/extensions';
 import type { FSEntryStore } from '@heyputer/backend/src/stores/fs/FSEntryStore';
 import { isMissingObjectError } from '@heyputer/backend/src/stores/fs/S3ObjectStore';
 import { BoundedTtlMap } from '@heyputer/backend/src/util/boundedTtlMap.js';
+import {
+    decodeStrictBase64,
+    sniffImageMime,
+} from '@heyputer/backend/src/util/mediaSniff.js';
 import crypto from 'node:crypto';
 import type { Readable } from 'node:stream';
 import sharp from 'sharp';
@@ -20,6 +24,15 @@ type ThumbnailEntryStore = Pick<FSEntryStore, 'updateEntryThumbnailByUuid'>;
 
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 const MAX_THUMBNAIL_PIXELS = 64e6;
+
+// Raster types only: objects are served from storage with their stored type,
+// and anything a browser runs as a document (HTML, SVG) must never be one.
+const THUMBNAIL_CONTENT_TYPES: ReadonlySet<string> = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+]);
 
 // Namespace every object this extension writes. An fs object's key is its
 // bare fsentry uuid and the default config points `thumbnailStore.name` at
@@ -143,15 +156,17 @@ function getPresignClient(): S3Client {
 // Strictly decode a data: URL and validate the decoded image. Encoded-string
 // length lies about decoded byte count (whitespace, padding) and says nothing
 // about pixel count — a 2MB PNG can decompress to hundreds of MB of raster.
+// The stored type is the sniffed one; the declared type is not trusted.
 async function decodeAndValidateThumbnail(
     dataURL: string,
 ): Promise<{ mimeType: string; data: Buffer } | null> {
     const commaIdx = dataURL.indexOf(',');
     if (commaIdx === -1) return null;
-    const mimeType = dataURL.slice(5, commaIdx).split(';')[0];
 
-    const data = Buffer.from(dataURL.slice(commaIdx + 1), 'base64');
-    if (data.length === 0 || data.length > MAX_THUMBNAIL_BYTES) return null;
+    const data = decodeStrictBase64(dataURL.slice(commaIdx + 1));
+    if (!data || data.length > MAX_THUMBNAIL_BYTES) return null;
+    const mimeType = sniffImageMime(data);
+    if (!mimeType || !THUMBNAIL_CONTENT_TYPES.has(mimeType)) return null;
 
     try {
         await sharp(data, {
@@ -267,7 +282,8 @@ export const handleThumbnailUploadPrepare = async (
 
         const contentType =
             typeof item.contentType === 'string' ? item.contentType.trim() : '';
-        if (!contentType) continue;
+        const baseType = contentType.split(';')[0].trim().toLowerCase();
+        if (!THUMBNAIL_CONTENT_TYPES.has(baseType)) continue;
 
         const size = item.size;
         if (

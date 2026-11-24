@@ -158,8 +158,3 @@ export function jsonWithStreamedBase64(
             prefix.length + Math.ceil(media.byteLength / 3) * 4 + suffix.length,
     };
 }
-
-export const geminiTokenCount = (value: unknown): number | undefined =>
-    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-        ? value
-        : undefined;

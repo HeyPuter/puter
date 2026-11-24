@@ -33,7 +33,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { EVENTS_KV_HANDLE_LIMIT } from '../../controllers/events/limits.js';
+import { EVENTS_KV_HANDLE_LIMIT } from '../events/limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { KV_HANDLE_RETIRE_BATCH } from '../../stores/events/KvShareHandleStore.js';

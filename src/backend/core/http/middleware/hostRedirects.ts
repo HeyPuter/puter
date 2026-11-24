@@ -23,6 +23,9 @@ import path from 'node:path';
 import type { IConfig } from '../../../types';
 import type { RouteOptions } from '../types';
 import { assertNormalized } from '../../../services/fs/resolveNode.js';
+import { getPuterHostedDomains, normalizeHost } from '../../../util/hosts.js';
+import { activeSubdomain } from '../../../util/subdomains.js';
+import { APP_ICONS_SUBDOMAIN } from '../../../util/systemSite.js';
 import { HttpError, isHttpError } from '../HttpError';
 import { isLocalWorkerHost } from './localWorkerProxy';
 
@@ -46,8 +49,7 @@ const RESERVED_SUBDOMAINS = new Set<string>([
     // Native apps (reserved here regardless of whether nativeAppStatic is
     // currently installed — the redirect should still skip them).
     ...NATIVE_APP_SUBDOMAINS,
-    // App-icon serving subdomain.
-    'puter-app-icons',
+    APP_ICONS_SUBDOMAIN,
 ]);
 
 /**
@@ -205,8 +207,7 @@ export const createWwwRedirect = (config: IConfig): RequestHandler => {
     return (req, res, next) => {
         // `www.` on a host outside our domains belongs to that host's site.
         if (req.is_custom_domain) return next();
-        const active = req.subdomains?.[req.subdomains.length - 1] ?? '';
-        if (active !== 'www') return next();
+        if (activeSubdomain(req) !== 'www') return next();
         if (!domain) return next();
         res.redirect(`${req.protocol}://${domain}`);
     };
@@ -235,29 +236,20 @@ export const createUserSubdomainNotFound = (
     config: IConfig,
     lookupClaim: ClaimLookup = () => undefined,
 ): RequestHandler => {
-    const domain = (config.domain ?? '').toLowerCase().split(':')[0];
+    const domain = normalizeHost(config.domain) ?? '';
     if (!domain || !config.static_hosting_domain) {
         return (_req, _res, next) => next();
     }
     const localWorkers = Boolean(config.workers?.localServer);
 
-    const hostingDomains = [
-        config.static_hosting_domain,
-        config.static_hosting_domain_alt,
-        config.private_app_hosting_domain,
-        config.private_app_hosting_domain_alt,
-    ]
-        .map((d) => (d ?? '').toLowerCase().split(':')[0])
-        .filter((d) => d.length > 0);
+    const hostingDomains = getPuterHostedDomains(config);
     return (req, res, next) => {
-        const active = (
-            req.subdomains?.[req.subdomains.length - 1] ?? ''
-        ).toLowerCase();
+        const active = activeSubdomain(req).toLowerCase();
         if (active === '' || RESERVED_SUBDOMAINS.has(active)) return next();
         const claim = lookupClaim(active);
         if (isMainPipelineClaim(claim)) return next();
 
-        const hostName = (req.headers.host ?? '').toLowerCase().split(':')[0];
+        const hostName = normalizeHost(req.headers.host) ?? '';
         if (
             hostingDomains.some(
                 (d) => hostName === d || hostName.endsWith(`.${d}`),
@@ -304,9 +296,7 @@ export const createNativeAppStatic = (config: IConfig): RequestHandler => {
     }
     return async (req, res, next) => {
         if (req.is_custom_domain) return next();
-        const active = (
-            req.subdomains?.[req.subdomains.length - 1] ?? ''
-        ).toLowerCase();
+        const active = activeSubdomain(req).toLowerCase();
         if (!apps.has(active)) return next();
 
         const appRoot = NATIVE_APPS_WITH_DIST.has(active)

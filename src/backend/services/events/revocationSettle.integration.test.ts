@@ -37,8 +37,8 @@ import {
     vi,
 } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
-import { SUSPENDED_ROW_TTL_DAYS } from '../../controllers/events/limits.js';
+import { EVENTS_COALESCE_WINDOW_MS } from './limits.js';
+import { SUSPENDED_ROW_TTL_DAYS } from './limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import {

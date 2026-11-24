@@ -293,6 +293,80 @@ export function resolveDriverMeta(
     };
 }
 
+// -- Registry ---------------------------------------------------------
+
+type DriverInstance = WithLifecycle & Record<string, unknown>;
+
+export interface DriverRegistry {
+    /** Interface → driver name or alias → driver. */
+    drivers: Map<string, Map<string, DriverInstance>>;
+    /** Interface → the driver a call naming none goes to. */
+    defaults: Map<string, string>;
+    /** Driver → its resolved meta, so the request path never re-walks it. */
+    meta: Map<DriverInstance, DriverMeta>;
+}
+
+const registries = new WeakMap<object, DriverRegistry>();
+
+/**
+ * The drivers of a drivers layer by interface, under their names and aliases,
+ * built once per layer object. An interface's default is the last driver
+ * flagged `isDefault`, else the first registered.
+ */
+export function driverRegistry(
+    layer: Record<string, DriverInstance>,
+): DriverRegistry {
+    const cached = registries.get(layer);
+    if (cached) return cached;
+    const registry: DriverRegistry = {
+        drivers: new Map(),
+        defaults: new Map(),
+        meta: new Map(),
+    };
+    for (const instance of Object.values(layer)) {
+        const meta = resolveDriverMeta(instance);
+        if (meta) registerDriver(registry, meta, instance);
+    }
+    registries.set(layer, registry);
+    return registry;
+}
+
+function registerDriver(
+    { drivers, defaults, meta: metaByDriver }: DriverRegistry,
+    meta: DriverMeta,
+    instance: DriverInstance,
+): void {
+    let ifaceMap = drivers.get(meta.interfaceName);
+    if (!ifaceMap) {
+        ifaceMap = new Map();
+        drivers.set(meta.interfaceName, ifaceMap);
+    }
+    if (ifaceMap.has(meta.driverName)) {
+        console.warn(
+            `[driver-controller] overwriting driver ${meta.interfaceName}:${meta.driverName}`,
+        );
+    }
+    ifaceMap.set(meta.driverName, instance);
+    metaByDriver.set(instance, meta);
+    // Calls that pass a provider id in the `driver` slot (e.g. `aws-polly`
+    // instead of the unified `ai-tts`, as older SDK bundles do) resolve here;
+    // the handler sets Context.driverName to the alias so the method can route
+    // to the right internal provider.
+    for (const alias of meta.aliases) {
+        if (alias === meta.driverName) continue;
+        if (ifaceMap.has(alias)) {
+            console.warn(
+                `[driver-controller] alias collision on ${meta.interfaceName}:${alias} — keeping first registration`,
+            );
+            continue;
+        }
+        ifaceMap.set(alias, instance);
+    }
+    if (meta.isDefault || !defaults.has(meta.interfaceName)) {
+        defaults.set(meta.interfaceName, meta.driverName);
+    }
+}
+
 /**
  * Framework/lifecycle method names that must never be reachable via
  * `/drivers/call`. These live on `PuterDriver` (see `drivers/types.ts`) and are

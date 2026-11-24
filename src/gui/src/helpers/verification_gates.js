@@ -176,8 +176,9 @@ export const runVerificationGates = async (user, show_email, reload_on_success, 
         card_cleared_by_fallback = phone_ok === 'card';
         await refresh();
     };
+    let card_verified = false;
     const cardGate = async () => {
-        if ( ! user?.requires_card_verification || card_cleared_by_fallback ) return;
+        if ( card_verified || ! user?.requires_card_verification || card_cleared_by_fallback ) return;
         let card_ok = false;
         do {
             card_ok = await UIWindowCardVerificationRequired({
@@ -187,11 +188,14 @@ export const runVerificationGates = async (user, show_email, reload_on_success, 
                 window_options,
             });
         } while ( ! card_ok );
+        card_verified = true;
         await refresh();
     };
     if ( user?.email_gate_last ) {
         await cardGate();
         await phoneGate();
+        // Verifying a phone can add a card requirement.
+        await cardGate();
         await emailGate();
     } else {
         await emailGate();

@@ -130,12 +130,3 @@ export const shareDeepLink = (
     app?: string | null,
     recipientUuid?: string | null,
 ): string => sharedViewLink(origin, [path], app, recipientUuid);
-
-/** The link for a target, or `null` when it isn't addressable. */
-export const shareTargetLink = (
-    origin: string,
-    target: ShareTarget,
-): string | null => {
-    const path = maskedSharePath(target);
-    return path === null ? null : shareDeepLink(origin, path);
-};

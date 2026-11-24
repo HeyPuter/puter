@@ -885,10 +885,6 @@ describe('AppController POST /query/app', () => {
         const spies = {
             getByName: vi.spyOn(appStore, 'getByName'),
             getByUid: vi.spyOn(appStore, 'getByUid'),
-            getFiletypeAssociations: vi.spyOn(
-                appStore,
-                'getFiletypeAssociations',
-            ),
             getByNames: vi.spyOn(appStore, 'getByNames'),
             getByUids: vi.spyOn(appStore, 'getByUids'),
             getFiletypeAssociationsByIds: vi.spyOn(
@@ -917,7 +913,6 @@ describe('AppController POST /query/app', () => {
             expect(body[2]!.associations).toEqual(['batchq']);
             expect(spies.getByName).not.toHaveBeenCalled();
             expect(spies.getByUid).not.toHaveBeenCalled();
-            expect(spies.getFiletypeAssociations).not.toHaveBeenCalled();
             expect(spies.getByNames).toHaveBeenCalledTimes(1);
             expect(spies.getByUids).toHaveBeenCalledTimes(1);
             expect(spies.getFiletypeAssociationsByIds).toHaveBeenCalledTimes(1);

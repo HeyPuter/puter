@@ -19,6 +19,7 @@
 
 import type { Request, RequestHandler } from 'express';
 import type { EventClient } from '../../../clients/event/EventClient.js';
+import { requestIp } from '../../../util/requestIp.js';
 import { secretsEqual } from '../../../util/secureCompare.js';
 import { onResponseClose } from '../onResponseClose.js';
 import { computeNetworkFingerprint } from './rateLimit.js';
@@ -120,7 +121,7 @@ function emitFlaggedOnClose(
                 app_uid: actor.effectiveApp?.uid ?? null,
                 method: req.method,
                 route: typeof route === 'string' ? route : path,
-                ip: req.ip || req.socket?.remoteAddress || null,
+                ip: requestIp(req),
                 tls_fingerprint: req.tlsFingerprint ?? null,
             },
             {},

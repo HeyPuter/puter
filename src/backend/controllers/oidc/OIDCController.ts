@@ -33,6 +33,7 @@ import {
 } from '../auth/oidcLoginReturn.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { secretsEqual } from '../../util/secureCompare.js';
 import { normalizeBonusCode } from '../../util/signupBonus.js';
 import { parseMaskedSharePath } from '../../services/fs/sharePathMask.js';
 import {
@@ -285,14 +286,6 @@ function buildErrorRedirectUrl(
     return `${base}${pagePath}?${params.toString()}`;
 }
 
-/** Length-safe constant-time string compare (never throws on mismatch). */
-function constantTimeEqual(a: string, b: string): boolean {
-    const ba = Buffer.from(a);
-    const bb = Buffer.from(b);
-    if (ba.length !== bb.length) return false;
-    return crypto.timingSafeEqual(ba, bb);
-}
-
 /**
  * True iff `target` parses as a URL whose origin equals `origin`. Used to clamp
  * OIDC redirect targets — `startsWith` would accept
@@ -355,7 +348,7 @@ export class OIDCController extends PuterController {
                     !decoded ||
                     typeof decoded.nonce !== 'string' ||
                     typeof cookieNonce !== 'string' ||
-                    !constantTimeEqual(cookieNonce, decoded.nonce)
+                    !secretsEqual(cookieNonce, decoded.nonce)
                 ) {
                     throw new HttpError(400, 'Invalid `opener_state`', {
                         legacyCode: 'bad_request',
@@ -961,7 +954,7 @@ if (window.opener) {
             res.clearCookie(OIDC_NONCE_COOKIE_NAME, { path: '/' });
             if (
                 typeof cookieNonce !== 'string' ||
-                !constantTimeEqual(cookieNonce, expectedNonce)
+                !secretsEqual(cookieNonce, expectedNonce)
             ) {
                 return {
                     error: 'This sign-in could not be verified for your browser. Please start again.',

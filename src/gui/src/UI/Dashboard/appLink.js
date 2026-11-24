@@ -17,10 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { BUILTIN_PREFIX } from '../../helpers/appLaunchUrl.js';
+
 /**
- * The address a My Apps tile points at — the same destination "Open in new
- * tab" opens, so what the grid shows on hover and what it copies are the URL
- * the user would actually land on.
+ * The address a My Apps tile points at.
  *
  * External tiles (website shortcuts) carry their site's address on the tile;
  * every other app lives at the GUI's own `/app/<name>` landing. A tile with
@@ -38,4 +38,18 @@ export function appTileLink ({ appName, targetLink } = {}, origin = '') {
     // encodeURIComponent, matching the /app/ URLs the tab opens elsewhere: a
     // copied link that differs from the opened one would be a trap.
     return `${origin}/app/${encodeURIComponent(appName)}`;
+}
+
+/**
+ * The address a My Apps tile's "Copy link" copies: the app's own index_url.
+ * Built-in apps have no address of their own, so they and tiles without an
+ * index_url copy the tile's link instead.
+ *
+ * @param {{ appName?: string, targetLink?: string, indexUrl?: string }} tile - the tile's dataset
+ * @param {string} [origin] - origin to resolve `/app/<name>` against
+ * @returns {string}
+ */
+export function appCopyLink ({ appName, targetLink, indexUrl } = {}, origin = '') {
+    if ( indexUrl && ! indexUrl.startsWith(BUILTIN_PREFIX) ) return indexUrl;
+    return appTileLink({ appName, targetLink }, origin);
 }

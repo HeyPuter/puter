@@ -4,6 +4,7 @@ import { createTestUser } from '../../testUtil.js';
 
 describe('sharing', () => {
     let shareable = '';
+    let kept = '';
     // The share scenario takes a fresh recipient each run, so no run reads
     // what the run before it wrote.
     const recipients: string[] = [];
@@ -34,7 +35,7 @@ describe('sharing', () => {
         };
 
         await fs.mkdir(owner!.id, { path: dir() });
-        const kept = await write('kept.txt');
+        kept = await write('kept.txt');
         const folder = await fs.mkdir(owner!.id, { path: `${dir()}/folder` });
         for (let i = 0; i < 5; i++) await write(`folder/file-${i}.txt`);
         shareable = await write('shareable.txt');
@@ -117,6 +118,10 @@ describe('sharing', () => {
             json: { path: `${dir()}/folder` },
             ...asRecipient(),
         });
+    });
+
+    env.scenario('list who can reach a file I shared', async () => {
+        await env.request(`/share/shares?uid=${kept}`);
     });
 
     let shares = 0;

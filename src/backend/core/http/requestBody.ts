@@ -20,6 +20,12 @@
 import type { Request } from 'express';
 import { HttpError } from './HttpError';
 
+/** `value` when it is a plain object, else an empty record. */
+export const asRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+
 /** The parsed body as a plain object; 400 when it is missing or not one. */
 export const bodyRecord = (req: Request): Record<string, unknown> => {
     const body = req.body;

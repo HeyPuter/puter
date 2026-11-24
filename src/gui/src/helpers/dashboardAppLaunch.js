@@ -55,24 +55,27 @@ export function openAppInNewTab (appName) {
         .finally(() => launching.delete(appName));
 }
 
-let launchingDesktop = false;
+// Sites whose launch is still fetching a token; a second click would open a second tab.
+const launchingSites = new Set();
 
 /**
- * Opens the desktop in a new browser tab, launched the way an app's tab is:
- * the launch params go in its URL and its token is handed over through the
- * opener. Without a token the tab still opens, and the desktop signs in on
- * its own. Call it inside the click, so popup blockers allow the tab.
+ * Opens a Puter site, such as the desktop or the app store, in a new browser
+ * tab, launched the way an app's tab is: the launch params go in its URL and
+ * its token is handed over through the opener. Without a token the tab still
+ * opens, and the site signs in on its own. Call it inside the click, so popup
+ * blockers allow the tab.
  *
+ * @param {string} siteUrl
  * @returns {Promise<void> | null} null when the browser refused the tab,
- *   leaving the click to the link itself
+ *   leaving the click to the caller's fallback
  */
-export function openDesktopInNewTab () {
-    if ( launchingDesktop ) return Promise.resolve();
-    // Without 'noopener': the desktop's SDK asks this tab for its token.
+export function openSiteInNewTab (siteUrl) {
+    if ( launchingSites.has(siteUrl) ) return Promise.resolve();
+    // Without 'noopener': the site's SDK asks this tab for its token.
     const tab = window.open('', '_blank');
     if ( ! tab ) return null;
-    launchingDesktop = true;
-    const url = new URL(DESKTOP_URL);
+    launchingSites.add(siteUrl);
+    const url = new URL(siteUrl);
     return fetchUserAppTokenForLaunch({ origin: url.origin })
         .then(({ token, appUid }) => {
             if ( tab.closed ) return;
@@ -92,6 +95,6 @@ export function openDesktopInNewTab () {
             tab.location.href = url.href;
         })
         .finally(() => {
-            launchingDesktop = false;
+            launchingSites.delete(siteUrl);
         });
 }

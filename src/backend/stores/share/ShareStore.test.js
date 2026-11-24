@@ -1266,6 +1266,46 @@ describe('ShareStore', () => {
             expect(second.row.data.issuedByApp).toBeUndefined();
         });
 
+        it('re-inviting finds a moment-old invite a replica has not seen', async () => {
+            const entry = await makeEntry(issuer);
+            const email = `lag-${uuidv4()}@test.local`;
+            const first = await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: email,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            const db = server.clients.db;
+            const realRead = db.read.bind(db);
+            // SQLite's `pread` goes through `read`; keep it on the real one.
+            const preadSpy = vi.spyOn(db, 'pread').mockImplementation(realRead);
+            const readSpy = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    sql.includes('FROM `share`') ? [] : realRead(sql, params),
+                );
+            let second;
+            try {
+                second = await store.upsertPending({
+                    issuerUserId: issuer.id,
+                    recipientEmail: email,
+                    fsentryId: entry.id,
+                    mode: 'write',
+                });
+            } finally {
+                readSpy.mockRestore();
+                preadSpy.mockRestore();
+            }
+            expect(second.created).toBe(false);
+            expect(second.row.uid).toBe(first.row.uid);
+            expect(
+                (await store.listPendingOnFsentry(entry.id)).filter(
+                    (row) => row.recipient_email === email,
+                ),
+            ).toHaveLength(1);
+        });
+
         it('filters and groups a legacy-keyed app row like a current one', async () => {
             const entry = await makeEntry(issuer);
             const legacyHolder = await makeUser();
@@ -1578,7 +1618,7 @@ describe('ShareStore', () => {
                 );
             });
 
-            it('upsertPending asks the primary when the invite the replica found is gone', async () => {
+            it('upsertPending invites anew when the invite a replica still shows is gone', async () => {
                 const entry = await makeEntry(issuer);
                 const email = `built-${uuidv4()}@test.local`;
                 const { row: invite } = await store.upsertPending({
@@ -1606,7 +1646,6 @@ describe('ShareStore', () => {
                             : realRead(q, p),
                     );
                 let result;
-                let primaryReads;
                 try {
                     result = await store.upsertPending({
                         issuerUserId: issuer.id,
@@ -1615,12 +1654,12 @@ describe('ShareStore', () => {
                         mode: 'write',
                     });
                 } finally {
-                    primaryReads = pread.mock.calls.length;
                     read.mockRestore();
                     pread.mockRestore();
                 }
-                expect(primaryReads).toBe(1);
-                expect(result).toEqual({ row: null, created: false });
+                expect(result.created).toBe(true);
+                expect(result.row.uid).not.toBe(invite.uid);
+                expect(result.row.mode).toBe('write');
             });
         });
     });

@@ -29,7 +29,6 @@ import type { ResolvedFileInput } from '../../../../util/fileInput.js';
 import {
     badRequest,
     estimateOcrPages,
-    holdOcrCredits,
 } from '../../../interfaces/ocr/common.js';
 import { OCR_COSTS } from '../../../interfaces/ocr/costs.js';
 import type { OcrModel } from '../../../interfaces/ocr/models.js';
@@ -38,7 +37,10 @@ import type {
     OcrBlock,
     RecognizeArgs,
 } from '../../../interfaces/ocr/types.js';
-import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import {
+    type AiMeteringService,
+    withAiCreditHold,
+} from '../../../../../util/aiCostFactor.js';
 import { textractRates } from './textractPricing.js';
 
 const DEFAULT_TEXTRACT_REGION = 'us-west-2';
@@ -146,63 +148,62 @@ export class TextractOcrProvider implements IOcrProvider {
             );
         };
 
-        const hold = await holdOcrCredits(
+        return withAiCreditHold(
             this.metering,
             actor,
             model.pageUsageType,
             Math.max(configuredRate, s3Rate ?? 0) *
                 ((await estimateOcrPages(input, model.provider)) ?? 1),
-        );
-        try {
-            let response;
-            let costPerPage: number;
-            try {
+            async () => {
+                let response;
+                let costPerPage: number;
                 try {
-                    response = await tryRun(s3Source);
-                    costPerPage = s3Rate ?? configuredRate;
+                    try {
+                        response = await tryRun(s3Source);
+                        costPerPage = s3Rate ?? configuredRate;
+                    } catch (err) {
+                        if (!(s3Source && isUnreadableS3Source(err))) throw err;
+                        response = await tryRun(null);
+                        costPerPage = configuredRate;
+                    }
                 } catch (err) {
-                    if (!(s3Source && isUnreadableS3Source(err))) throw err;
-                    response = await tryRun(null);
-                    costPerPage = configuredRate;
+                    if (err instanceof UnsupportedDocumentException)
+                        throw badRequest(
+                            'AWS Textract reads JPEG, PNG, TIFF and single-page PDF documents; use a Mistral OCR model for multi-page PDFs and other formats',
+                        );
+                    throw err;
                 }
-            } catch (err) {
-                if (err instanceof UnsupportedDocumentException)
-                    throw badRequest(
-                        'AWS Textract reads JPEG, PNG, TIFF and single-page PDF documents; use a Mistral OCR model for multi-page PDFs and other formats',
-                    );
-                throw err;
-            }
 
-            const blocks: OcrBlock[] = [];
-            let pageCount = 0;
-            for (const block of (response.Blocks ?? []) as TextractBlock[]) {
-                if (block.BlockType === 'PAGE') {
-                    pageCount += 1;
-                    continue;
+                const blocks: OcrBlock[] = [];
+                let pageCount = 0;
+                for (const block of (response.Blocks ??
+                    []) as TextractBlock[]) {
+                    if (block.BlockType === 'PAGE') {
+                        pageCount += 1;
+                        continue;
+                    }
+                    if (block.BlockType !== 'LINE' || !block.Text) continue;
+                    blocks.push({
+                        type: 'text/textract:LINE',
+                        text: block.Text,
+                        confidence: Number(block.Confidence ?? 0),
+                        page: Math.max(pageCount - 1, 0),
+                    });
                 }
-                if (block.BlockType !== 'LINE' || !block.Text) continue;
-                blocks.push({
-                    type: 'text/textract:LINE',
-                    text: block.Text,
-                    confidence: Number(block.Confidence ?? 0),
-                    page: Math.max(pageCount - 1, 0),
-                });
-            }
 
-            const pages = pageCount || 1;
-            this.metering.incrementUsage(
-                actor,
-                model.pageUsageType,
-                pages,
-                costPerPage * pages,
-            );
-            return {
-                model: model.id,
-                blocks,
-                text: blocks.map((b) => b.text).join('\n'),
-            };
-        } finally {
-            await hold.release();
-        }
+                const pages = pageCount || 1;
+                this.metering.incrementUsage(
+                    actor,
+                    model.pageUsageType,
+                    pages,
+                    costPerPage * pages,
+                );
+                return {
+                    model: model.id,
+                    blocks,
+                    text: blocks.map((b) => b.text).join('\n'),
+                };
+            },
+        );
     }
 }

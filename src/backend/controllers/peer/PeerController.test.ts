@@ -67,6 +67,7 @@ const makeRes = () => {
             captured.body = value;
             return res;
         }),
+        once: vi.fn(() => res),
     };
     return { res: res as unknown as Response, captured };
 };
@@ -415,6 +416,27 @@ describe('PeerController TURN', () => {
         }
     });
 
+    it('gives up on a slow credential request with a 504, aborting the fetch', async () => {
+        let signal: AbortSignal | undefined;
+        const fetchSpy = vi
+            .spyOn(globalThis, 'fetch')
+            .mockImplementation(async (_url, init) => {
+                signal = (init as RequestInit).signal ?? undefined;
+                throw new DOMException('timed out', 'TimeoutError');
+            });
+        try {
+            await expect(
+                generateTurn(makeReq({ actor: userActor }), makeRes().res),
+            ).rejects.toMatchObject({
+                statusCode: 504,
+                legacyCode: 'upstream_timeout',
+            });
+            expect(signal).toBeInstanceOf(AbortSignal);
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
     it('meters egress against the user the record names', async () => {
         const username = `peer-${Math.random().toString(36).slice(2, 10)}`;
         const created = await turnServer.stores.user.create({
@@ -430,7 +452,7 @@ describe('PeerController TURN', () => {
         ).toString('base64url');
 
         const meterSpy = vi
-            .spyOn(turnServer.services.metering, 'incrementUsage')
+            .spyOn(turnServer.services.metering, 'batchIncrementUsages')
             .mockResolvedValue(undefined as never);
         try {
             const { res, captured } = makeRes();
@@ -445,10 +467,14 @@ describe('PeerController TURN', () => {
             );
             expect(captured.body).toEqual({ ok: true });
             expect(meterSpy).toHaveBeenCalledTimes(1);
-            const [actorArg, usageType, amount, cost] = meterSpy.mock.calls[0]!;
-            expect(usageType).toBe('turn:egress-bytes');
-            expect(amount).toBe(2048);
-            expect(cost).toBe(2048 * PEER_COSTS['turn:egress-bytes']);
+            const [actorArg, usages] = meterSpy.mock.calls[0]!;
+            expect(usages).toEqual([
+                {
+                    usageType: 'turn:egress-bytes',
+                    usageAmount: 2048,
+                    costOverride: 2048 * PEER_COSTS['turn:egress-bytes'],
+                },
+            ]);
             expect(actorArg).toEqual({
                 user: {
                     uuid: created.uuid,
@@ -466,7 +492,7 @@ describe('PeerController TURN', () => {
     it('skips a record whose user uuid is unknown', async () => {
         const meterSpy = vi.spyOn(
             turnServer.services.metering,
-            'incrementUsage',
+            'batchIncrementUsages',
         );
         try {
             const { res, captured } = makeRes();
@@ -494,24 +520,12 @@ describe('PeerController TURN', () => {
         }
     });
 
-    it('keeps going when metering one record throws', async () => {
-        const username = `peer-${Math.random().toString(36).slice(2, 10)}`;
-        const created = await turnServer.stores.user.create({
-            username,
-            uuid: uuidv4(),
-            password: null,
-            email: `${username}@test.local`,
-            requires_email_confirmation: false,
-        });
-        const encodedUserId = Buffer.from(
-            created.uuid.replaceAll('-', ''),
-            'hex',
-        ).toString('base64url');
-
+    it("meters a user's records in one call, each as its own usage", async () => {
+        const created = await makeTurnUser();
+        const encodedUserId = encodeUserId(created.uuid);
         const meterSpy = vi
-            .spyOn(turnServer.services.metering, 'incrementUsage')
-            .mockRejectedValue(new Error('metering down'));
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            .spyOn(turnServer.services.metering, 'batchIncrementUsages')
+            .mockResolvedValue(undefined as never);
         try {
             const { res, captured } = makeRes();
             await ingestUsage(
@@ -527,12 +541,103 @@ describe('PeerController TURN', () => {
                 res,
             );
             expect(captured.body).toEqual({ ok: true });
+            expect(meterSpy).toHaveBeenCalledTimes(1);
+            const cost = PEER_COSTS['turn:egress-bytes'];
+            expect(meterSpy.mock.calls[0]![1]).toEqual([
+                {
+                    usageType: 'turn:egress-bytes',
+                    usageAmount: 10,
+                    costOverride: 10 * cost,
+                },
+                {
+                    usageType: 'turn:egress-bytes',
+                    usageAmount: 20,
+                    costOverride: 20 * cost,
+                },
+            ]);
+        } finally {
+            meterSpy.mockRestore();
+        }
+    });
+
+    it("charges a user's valid records when another of theirs is malformed", async () => {
+        const created = await makeTurnUser();
+        const encodedUserId = encodeUserId(created.uuid);
+        const { res, captured } = makeRes();
+        await ingestUsage(
+            makeReq({
+                body: {
+                    records: [
+                        { egressBytes: 10, userId: encodedUserId },
+                        { egressBytes: 'not a number', userId: encodedUserId },
+                        { egressBytes: 20, userId: encodedUserId },
+                    ],
+                },
+                headers: { 'x-puter-internal-auth': 'turn-secret' },
+            }),
+            res,
+        );
+        expect(captured.body).toEqual({ ok: true });
+        const { usage } =
+            await turnServer.services.metering.getActorCurrentMonthUsageDetails(
+                { user: created } as never,
+            );
+        expect(usage.total).toBeCloseTo(
+            30 * PEER_COSTS['turn:egress-bytes'],
+            9,
+        );
+    });
+
+    it('keeps going when metering one user throws', async () => {
+        const first = await makeTurnUser();
+        const second = await makeTurnUser();
+
+        const meterSpy = vi
+            .spyOn(turnServer.services.metering, 'batchIncrementUsages')
+            .mockRejectedValueOnce(new Error('metering down'))
+            .mockResolvedValue(undefined as never);
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const { res, captured } = makeRes();
+            await ingestUsage(
+                makeReq({
+                    body: {
+                        records: [
+                            {
+                                egressBytes: 10,
+                                userId: encodeUserId(first.uuid),
+                            },
+                            {
+                                egressBytes: 20,
+                                userId: encodeUserId(second.uuid),
+                            },
+                        ],
+                    },
+                    headers: { 'x-puter-internal-auth': 'turn-secret' },
+                }),
+                res,
+            );
+            expect(captured.body).toEqual({ ok: true });
             expect(meterSpy).toHaveBeenCalledTimes(2);
         } finally {
             meterSpy.mockRestore();
             warnSpy.mockRestore();
         }
     });
+
+    const makeTurnUser = async () => {
+        const username = `peer-${Math.random().toString(36).slice(2, 10)}`;
+        return turnServer.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            requires_email_confirmation: false,
+        });
+    };
+
+    const encodeUserId = (uuid: string) =>
+        Buffer.from(uuid.replaceAll('-', ''), 'hex').toString('base64url');
 });
 
 // -- Guest TURN access -------------------------------------------------

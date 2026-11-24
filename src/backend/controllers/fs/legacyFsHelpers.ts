@@ -17,10 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Response } from 'express';
 import { AsyncResource } from 'node:async_hooks';
 import { posix as pathPosix } from 'node:path';
 import { Readable } from 'node:stream';
 import { contentType as contentTypeFromMime } from 'mime-types';
+import { pipeToResponse } from '../../core/http/pipeToResponse.js';
+import { asRecord } from '../../core/http/requestBody.js';
+import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { FSService } from '../../services/fs/FSService.js';
@@ -38,7 +42,6 @@ import type { EventClient } from '../../clients/event/EventClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     resolveNode,
-    normalizeAbsolutePath,
     isOwnersTrash,
     assertChildName,
     joinChildPath,
@@ -64,11 +67,6 @@ import type { IConfig } from '../../types.js';
  */
 
 // -- Body parsing -----------------------------------------------------
-
-export function asRecord(value: unknown): Record<string, unknown> {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-    return value as Record<string, unknown>;
-}
 
 export function getString(
     record: Record<string, unknown>,
@@ -167,12 +165,40 @@ export function contextBoundStream(
     });
 }
 
-/** No range is satisfiable on an empty file, so it reads whole: empty, 200. */
-export function rangeForEntry(
-    entry: FSEntry,
-    range: string | undefined,
-): string | undefined {
-    return entry.size === 0 ? undefined : range;
+export type FileDownload = Awaited<ReturnType<FSService['readContent']>>;
+
+/**
+ * Write a file download's headers and stream its body. 206 only when the store
+ * answered a range: it serves an empty file whole, whatever was asked.
+ */
+export function sendDownload(
+    res: Response,
+    entry: { name: string },
+    download: FileDownload,
+    opts: {
+        disposition: 'inline' | 'attachment';
+        contentType: string | null;
+        /** Sandbox active-document types served inline. */
+        sandbox?: boolean;
+    },
+): Promise<void> {
+    if (opts.contentType) {
+        res.setHeader('Content-Type', opts.contentType);
+        if (opts.sandbox) applyInlineContentSecurity(res, opts.contentType);
+    }
+    if (download.contentLength !== null)
+        res.setHeader('Content-Length', String(download.contentLength));
+    if (download.contentRange)
+        res.setHeader('Content-Range', download.contentRange);
+    if (download.etag) res.setHeader('ETag', download.etag);
+    if (download.lastModified)
+        res.setHeader('Last-Modified', download.lastModified.toUTCString());
+    res.setHeader(
+        'Content-Disposition',
+        `${opts.disposition}; filename="${encodeURIComponent(entry.name)}"`,
+    );
+    res.status(download.contentRange ? 206 : 200);
+    return pipeToResponse(download.body, res);
 }
 
 // Accepts either `{ path }` or `{ uid }` or `{ id }` or `{ parent, name }`
@@ -301,10 +327,8 @@ const LEGACY_REFUSAL: AclRefusalOptions = {
     hideFromApps: true,
 };
 
-/** `_fsService` is unused; the call sites still pass it. */
 export async function assertAccess(
     aclService: ACLService,
-    _fsService: FSService,
     actor: Actor,
     path: string | ResourceDescriptor,
     mode: AclMode,
@@ -315,7 +339,6 @@ export async function assertAccess(
 /** `ACLService.assertFsCreate`, refused the legacy way. */
 export async function assertCanCreate(
     aclService: ACLService,
-    _fsService: FSService,
     actor: Actor,
     targetPath: string,
 ): Promise<void> {
@@ -325,19 +348,12 @@ export async function assertCanCreate(
 /** `write` on the destination parent, unless it is the entry's own Trash. */
 export async function assertCanMoveInto(
     aclService: ACLService,
-    fsService: FSService,
     actor: Actor,
     source: FSEntry,
     destinationParent: FSEntry,
 ): Promise<void> {
     if (isOwnersTrash(source, destinationParent)) return;
-    await assertAccess(
-        aclService,
-        fsService,
-        actor,
-        destinationParent.path,
-        'write',
-    );
+    await assertAccess(aclService, actor, destinationParent.path, 'write');
 }
 
 // -- Response shaping ------------------------------------------------
@@ -660,7 +676,6 @@ export function replacedByMove(
     return target && moved.name === name ? target : null;
 }
 
-export { normalizeAbsolutePath };
 
 // -- Signing ---------------------------------------------------------
 

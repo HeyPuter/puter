@@ -20,6 +20,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     catalogPrice,
+    catalogTokenCount,
     catalogTokenLimit,
     usdToUcents,
 } from './catalogPrice.js';
@@ -60,6 +61,16 @@ describe('catalogTokenLimit', () => {
         expect(catalogTokenLimit(8192)).toBe(8192);
         for (const value of [0, -1, 1.5, '8192', null, undefined, {}, 1e308]) {
             expect(catalogTokenLimit(value)).toBeUndefined();
+        }
+    });
+});
+
+describe('catalogTokenCount', () => {
+    it('reads a non-negative whole number and nothing else', () => {
+        expect(catalogTokenCount(0)).toBe(0);
+        expect(catalogTokenCount(8192)).toBe(8192);
+        for (const value of [-1, 1.5, '8192', null, undefined, {}, 1e308]) {
+            expect(catalogTokenCount(value)).toBeUndefined();
         }
     });
 });

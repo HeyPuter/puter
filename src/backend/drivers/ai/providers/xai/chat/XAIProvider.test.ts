@@ -161,6 +161,20 @@ describe('XAIProvider construction', () => {
             timeout: 10 * 60 * 1000,
         });
     });
+
+    it('points the SDK and the pricing catalog at a configured apiBaseUrl', async () => {
+        const provider = new XAIProvider(
+            { apiKey: 'test-key', apiBaseUrl: 'https://xai-proxy.test/v1' },
+            server.services.metering,
+        );
+        expect(openAICtor).toHaveBeenCalledWith(
+            expect.objectContaining({ baseURL: 'https://xai-proxy.test/v1' }),
+        );
+        await provider.models();
+        expect(axiosGetMock.mock.calls[0]![0]).toBe(
+            'https://xai-proxy.test/v1/language-models',
+        );
+    });
 });
 
 // ── Model catalog ───────────────────────────────────────────────────
@@ -262,7 +276,7 @@ describe('XAIProvider.complete request shape', () => {
         expect('tools' in args).toBe(false);
     });
 
-    it('passes tool definitions through unchanged when supplied', async () => {
+    it('passes function tool definitions through when supplied', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -289,8 +303,51 @@ describe('XAIProvider.complete request shape', () => {
         );
 
         const [args] = createMock.mock.calls[0]!;
-        // Reference equality: provider doesn't deep-clone tool specs.
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
+    });
+
+    it('strips Claude-only tool fields and drops Anthropic server tools', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        const fn = {
+            name: 'lookup',
+            parameters: { type: 'object', properties: {} },
+        };
+        await withTestActor(() =>
+            provider.complete({
+                model: 'grok-4.6',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: fn,
+                        cache_control: { type: 'ephemeral' },
+                        defer_loading: true,
+                    },
+                    { type: 'web_search_20250305', name: 'web_search' },
+                ],
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.tools).toEqual([{ type: 'function', function: fn }]);
+    });
+
+    it('leaves `tools` off when every tool is dropped', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'grok-4.6',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [{ type: 'bash_20250124', name: 'bash' }],
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect('tools' in args).toBe(false);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {
@@ -1168,8 +1225,6 @@ describe('XAIProvider.complete error mapping', () => {
         const { provider } = makeProvider();
         const apiError = new Error('xAI exploded');
         createMock.mockRejectedValueOnce(apiError);
-        // Provider logs the error before rethrowing — silence the noise.
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         await expect(
             withTestActor(() =>
@@ -1182,7 +1237,6 @@ describe('XAIProvider.complete error mapping', () => {
 
         // No metering should be recorded on a failed call.
         expect(recordSpy).not.toHaveBeenCalled();
-        expect(logSpy).toHaveBeenCalled();
     });
 });
 

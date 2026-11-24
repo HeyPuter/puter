@@ -8,6 +8,7 @@ New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day,
 - Fixed [`puter.ui.onLaunchedWithItems()`](/UI/onLaunchedWithItems/) and [`puter.ui.wasLaunchedWithItems()`](/UI/wasLaunchedWithItems/) missing the opened item when the app changed its URL before calling them.
 - Fixed a private app that Puter opens in its own browser tab missing the opened item from [`puter.ui.onLaunchedWithItems()`](/UI/onLaunchedWithItems/) when the user had to sign in to the app first.
 - Restricted direct Kling models to `kling-4.0` and `kling-4.0-flash` for [`puter.ai.txt2vid()`](/AI/txt2vid/). Removed direct Kling image generation and text-to-speech models.
+- Fixed the `stats_period` values `month_to_date`, `year_to_date` and `last_12_months` of [`puter.apps.get()`](/Apps/get/) returning all-time counts. A `stats_period` that isn't one of the listed values is rejected with `bad_request`.
 
 ## November 22, 2026
 

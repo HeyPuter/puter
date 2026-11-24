@@ -4964,7 +4964,6 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-section-files .directories li.active {
     color: var(--select-text);
-    font-weight: 500;
 }
 
 .dashboard-section-files .directories li img {

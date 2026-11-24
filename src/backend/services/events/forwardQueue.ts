@@ -18,8 +18,7 @@
  */
 
 import type { EventKey, KvOp } from '../../clients/event/types.js';
-import { settleWithin } from '../../util/concurrency.js';
-import { FINAL_FLUSH_TIMEOUT_MS } from '../../util/gracefulShutdown.js';
+import { finalFlush } from '../../util/gracefulShutdown.js';
 import type { DeliverableEvent } from './registry.js';
 
 /**
@@ -305,9 +304,8 @@ export class PeerForwardQueue {
     }
 
     async #send(peerId: string, queue: PeerQueue): Promise<void> {
-        const batch = queue.items;
-        queue.items = [];
-        queue.bytes = 0;
+        const { maxItems, maxBytes } = this.#options;
+        const batch = takeBatch(queue, maxItems, maxBytes);
         try {
             // Register the in-flight promise before a send can throw synchronously.
             await Promise.resolve();
@@ -319,28 +317,35 @@ export class PeerForwardQueue {
             console.warn(`[events] forward to ${peerId} failed`, err);
         } finally {
             queue.flushing = null;
-            // Anything that arrived mid-flush gets the next window.
-            if (queue.items.length > 0 && !queue.timer && !this.#stopped) {
-                queue.timer = setTimeout(() => {
-                    queue.timer = null;
+            if (queue.items.length > 0 && !this.#stopped) {
+                // What is left past a bound goes now, as a fresh push would;
+                // anything less gets the next window.
+                if (queue.items.length >= maxItems || queue.bytes >= maxBytes)
                     void this.flush(peerId);
-                }, this.#options.flushMs);
-                queue.timer.unref?.();
+                else if (!queue.timer) {
+                    queue.timer = setTimeout(() => {
+                        queue.timer = null;
+                        void this.flush(peerId);
+                    }, this.#options.flushMs);
+                    queue.timer.unref?.();
+                }
             }
         }
     }
 
     async flushAll(): Promise<void> {
-        const deadline = Date.now() + FINAL_FLUSH_TIMEOUT_MS;
-        const work = Promise.allSettled(
-            [...this.#peers.entries()].map(async ([id, queue]) => {
-                await queue.flushing;
-                if (Date.now() < deadline) await this.flush(id);
-            }),
-        );
-        if (!(await settleWithin(work, FINAL_FLUSH_TIMEOUT_MS))) {
-            console.warn('[events] final flush timed out');
-        }
+        await finalFlush('events', async (deadline) => {
+            await Promise.allSettled(
+                [...this.#peers.entries()].map(async ([id, queue]) => {
+                    // A batch is bounded, so a backlog takes several sends.
+                    while (Date.now() < deadline) {
+                        if (queue.flushing) await queue.flushing;
+                        else if (queue.items.length > 0) await this.flush(id);
+                        else return;
+                    }
+                }),
+            );
+        });
     }
 
     stop(): void {
@@ -367,10 +372,28 @@ export class PeerForwardQueue {
 
 const sizeOf = (item: ForwardItem): number => {
     try {
-        return JSON.stringify(item).length;
+        return Buffer.byteLength(JSON.stringify(item));
     } catch {
         return 0;
     }
+};
+
+/** The oldest items one batch carries: at least one, then within both bounds. */
+const takeBatch = (
+    queue: PeerQueue,
+    maxItems: number,
+    maxBytes: number,
+): ForwardItem[] => {
+    let count = 0;
+    let bytes = 0;
+    while (count < queue.items.length && count < maxItems) {
+        const size = sizeOf(queue.items[count]);
+        if (count > 0 && bytes + size > maxBytes) break;
+        bytes += size;
+        count++;
+    }
+    queue.bytes = Math.max(0, queue.bytes - bytes);
+    return queue.items.splice(0, count);
 };
 
 const isGapMarker = (item: ForwardItem): boolean =>

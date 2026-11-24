@@ -20,7 +20,10 @@
 import { describe, expect, it } from 'vitest';
 import { makeActor } from '../../core/actor.js';
 import type { Actor } from '../../core/actor.js';
-import { canViewNotification } from './notificationAudience.js';
+import {
+    canViewNotification,
+    visibleNotificationRows,
+} from './notificationAudience.js';
 
 const OWN_APP = 'app-11111111-1111-4111-8111-111111111111';
 const OTHER_APP = 'app-22222222-2222-4222-8222-222222222222';
@@ -163,5 +166,57 @@ describe('canViewNotification — unknown audiences', () => {
                 canViewNotification({ audience: '', appUid: OWN_APP }, actor, owns),
             ).toBe(false);
         }
+    });
+});
+
+describe('visibleNotificationRows', () => {
+    const rows = [
+        { uid: 'account', audience: 'account', app_uid: null },
+        { uid: 'mine-dev', audience: 'developer', app_uid: OWN_APP },
+        { uid: 'other-dev', audience: 'developer', app_uid: OTHER_APP },
+        { uid: 'mine-user', audience: 'app-user', app_uid: OWN_APP },
+    ];
+
+    /** Only `OWN_APP` belongs to the recipient; counts the lookups. */
+    const appsOwnedBy = (ownerId: number) => {
+        const asked: string[][] = [];
+        return {
+            asked,
+            getByUids: async (uids: string[]) => {
+                asked.push(uids);
+                return new Map(
+                    uids.map((uid) => [
+                        uid,
+                        { owner_user_id: uid === OWN_APP ? ownerId : 99 },
+                    ]),
+                );
+            },
+        };
+    };
+
+    it('keeps what a session may see, resolving ownership in one lookup', async () => {
+        const apps = appsOwnedBy(user.id);
+        const visible = await visibleNotificationRows(apps, session, rows);
+        expect(visible.map((row) => row.uid)).toEqual([
+            'account',
+            'mine-dev',
+            'mine-user',
+        ]);
+        expect(apps.asked).toEqual([[OWN_APP, OTHER_APP]]);
+    });
+
+    it('confines an app to its own rows', async () => {
+        const visible = await visibleNotificationRows(
+            appsOwnedBy(user.id),
+            appUnderUser,
+            rows,
+        );
+        expect(visible.map((row) => row.uid)).toEqual(['mine-dev', 'mine-user']);
+    });
+
+    it('asks nothing for an empty page', async () => {
+        const apps = appsOwnedBy(user.id);
+        expect(await visibleNotificationRows(apps, session, [])).toEqual([]);
+        expect(apps.asked).toEqual([]);
     });
 });

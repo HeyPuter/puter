@@ -27,6 +27,7 @@ import {
     STORAGE_OP_USAGE_TYPES,
 } from '../../../services/metering/costs.js';
 import type { UsageInput } from '../../../services/metering/types';
+import { activeSubdomain } from '../../../util/subdomains';
 import '../expressAugmentation';
 import { onResponseClose } from '../onResponseClose';
 
@@ -108,8 +109,7 @@ const isMeteredHost = (req: Request): boolean => {
     // An explicit billing target is the opt-in for hosts that aren't metered
     // by default, so honour it whatever the subdomain says.
     if (req.egressActor) return true;
-    const subdomain = req.subdomains?.[req.subdomains.length - 1];
-    return !!subdomain && METERED_SUBDOMAINS.has(subdomain);
+    return METERED_SUBDOMAINS.has(activeSubdomain(req));
 };
 
 const storageOpUsages = (req: Request): UsageInput[] => {

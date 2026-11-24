@@ -20,16 +20,18 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
-import { awaitLater } from '../../util/concurrency.js';
+import { execTogether } from '../../clients/redis/execTogether.js';
+import { awaitLater, chunk } from '../../util/concurrency.js';
 import {
     isMissingParentViolation,
     isUniqueViolation,
 } from '../../util/dbError.js';
+import { nowSeconds } from '../../util/time.js';
 import { PuterStore } from '../types';
 
-// `updateActivity` / `updateUserActivity` skip cache invalidation on the
-// common path: a cached `last_activity` a few minutes behind can't reach the
-// idle window, and a Redis write per request isn't worth it. A copy cached
+// `updateActivity` / `UserStore.touchLastActivity` skip cache invalidation on
+// the common path: a cached `last_activity` a few minutes behind can't reach
+// the idle window, and a Redis write per request isn't worth it. A copy cached
 // before a long idle is dropped (see `ACTIVITY_CACHE_SLACK_SECONDS`).
 
 // Prefix is versioned so a schema change (new columns added to the
@@ -94,8 +96,6 @@ const GODMODE_TOKEN_RENEW_STEP_SECONDS = 60 * 60; // 1h
 
 const sqlTimestamp = (ms) =>
     new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
-
-const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 /** Unix seconds of a row's last activity, or of its creation without one. */
 const lastActiveAt = (row) =>
@@ -164,12 +164,13 @@ export class SessionStore extends PuterStore {
     async getByUuidAny(uuid) {
         if (!uuid || typeof uuid !== 'string') return null;
 
-        const cached = await this.#readCache(uuid);
+        const key = this.#cacheKey(uuid);
+        const { raw, tombstoned } = await this.readCacheAndTombstones([key]);
+        const cached = this.#parseCached(raw[0]);
         if (cached) return cached;
 
         // Revoked moments ago: a replica may still show the row live.
-        const key = this.#cacheKey(uuid);
-        const revokedRecently = await this.isCacheKeyTombstoned([key]);
+        const revokedRecently = tombstoned.size > 0;
         const rows = await this.clients.db[revokedRecently ? 'pread' : 'read'](
             'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
             [uuid],
@@ -198,8 +199,8 @@ export class SessionStore extends PuterStore {
 
     /**
      * `getByUserId` for several users in one query. The caller bounds the list.
-     * `dropRecentlyEnded` leaves out rows whose uuid key is tombstoned: rows
-     * that ended moments ago and that a lagging replica still shows live.
+     * `dropRecentlyEnded` leaves out rows that ended moments ago and that a
+     * lagging replica still shows live.
      *
      * @param {number[]} userIds
      * @param {{
@@ -228,12 +229,29 @@ export class SessionStore extends PuterStore {
             .map((r) => this.#normalizeRow(r))
             .filter(Boolean);
         if (!dropRecentlyEnded || rows.length === 0) return rows;
-        const ended = await this.tombstonedCacheKeys(
+        const marked = await this.tombstonedCacheKeys(
             rows.map((r) => this.#cacheKey(r.uuid)),
         );
-        return ended.size === 0
-            ? rows
-            : rows.filter((r) => !ended.has(this.#cacheKey(r.uuid)));
+        if (marked.size === 0) return rows;
+        // A tombstone also marks a row that only changed (a rename), so the
+        // primary says which of them are still live.
+        const live = new Map();
+        const uuids = rows
+            .filter((r) => marked.has(this.#cacheKey(r.uuid)))
+            .map((r) => r.uuid);
+        for (const batch of chunk(uuids, REVOKE_CHUNK_SIZE)) {
+            const found = await this.clients.db.pread(
+                `SELECT * FROM \`sessions\` WHERE \`uuid\` IN (${batch.map(() => '?').join(', ')}) AND \`revoked_at\` IS NULL`,
+                batch,
+            );
+            for (const r of found) {
+                const row = this.#normalizeRow(r);
+                if (row) live.set(row.uuid, row);
+            }
+        }
+        return rows.flatMap((r) =>
+            marked.has(this.#cacheKey(r.uuid)) ? (live.get(r.uuid) ?? []) : r,
+        );
     }
 
     /**
@@ -439,22 +457,17 @@ export class SessionStore extends PuterStore {
             'UPDATE `sessions` SET `label` = ? WHERE `uuid` = ? AND `user_id` = ? AND `revoked_at` IS NULL',
             [label, uuid, userId],
         );
-        const affected = result?.affectedRows ?? 0;
-        if (affected > 0) {
+        if (result.anyRowsAffected) {
             // Invalidate every cached view onto the row so the next read
-            // (manage-sessions reload, /whoami, etc.) sees the new label.
+            // (manage-sessions reload, /whoami, etc.) sees the new label. The
+            // identity columns read here never change, so a replica will do.
             const rows = await this.clients.db.read(
                 'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
                 [uuid],
             );
-            if (rows[0]) {
-                await this.publishCacheKeys({
-                    keys: this.#allCacheKeysForRow(rows[0]),
-                    broadcast: true,
-                });
-            }
+            await this.#dropChangedRowKeys(rows[0] ? rows : [{ uuid }]);
         }
-        return affected > 0;
+        return result.anyRowsAffected;
     }
 
     /**
@@ -507,12 +520,12 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Drop every cache key of rows that just ended. A plain DEL leaves the next
-     * miss to a replica that may still show a row live, cached for a full TTL,
-     * so the uuid keys are tombstoned here and on peers (misses read the
-     * primary).
+     * Drop every cache key of rows that just changed or ended. A plain DEL
+     * leaves the next miss to a replica that may still show the old row, cached
+     * for a full TTL, so the uuid keys are tombstoned here and on peers (misses
+     * read the primary).
      */
-    async #dropEndedRowKeys(rows) {
+    async #dropChangedRowKeys(rows) {
         const uuidKeys = new Set(rows.map((r) => this.#cacheKey(r.uuid)));
         await this.tombstoneCacheKeys([...uuidKeys]);
         await this.publishCacheKeys({
@@ -528,29 +541,35 @@ export class SessionStore extends PuterStore {
      * revoked rows on this node.
      */
     async #publishRevoked(rows) {
-        await this.#dropEndedRowKeys(rows);
+        await this.#dropChangedRowKeys(rows);
 
         try {
-            const placeholders = rows.map(() => '?').join(', ');
-            const revoked = (
-                await this.clients.db.pread(
+            const revoked = [];
+            for (const batch of chunk(
+                rows.map((r) => r.uuid),
+                REVOKE_CHUNK_SIZE,
+            )) {
+                const placeholders = batch.map(() => '?').join(', ');
+                const found = await this.clients.db.pread(
                     `SELECT * FROM \`sessions\` WHERE \`uuid\` IN (${placeholders})`,
-                    rows.map((r) => r.uuid),
-                )
-            )
-                .map((r) => this.#normalizeRow(r))
-                .filter((r) => r?.revoked_at != null);
+                    batch,
+                );
+                for (const r of found) {
+                    const row = this.#normalizeRow(r);
+                    if (row?.revoked_at != null) revoked.push(row);
+                }
+            }
             if (revoked.length === 0) return;
-            const pipeline = this.clients.redis.pipeline();
-            for (const row of revoked) {
-                pipeline.set(
+            await execTogether(
+                this.clients.redis,
+                revoked.map((row) => [
+                    'set',
                     this.#cacheKey(row.uuid),
                     JSON.stringify(row),
                     'EX',
                     CACHE_TTL_SECONDS,
-                );
-            }
-            await pipeline.exec();
+                ]),
+            );
         } catch {
             // No entry is the safe miss; the tombstone sends it to the primary.
         }
@@ -561,9 +580,10 @@ export class SessionStore extends PuterStore {
      * it via `parent_session_id`. Broadcasts cache invalidation for each
      * affected row's uuid + composite keys.
      *
-     * Returns which rows were revoked — `{ userId, uuids }`, or null when there
-     * was nothing active to revoke. Callers use it to tear down anything else
-     * holding the session open; the rows are read here anyway, so reporting
+     * Returns which rows were revoked — `{ userId, uuids, accessTokenUids }`,
+     * or null when there was nothing active to revoke. Callers use it to tear
+     * down anything else holding the session open and to drop the grants of the
+     * access tokens among them; the rows are read here anyway, so reporting
      * them costs no extra query.
      */
     async revokeCascade(rootUuid) {
@@ -574,7 +594,8 @@ export class SessionStore extends PuterStore {
     /**
      * `revokeCascade` over many roots, batched so revoking all of a user's
      * sessions costs a few primary round trips rather than a few per session.
-     * Returns `{ userId, uuids }` for each user that had rows revoked.
+     * Returns `{ userId, uuids, accessTokenUids }` for each user that had rows
+     * revoked.
      *
      * A first-party page's session, revoked under its sign-in, is cascaded from
      * in turn: it has derived rows of its own.
@@ -584,14 +605,14 @@ export class SessionStore extends PuterStore {
     async revokeCascades(rootUuids) {
         const roots = [...new Set(rootUuids.filter(Boolean).map(String))];
         const queued = new Set(roots);
-        const uuidsByUser = new Map();
+        const byUser = new Map();
         // `roots` grows as it is walked, so each pass takes what is there.
         for (let i = 0; i < roots.length; ) {
-            const chunk = roots.slice(i, i + REVOKE_CHUNK_SIZE);
-            i += chunk.length;
-            const placeholders = chunk.map(() => '?').join(', ');
+            const batch = roots.slice(i, i + REVOKE_CHUNK_SIZE);
+            i += batch.length;
+            const placeholders = batch.map(() => '?').join(', ');
             const scope = `(\`uuid\` IN (${placeholders}) OR \`parent_session_id\` IN (${placeholders})) AND \`revoked_at\` IS NULL`;
-            const scopeParams = [...chunk, ...chunk];
+            const scopeParams = [...batch, ...batch];
 
             // Read each affected row's identity columns up-front — every
             // composite cache mapping (app, legacy-token, legacy-web) must
@@ -599,7 +620,7 @@ export class SessionStore extends PuterStore {
             // `getOrCreateApp` would short-circuit to the freshly-revoked row.
             // Primary read: see `removeByUuid`.
             const rows = await this.clients.db.pread(
-                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` ' +
+                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `access_token_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` ' +
                     `FROM \`sessions\` WHERE ${scope}`,
                 scopeParams,
             );
@@ -618,8 +639,16 @@ export class SessionStore extends PuterStore {
 
             for (const r of rows) {
                 const userId = Number(r.user_id);
-                if (!uuidsByUser.has(userId)) uuidsByUser.set(userId, []);
-                uuidsByUser.get(userId).push(String(r.uuid));
+                if (!byUser.has(userId)) {
+                    byUser.set(userId, { uuids: [], accessTokenUids: [] });
+                }
+                const entry = byUser.get(userId);
+                entry.uuids.push(String(r.uuid));
+                // v2 rows carry `access_token_uid`; v1 rows the legacy uid.
+                const tokenUid = r.access_token_uid ?? r.legacy_token_uid;
+                if (r.kind === 'access_token' && tokenUid) {
+                    entry.accessTokenUids.push(String(tokenUid));
+                }
                 if (
                     r.kind === 'web' &&
                     r.parent_session_id &&
@@ -630,7 +659,7 @@ export class SessionStore extends PuterStore {
                 }
             }
         }
-        return [...uuidsByUser].map(([userId, uuids]) => ({ userId, uuids }));
+        return [...byUser].map(([userId, entry]) => ({ userId, ...entry }));
     }
 
     /**
@@ -695,26 +724,32 @@ export class SessionStore extends PuterStore {
             params,
         );
         if (roots.length === 0) return [];
-        const rootUuids = roots.map((r) => String(r.uuid));
-        const placeholders = rootUuids.map(() => '?').join(', ');
-        const scope = `\`uuid\` IN (${placeholders}) OR \`parent_session_id\` IN (${placeholders})`;
-        const scopeParams = [...rootUuids, ...rootUuids];
+        const rows = [];
+        for (const batch of chunk(
+            roots.map((r) => String(r.uuid)),
+            REVOKE_CHUNK_SIZE,
+        )) {
+            const placeholders = batch.map(() => '?').join(', ');
+            const scope = `\`uuid\` IN (${placeholders}) OR \`parent_session_id\` IN (${placeholders})`;
+            const scopeParams = [...batch, ...batch];
 
-        const rows = await this.clients.db.pread(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent`, `access_token_uid` ' +
-                `FROM \`sessions\` WHERE ${scope}`,
-            scopeParams,
-        );
+            const found = await this.clients.db.pread(
+                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent`, `access_token_uid` ' +
+                    `FROM \`sessions\` WHERE ${scope}`,
+                scopeParams,
+            );
 
-        // Double-delete: see `removeByUuid` for rationale.
-        const keys = [];
-        for (const r of rows) keys.push(...this.#allCacheKeysForRow(r));
-        await this.publishCacheKeys({ keys, broadcast: true });
-        await this.clients.db.write(
-            `DELETE FROM \`sessions\` WHERE ${scope}`,
-            scopeParams,
-        );
-        await this.#dropEndedRowKeys(rows);
+            // Double-delete: see `removeByUuid` for rationale.
+            const keys = [];
+            for (const r of found) keys.push(...this.#allCacheKeysForRow(r));
+            await this.publishCacheKeys({ keys, broadcast: true });
+            await this.clients.db.write(
+                `DELETE FROM \`sessions\` WHERE ${scope}`,
+                scopeParams,
+            );
+            await this.#dropChangedRowKeys(found);
+            rows.push(...found);
+        }
 
         return rows.map((r) => ({
             uuid: String(r.uuid),
@@ -726,27 +761,28 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Access-token identities among the rows `revokeCascade(rootUuid)` would
-     * affect — the root itself when it is a token row, plus any token row
-     * parented to it. Callers use these to drop grants that would otherwise
-     * outlive the revoked row. Must be read _before_ the cascade, while the
-     * rows still qualify as active.
+     * Delete every session row of a user, revoked ones included, for account
+     * deletion. Revoke first (`revokeCascades`) so holders are told; this only
+     * removes the rows and their cache keys.
      *
-     * Both identity columns are consulted: v2 rows carry `access_token_uid`
-     * from mint, v1 rows get `legacy_token_uid` backfilled on first verify.
+     * @param {number} userId
      */
-    async accessTokenUidsForCascade(rootUuid) {
-        if (!rootUuid) return [];
+    async deleteAllForUser(userId) {
+        if (!userId) return;
         const rows = await this.clients.db.pread(
-            "SELECT `access_token_uid`, `legacy_token_uid` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `kind` = 'access_token' AND `revoked_at` IS NULL",
-            [rootUuid, rootUuid],
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `user_id` = ?',
+            [userId],
         );
-        const uids = [];
-        for (const row of rows) {
-            const uid = row.access_token_uid ?? row.legacy_token_uid;
-            if (uid) uids.push(uid);
-        }
-        return uids;
+        // Double-delete: see `removeByUuid` for rationale.
+        await this.publishCacheKeys({
+            keys: rows.flatMap((r) => this.#allCacheKeysForRow(r)),
+            broadcast: true,
+        });
+        await this.clients.db.write(
+            'DELETE FROM `sessions` WHERE `user_id` = ?',
+            [userId],
+        );
+        await this.#dropChangedRowKeys(rows);
     }
 
     /**
@@ -1240,7 +1276,7 @@ export class SessionStore extends PuterStore {
                 cutoff - ASSET_WINDOW_SECONDS,
             ],
         );
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     /**
@@ -1252,7 +1288,7 @@ export class SessionStore extends PuterStore {
             'DELETE FROM `sessions` WHERE `kind` = ? AND `expires_at` IS NOT NULL AND `expires_at` < ?',
             [DEBUG_APP_SESSION_KIND, cutoff],
         );
-        return result?.affectedRows ?? result?.changes ?? 0;
+        return result.affectedRows;
     }
 
     /**
@@ -1325,14 +1361,6 @@ export class SessionStore extends PuterStore {
                 }
             }
         }
-    }
-
-    /** Update user-level last activity timestamp. */
-    async updateUserActivity(userId, lastActivityTs) {
-        await this.clients.db.write(
-            'UPDATE `user` SET `last_activity_ts` = ? WHERE `id` = ? AND (`last_activity_ts` IS NULL OR `last_activity_ts` < ?)',
-            [lastActivityTs, userId, lastActivityTs],
-        );
     }
 
     /**
@@ -1409,7 +1437,7 @@ export class SessionStore extends PuterStore {
             tasks.push(
                 (async () => {
                     try {
-                        await this.updateUserActivity(
+                        await this.stores.user.touchLastActivity(
                             userId,
                             sqlTimestamp(nowMs),
                         );
@@ -1559,7 +1587,14 @@ export class SessionStore extends PuterStore {
 
     async #readCacheKey(key) {
         try {
-            const raw = await this.clients.redis.get(key);
+            return this.#parseCached(await this.clients.redis.get(key));
+        } catch {
+            return null;
+        }
+    }
+
+    #parseCached(raw) {
+        try {
             return raw ? JSON.parse(raw) : null;
         } catch {
             return null;

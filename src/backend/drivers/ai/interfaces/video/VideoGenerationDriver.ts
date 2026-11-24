@@ -209,7 +209,11 @@ export class VideoGenerationDriver extends PuterDriver {
 
         const configuredProviders = Object.keys(this.#providers);
         if (configuredProviders.length === 0) {
-            throw new Error('no video generation providers configured');
+            throw new HttpError(
+                500,
+                'No video generation provider configured',
+                { legacyCode: 'internal_error' },
+            );
         }
 
         // The generic `ai-video` driver name is not a provider, so requests

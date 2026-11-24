@@ -216,6 +216,10 @@ interface RealtimeEvent {
     usage?: RealtimeTranscriptionUsage | null;
 }
 
+/** A usage count as a non-negative finite number; anything else is 0. */
+const n = (v: number | undefined): number =>
+    typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -312,8 +316,6 @@ export const realtimeUsageRows = (
     const input = usage.input_token_details ?? {};
     const cached = input.cached_tokens_details ?? {};
     const output = usage.output_token_details ?? {};
-    const n = (v: number | undefined) =>
-        typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
     const counts: [string, number, number][] = [
         [
             'text_input',
@@ -361,8 +363,6 @@ export const realtimeTranscriptionRows = (
     usage: RealtimeTranscriptionUsage | undefined,
 ): UsageInput[] => {
     if (!usage) return [];
-    const n = (v: number | undefined) =>
-        typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
     const known = transcriptionBillingModel(model);
     const usageType = (kind: string) =>
         `openai:${known}:realtime:transcription_${kind}`;
@@ -406,8 +406,6 @@ export const realtimeTranscriptionRows = (
 export const realtimeResponseTokens = (
     usage: RealtimeUsage | undefined,
 ): number => {
-    const n = (v: number | undefined) =>
-        typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
     const input = usage?.input_token_details ?? {};
     const output = usage?.output_token_details ?? {};
     return (
@@ -955,7 +953,11 @@ export class OpenAIRealtimeRelayService extends PuterService {
     ): Promise<void> {
         // Buffer what the client sends while auth and the upstream handshake
         // run; OpenAI clients send `session.update` immediately on open.
-        const pending: { data: RawData; isBinary: boolean }[] = [];
+        const pending: {
+            data: RawData;
+            isBinary: boolean;
+            event: RealtimeEvent;
+        }[] = [];
         let pendingBytes = 0;
         let upstream: WebSocket | null = null;
         let closed = false;
@@ -1955,7 +1957,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
         const forwardPending = (): Promise<void> | undefined => {
             while (pending.length && !closed) {
                 const next = pending[0];
-                const event = parseEvent(next.data as Buffer)!;
+                const { event } = next;
                 const requestedModel =
                     event.type === 'session.update'
                         ? transcriptionModelOf(event.session)
@@ -2094,7 +2096,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 );
                 return;
             }
-            pending.push({ data, isBinary });
+            pending.push({ data, isBinary, event });
             pendingBytes += size;
             pumpPending();
         });

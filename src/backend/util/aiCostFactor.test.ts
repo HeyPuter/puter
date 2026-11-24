@@ -620,6 +620,29 @@ describe('AI cost factor', () => {
             }
         });
 
+        it('passes a hold lifetime through to the reservation', async () => {
+            const check = vi
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
+            try {
+                await withAiCreditHold(
+                    scoped,
+                    actor,
+                    usageType,
+                    1000,
+                    async () => 'done',
+                    { ttlMs: 60_000 },
+                );
+                expect(check).toHaveBeenCalledWith(actor, 1000, {
+                    ttlMs: 60_000,
+                });
+            } finally {
+                check.mockRestore();
+            }
+        });
+
         it('refuses with a 402 and never runs when the cost is unaffordable', async () => {
             const check = vi
                 .spyOn(metering, 'reserveCreditsIfAffordable')

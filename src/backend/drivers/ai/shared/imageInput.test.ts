@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     fetchImageAsBase64,
     fetchImageBytes,
+    inputImageBytes,
     parseDataUri,
 } from './imageInput.js';
 
@@ -142,5 +143,33 @@ describe('parseDataUri (input images)', () => {
     it('returns null for anything that is not a data URI', () => {
         expect(parseDataUri('https://example.com/a.png')).toBeNull();
         expect(parseDataUri('AQID')).toBeNull();
+    });
+});
+
+describe('inputImageBytes', () => {
+    it('fetches a URL and keeps its declared type over the hint', async () => {
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(new Uint8Array([1, 2, 3]), {
+                headers: { 'content-type': 'image/webp' },
+            }),
+        );
+        expect(
+            await inputImageBytes('https://example.com/a', 'image/jpeg'),
+        ).toEqual({ bytes: Buffer.from([1, 2, 3]), mime: 'image/webp' });
+    });
+
+    it('decodes a data URI with its own type', async () => {
+        expect(
+            await inputImageBytes('data:image/jpeg;base64,AQID', 'image/gif'),
+        ).toEqual({ bytes: Buffer.from([1, 2, 3]), mime: 'image/jpeg' });
+    });
+
+    it('decodes raw base64 with the hint, or as PNG', async () => {
+        expect(await inputImageBytes('AQID', 'image/gif')).toEqual({
+            bytes: Buffer.from([1, 2, 3]),
+            mime: 'image/gif',
+        });
+        expect((await inputImageBytes('AQID')).mime).toBe('image/png');
+        expect(secureFetchMock).not.toHaveBeenCalled();
     });
 });

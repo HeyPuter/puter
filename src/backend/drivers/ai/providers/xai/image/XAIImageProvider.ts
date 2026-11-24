@@ -24,18 +24,21 @@ import { malformedUpstreamResponse } from '../../../../util/upstreamErrors.js';
 import { OpenAI } from 'openai';
 import { formatAspectRatio } from '../../../interfaces/image/imageDimensions.js';
 import { Context } from '../../../../../core/context.js';
-import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import {
+    type AiMeteringService,
+    withAiCreditHold,
+} from '../../../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageProvider,
 } from '../../../interfaces/image/types.js';
 import { XAI_IMAGE_GENERATION_MODELS, type XaiImageModel } from './models.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
-import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import { toUrlOrDataUri } from '../../../interfaces/image/inputImage.js';
 import { upstreamUserIdentifier } from '../../../shared/upstreamIdentifier.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
 import { fetchXaiImageCatalog } from './catalog.js';
+import { SAMPLE_IMAGE_URL } from '../../../shared/testMode.js';
 
 const DEFAULT_MODEL = 'grok-imagine-image';
 // xAI's Grok Imagine edit endpoint accepts up to 5 source images per request.
@@ -94,7 +97,7 @@ export class XAIImageProvider implements IImageProvider {
         const selectedModel = this.#getModel(model);
 
         if (test_mode) {
-            return 'https://puter-sample-data.puter.site/image_example.png';
+            return SAMPLE_IMAGE_URL;
         }
 
         assertImagePrompt(prompt);
@@ -153,64 +156,60 @@ export class XAIImageProvider implements IImageProvider {
         const estimatedCostInCents =
             outputPriceInCents +
             (hasInputImages ? mediaInputPriceInCents * inputImageCount : 0);
-        const hold = await this.#meteringService.reserveAiCredits(
+        return withAiCreditHold(
+            this.#meteringService,
             actor,
             `xai:${selectedModel.id}:${outputCostKey}`,
             estimatedCostInCents * 1_000_000,
+            async () => {
+                const response = hasInputImages
+                    ? await this.#edit({
+                          modelId: selectedModel.id,
+                          prompt,
+                          inputImages: input_images!,
+                          mimeHint: input_image_mime_type,
+                          resolution,
+                          aspectRatio,
+                          imageQuality,
+                          userIdentifier,
+                      })
+                    : ((await this.#client.images.generate({
+                          model: selectedModel.id,
+                          prompt,
+                          user: userIdentifier,
+                          // xAI-specific params not in the OpenAI type; passed through.
+                          ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
+                          resolution,
+                          ...(imageQuality ? { quality: imageQuality } : {}),
+                      } as Parameters<
+                          OpenAI['images']['generate']
+                      >[0])) as XaiImageResponse);
+
+                const url = imageEntryUrl(response?.data?.[0]);
+                if (!url) throw malformedUpstreamResponse('xai', 'xAI');
+
+                const usageEntries = [
+                    {
+                        usageType: `xai:${selectedModel.id}:${outputCostKey}`,
+                        usageAmount: 1,
+                        costOverride: outputPriceInCents * 1_000_000,
+                    },
+                ];
+                if (hasInputImages && mediaInputPriceInCents > 0) {
+                    usageEntries.push({
+                        usageType: `xai:${selectedModel.id}:media_input`,
+                        usageAmount: inputImageCount,
+                        costOverride:
+                            mediaInputPriceInCents *
+                            inputImageCount *
+                            1_000_000,
+                    });
+                }
+                this.#meteringService.batchIncrementUsages(actor, usageEntries);
+
+                return url;
+            },
         );
-
-        if (!hold) {
-            throw insufficientCreditsError();
-        }
-
-        try {
-            const response = hasInputImages
-                ? await this.#edit({
-                      modelId: selectedModel.id,
-                      prompt,
-                      inputImages: input_images!,
-                      mimeHint: input_image_mime_type,
-                      resolution,
-                      aspectRatio,
-                      imageQuality,
-                      userIdentifier,
-                  })
-                : ((await this.#client.images.generate({
-                      model: selectedModel.id,
-                      prompt,
-                      user: userIdentifier,
-                      // xAI-specific params not in the OpenAI type; passed through.
-                      ...(aspectRatio ? { aspect_ratio: aspectRatio } : {}),
-                      resolution,
-                      ...(imageQuality ? { quality: imageQuality } : {}),
-                  } as Parameters<
-                      OpenAI['images']['generate']
-                  >[0])) as XaiImageResponse);
-
-            const url = imageEntryUrl(response?.data?.[0]);
-            if (!url) throw malformedUpstreamResponse('xai', 'xAI');
-
-            const usageEntries = [
-                {
-                    usageType: `xai:${selectedModel.id}:${outputCostKey}`,
-                    usageAmount: 1,
-                    costOverride: outputPriceInCents * 1_000_000,
-                },
-            ];
-            if (hasInputImages && mediaInputPriceInCents > 0) {
-                usageEntries.push({
-                    usageType: `xai:${selectedModel.id}:media_input`,
-                    usageAmount: inputImageCount,
-                    costOverride:
-                        mediaInputPriceInCents * inputImageCount * 1_000_000,
-                });
-            }
-            this.#meteringService.batchIncrementUsages(actor, usageEntries);
-
-            return url;
-        } finally {
-            await hold.release();
-        }
     }
 
     // Edits go to POST /v1/images/edits as application/json (the OpenAI SDK's

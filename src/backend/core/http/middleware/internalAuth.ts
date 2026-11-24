@@ -18,19 +18,10 @@
  */
 
 import type { RequestHandler } from 'express';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { secretsEqual } from '../../../util/secureCompare.js';
 import { HttpError } from '../HttpError';
 
 export const INTERNAL_AUTH_HEADER = 'x-puter-internal-auth';
-
-// Both sides are HMACed to a fixed-size digest under a per-process key, so the
-// comparison is constant-time and leaks no length.
-const COMPARE_KEY = randomBytes(32);
-const secretsEqual = (a: string, b: string): boolean =>
-    timingSafeEqual(
-        createHmac('sha256', COMPARE_KEY).update(a).digest(),
-        createHmac('sha256', COMPARE_KEY).update(b).digest(),
-    );
 
 /**
  * 403 unless the request carries the shared secret in `x-puter-internal-auth`.

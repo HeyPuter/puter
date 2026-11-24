@@ -36,7 +36,7 @@ import {
 import {
     EVENTS_KV_HANDLE_LIMIT,
     KV_SHARE_NOTIFY_LIMITS,
-} from '../../controllers/events/limits.js';
+} from '../events/limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { claimRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {

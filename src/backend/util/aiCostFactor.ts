@@ -31,7 +31,7 @@ import {
 } from '../services/metering/types.js';
 
 /** Anything past this is read as a mistake and the cost is left as-is. */
-export const MAX_AI_COST_FACTOR = 10;
+const MAX_AI_COST_FACTOR = 10;
 
 /**
  * The `<provider>:<model>` head of a usage type — usage types are written
@@ -439,8 +439,14 @@ export async function withAiCreditHold<T>(
     usageType: string,
     amount: number,
     run: () => Promise<T>,
+    opts?: { ttlMs?: number },
 ): Promise<T> {
-    const hold = await metering.reserveAiCredits(actor, usageType, amount);
+    const hold = await metering.reserveAiCredits(
+        actor,
+        usageType,
+        amount,
+        opts,
+    );
     if (!hold) throw insufficientCreditsError();
     try {
         return await run();

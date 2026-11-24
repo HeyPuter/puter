@@ -20,7 +20,7 @@
 import { describe, expect, it } from 'vitest';
 import identifier from './identifier.js';
 
-const { generate_identifier, generate_random_code } = identifier;
+const { generate_identifier } = identifier;
 
 describe('generate_identifier', () => {
     it('joins adjective, noun and a 0-999999 number with the default separator', () => {
@@ -50,26 +50,5 @@ describe('generate_identifier', () => {
         const almostOne = () => 0.9999999;
         const value = generate_identifier('|', almostOne);
         expect(value.split('|')[2]).toBe('999999');
-    });
-});
-
-describe('generate_random_code', () => {
-    it('produces a code of the requested length from the default alphabet', () => {
-        const code = generate_random_code(8);
-        expect(code).toHaveLength(8);
-        expect(code).toMatch(/^[A-Z0-9]{8}$/);
-    });
-
-    it('returns an empty string for a zero length', () => {
-        expect(generate_random_code(0)).toBe('');
-    });
-
-    it('uses a caller-supplied alphabet and random source', () => {
-        expect(generate_random_code(4, { rng: () => 0, chars: 'xyz' })).toBe(
-            'xxxx',
-        );
-        expect(
-            generate_random_code(3, { rng: () => 0.999999, chars: 'xyz' }),
-        ).toBe('zzz');
     });
 });

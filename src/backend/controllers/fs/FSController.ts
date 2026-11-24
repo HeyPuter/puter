@@ -24,12 +24,13 @@ import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
-import { pipeToResponse } from '../../core/http/pipeToResponse.js';
+import { asRecord } from '../../core/http/requestBody.js';
 import {
     FS_ROUTE_REFUSAL,
     type ResourceDescriptor,
 } from '../../services/acl/ACLService.js';
 import { clientParentUid } from '../../services/fs/rootListing.js';
+import { appDataScopeForActor } from '../../services/permission/appDataScopes.js';
 import {
     expandTildePath,
     isOwnersTrash,
@@ -41,9 +42,16 @@ import {
     resolveSharePath,
 } from '../../services/fs/sharePathMask.js';
 import type {
+    CompleteWriteRequest,
     PreparedBatchWrite,
+    SignedWriteRequest,
+    SignedWriteResponse,
+    SignMultipartPartsRequest,
     UploadedBatchWriteItem,
     UploadProgressTrackerLike,
+    WriteGuiMetadata,
+    WriteRequest,
+    WriteResponse,
 } from '../../services/fs/types.js';
 import type {
     FSEntry,
@@ -51,10 +59,10 @@ import type {
     PendingUploadSession,
 } from '../../stores/fs/FSEntry.js';
 import {
+    awaitLater,
     runWithConcurrencyLimit,
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
-import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { listClientShares } from '../share/clientShare.js';
 import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
@@ -84,6 +92,7 @@ import {
     replacedByMove,
     resolveOrNotFound,
     resolveReadRange,
+    sendDownload,
     signEntryThumbnail,
 } from './legacyFsHelpers.js';
 import type {
@@ -93,13 +102,6 @@ import type {
     ClientSignedWriteResponse,
     ClientSignMultipartPartsResponse,
     ClientWriteResponse,
-    CompleteWriteRequest,
-    SignedWriteRequest,
-    SignedWriteResponse,
-    SignMultipartPartsRequest,
-    WriteGuiMetadata,
-    WriteRequest,
-    WriteResponse,
 } from './requestTypes.js';
 import type {
     AbortWriteRequest,
@@ -1056,7 +1058,7 @@ export class FSController extends PuterController {
     })
     async statEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
-        const body = this.#toObjectRecord(req.body);
+        const body = asRecord(req.body);
         const entry = await this.#resolveEntryForRequest(body);
         // One descriptor for both checks, so the chain is read at most once.
         const descriptor = this.services.acl.fsDescriptor(entry.path);
@@ -1238,9 +1240,7 @@ export class FSController extends PuterController {
     async readdirEntries(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         // GET carries its parameters in the query string; POST in the body.
-        const body = this.#toObjectRecord(
-            req.method === 'GET' ? req.query : req.body,
-        );
+        const body = asRecord(req.method === 'GET' ? req.query : req.body);
 
         // Presence of `cursor` (null/empty means "first page") or
         // `includeTotal` opts into the paginated `{items, cursor?, total?}`
@@ -1270,16 +1270,6 @@ export class FSController extends PuterController {
                 this.services.acl,
                 this.stores.permission,
             );
-            const rootSuggestions =
-                await this.services.suggestedApps.getSuggestedAppsForEntries(
-                    rootChildren,
-                );
-            for (let index = 0; index < rootChildren.length; index++) {
-                const child = rootChildren[index];
-                if (child) {
-                    child.suggestedApps = rootSuggestions[index] ?? [];
-                }
-            }
             const rootItems = await this.#toReaddirEntries(actor, rootChildren);
             if (paginated) {
                 res.json({
@@ -1301,13 +1291,7 @@ export class FSController extends PuterController {
         // Use the legacy access assertion so this endpoint stays behaviorally
         // identical to the `/readdir` route the SDK moved off of — same error
         // codes and the same app-actor 404 masking on denial.
-        await assertLegacyAccess(
-            this.services.acl,
-            this.services.fs,
-            actor,
-            parent.path,
-            'list',
-        );
+        await assertLegacyAccess(this.services.acl, actor, parent.path, 'list');
 
         const limit = this.#toNumberOrUndefined(body.limit);
         const offset = this.#toNumberOrUndefined(body.offset);
@@ -1332,29 +1316,30 @@ export class FSController extends PuterController {
                 MAX_READDIR_DEPTH,
                 Math.max(1, Math.floor(requestedDepth ?? MAX_READDIR_DEPTH)),
             );
-            const page = await this.services.fs.listDirectoryTreePage(
-                parent.userId,
-                parent.path,
-                {
-                    limit,
-                    offset,
-                    cursor:
-                        typeof body.cursor === 'string'
-                            ? body.cursor
-                            : undefined,
-                    maxDepth,
-                    sortBy,
-                    sortOrder,
-                },
-            );
-            await this.#attachSuggestedApps(page.entries);
-            const total = includeTotal
-                ? await this.services.fs.countDirectoryTree(
-                      parent.userId,
-                      parent.path,
-                      maxDepth,
-                  )
-                : undefined;
+            const [page, total] = await Promise.all([
+                this.services.fs.listDirectoryTreePage(
+                    parent.userId,
+                    parent.path,
+                    {
+                        limit,
+                        offset,
+                        cursor:
+                            typeof body.cursor === 'string'
+                                ? body.cursor
+                                : undefined,
+                        maxDepth,
+                        sortBy,
+                        sortOrder,
+                    },
+                ),
+                includeTotal
+                    ? this.services.fs.countDirectoryTree(
+                          parent.userId,
+                          parent.path,
+                          maxDepth,
+                      )
+                    : undefined,
+            ]);
             res.json({
                 items: await this.#toReaddirEntries(actor, page.entries),
                 ...(page.cursor ? { cursor: page.cursor } : {}),
@@ -1364,17 +1349,20 @@ export class FSController extends PuterController {
         }
 
         if (paginated) {
-            const page = await this.services.fs.listDirectoryPage(parent.uuid, {
-                limit,
-                cursor:
-                    typeof body.cursor === 'string' ? body.cursor : undefined,
-                sortBy,
-                sortOrder,
-            });
-            await this.#attachSuggestedApps(page.entries);
-            const total = includeTotal
-                ? await this.services.fs.countDirectory(parent.uuid)
-                : undefined;
+            const [page, total] = await Promise.all([
+                this.services.fs.listDirectoryPage(parent.uuid, {
+                    limit,
+                    cursor:
+                        typeof body.cursor === 'string'
+                            ? body.cursor
+                            : undefined,
+                    sortBy,
+                    sortOrder,
+                }),
+                includeTotal
+                    ? this.services.fs.countDirectory(parent.uuid)
+                    : undefined,
+            ]);
             res.json({
                 items: await this.#toReaddirEntries(actor, page.entries),
                 ...(page.cursor ? { cursor: page.cursor } : {}),
@@ -1389,7 +1377,6 @@ export class FSController extends PuterController {
             sortBy,
             sortOrder,
         });
-        await this.#attachSuggestedApps(children);
         res.json(await this.#toReaddirEntries(actor, children));
     }
 
@@ -1397,12 +1384,14 @@ export class FSController extends PuterController {
      * Shape readdir entries in the v2 (camelCase) response shape, enriched with
      * the three fields the SDK cannot reconstruct on its own so it can rebuild
      * the v1 shape: `type` (MIME), a signed `thumbnail`, and `associatedApp`.
+     * Attaches each entry's suggested apps first.
      */
     async #toReaddirEntries(
         actor: Actor,
         entries: FSEntry[],
     ): Promise<ClientReaddirEntry[]> {
-        const [appsById, shareFlags] = await Promise.all([
+        const [, appsById, shareFlags] = await Promise.all([
+            this.#attachSuggestedApps(entries),
             loadLegacyAssociatedApps(this.stores.app, entries),
             this.services.share.shareFlags(actor, entries),
         ]);
@@ -1455,7 +1444,7 @@ export class FSController extends PuterController {
     async searchEntries(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
-        const body = this.#toObjectRecord(req.body);
+        const body = asRecord(req.body);
         const query =
             typeof body.query === 'string'
                 ? body.query
@@ -1472,9 +1461,9 @@ export class FSController extends PuterController {
             userId,
             query,
             limit ?? 200,
-            this.#appDataScopeForActor(actor),
+            appDataScopeForActor(actor),
         );
-        res.json(results);
+        res.json(results.map((entry) => this.#toClientEntry(entry)));
     }
 
     @Get('/read', {
@@ -1487,7 +1476,7 @@ export class FSController extends PuterController {
     })
     async readEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
-        const query = this.#toObjectRecord(req.query);
+        const query = asRecord(req.query);
         const entry = await this.#resolveEntryForRequest(query);
         await this.#assertAccess(actor, entry.path, 'read');
 
@@ -1499,33 +1488,17 @@ export class FSController extends PuterController {
             );
         }
 
-        const range = resolveReadRange(req.headers.range, query);
         const download = await this.services.fs.readContent(entry, {
-            range,
+            range: resolveReadRange(req.headers.range, query),
         });
 
-        if (download.contentType) {
-            res.setHeader('Content-Type', download.contentType);
-            // Stored type is uploader-controlled and served inline on the
-            // api origin — sandbox active-document types (HTML/SVG/XML) so
-            // embedded scripts can't run here. Inert types are untouched.
-            applyInlineContentSecurity(res, download.contentType);
-        }
-        if (download.contentLength !== null)
-            res.setHeader('Content-Length', String(download.contentLength));
-        if (download.contentRange)
-            res.setHeader('Content-Range', download.contentRange);
-        if (download.etag) res.setHeader('ETag', download.etag);
-        if (download.lastModified)
-            res.setHeader('Last-Modified', download.lastModified.toUTCString());
-
-        res.setHeader(
-            'Content-Disposition',
-            `inline; filename="${encodeURIComponent(entry.name)}"`,
-        );
-        res.status(range ? 206 : 200);
-
-        await pipeToResponse(download.body, res);
+        // Stored type is uploader-controlled and served inline on the api
+        // origin, so active-document types (HTML/SVG/XML) are sandboxed.
+        await sendDownload(res, entry, download, {
+            disposition: 'inline',
+            contentType: download.contentType,
+            sandbox: true,
+        });
     }
 
     // -- Mutation routes ------------------------------------------------
@@ -1539,7 +1512,7 @@ export class FSController extends PuterController {
     async mkdirEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
-        const body = this.#toObjectRecord(req.body);
+        const body = asRecord(req.body);
         const rawPath = typeof body.path === 'string' ? body.path : '';
         if (!rawPath.trim())
             throw new HttpError(400, 'Missing `path`', {
@@ -1585,7 +1558,7 @@ export class FSController extends PuterController {
     async touchEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
-        const body = this.#toObjectRecord(req.body);
+        const body = asRecord(req.body);
         const rawPath = typeof body.path === 'string' ? body.path : '';
         if (!rawPath.trim())
             throw new HttpError(400, 'Missing `path`', {
@@ -1625,7 +1598,7 @@ export class FSController extends PuterController {
     })
     async renameEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
-        const body = this.#toObjectRecord(req.body);
+        const body = asRecord(req.body);
         const newName = typeof body.new_name === 'string' ? body.new_name : '';
         if (!newName.trim())
             throw new HttpError(400, 'Missing `new_name`', {
@@ -1650,7 +1623,7 @@ export class FSController extends PuterController {
     async deleteEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
-        const body = this.#toObjectRecord(req.body);
+        const body = asRecord(req.body);
         const entry = await this.#resolveEntryForRequest(body);
         await this.#assertAccess(actor, entry.path, 'write');
 
@@ -1677,18 +1650,22 @@ export class FSController extends PuterController {
     async moveEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
-        const body = this.#toObjectRecord(req.body);
+        const body = asRecord(req.body);
         const sourceRef = this.#extractNodeRef(body.source ?? body);
         const destinationRef = this.#extractNodeRef(body.destination);
 
-        const source = await this.#resolveEntryForRequest(sourceRef);
-        const destinationParent =
-            await this.#resolveEntryForRequest(destinationRef);
+        const [source, destinationParent] = await this.#resolvePair(
+            sourceRef,
+            destinationRef,
+        );
 
+        const destinationCheck = isOwnersTrash(source, destinationParent)
+            ? null
+            : awaitLater(
+                  this.#assertAccess(actor, destinationParent.path, 'write'),
+              );
         await this.#assertAccess(actor, source.path, 'write');
-        if (!isOwnersTrash(source, destinationParent)) {
-            await this.#assertAccess(actor, destinationParent.path, 'write');
-        }
+        await destinationCheck;
 
         const newName =
             typeof body.new_name === 'string' ? body.new_name : undefined;
@@ -1732,16 +1709,20 @@ export class FSController extends PuterController {
     async copyEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
-        const body = this.#toObjectRecord(req.body);
+        const body = asRecord(req.body);
         const sourceRef = this.#extractNodeRef(body.source ?? body);
         const destinationRef = this.#extractNodeRef(body.destination);
 
-        const source = await this.#resolveEntryForRequest(sourceRef);
-        const destinationParent =
-            await this.#resolveEntryForRequest(destinationRef);
+        const [source, destinationParent] = await this.#resolvePair(
+            sourceRef,
+            destinationRef,
+        );
 
+        const destinationCheck = awaitLater(
+            this.#assertAccess(actor, destinationParent.path, 'write'),
+        );
         await this.#assertAccess(actor, source.path, 'read');
-        await this.#assertAccess(actor, destinationParent.path, 'write');
+        await destinationCheck;
 
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const newName =
@@ -1783,7 +1764,7 @@ export class FSController extends PuterController {
     async mkshortcutEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
-        const body = this.#toObjectRecord(req.body);
+        const body = asRecord(req.body);
         const parentRef = this.#extractNodeRef(body.parent ?? body);
         const targetRef = this.#extractNodeRef(body.target);
         const name = typeof body.name === 'string' ? body.name : '';
@@ -1792,11 +1773,13 @@ export class FSController extends PuterController {
                 legacyCode: 'bad_request',
             });
 
-        const parent = await this.#resolveEntryForRequest(parentRef);
-        const target = await this.#resolveEntryForRequest(targetRef);
+        const [parent, target] = await this.#resolvePair(parentRef, targetRef);
 
+        const parentCheck = awaitLater(
+            this.#assertAccess(actor, parent.path, 'write'),
+        );
         await this.#assertAccess(actor, target.path, 'read');
-        await this.#assertAccess(actor, parent.path, 'write');
+        await parentCheck;
 
         const shortcut = await this.services.fs.mkshortcut(userId, {
             parent,
@@ -1849,6 +1832,16 @@ export class FSController extends PuterController {
         };
         // The resolved path is the owner's real one, so a miss must not echo it.
         return resolveOrNotFound(this.stores.fsEntry, ref);
+    }
+
+    /** Both refs resolved together; the first one's miss is the one reported. */
+    async #resolvePair(
+        firstRef: Record<string, unknown>,
+        secondRef: Record<string, unknown>,
+    ): Promise<[FSEntry, FSEntry]> {
+        const second = awaitLater(this.#resolveEntryForRequest(secondRef));
+        const first = await this.#resolveEntryForRequest(firstRef);
+        return [first, await second];
     }
 
     async #assertCanDedupeCreate(actor: Actor, targetPath: string) {
@@ -1934,15 +1927,7 @@ export class FSController extends PuterController {
     }
 
     #getActorUserId(req: Request): number {
-        const requestUser = (
-            req as Request & {
-                user?: {
-                    id?: unknown;
-                };
-            }
-        ).user;
-        const actorUser = req.actor?.user;
-        const candidateUserId = requestUser?.id ?? actorUser?.id;
+        const candidateUserId = req.actor?.user?.id;
         if (candidateUserId === undefined || candidateUserId === null) {
             throw new HttpError(401, 'Unauthorized', {
                 legacyCode: 'unauthorized',
@@ -1960,15 +1945,7 @@ export class FSController extends PuterController {
     }
 
     #getActorUsername(req: Request): string {
-        const requestUser = (
-            req as Request & {
-                user?: {
-                    username?: unknown;
-                };
-            }
-        ).user;
-        const actorUser = req.actor?.user;
-        const actorUsername = requestUser?.username ?? actorUser?.username;
+        const actorUsername = req.actor?.user?.username;
         if (
             typeof actorUsername !== 'string' ||
             actorUsername.trim().length === 0
@@ -1978,13 +1955,6 @@ export class FSController extends PuterController {
             });
         }
         return actorUsername.trim();
-    }
-
-    #toObjectRecord(value: unknown): Record<string, unknown> {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) {
-            return {};
-        }
-        return value as Record<string, unknown>;
     }
 
     #firstDefined(...values: unknown[]): unknown {
@@ -2032,8 +2002,8 @@ export class FSController extends PuterController {
         fileMetadata: FSEntryWriteInput | undefined,
         fallbackSource?: unknown,
     ): FSEntryWriteInput {
-        const metadataRecord = this.#toObjectRecord(fileMetadata);
-        const fallbackRecord = this.#toObjectRecord(fallbackSource);
+        const metadataRecord = asRecord(fileMetadata);
+        const fallbackRecord = asRecord(fallbackSource);
 
         const normalizedFileMetadata: Record<string, unknown> = {
             ...metadataRecord,
@@ -2184,8 +2154,8 @@ export class FSController extends PuterController {
         appUidLookupCache?: Map<string, Promise<number | null>>,
         actorUserId?: number,
     ): Promise<FSEntryWriteInput> {
-        const metadataRecord = this.#toObjectRecord(fileMetadata);
-        const fallbackRecord = this.#toObjectRecord(fallbackSource);
+        const metadataRecord = asRecord(fileMetadata);
+        const fallbackRecord = asRecord(fallbackSource);
 
         const associatedAppId = this.#toNumber(
             this.#firstDefined(
@@ -2650,20 +2620,6 @@ export class FSController extends PuterController {
         return pathParts.length >= 2 && pathParts[1] === 'AppData';
     }
 
-    // If `actor` is effectively scoped to an app (directly or through an
-    // access-token issuer chain), return that app's AppData root under the
-    // actor's user. Returns undefined for pure user actors. The store anchors
-    // search results to this path so app actors can't see entries outside
-    // their AppData via `/fs/search`.
-    #appDataScopeForActor(actor: Actor): string | undefined {
-        const app = actor.effectiveApp;
-        if (!app) return undefined;
-        const username = actor.user?.username;
-        if (typeof username !== 'string' || username.length === 0)
-            return undefined;
-        return `/${username}/AppData/${app.uid}`;
-    }
-
     #estimateDataUrlSize(dataUrl: string): number {
         const commaIndex = dataUrl.indexOf(',');
         const base64 =
@@ -2893,7 +2849,7 @@ export class FSController extends PuterController {
         const uploadTracker = new UploadProgressTracker();
         uploadTracker.setTotal(Math.max(0, expectedSize));
 
-        const context = Context.get();
+        const context = Context.current();
         if (!context) {
             return uploadTracker;
         }
@@ -3185,13 +3141,6 @@ export class FSController extends PuterController {
             const parsedIndex = Number(fieldName);
             if (manifest.fieldIndexMap.get(String(parsedIndex)) !== undefined) {
                 return parsedIndex;
-            }
-        }
-
-        if (fieldName === 'file' || fieldName === 'files') {
-            const itemAtPosition = manifest.items[fileOrderIndex];
-            if (itemAtPosition) {
-                return itemAtPosition.index;
             }
         }
 

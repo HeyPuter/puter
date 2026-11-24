@@ -74,7 +74,7 @@ const VIDEO_MIME_BY_EXTENSION: Record<string, string> = {
 // Moonshot's vision API rejects http(s) image URLs and only accepts base64
 // data URIs or file-id refs, so any web URL must be fetched and inlined.
 // Failures become inline text-error parts (same shape as
-// openai/chat/fileUpload.ts).
+// interfaces/chat/utils/puterPathUploads.ts).
 export const inlineHttpImageUrls = (
     messages: MessageWithContent[],
 ): Promise<void> => inlineHttpMedia(messages, IMAGE);
@@ -171,7 +171,7 @@ function setTextError(part: MediaContentPart, reason: string): void {
     delete part.image_url;
     delete part.video_url;
     part.type = 'text';
-    // Phrasing matches openai/chat/fileUpload.ts so the model reads it as a
+    // Phrasing matches puterPathUploads.ts so the model reads it as a
     // system note, not user input.
     part.text = `{error: ${reason}; the user did not write this message}`;
 }

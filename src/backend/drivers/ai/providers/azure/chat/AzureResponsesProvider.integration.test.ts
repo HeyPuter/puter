@@ -52,11 +52,6 @@ describe.skipIf(skipUnlessEnv(KEY_ENV) || skipUnlessEnv(URL_ENV))(
                 const provider = new AzureResponsesProvider(
                     makeMeteringStub(),
                     {
-                        fsEntry: undefined as never,
-                        s3Object: undefined as never,
-                    },
-                    undefined as never,
-                    {
                         apiKey: optionalEnv(KEY_ENV)!,
                         apiURL: optionalEnv(URL_ENV)!,
                     },

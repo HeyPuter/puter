@@ -43,6 +43,9 @@ const TOKEN_LINK_LIMIT = {
     key: 'ip' as const,
 };
 
+/** A sitemap holds at most 50,000 URLs; one goes to the docs. */
+const SITEMAP_MAX_APPS = 49_999;
+
 export class StaticPagesController extends PuterController {
     registerRoutes(router: PuterRouter) {
         const origin = this.config.origin ?? '';
@@ -185,13 +188,13 @@ export class StaticPagesController extends PuterController {
             async (req, res) => {
                 const domain = this.config.domain ?? req.hostname;
                 const origin = `${req.protocol}://${domain}`;
-                const apps = (await this.clients.db.read(
-                    `SELECT \`name\` FROM \`apps\` WHERE \`approved_for_listing\` = ${this.clients.db.booleanLiteral(true)}`,
-                )) as Array<{ name: string }>;
+                const names = await this.stores.app.listApprovedNames({
+                    limit: SITEMAP_MAX_APPS,
+                });
                 const urls = [
                     `<url><loc>${req.protocol}://docs.${domain}/</loc></url>`,
-                    ...apps.map(
-                        (a) => `<url><loc>${origin}/app/${a.name}</loc></url>`,
+                    ...names.map(
+                        (name) => `<url><loc>${origin}/app/${name}</loc></url>`,
                     ),
                 ];
                 const body =

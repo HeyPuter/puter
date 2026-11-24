@@ -150,6 +150,19 @@ export class SubdomainDriver extends PuterDriver {
         assertActorEmailVerified(actor, this.config);
 
         const subdomain = this.#validateSubdomain(object.subdomain);
+        const rootDirPath = expandTildePath(
+            String(object.root_dir ?? ''),
+            actor.user.username,
+        );
+
+        // Independent reads, started together and checked in order so the
+        // errors keep their precedence.
+        const pendingCount = awaitLater(
+            this.stores.subdomain.count({ userId: actor.user.id }),
+        );
+        const pendingEntry = awaitLater(
+            this.stores.fsEntry.getEntryByPath(rootDirPath),
+        );
 
         // Uniqueness
         if (await this.stores.subdomain.existsBySubdomain(subdomain)) {
@@ -165,20 +178,14 @@ export class SubdomainDriver extends PuterDriver {
             ((actor.user as unknown as Record<string, unknown>)
                 .max_subdomains as number | undefined) ??
             this.#configMaxSubdomains();
-        const currentCount = (await this.stores.subdomain.countByUserId(
-            actor.user.id,
-        )) as number;
+        const currentCount = (await pendingCount) as number;
         if (currentCount >= maxSubdomains) {
             throw new HttpError(403, 'Subdomain limit reached', {
                 legacyCode: 'subdomain_limit_reached',
             });
         }
 
-        const rootDirPath = expandTildePath(
-            String(object.root_dir ?? ''),
-            actor.user.username,
-        );
-        const entry = await this.stores.fsEntry.getEntryByPath(rootDirPath);
+        const entry = await pendingEntry;
         const rootDirId = entry?.id;
         if (!rootDirId) {
             throw new HttpError(400, 'root_dir_id does not exist', {

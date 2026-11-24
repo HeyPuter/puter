@@ -22,6 +22,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import type { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { appDataPermission } from '../permission/appDataScopes.js';
 
 let server: PuterServer;
 
@@ -207,6 +208,57 @@ describe('AppService.views', () => {
             expect(filetypes).not.toHaveBeenCalled();
         } finally {
             filetypes.mockRestore();
+        }
+    });
+});
+
+describe('AppService.ensureOriginApp', () => {
+    it("creates a missing origin app and withdraws its uid's old data grants", async () => {
+        const { userId } = await makeUser();
+        const reader = await insertApp(userId);
+        const uid = `app-${randomUUID()}`;
+        const stale = appDataPermission(uid, 'kv', 'read');
+        await server.stores.permission.upsertUserAppPerm(
+            userId,
+            reader.id as number,
+            stale,
+            {},
+        );
+        const origin = `https://${suffix()}.example.test`;
+
+        const app = await server.services.app.ensureOriginApp(uid, origin, {
+            ownerUserId: userId,
+        });
+
+        expect(app).toMatchObject({
+            uid,
+            index_url: origin,
+            owner_user_id: userId,
+        });
+        const [left] = await server.stores.permission.readUserAppPerms(
+            userId,
+            reader.id as number,
+            [stale],
+        );
+        expect(left).toBeFalsy();
+    });
+
+    it('returns an existing app without touching grants', async () => {
+        const { userId } = await makeUser();
+        const existing = await insertApp(userId);
+        const withdraw = vi.spyOn(
+            server.services.appPermission,
+            'withdrawAppDataGrants',
+        );
+        try {
+            const app = await server.services.app.ensureOriginApp(
+                existing.uid as string,
+                'https://ignored.example.test',
+            );
+            expect(app.uid).toBe(existing.uid);
+            expect(withdraw).not.toHaveBeenCalled();
+        } finally {
+            withdraw.mockRestore();
         }
     });
 });

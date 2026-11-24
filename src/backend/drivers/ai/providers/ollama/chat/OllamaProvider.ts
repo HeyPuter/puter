@@ -22,7 +22,6 @@ import { OpenAI } from 'openai';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import type { IChatModel } from '../../../interfaces/chat/types.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
-import { catalogTokenLimit } from '../../../shared/catalogPrice.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
     OpenAICompatProvider,
@@ -81,10 +80,9 @@ export class OllamaChatProvider extends OpenAICompatProvider {
             coerced_models.push({
                 id: `ollama:ollama/${modelName}`,
                 name: `${modelName} (Ollama)`,
-                max_tokens:
-                    catalogTokenLimit(model.size) ??
-                    catalogTokenLimit(model.max_context) ??
-                    8192,
+                // `/api/tags` reports no context or output limit; `size` is
+                // the model's size on disk.
+                max_tokens: 8192,
                 costs_currency: 'usd-cents',
                 costs: {
                     tokens: 1_000_000,

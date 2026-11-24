@@ -2054,6 +2054,128 @@ describe('LegacyFSController.batch actor gates', () => {
             ),
         ).not.toBeNull();
     });
+
+    it('announces the entry an overwriting move op replaced', async () => {
+        const { actor, username } = await makeUser();
+        await writeFileEntry(actor, `/${username}/Documents/clash.txt`, 'new');
+        const occupant = await writeFileEntry(
+            actor,
+            `/${username}/Desktop/clash.txt`,
+            'old',
+        );
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        try {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.batch(
+                    makeReq({
+                        body: {
+                            operations: [
+                                {
+                                    op: 'move',
+                                    source: `/${username}/Documents/clash.txt`,
+                                    destination: `/${username}/Desktop`,
+                                    overwrite: true,
+                                },
+                            ],
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            expect(captured.statusCode).toBe(200);
+            expect(
+                emitSpy.mock.calls.some(
+                    ([eventName, data]) =>
+                        eventName === 'outer.gui.item.removed' &&
+                        (data as { response: { uuid?: string } }).response
+                            .uuid === occupant.uuid,
+                ),
+            ).toBe(true);
+        } finally {
+            emitSpy.mockRestore();
+        }
+    });
+
+    it("reports an op's unexpected failure without its internal message", async () => {
+        const { actor, username } = await makeUser();
+        const mkdir = vi
+            .spyOn(server.services.fs, 'mkdir')
+            .mockRejectedValueOnce(new Error('connect ECONNREFUSED 10.0.0.7'));
+        const consoleError = vi
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+        try {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.batch(
+                    makeReq({
+                        body: {
+                            operations: [
+                                {
+                                    op: 'mkdir',
+                                    path: `/${username}/Documents`,
+                                    name: 'leaky',
+                                },
+                            ],
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            expect(captured.statusCode).toBe(218);
+            expect(
+                (captured.body as { results: unknown[] }).results[0],
+            ).toEqual({
+                error: true,
+                status: 500,
+                message: 'Internal Server Error',
+                code: 'internal_error',
+            });
+            expect(consoleError).toHaveBeenCalled();
+        } finally {
+            mkdir.mockRestore();
+            consoleError.mockRestore();
+        }
+    });
+
+    it('reports a database load-shed in an op as a 503', async () => {
+        const { actor, username } = await makeUser();
+        const mkdir = vi
+            .spyOn(server.services.fs, 'mkdir')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('batch failed'), {
+                    code: 'dbBatchFailed',
+                }),
+            );
+        try {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.batch(
+                    makeReq({
+                        body: {
+                            operations: [
+                                {
+                                    op: 'mkdir',
+                                    path: `/${username}/Documents`,
+                                    name: 'shed',
+                                },
+                            ],
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            expect(
+                (captured.body as { results: unknown[] }).results[0],
+            ).toMatchObject({ status: 503, code: 'db_unavailable' });
+        } finally {
+            mkdir.mockRestore();
+        }
+    });
 });
 
 // -- tokenRead ---------------------------------------------------------

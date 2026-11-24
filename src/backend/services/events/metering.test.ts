@@ -29,7 +29,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP,
     EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
-} from '../../controllers/events/limits.js';
+} from './limits.js';
 import type { Actor } from '../../core/actor.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import {

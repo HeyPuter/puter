@@ -55,18 +55,6 @@ export function parsePhone(
     return { e164: parsed.number, country: parsed.country };
 }
 
-/**
- * Sanitize raw user-entered phone input to a validated E.164 string, or `null`
- * if invalid. Thin wrapper over {@link parsePhone} for callers that only need
- * the number.
- */
-export function sanitizePhone(
-    input: unknown,
-    defaultCountry?: string,
-): string | null {
-    return parsePhone(input, defaultCountry)?.e164 ?? null;
-}
-
 /** The last two digits, for telling the owner which number a code goes to. */
 export function phoneLastDigits(phone: string): string {
     return phone.replace(/\D/g, '').slice(-2);

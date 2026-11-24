@@ -11,7 +11,7 @@ import { Actor, makeActor } from '../../core/actor.ts';
 import { runWithContext } from '../../core/context.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
-import { KV_CACHED_READ_RATE_SHARE, KV_COSTS } from './costs.ts';
+import { KV_COSTS } from './costs.ts';
 import type { KVStoreDriver } from './KVStoreDriver.ts';
 
 describe('KVStoreDriver read-cache metering', () => {
@@ -50,7 +50,7 @@ describe('KVStoreDriver read-cache metering', () => {
 
     it('prices a cached read at a tenth of the rate an uncached one pays', () => {
         expect(KV_COSTS['kv:read:cached']).toBeCloseTo(
-            KV_COSTS['kv:read'] * KV_CACHED_READ_RATE_SHARE,
+            KV_COSTS['kv:read'] * 0.1,
             10,
         );
     });

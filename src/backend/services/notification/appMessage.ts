@@ -62,7 +62,7 @@ export type AppMessage = {
 export type AppMessageSender = { uid: string; name?: string; icon?: string };
 
 /** The hostname an app made for an origin is named by. */
-const originAppHost = (row: unknown): string | undefined => {
+export const originAppHost = (row: unknown): string | undefined => {
     if (!isOriginBootstrapApp(row) || typeof row.index_url !== 'string') {
         return undefined;
     }

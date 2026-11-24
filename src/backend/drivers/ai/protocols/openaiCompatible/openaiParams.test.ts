@@ -25,7 +25,6 @@ import {
     messagesHaveCacheBreakpointTtl,
     openAICompatParams,
     outputFormatFromResponseFormat,
-    outputFormatFromResponsesText,
     outputFormatToResponseFormat,
     outputFormatToResponsesText,
     promptCacheOptionsToWire,
@@ -140,8 +139,8 @@ describe('outputFormatToResponseFormat / outputFormatFromResponseFormat', () => 
     });
 });
 
-describe('outputFormatToResponsesText / outputFormatFromResponsesText', () => {
-    it('round-trips a json_schema OutputFormat through the Responses text.format shape', () => {
+describe('outputFormatToResponsesText', () => {
+    it('maps a json_schema OutputFormat to the Responses text.format shape', () => {
         const of = {
             type: 'json_schema' as const,
             name: 'weather',
@@ -151,14 +150,6 @@ describe('outputFormatToResponsesText / outputFormatFromResponsesText', () => {
         expect(wire).toEqual({
             format: { type: 'json_schema', name: 'weather', schema: of.schema },
         });
-        expect(outputFormatFromResponsesText(wire)).toEqual(of);
-    });
-
-    it('returns undefined when there is no format or it is not json_schema', () => {
-        expect(outputFormatFromResponsesText({})).toBeUndefined();
-        expect(
-            outputFormatFromResponsesText({ format: { type: 'text' } }),
-        ).toBeUndefined();
     });
 });
 

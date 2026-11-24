@@ -142,6 +142,22 @@ export const passwordTag = (user: { password?: unknown }): string | null =>
         ? createHash('sha256').update(user.password).digest('hex').slice(0, 16)
         : null;
 
+/**
+ * A temp account has neither a password nor an email. Reads `hasPassword` (an
+ * actor's copy, where `password` is stripped) before `password`. With
+ * `blankIsMissing`, an empty string counts as missing too.
+ */
+export const isTemporaryAccount = (
+    user: { password?: unknown; hasPassword?: boolean; email?: unknown },
+    { blankIsMissing = false }: { blankIsMissing?: boolean } = {},
+): boolean => {
+    const missing = (value: unknown) =>
+        blankIsMissing ? !value : value == null;
+    return (
+        !(user.hasPassword ?? !missing(user.password)) && missing(user.email)
+    );
+};
+
 // SQL datetimes go out as unix seconds; unparseable values are dropped.
 export const toUnixSeconds = (value: unknown): number | undefined => {
     if (!value) return undefined;

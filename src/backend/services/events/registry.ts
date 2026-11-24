@@ -30,6 +30,7 @@ import {
     kvAnchorTokens,
     notifAnchorToken,
     notifMatchOn,
+    notifSubject,
     type FsOp,
     type SubjectFamily,
 } from './subjects.js';
@@ -152,6 +153,18 @@ export interface GapMarker {
 
 /** Either shape a subscriber can be handed. */
 export type DeliverableEvent = ProjectedEvent | GapMarker;
+
+/** The marker that stands in for `event`, carrying its id, subject and time. */
+export const gapMarker = (
+    event: Pick<DeliverableEvent, 'id' | 'subject' | 'ts'>,
+    reason: GapReason,
+): GapMarker => ({
+    id: event.id,
+    subject: event.subject,
+    op: 'gap',
+    reason,
+    ts: event.ts,
+});
 
 export interface EventContextBase {
     key: EventKey;
@@ -353,7 +366,10 @@ const notifMatchScope = (_anchorPath: string, slice: string): string => slice;
 
 const notifProject = (delivery: NotifDeliveryContext): ProjectedNotifEvent => ({
     id: delivery.dismissed ? delivery.id : delivery.uid,
-    subject: `notif:${delivery.appUid ?? delivery.userUuid}:${delivery.audience}`,
+    subject: notifSubject(
+        delivery.appUid ?? delivery.userUuid,
+        delivery.audience,
+    ),
     op: delivery.dismissed ? 'dismiss' : 'post',
     uid: delivery.uid,
     type: delivery.type,

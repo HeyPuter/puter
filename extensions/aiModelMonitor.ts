@@ -13,6 +13,7 @@ const MAX_MODELS = 20_000;
 type Format = 'openai' | 'claude' | 'gemini' | 'elevenlabs' | 'replicate';
 interface ModelEndpoint {
     provider: string;
+    name: string;
     configKeys: string[];
     baseUrl: string;
     format?: Format;
@@ -21,6 +22,7 @@ interface ModelEndpoint {
 const ENDPOINTS: ModelEndpoint[] = [
     {
         provider: 'openai',
+        name: 'OpenAI',
         configKeys: [
             'openai-completion',
             'openai',
@@ -30,15 +32,22 @@ const ENDPOINTS: ModelEndpoint[] = [
         ],
         baseUrl: 'https://api.openai.com/v1',
     },
-    { provider: 'azure', configKeys: ['azure-openai'], baseUrl: '' },
+    {
+        provider: 'azure',
+        name: 'Azure',
+        configKeys: ['azure-openai'],
+        baseUrl: '',
+    },
     {
         provider: 'claude',
+        name: 'Anthropic',
         configKeys: ['claude'],
         baseUrl: 'https://api.anthropic.com/v1',
         format: 'claude',
     },
     {
         provider: 'gemini',
+        name: 'Google Gemini',
         configKeys: [
             'gemini',
             'gemini-image-generation',
@@ -50,57 +59,68 @@ const ENDPOINTS: ModelEndpoint[] = [
     },
     {
         provider: 'groq',
+        name: 'Groq',
         configKeys: ['groq'],
         baseUrl: 'https://api.groq.com/openai/v1',
     },
     {
         provider: 'deepseek',
+        name: 'DeepSeek',
         configKeys: ['deepseek'],
         baseUrl: 'https://api.deepseek.com',
     },
     {
         provider: 'mistral',
+        name: 'Mistral',
         configKeys: ['mistral'],
         baseUrl: 'https://api.mistral.ai/v1',
     },
     {
         provider: 'moonshot',
+        name: 'Moonshot',
         configKeys: ['moonshot'],
         baseUrl: 'https://api.moonshot.ai/v1',
     },
     {
         provider: 'minimax',
+        name: 'MiniMax',
         configKeys: ['minimax', 'minimax-video-generation'],
         baseUrl: 'https://api.minimax.io/v1',
     },
     {
         provider: 'zai',
+        name: 'Z.ai',
         configKeys: ['zai'],
         baseUrl: 'https://api.z.ai/api/paas/v4',
     },
     {
         provider: 'byteplus',
+        name: 'BytePlus',
         configKeys: ['byteplus'],
         baseUrl: 'https://ark.ap-southeast.bytepluses.com/api/v3',
     },
     {
         provider: 'hoonify',
+        name: 'Hoonify',
         configKeys: ['hoonify'],
         baseUrl: 'https://api.hoonify.ai/v1',
     },
     {
         provider: 'meta',
+        name: 'Meta',
         configKeys: ['meta'],
         baseUrl: 'https://api.meta.ai/v1',
     },
     {
         provider: 'elevenlabs',
+        name: 'ElevenLabs',
         configKeys: ['elevenlabs'],
         baseUrl: 'https://api.elevenlabs.io/v1',
         format: 'elevenlabs',
     },
     {
         provider: 'replicate',
+        name: 'Replicate',
         configKeys: ['replicate-image-generation'],
         baseUrl: 'https://api.replicate.com/v1',
         format: 'replicate',
@@ -192,7 +212,10 @@ export class AIModelMonitorService extends PuterService {
                             : {}),
                     },
                     'info',
-                    { channel: 'ai_providers' },
+                    {
+                        channel: 'ai_providers',
+                        summary: `${endpoint.name} model catalog ${fetchFailed ? 'could not be fetched' : 'snapshot could not be updated'}`,
+                    },
                 );
                 return;
             }
@@ -221,7 +244,10 @@ export class AIModelMonitorService extends PuterService {
                                 change,
                             },
                             'info',
-                            { channel: 'ai_providers' },
+                            {
+                                channel: 'ai_providers',
+                                summary: `${change === 'added' ? 'New' : 'Removed'} ${endpoint.name} model: ${model}`,
+                            },
                         );
                     }
                 }

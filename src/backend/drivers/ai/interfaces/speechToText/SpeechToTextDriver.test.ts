@@ -327,6 +327,22 @@ describe('SpeechToTextDriver argument validation', () => {
         expect(transcriptionsCreateMock).not.toHaveBeenCalled();
     });
 
+    it('checks the model before reading the audio', async () => {
+        const { actor, userId } = await makeUser();
+        const username = (await server.stores.user.getById(userId))!.username;
+        await expect(
+            withActor(actor, () =>
+                driver.transcribe({
+                    file: `/${username}/missing.mp3`,
+                    model: 'totally-not-real',
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Unsupported model: totally-not-real',
+        });
+    });
+
     it('throws 400 when response_format is not supported by the chosen model', async () => {
         const { actor } = await makeUser();
         await expect(

@@ -21,7 +21,7 @@ import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { bindBackdropDismiss } from './dashboardOverlay.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
-import { appTileLink } from './appLink.js';
+import { appCopyLink } from './appLink.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { user_facing_windows } from '../../helpers/windowVisibility.js';
 import { focusExistingAppWindow } from '../../helpers/focusAppWindow.js';
@@ -59,7 +59,7 @@ const KV_READ_FAILED = Symbol('kv read failed');
  * @param {{ editable?: boolean, onLaunch?: (app: { appName: string, targetLink?: string }) => void, actions?: Object, guestApps?: Object[] }} options
  */
 export function createAppBrowser ({ editable = true, onLaunch, actions = {}, guestApps } = {}) {
-    const { showContextMenu, showAlert, launchApp, revokeAppSessions, beginTileLaunch, settleTileLaunch } = actions;
+    const { showContextMenu, showAlert, launchApp, revokeAppSessions, beginTileLaunch, settleTileLaunch, openSite } = actions;
 
     /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
     const APP_NAMES_NO_UNINSTALL = new Set([
@@ -68,10 +68,15 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
     ]);
 
     // -- Add-an-app tile --
-    /** Puter's app marketplace — the add-an-app tile's route to installing one. */
-    const APP_CENTER_APP_NAME = 'app-center';
-    /** Puter's AI app builder, which generates an app from a description. */
-    const BUILDER_APP_NAME = 'builder';
+    /**
+     * Where each of the add-an-app modal's app options goes: a site opened
+     * signed in, in a new tab, or the app opened in-page when the browser
+     * refuses the tab.
+     */
+    const ADD_APP_DESTINATIONS = {
+        browse: { site: 'https://apps.puter.com/', appName: 'app-center' },
+        ai: { site: 'https://builder.puter.com/', appName: 'builder' },
+    };
 
     // -- Drag-to-reorder tuning --
     const DRAG_START_DISTANCE = 5;      // px a pointer must travel before a drag begins
@@ -228,7 +233,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             ? `src="${html_encode(window.icons['app-default.svg'])}"`
             : appIconAttrs(app, window.icons['app.svg']);
 
-        let h = `<div class="myapps-tile" role="button" tabindex="-1" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
+        let h = `<div class="myapps-tile" role="button" tabindex="-1" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" data-index-url="${html_encode(app.index_url || '')}" title="${html_encode(title)}">`;
         h += '<div class="myapps-tile-icon">';
         h += `<img ${iconAttrs} alt="" draggable="false">`;
         // iOS-style uninstall badge; only shown while reorder mode is on (CSS).
@@ -724,7 +729,8 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             else close();
         });
 
-        // Opened exactly like an /app/<name> landing: the same pedagogical
+        // When the browser refuses the site's tab, the app opens in-page,
+        // exactly like an /app/<name> landing: the same pedagogical
         // click→morph→open intro plays (see beginDeepLinkLaunch) — and since
         // choosing App Center or the AI builder is usually asking for an app the
         // grid doesn't have yet, the intro is also what INSTALLS it: the tile
@@ -784,10 +790,12 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                 showPane('request');
                 return;
             }
-            // An app is opening — the modal has nothing left to say.
+            const destination = ADD_APP_DESTINATIONS[key];
+            if ( ! destination ) return;
+            // Something is opening — the modal has nothing left to say.
             close();
-            if ( key === 'browse' ) openApp(APP_CENTER_APP_NAME);
-            else if ( key === 'ai' ) openApp(BUILDER_APP_NAME);
+            // Opened here, inside the click, so popup blockers allow the tab.
+            if ( ! openSite?.(destination.site) ) openApp(destination.appName);
         });
 
         // Nothing to send until something has been written.
@@ -1239,6 +1247,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                 const appTitle = $(this).attr('data-app-title');
                 const appUid = $(this).attr('data-app-uid');
                 const targetLink = $(this).attr('data-target-link');
+                const indexUrl = $(this).attr('data-index-url');
                 const noUninstall = APP_NAMES_NO_UNINSTALL.has((appName || '').toLowerCase());
                 // Same window set the running dot counts: Quit is offered for what
                 // the user has open, not for a helper another app is running in
@@ -1246,26 +1255,11 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                 const isRunning = !! appName
                     && user_facing_windows($(`.window[data-app="${html_encode(appName)}"]`)).length > 0;
 
-                // Every app opens in a new browser tab the way tiles did before
-                // in-page windows: external tiles via their site link, everything
-                // else via its /app/<name> URL.
                 const items = [
-                    {
-                        html: i18n('open_in_new_tab'),
-                        onClick: () => {
-                            if ( targetLink && targetLink !== '' ) {
-                                window.open(targetLink, '_blank', 'noopener,noreferrer');
-                            } else if ( appName ) {
-                                window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
-                            }
-                        },
-                    },
-                    // The same destination the item above opens, as an absolute
-                    // URL so it is worth pasting somewhere other than this page.
                     {
                         html: i18n('copy_link'),
                         onClick: async () => {
-                            const link = appTileLink({ appName, targetLink }, window.location.origin);
+                            const link = appCopyLink({ appName, targetLink, indexUrl }, window.location.origin);
                             if ( link ) await window.copy_to_clipboard(link);
                         },
                     },

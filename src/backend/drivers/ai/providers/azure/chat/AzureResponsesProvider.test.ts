@@ -51,6 +51,7 @@ import {
     withTestActor,
 } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
+import { SDK_TIMEOUT_MS } from '../../../interfaces/chat/utils/sdkClient.js';
 import { AzureResponsesProvider } from './AzureResponsesProvider.js';
 import { AZURE_MODELS } from './models.js';
 
@@ -93,8 +94,6 @@ afterAll(async () => {
 const makeProvider = () =>
     new AzureResponsesProvider(
         server.services.metering,
-        { fsEntry: server.stores.fsEntry, s3Object: server.stores.s3Object },
-        server.services.fs,
         {
             apiKey: 'azure-key',
             apiURL: 'https://example-foundry.test/openai/v1',
@@ -154,6 +153,8 @@ describe('AzureResponsesProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'azure-key',
             baseURL: 'https://example-foundry.test/openai/v1',
+            maxRetries: 0,
+            timeout: SDK_TIMEOUT_MS,
         });
     });
 });

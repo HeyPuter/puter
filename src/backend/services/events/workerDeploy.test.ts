@@ -43,18 +43,18 @@ import {
     EventsWorkerDeployer,
     LocalEventsInvokeTransport,
     type EventsDeployOptions,
-    type EventsDeployOutcome,
 } from './workerDeploy.js';
+import type { EventsDeployOutcome } from '../../core/schedules.js';
 import {
     eventsWorkerScript,
     userHandlerScript,
-} from '../../services/events/workerRuntime.js';
+} from './workerRuntime.js';
 import {
     appHandlerScope,
     hashContent,
     type HandlerScope,
 } from '../../stores/events/EventHandlerStore.js';
-import { handlerSetHash } from '../../services/events/workerSource.js';
+import { handlerSetHash } from './workerSource.js';
 import type { IConfig } from '../../types.js';
 
 const SOURCE_HASH = 'a'.repeat(64);

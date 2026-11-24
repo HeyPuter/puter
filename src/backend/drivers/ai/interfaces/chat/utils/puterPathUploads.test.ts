@@ -18,7 +18,7 @@
  */
 
 /**
- * `puter_path` resolution for the OpenAI Chat Completions providers.
+ * `puter_path` resolution for the chat providers without their own upload path.
  *
  * Chat Completions has no file-upload channel, so user-supplied media has to be
  * inlined as base64 data URLs. This suite drives the real FS stack (a booted
@@ -33,7 +33,7 @@ import { runWithContext } from '../../../../../core/context.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../../util/userProvisioning.js';
-import { MAX_FILE_SIZE, processPuterPathUploads } from './fileUpload.js';
+import { MAX_FILE_SIZE, processPuterPathUploads } from './puterPathUploads.js';
 
 let server: PuterServer;
 

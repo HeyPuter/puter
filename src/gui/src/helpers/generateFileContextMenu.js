@@ -47,6 +47,7 @@ import build_open_with_items from './openWithItems.js';
  * @param {Function} options.onPublishWorker - Publishes the file as a worker; Publish as Worker is left out of the menu without it. Receives {uid, name, path}
  * @param {Function} options.onPasteInto - Optional custom paste handler (used by Dashboard); receives the folder's path
  * @param {Function} options.onRemovedFromShared - Optional, called once Remove from Shared has dropped the user's own access (used by Dashboard)
+ * @param {Function} options.onEmptyTrash - Optional custom Empty Trash handler (used by Dashboard)
  * @returns {Promise<Array>} Array of context menu items
  */
 const generate_file_context_menu = async function (options) {
@@ -198,7 +199,8 @@ const generate_file_context_menu = async function (options) {
         menu_items.push({
             html: i18n('empty_trash'),
             onClick: async function () {
-                window.empty_trash();
+                if ( options.onEmptyTrash ) options.onEmptyTrash();
+                else window.empty_trash();
             },
         });
     }

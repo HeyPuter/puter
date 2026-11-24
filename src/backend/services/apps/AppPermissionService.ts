@@ -36,6 +36,7 @@ import {
     PERMISSION_FOR_NOTHING_IN_PARTICULAR,
 } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
+import { extractPuterHostedSubdomain } from '../../util/hostedAppBacking.js';
 import { PuterService } from '../types.js';
 
 /**
@@ -363,22 +364,32 @@ export class AppPermissionService extends PuterService {
                 );
             if (removed.length === 0) return;
 
+            const audit = (row: (typeof removed)[number]) => ({
+                user_id: row.user_id,
+                app_id: row.app_id,
+                permission: row.permission,
+                action: 'revoke' as const,
+                reason,
+            });
+            const userRows = removed.filter(
+                (row) => row.table === 'user_to_app_permissions',
+            );
+            const [users] = await Promise.all([
+                this.stores.user.getByIds([
+                    ...new Set(userRows.map((row) => row.user_id)),
+                ]),
+                this.stores.permission.auditUserAppPerms(userRows.map(audit)),
+                this.stores.permission.auditDevAppPerms(
+                    removed
+                        .filter(
+                            (row) => row.table !== 'user_to_app_permissions',
+                        )
+                        .map(audit),
+                ),
+            ]);
             const usernames = new Set<string>();
-            for (const row of removed) {
-                const audit = {
-                    user_id: row.user_id,
-                    app_id: row.app_id,
-                    permission: row.permission,
-                    action: 'revoke',
-                    reason,
-                };
-                if (row.table === 'user_to_app_permissions') {
-                    await this.stores.permission.auditUserAppPerm(audit);
-                    const user = await this.stores.user.getById(row.user_id);
-                    if (user?.username) usernames.add(user.username);
-                } else {
-                    await this.stores.permission.auditDevAppPerm(audit);
-                }
+            for (const user of users.values()) {
+                if (user?.username) usernames.add(user.username);
             }
 
             if (usernames.size > 0) {
@@ -420,23 +431,11 @@ export class AppPermissionService extends PuterService {
         uid: string;
         index_url?: string;
     }): Promise<number | null> {
-        const hostingDomain = (
-            this.config as { static_hosting_domain?: string }
-        ).static_hosting_domain?.toLowerCase();
-        if (!hostingDomain || !app.index_url) return null;
-
-        let hostname: string;
-        try {
-            hostname = new URL(app.index_url).hostname.toLowerCase();
-        } catch {
-            return null;
-        }
-        if (!hostname.endsWith(`.${hostingDomain}`)) return null;
-
-        const subdomain = hostname.slice(
-            0,
-            hostname.length - hostingDomain.length - 1,
+        const subdomain = extractPuterHostedSubdomain(
+            app.index_url,
+            this.config,
         );
+        if (!subdomain) return null;
         const row = (await this.stores.subdomain.getBySubdomain(subdomain)) as {
             root_dir_id?: number | null;
         } | null;
