@@ -848,11 +848,12 @@ export class ChatCompletionDriver extends PuterDriver {
         const pinnedFallback = await this.#pinnedRefusalFallback(args, model);
         if (pinnedFallback) model = pinnedFallback;
 
-        // Steering never moves a pinned first attempt, only its fallback walk,
-        // so a pinned request is asked once that attempt has failed.
+        // Steering never moves a provider the caller pinned, only its fallback
+        // walk, so a pinned request is asked once that attempt has failed. The
+        // default provider for a request that names nothing is not a pin.
         const pinned =
             !!pinnedFallback ||
-            (!!intendedProvider && model.provider === intendedProvider);
+            (!!args.provider && model.provider === args.provider);
         let avoided =
             pinned || args.test_mode === true
                 ? NO_AVOIDED_PROVIDERS

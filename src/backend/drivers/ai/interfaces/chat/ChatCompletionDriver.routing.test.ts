@@ -1393,6 +1393,30 @@ describe('ChatCompletionDriver Azure-served OpenAI pricing', () => {
         );
         recorded.mockRestore();
     });
+
+    // No model and no provider resolves to Azure's default by the driver's
+    // choice, not the caller's, so a drain of Azure moves it.
+    it('lets the route policy steer a request that names no model off Azure', async () => {
+        createMock.mockRejectedValue(new Error('upstream down'));
+        const listener = avoiding(['azure-openai']);
+        let caught:
+            { fields: { attempts: { provider: string }[] } } | undefined;
+
+        await withRoutePolicy(listener, async () => {
+            try {
+                await withTestActor(() =>
+                    azureDriver.complete({
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                );
+            } catch (e) {
+                caught = e as typeof caught;
+            }
+        });
+
+        expect(listener).toHaveBeenCalledTimes(1);
+        expect(caught!.fields.attempts[0].provider).toBe('openai-completion');
+    });
 });
 
 describe('ChatCompletionDriver route policy', () => {
