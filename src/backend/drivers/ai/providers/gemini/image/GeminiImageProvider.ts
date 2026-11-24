@@ -279,9 +279,12 @@ export class GeminiImageProvider implements IImageProvider {
 
                 const outputTextTokenCount =
                     usage.candidatesTextTokenCount + usage.thoughtsTokenCount;
+                const url = this.#extractImageUrl(response);
+                // The estimate stands in for a count Gemini left out of an
+                // answer that carries an image, never for an image it withheld.
                 const outputImageTokenCount =
                     usage.candidatesImageTokenCount ||
-                    estimatedOutputImageTokens;
+                    (url ? estimatedOutputImageTokens : 0);
 
                 const inputCostInCents = this.#calculateTokenCostInCents(
                     inputTokenCount,
@@ -307,16 +310,18 @@ export class GeminiImageProvider implements IImageProvider {
                         usageAmount: Math.max(outputTextTokenCount, 1),
                         costOverride: this.#toMicroCents(outputTextCostInCents),
                     },
-                    {
-                        usageType: `${usagePrefix}:output:image`,
-                        usageAmount: Math.max(outputImageTokenCount, 1),
-                        costOverride: this.#toMicroCents(
-                            outputImageCostInCents,
-                        ),
-                    },
+                    ...(outputImageTokenCount > 0
+                        ? [
+                              {
+                                  usageType: `${usagePrefix}:output:image`,
+                                  usageAmount: outputImageTokenCount,
+                                  costOverride: this.#toMicroCents(
+                                      outputImageCostInCents,
+                                  ),
+                              },
+                          ]
+                        : []),
                 ]);
-
-                const url = this.#extractImageUrl(response);
 
                 if (!url) {
                     throw new HttpError(

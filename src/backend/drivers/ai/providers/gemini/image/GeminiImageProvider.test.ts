@@ -573,6 +573,106 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         ).find((e) => e.usageType.endsWith('output:image'));
         expect(imageEntry?.usageAmount).toBe(1290);
     });
+
+    it.each([
+        [
+            'a safety refusal that answers in text',
+            {
+                candidates: [
+                    {
+                        finishReason: 'IMAGE_SAFETY',
+                        content: { parts: [{ text: 'cannot draw that' }] },
+                    },
+                ],
+                usageMetadata: {
+                    promptTokenCount: 12,
+                    candidatesTokenCount: 8,
+                    candidatesTokensDetails: [
+                        { modality: 'TEXT', tokenCount: 8 },
+                    ],
+                },
+            },
+            // 12 input and 8 text tokens at 200 and 1200 cents per 1M.
+            2400 + 9600,
+        ],
+        [
+            'a blocked prompt with no candidates',
+            {
+                promptFeedback: { blockReason: 'SAFETY' },
+                usageMetadata: { promptTokenCount: 12 },
+            },
+            // The input tokens, and the one-microcent floor on the text line.
+            2400 + 1,
+        ],
+    ])(
+        'bills only the tokens Gemini reports for %s, with no image line',
+        async (_name, response, expectedMicroCents) => {
+            generateContentMock.mockResolvedValueOnce(response);
+
+            await expect(
+                withTestActor(() =>
+                    makeProvider().generate({
+                        model: 'gemini-3-pro-image',
+                        prompt: 'hi',
+                        quality: '1K',
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
+            const entries = batchIncrementUsagesSpy.mock.calls[0]![1] as {
+                usageType: string;
+                costOverride: number;
+            }[];
+            expect(entries.map((e) => e.usageType)).toEqual([
+                'gemini:gemini-3-pro-image:input',
+                'gemini:gemini-3-pro-image:output:text',
+            ]);
+            expect(
+                entries.reduce((sum, e) => sum + e.costOverride, 0),
+            ).toBe(expectedMicroCents);
+        },
+    );
+
+    it('still estimates the image tokens when an image arrives without a count', async () => {
+        generateContentMock.mockResolvedValueOnce({
+            candidates: [
+                {
+                    content: {
+                        parts: [
+                            {
+                                inlineData: {
+                                    mimeType: 'image/png',
+                                    data: 'BASE64IMG',
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+            usageMetadata: { promptTokenCount: 12 },
+        });
+
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'gemini-3-pro-image',
+                prompt: 'hi',
+                quality: '1K',
+            }),
+        );
+
+        const entries = batchIncrementUsagesSpy.mock.calls[0]![1] as {
+            usageType: string;
+            usageAmount: number;
+            costOverride: number;
+        }[];
+        const image = entries.find((e) => e.usageType.endsWith('output:image'));
+        // The 1K estimate for this model, at 12000 cents per 1M tokens.
+        expect(image).toMatchObject({
+            usageAmount: 1120,
+            costOverride: 13_440_000,
+        });
+    });
 });
 
 it('maps a nearby aspect hint to the closest Gemini aspect', async () => {
