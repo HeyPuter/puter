@@ -576,6 +576,119 @@ describe('AlibabaProvider.complete non-stream output', () => {
         expect(overrides).toMatchObject({ cached_tokens: 0 });
     });
 
+    it('bills explicit cache writes at 125% of the input rate, once', async () => {
+        const { provider } = makeProvider();
+        // Model Studio counts the tokens it wrote to an explicit cache inside
+        // prompt_tokens, and reports them as cache_creation_input_tokens.
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 10_000,
+                completion_tokens: 100,
+                prompt_tokens_details: {
+                    cache_creation_input_tokens: 9000,
+                    cached_tokens: 0,
+                },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'qwen-plus',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        // qwen-plus: 40 cents per 1M input, 120 per 1M output.
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 1000,
+            completion_tokens: 100,
+            cached_tokens: 0,
+            cache_write_tokens: 9000,
+        });
+        expect(overrides).toEqual({
+            prompt_tokens: 1000 * 40,
+            completion_tokens: 100 * 120,
+            cached_tokens: 0,
+            cache_write_tokens: 9000 * 40 * 1.25,
+        });
+    });
+
+    it('prices cache writes on a long prompt from its tier input rate', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 300_000,
+                completion_tokens: 100,
+                prompt_tokens_details: {
+                    cache_creation_input_tokens: 100_000,
+                    cached_tokens: 0,
+                },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'qwen-plus',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        // Past 256K, qwen-plus input is 120 cents per 1M.
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(overrides.prompt_tokens).toBeCloseTo(200_000 * 120, 5);
+        expect(overrides.cache_write_tokens).toBeCloseTo(
+            100_000 * 120 * 1.25,
+            5,
+        );
+    });
+
+    it('meters a completion with no cache writes as before', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 10_000,
+                completion_tokens: 100,
+                prompt_tokens_details: {
+                    cache_creation_input_tokens: 0,
+                    cached_tokens: 0,
+                },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'qwen-plus',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [usage] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 10_000,
+            completion_tokens: 100,
+            cached_tokens: 0,
+        });
+    });
+
     // Model Studio prices these models by the input tokens of the request:
     // past a threshold, every token of the request pays the higher tier.
     const billedAt = async (model: string, usage: object) => {

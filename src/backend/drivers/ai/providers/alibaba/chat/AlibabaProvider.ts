@@ -20,14 +20,20 @@
 import { OpenAI } from 'openai';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import type { IChatModel } from '../../../interfaces/chat/types.js';
+import { costsForRequest } from '../../../interfaces/chat/utils/pricing.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
 import { fetchAlibabaCatalog } from './catalog.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
     type ChatProviderConfig,
     OpenAICompatProvider,
+    type UsageSource,
 } from '../../../protocols/openaiCompatible/OpenAICompatProvider.js';
+import * as OpenAIUtil from '../../../protocols/openaiCompatible/OpenAIUtil.js';
 import { ALIBABA_MODELS } from './models.js';
+
+/** Model Studio bills a write to an explicit cache at 125% of the input rate. */
+const CACHE_WRITE_RATE = 1.25;
 
 export class AlibabaProvider extends OpenAICompatProvider {
     #apiBaseUrl: string;
@@ -58,6 +64,39 @@ export class AlibabaProvider extends OpenAICompatProvider {
 
     override async models(): Promise<IChatModel[]> {
         return this.#catalog();
+    }
+
+    protected override meteredUsage(source: UsageSource, model: IChatModel) {
+        const details = source.usage?.prompt_tokens_details as
+            { cache_creation_input_tokens?: unknown } | undefined;
+        const written = details?.cache_creation_input_tokens;
+        if (typeof written !== 'number' || !(written > 0)) {
+            return super.meteredUsage(source, model);
+        }
+        // Counted inside prompt_tokens, under Model Studio's own name.
+        const usage = OpenAIUtil.splitCachedPrompt({
+            ...source.usage,
+            prompt_tokens_details: { ...details, cache_write_tokens: written },
+        });
+        // The input rate of the tier this prompt's length puts it on.
+        const inputRate = costsForRequest(
+            model,
+            source.usage.prompt_tokens ?? 0,
+        ).prompt_tokens;
+        return {
+            usage,
+            ...(model.costs.cache_write_tokens === undefined &&
+            Number.isFinite(inputRate)
+                ? {
+                      meterOptions: {
+                          costOverrides: {
+                              cache_write_tokens:
+                                  written * inputRate * CACHE_WRITE_RATE,
+                          },
+                      },
+                  }
+                : {}),
+        };
     }
 
     #catalog = cachedRemoteCatalog({
