@@ -607,6 +607,48 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 
+    it('routes a named model by the model when the call came in under the generic ai-video name', async () => {
+        // puter-js calls the driver as `ai-video`. That name is the driver
+        // itself, not a provider, so it must not pull `minimax-h3` onto
+        // Together's dearer entry for the same model.
+        const incrementUsageSpy = vi.spyOn(
+            server.services.metering,
+            'incrementUsage',
+        );
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValueOnce(
+            new Response(JSON.stringify({ task_id: 'mm-task' })),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    task: {
+                        id: 'mm-task',
+                        status: 'succeeded',
+                        content: { url: 'https://minimax/out.mp4' },
+                        usage: { output_seconds: 5 },
+                    },
+                }),
+            ),
+        );
+
+        const result = await withDriverName('ai-video', () =>
+            driver.generate({ prompt: 'hi', model: 'minimax-h3' } as never),
+        );
+
+        expect(result).toBe('https://minimax/out.mp4');
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+        await vi.waitFor(() =>
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1),
+        );
+        const [, usageType, seconds, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe(
+            'minimax-video-generation:minimax-h3:per-second:768p',
+        );
+        expect(seconds).toBe(5);
+        expect(cost).toBe(40_000_000);
+    });
+
     it('lists the MiniMax models under the minimax-video-generation provider', async () => {
         const minimax = (await driver.models()).filter(
             (m) => m.provider === 'minimax-video-generation',

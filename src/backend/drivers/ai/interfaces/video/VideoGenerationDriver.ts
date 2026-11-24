@@ -227,6 +227,9 @@ export class VideoGenerationDriver extends PuterDriver {
             request.provider ??
             (Context.get('driverName') as string | undefined) ??
             '';
+        // The driver's own name picks no provider: a named model is then
+        // routed by the model alone, to the cheapest provider serving it.
+        if (intendedProvider === this.driverName) intendedProvider = '';
 
         if (!request.model && !intendedProvider) {
             intendedProvider = fallbackProvider;
