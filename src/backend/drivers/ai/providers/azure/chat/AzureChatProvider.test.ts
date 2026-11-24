@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 /**
@@ -22,14 +23,17 @@
  * Foundry).
  *
  * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
- * constructs the provider against the live wired `MeteringService`. The OpenAI SDK is mocked at the module boundary — that's the
- * real network egress point. The companion integration test
- * (AzureChatProvider.integration.test.ts) exercises the real Azure endpoint.
+ * constructs the provider against the live wired `MeteringService`. The OpenAI
+ * SDK is mocked at the module boundary — that's the real network egress point.
+ * The companion integration test (AzureChatProvider.integration.test.ts)
+ * exercises the real Azure endpoint.
  *
  * Azure-specific behaviour under test: the client is pointed at a configurable
  * `baseURL`, the catalog is AZURE_MODELS (which fronts xAI's Grok as well as
  * OpenAI), `safety_identifier` is stripped for Grok deployments, and Grok's
- * `prompt_tokens` are metered as-reported rather than net of cached tokens.
+ * `prompt_tokens` are metered as-reported rather than net of cached tokens, and
+ * Grok reasoning is billed only when Azure's total shows it outside
+ * `completion_tokens`.
  */
 
 import { Writable } from 'node:stream';
@@ -103,13 +107,10 @@ afterAll(async () => {
 });
 
 const makeProvider = () =>
-    new AzureChatProvider(
-        server.services.metering,
-        {
-            apiKey: 'azure-key',
-            apiURL: 'https://example-foundry.test/openai/v1',
-        },
-    );
+    new AzureChatProvider(server.services.metering, {
+        apiKey: 'azure-key',
+        apiURL: 'https://example-foundry.test/openai/v1',
+    });
 
 const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
     async *[Symbol.asyncIterator]() {
@@ -729,6 +730,272 @@ describe('AzureChatProvider usage accounting', () => {
             prompt_tokens: 7,
             completion_tokens: 3,
             cached_tokens: 0,
+        });
+    });
+});
+
+// -- Grok reasoning reconciliation -----------------------------------
+
+/** Runs one reply carrying `usage` and returns what metering recorded. */
+const meter = async (
+    usage: Record<string, unknown>,
+    {
+        model = 'grok-4-20-reasoning',
+        stream = false,
+        serviceSpeed,
+    }: {
+        model?: string;
+        stream?: boolean;
+        serviceSpeed?: 'standard';
+    } = {},
+) => {
+    if (stream) {
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                { choices: [{ delta: { content: 'ok' } }] },
+                { choices: [{ delta: {} }], usage },
+            ]),
+        );
+    } else {
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage,
+        });
+    }
+    const result = await withTestActor(() =>
+        makeProvider().complete({
+            model,
+            messages: [{ role: 'user', content: 'hi' }],
+            ...(stream ? { stream: true } : {}),
+            ...(serviceSpeed ? { serviceSpeed } : {}),
+        }),
+    );
+    let usageEvent: unknown;
+    if (stream) {
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+        usageEvent = harness.events().find((e) => e.type === 'usage')?.usage;
+    }
+    expect(recordSpy).toHaveBeenCalledTimes(1);
+    const [recorded, , prefix, costs] = recordSpy.mock.calls[0]!;
+    return { recorded, prefix, costs, result, usageEvent };
+};
+
+describe('AzureChatProvider Grok reasoning reconciliation', () => {
+    // grok-4-20-reasoning rates, in µ¢ per token.
+    const PROMPT = 125;
+    const COMPLETION = 250;
+    const CACHED = 20;
+
+    it("bills Grok reasoning at the output rate when Azure's total shows it outside completion_tokens", async () => {
+        const { recorded, prefix, costs } = await meter({
+            prompt_tokens: 15,
+            completion_tokens: 51,
+            total_tokens: 233,
+            completion_tokens_details: { reasoning_tokens: 167 },
+        });
+
+        expect(prefix).toBe('azure-openai:grok-4-20-reasoning');
+        expect(recorded).toEqual({
+            prompt_tokens: 15,
+            completion_tokens: 218,
+            cached_tokens: 0,
+        });
+        expect(costs).toEqual({
+            prompt_tokens: 1875,
+            completion_tokens: 54500,
+            cached_tokens: 0,
+        });
+    });
+
+    it("leaves completion_tokens alone when Azure's total shows reasoning already inside it", async () => {
+        const { recorded, costs } = await meter({
+            prompt_tokens: 15,
+            completion_tokens: 218,
+            total_tokens: 233,
+            completion_tokens_details: { reasoning_tokens: 167 },
+        });
+
+        expect(recorded.completion_tokens).toBe(218);
+        expect(costs.completion_tokens).toBe(218 * COMPLETION);
+    });
+
+    it('counts reasoning outside completion when cached reads sit beside prompt_tokens', async () => {
+        // Azure's Grok total leaves cached reads out: 7 + 10 + 40 = 57.
+        const { recorded, costs } = await meter({
+            prompt_tokens: 7,
+            completion_tokens: 10,
+            total_tokens: 57,
+            prompt_tokens_details: { cached_tokens: 162 },
+            completion_tokens_details: { reasoning_tokens: 40 },
+        });
+
+        expect(recorded).toEqual({
+            prompt_tokens: 7,
+            completion_tokens: 50,
+            cached_tokens: 162,
+        });
+        expect(costs).toEqual({
+            prompt_tokens: 7 * PROMPT,
+            completion_tokens: 50 * COMPLETION,
+            cached_tokens: 162 * CACHED,
+        });
+    });
+
+    it.each([
+        [
+            'total missing',
+            {
+                prompt_tokens: 15,
+                completion_tokens: 51,
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            51,
+        ],
+        [
+            'total matches neither reading',
+            {
+                prompt_tokens: 15,
+                completion_tokens: 51,
+                total_tokens: 999,
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            51,
+        ],
+        [
+            'total counts cached reads',
+            {
+                prompt_tokens: 7,
+                completion_tokens: 10,
+                total_tokens: 219,
+                prompt_tokens_details: { cached_tokens: 162 },
+                completion_tokens_details: { reasoning_tokens: 40 },
+            },
+            10,
+        ],
+        [
+            'reasoning count negative',
+            {
+                prompt_tokens: 15,
+                completion_tokens: 51,
+                total_tokens: 61,
+                completion_tokens_details: { reasoning_tokens: -5 },
+            },
+            51,
+        ],
+        [
+            // 233 also reads as prompt + cached + completion with reasoning inside.
+            'cached reads equal reasoning',
+            {
+                prompt_tokens: 15,
+                completion_tokens: 51,
+                total_tokens: 233,
+                prompt_tokens_details: { cached_tokens: 167 },
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            51,
+        ],
+        [
+            'completion_tokens not a number',
+            {
+                prompt_tokens: 15,
+                completion_tokens: '51',
+                total_tokens: 233,
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            '51',
+        ],
+    ])(
+        "keeps today's charge when total_tokens doesn't prove where reasoning sits (%s)",
+        async (_label, usage, completion) => {
+            const { recorded } = await meter(usage);
+            expect(recorded.completion_tokens).toBe(completion);
+        },
+    );
+
+    it("keeps today's charge on a streamed reply whose usage has no total", async () => {
+        const { recorded } = await meter(
+            {
+                prompt_tokens: 15,
+                completion_tokens: 51,
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            { stream: true },
+        );
+        expect(recorded.completion_tokens).toBe(51);
+    });
+
+    it('never adds reasoning on a non-Grok Azure deployment', async () => {
+        const { recorded } = await meter(
+            {
+                prompt_tokens: 15,
+                completion_tokens: 51,
+                total_tokens: 233,
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            { model: 'gpt-5.4-mini' },
+        );
+        expect(recorded.completion_tokens).toBe(51);
+    });
+
+    it('records the same reconciled usage for streamed and non-streamed replies', async () => {
+        const usage = {
+            prompt_tokens: 11,
+            completion_tokens: 28,
+            total_tokens: 110,
+            completion_tokens_details: { reasoning_tokens: 71 },
+        };
+        const expected = {
+            recorded: {
+                prompt_tokens: 11,
+                completion_tokens: 99,
+                cached_tokens: 0,
+            },
+            costs: {
+                prompt_tokens: 11 * PROMPT,
+                completion_tokens: 99 * COMPLETION,
+                cached_tokens: 0,
+            },
+        };
+
+        const whole = await meter(usage);
+        expect({ recorded: whole.recorded, costs: whole.costs }).toEqual(
+            expected,
+        );
+
+        recordSpy.mockClear();
+        const streamed = await meter(usage, { stream: true });
+        expect({ recorded: streamed.recorded, costs: streamed.costs }).toEqual(
+            expected,
+        );
+        expect(streamed.usageEvent).toEqual(expected.recorded);
+    });
+
+    it('reports folded reasoning in usageDetails like the xAI provider', async () => {
+        const { result } = await meter(
+            {
+                prompt_tokens: 15,
+                completion_tokens: 51,
+                total_tokens: 233,
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            { serviceSpeed: 'standard' },
+        );
+        expect(result).toMatchObject({
+            usageDetails: {
+                inputTokens: 15,
+                outputTokens: 218,
+                reasoningTokens: 167,
+            },
         });
     });
 });

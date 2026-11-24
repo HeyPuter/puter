@@ -20,6 +20,7 @@
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
+import type { CompletionUsage } from 'openai/resources/completions.mjs';
 import { servedServiceSpeed } from '../../../interfaces/chat/utils/serviceSpeed.js';
 import { Context } from '../../../../../core/context.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
@@ -50,6 +51,33 @@ const isWebSearchTool = (tool: Record<string, unknown>): boolean =>
     tool.type === 'web_search_preview' ||
     tool.type === 'web_search_20250305' ||
     (typeof tool.type === 'string' && /^web_search_2026/.test(tool.type));
+
+const isCount = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value);
+
+/**
+ * The reasoning tokens Azure's own `total_tokens` proves sit outside
+ * `completion_tokens`, or 0 when the total doesn't prove it, so a reply never
+ * pays for its reasoning twice. Cached reads aren't part of Azure's Grok total;
+ * when they equal the reasoning count, the total reads either way.
+ */
+const reasoningOutsideCompletion = (usage: CompletionUsage): number => {
+    const reasoning = usage.completion_tokens_details?.reasoning_tokens;
+    const { prompt_tokens, completion_tokens, total_tokens } = usage;
+    if (
+        !isCount(reasoning) ||
+        !(reasoning > 0) ||
+        !isCount(prompt_tokens) ||
+        !isCount(completion_tokens) ||
+        !isCount(total_tokens) ||
+        usage.prompt_tokens_details?.cached_tokens === reasoning
+    ) {
+        return 0;
+    }
+    return total_tokens === prompt_tokens + completion_tokens + reasoning
+        ? reasoning
+        : 0;
+};
 
 /**
  * AzureChatProvider exposes the models we serve through Azure AI Foundry.
@@ -312,18 +340,20 @@ export class AzureChatProvider implements IChatProvider {
             }) => {
                 const cachedTokens =
                     usage.prompt_tokens_details?.cached_tokens ?? 0;
+                // Reasoning is billed at the output rate, as direct xAI bills it.
+                const reasoningTokens = isGrok
+                    ? reasoningOutsideCompletion(usage)
+                    : 0;
                 const trackedUsage = {
-                    // OpenAI includes cached tokens in `prompt_tokens`, so we
-                    // subtract them out to meter the non-cached remainder. Grok
-                    // reports `prompt_tokens` already excluding cached tokens
-                    // (they're additive, not a subset) — subtracting there
-                    // underflows to a negative count, which bills a negative
-                    // (crediting) cost. Match xAI's `extractMeteredUsage` and
-                    // take Grok's `prompt_tokens` as-is.
+                    // OpenAI counts cached reads inside `prompt_tokens`. Azure's
+                    // Grok deployment reports them beside it, unlike direct xAI,
+                    // so subtracting there would bill a negative cost.
                     prompt_tokens: isGrok
                         ? (usage.prompt_tokens ?? 0)
                         : (usage.prompt_tokens ?? 0) - cachedTokens,
-                    completion_tokens: usage.completion_tokens ?? 0,
+                    completion_tokens: reasoningTokens
+                        ? usage.completion_tokens + reasoningTokens
+                        : (usage.completion_tokens ?? 0),
                     cached_tokens: cachedTokens,
                 };
 
@@ -344,6 +374,7 @@ export class AzureChatProvider implements IChatProvider {
                             trackedUsage,
                         )!,
                         serviceSpeed,
+                        ...(reasoningTokens ? { reasoningTokens } : {}),
                     });
                 return metered.usage;
             },
