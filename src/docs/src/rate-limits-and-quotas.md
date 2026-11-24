@@ -68,7 +68,6 @@ A chat completion counts as a concurrent request until the model finishes it, ev
 | Input                                          | Limit            |
 | ---------------------------------------------- | ---------------- |
 | Text for `txt2speech()`                        | 3,000 characters |
-| Text for `txt2speech()`, Kling                 | 1,000 characters |
 | Gemini `instructions` for `txt2speech()`       | 3,000 characters |
 | Audio for `speech2speech()`                    | 25 MiB           |
 | Audio for `speech2txt()`, Gemini               | 10 MiB           |
@@ -91,7 +90,7 @@ Gemini 4 Carbon, Gemini 4 Hydrogen and Gemini 4 Neon accept text and images with
 
 A `gemini-4-argon` or `gemini-4-carbon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
-Text-to-speech calls to OpenAI, ElevenLabs, xAI, Speechify, Kling and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
+Text-to-speech calls to OpenAI, ElevenLabs, xAI, Speechify and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
 
 A Speechify text-to-speech reply is capped at 64 MiB, an xAI speech-to-text reply at 32 MiB, and an ElevenLabs voice listing at 32 MiB. A larger reply fails with `502 upstream_failed` and isn't charged.
 
@@ -196,7 +195,6 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 | Replicate | At most 10 references, or the model's lower limit; FLUX 1.1 Pro accepts one. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For other models with width/height controls, dimensions round to multiples of 8 and clamp to the schema bounds (64–4096 per side if none are given). A call has 10 minutes for its predictions, which are polled every 2 seconds. A prediction that a model's safety checker rejects is run again up to two more times when no `seed` is set. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
 | BytePlus | Pro: 10 references; other Seedream models: 14. |
 | Gemini | A call times out after 5 minutes and fails with `504 upstream_timeout`. It isn't charged. |
-| Kling | `kling-v3-omni` and `kling-image-o1`: 10 references; `kling-v3` and `kling-v2-1`: one. Prompt up to 2,500 characters. Each reference is a JPEG or PNG up to 10 MB. Jobs are polled every 2 seconds for up to 5 minutes, then fail with `504 upstream_timeout` and aren't charged. Each call to Kling times out after 60 seconds. |
 | BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Sizes under 921,600 total pixels are treated as aspect-ratio hints, not exact sizes. |
 
 See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
@@ -220,7 +218,7 @@ A longer prompt, a larger image or video, or input over the token limit fails wi
 
 The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
 
-Kling 4.0 and 4.0 Flash accept a prompt of up to 26,000 characters in English or 11,000 in other languages, and generate 3 to 30 seconds or 3 to 20 seconds respectively. A prompt that mixes English with another language is within the limit when its English characters divided by 26,000 plus its other characters divided by 11,000 come to 1 or less. A prompt over 26,000 characters fails with `bad_request`, and Kling rejects a shorter prompt that is over the limit for its language with `upstream_bad_request`. Neither is charged. Kling 4.0 supports 720p and 1080p, and Flash supports 720p. Other Kling video models take a prompt of up to 3,072 characters (Kling 3.0 models) or 2,500 (the others, and Kling 3.0 Turbo with `input_reference`). Kling 3.0 Omni and Kling O1 take a source video (`inputVideo`) as a URL or as a Puter file of up to 200 MiB, which fails with `413 input_too_large` above that. Kling fetches either one itself. A Puter file is passed as a link that works for 19 minutes. The source must be an MP4 or QuickTime video of 3 to 15.5 seconds (10 on Kling O1). Kling rejects a source outside its limits, or one it can't decode, with `upstream_bad_request`, and the request isn't charged. An edit holds the price of a 16-second clip (10 on Kling O1). Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
+Kling 4.0 and 4.0 Flash accept a prompt of up to 26,000 characters in English or 11,000 in other languages, and generate 3 to 30 seconds or 3 to 20 seconds respectively. A prompt that mixes English with another language is within the limit when its English characters divided by 26,000 plus its other characters divided by 11,000 come to 1 or less. A prompt over 26,000 characters fails with `bad_request`, and Kling rejects a shorter prompt that is over the limit for its language with `upstream_bad_request`. Neither is charged. Kling 4.0 supports 720p and 1080p, and Flash supports 720p. Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
 
 MiniMax video models take a prompt of up to 7,000 characters (H3 models) or 2,000 (Hailuo models), and up to 5 images as frames and references together (2 on H3 Max and Hailuo 02, 1 on Hailuo 2.3 and 2.3 Fast). Hailuo 2.3 Fast requires a first-frame image. Hailuo 02 supports first and last frames together at `768p` or `1080p`, and a first frame alone at `512p`. MiniMax fetches an image URL itself, and a Puter file is sent inline. Each call to MiniMax times out after 60 seconds, and a job is polled every 5 seconds.
 

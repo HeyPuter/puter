@@ -40,7 +40,7 @@ Additional settings for the generation request. Available options depend on the 
 | `input_image` | `String \| Blob` | Single-image shorthand for `input_images`. |
 | `input_image_mime_type` | `String` | MIME type of the input image(s), e.g. `'image/png'`. Used as a fallback when the type cannot be detected from the input. Pass it when supplying raw base64 without a data-URI prefix. |
 | `puter_output_path` | `String` | When set, the generated image is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination. See [Saving to Puter filesystem](#saving-to-puter-filesystem). |
-| `provider` | `String` | Optional provider: `'openai'`, `'gemini'`, `'cloudflare'`, `'xai'`, `'replicate'`, `'byteplus'`, or `'kling'`. This is a preference: if it does not offer the requested model, Puter selects a provider that does. Selecting a route excluded by data policy returns `bad_request` instead. Inferred from `model` when omitted; use a provider-prefixed model ID to select an exact provider. |
+| `provider` | `String` | Optional provider: `'openai'`, `'gemini'`, `'cloudflare'`, `'xai'`, `'replicate'`, `'byteplus'`. This is a preference: if it does not offer the requested model, Puter selects a provider that does. Selecting a route excluded by data policy returns `bad_request` instead. Inferred from `model` when omitted; use a provider-prefixed model ID to select an exact provider. |
 | `test_mode` | `Boolean` | When `true`, returns a sample image without using credits |
 
 Some models accept additional options or handle these options differently. See [Model-specific features](#model-specific-features).
@@ -163,25 +163,6 @@ Use `provider: 'byteplus'` or a Seedream model ID. Available models are `dola-se
 
 BytePlus uses its own cutoff in place of the one in [Output dimensions](#output-dimensions). A `ratio` or `width` and `height` pair under 921,600 pixels in total sets an aspect ratio, and maps to the selected tier. Larger pairs set a size in pixels and must satisfy both the pixel-count and aspect-ratio constraints in [Rate Limits and Quotas](/rate-limits-and-quotas#image-generation). See the [ModelArk image API reference](https://docs.byteplus.com/en/docs/ModelArk/1541523).
 
-### Kling models
-
-Use `provider: 'kling'` or a Kling model ID. Each request generates one image, billed per image:
-
-| Model | Alias | Price per image | `quality` | Input images |
-| ------- | ------- | ----------------- | ----------- | -------------- |
-| `kling-v3` (default) | `kling-image-3.0` | $0.028 | `1k` (default), `2k` | One |
-| `kling-v3-omni` | `kling-image-3.0-omni` | $0.028, or $0.056 at `4k` | `1k` (default), `2k`, `4k` | Up to 10 |
-| `kling-image-o1` | | $0.028 | `1k` (default), `2k` | Up to 10 |
-| `kling-v2-1` | `kling-image-2.1` | $0.014, or $0.028 with an input image | `1k` (default), `2k` | One |
-
-| Option | Type | Description |
-| -------- | ------ | ------------- |
-| `quality` | `String` | Output resolution from the table above, case-insensitive. The values `low` and `medium` select `1k`, and `high` and `hd` select `2k`. Any other value selects `1k` |
-| `ratio` | `Object` | Aspect ratio. The closest of 16:9, 9:16, 1:1, 4:3, 3:4, 3:2, 2:3 and 21:9 is used. Defaults to 1:1, or to a ratio Kling picks from the input images on `kling-v3-omni` and `kling-image-o1` |
-| `input_images` | `Array<String>` | Reference images, JPEG or PNG, up to 10 MB and at least 300 pixels per side. In the prompt, `<<<image_1>>>` refers to the first image on `kling-v3-omni` and `kling-image-o1` |
-| `negative_prompt` | `String` | What to keep out of the image, on `kling-v3` and `kling-v2-1` without an input image |
-
-Kling returns a hosted URL that stays available for 30 days. See the [Kling image API reference](https://kling.ai/document-api/api/image/3-0-omni/image-generation).
 
 ### Replicate models
 

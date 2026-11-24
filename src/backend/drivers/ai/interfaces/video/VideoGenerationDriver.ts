@@ -456,11 +456,9 @@ export class VideoGenerationDriver extends PuterDriver {
         // pair its missing apiBaseUrl with the shared block's key (or vice
         // versa) and point a region-scoped key at the wrong endpoint.
         const byteplusVideoCfg = providers['byteplus-video-generation'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const byteplusSharedCfg = providers['byteplus'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const byteplusKey = readProviderKey(
             byteplusVideoCfg,
             byteplusSharedCfg,
@@ -472,8 +470,7 @@ export class VideoGenerationDriver extends PuterDriver {
                         apiKey: byteplusKey,
                         apiBaseUrl: (byteplusVideoCfg?.apiBaseUrl ??
                             byteplusSharedCfg?.apiBaseUrl) as
-                            | string
-                            | undefined,
+                            string | undefined,
                     },
                     m,
                 );
@@ -493,7 +490,6 @@ export class VideoGenerationDriver extends PuterDriver {
                 );
         }
 
-        // One `kling` key covers video, image and TTS.
         const klingCfg = (providers['kling-video-generation'] ??
             providers['kling']) as Record<string, unknown> | undefined;
         const klingKey = readProviderKey(klingCfg);
@@ -512,11 +508,9 @@ export class VideoGenerationDriver extends PuterDriver {
         // `apiBaseUrl` names the chat API under `/v1`; the provider keeps its
         // host, since the video API lives beside it.
         const minimaxVideoCfg = providers['minimax-video-generation'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const minimaxSharedCfg = providers['minimax'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const minimaxKey = readProviderKey(minimaxVideoCfg, minimaxSharedCfg);
         if (minimaxKey) {
             this.#providers['minimax-video-generation'] =

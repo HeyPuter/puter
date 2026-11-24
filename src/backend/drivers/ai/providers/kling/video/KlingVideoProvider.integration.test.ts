@@ -20,7 +20,7 @@
 /**
  * Integration test for the Kling video provider.
  *
- * Generates a 5s 720p clip on kling-2.5-turbo ($0.21). Skipped when
+ * Generates a 5s 720p clip on each supported Kling model. Skipped when
  * `PUTER_TEST_AI_KLING_API_KEY` is unset.
  */
 
@@ -39,7 +39,7 @@ const VIDEO_TIMEOUT_MS = 5 * 60 * 1000;
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'KlingVideoProvider (integration)',
     () => {
-        it.each(['kling-2.5-turbo', 'kling-4.0', 'kling-4.0-flash'])(
+        it.each(['kling-4.0', 'kling-4.0-flash'])(
             'generates a video URL from %s',
             { timeout: VIDEO_TIMEOUT_MS },
             async (model) => {

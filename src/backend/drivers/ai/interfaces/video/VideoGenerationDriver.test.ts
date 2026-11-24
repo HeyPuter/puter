@@ -513,7 +513,7 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 
-    it.each(['kling-3.0', 'kling-v3', 'kling:kling/kling-3.0'])(
+    it.each(['kling-4.0', 'kling/kling-4.0', 'kling:kling/kling-4.0'])(
         'routes %s to the Kling provider from the shared kling key',
         async (model) => {
             const fetchSpy = vi.spyOn(globalThis, 'fetch');
@@ -552,25 +552,35 @@ describe('VideoGenerationDriver.generate provider routing', () => {
 
             expect(result).toBe('https://kling/out.mp4');
             expect(String(fetchSpy.mock.calls[0]![0])).toBe(
-                'https://api-singapore.klingai.com/text-to-video/kling-3.0',
+                'https://api-singapore.klingai.com/text-to-video/kling-4.0',
             );
             expect(togetherVideosCreateMock).not.toHaveBeenCalled();
         },
     );
+
+    it.each([
+        'kling-3.0-turbo',
+        'kling-3.0',
+        'kling-3.0-omni',
+        'kling-o1',
+        'kling-2.6',
+        'kling-2.5-turbo',
+        'kling-v3',
+        'kling:kling/kling-3.0',
+    ])('rejects the removed Kling model %s', async (model) => {
+        await expect(
+            withActor(() => driver.generate({ prompt: 'hi', model } as never)),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+    });
 
     it('lists the Kling models under the kling-video-generation provider', async () => {
         const kling = (await driver.models()).filter(
             (m) => m.provider === 'kling-video-generation',
         );
         expect(kling.map((m) => m.id).sort()).toEqual([
-            'kling-2.5-turbo',
-            'kling-2.6',
-            'kling-3.0',
-            'kling-3.0-omni',
-            'kling-3.0-turbo',
             'kling-4.0',
             'kling-4.0-flash',
-            'kling-o1',
         ]);
     });
 
@@ -1195,7 +1205,7 @@ describe('VideoGenerationDriver.generate size unification', () => {
         await withActor(() =>
             driver.generate({
                 prompt: 'hi',
-                model: 'kling-3.0',
+                model: 'kling-4.0',
                 size: '1080x1920',
             } as never),
         );

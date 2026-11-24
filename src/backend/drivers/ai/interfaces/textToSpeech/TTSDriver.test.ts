@@ -202,7 +202,6 @@ describe('TTSDriver provider registration', () => {
             'aws-polly',
             'elevenlabs',
             'gemini',
-            'kling',
             'openai',
             'speechify',
             'xai',
@@ -236,6 +235,16 @@ describe('TTSDriver.synthesize authentication', () => {
 // ── Provider routing ────────────────────────────────────────────────
 
 describe('TTSDriver.synthesize provider routing', () => {
+    it.each(['kling', 'kling-tts', 'kling-ai'])(
+        'rejects the removed Kling provider alias %s',
+        async (provider) => {
+            await expect(
+                withActor(() => driver.synthesize({ text: 'hi', provider })),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(fetchSpy).not.toHaveBeenCalled();
+        },
+    );
+
     it('routes via explicit args.provider (openai)', async () => {
         openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
 
@@ -345,42 +354,6 @@ describe('TTSDriver.synthesize provider routing', () => {
             expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
         },
     );
-
-    it.each(['kling', 'kling-tts', 'kling-ai'])(
-        'resolves the %s alias to the kling provider',
-        async (provider) => {
-            fetchSpy
-                .mockResolvedValueOnce(
-                    Response.json({
-                        code: 0,
-                        data: {
-                            task_status: 'succeed',
-                            task_result: {
-                                audios: [
-                                    { url: 'https://cdn.kling.example/a.mp3' },
-                                ],
-                            },
-                        },
-                    }),
-                )
-                .mockResolvedValueOnce(new Response('audio'));
-
-            await withActor(() => driver.synthesize({ text: 'hi', provider }));
-
-            expect(String(fetchSpy.mock.calls[0]![0])).toBe(
-                'https://api-singapore.klingai.com/v1/audio/tts',
-            );
-            expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
-        },
-    );
-
-    it('routes via legacy driverAlias (kling-tts → kling)', async () => {
-        const voices = await withDriverName('kling-tts', () =>
-            driver.list_voices(),
-        );
-        expect(voices.length).toBeGreaterThan(0);
-        expect(voices.every((v) => v.provider === 'kling')).toBe(true);
-    });
 
     it('resolves provider aliases', async () => {
         fetchSpy.mockResolvedValueOnce(
@@ -637,7 +610,6 @@ describe('TTSDriver list_voices / list_engines', () => {
                 'gemini-3.8-flash-tts', // gemini
                 'xai-tts',
                 'simba-3.2', // speechify
-                'kling-tts',
                 'standard', // aws-polly
             ]),
         );
@@ -668,7 +640,6 @@ describe('TTSDriver.getReportedCosts', () => {
                 'driver:aiTts/gemini',
                 'driver:aiTts/xai',
                 'driver:aiTts/speechify',
-                'driver:aiTts/kling',
             ]),
         );
     });
