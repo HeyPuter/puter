@@ -955,6 +955,43 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         }
     });
 
+    it('refetches a provider catalog on every scheduled rebuild when the fetch takes time', async () => {
+        vi.useFakeTimers({
+            toFake: ['Date', 'setTimeout', 'setInterval', 'clearInterval'],
+        });
+        const bootXaiCatalog = axiosGetMock.getMockImplementation()!;
+        const callsBefore = axiosGetMock.mock.calls.length;
+        axiosGetMock.mockImplementation(
+            () =>
+                new Promise((resolve) =>
+                    setTimeout(
+                        () => resolve(xaiCatalogAt(XAI_LIVE_LOW_1K_CENTS)),
+                        200,
+                    ),
+                ),
+        );
+        const xaiDriver = new ImageGenerationDriver(
+            {
+                providers: { 'xai-image-generation': { apiKey: 'xai-key' } },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        try {
+            const started = xaiDriver.onServerStart();
+            await vi.advanceTimersByTimeAsync(200);
+            await started;
+            for (let tick = 0; tick < 4; tick++)
+                await vi.advanceTimersByTimeAsync(CATALOG_TTL_MS);
+            expect(axiosGetMock.mock.calls.length - callsBefore).toBe(5);
+        } finally {
+            xaiDriver.onServerShutdown();
+            axiosGetMock.mockImplementation(bootXaiCatalog);
+            vi.useRealTimers();
+        }
+    });
+
     it('routes a known gpt-image-2 model id to the OpenAI image provider', async () => {
         openaiImagesGenerateMock.mockResolvedValueOnce({
             data: [{ url: 'https://oai/img.png' }],

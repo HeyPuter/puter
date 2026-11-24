@@ -246,7 +246,7 @@ The provider model monitor checks catalogs every 30 minutes. Each scan reads at 
 
 ### Chat service speed catalogs
 
-OpenRouter speed endpoint catalogs are cached for 15 minutes, with at most 256 model entries per backend process. A catalog fetch times out after 10 seconds and accepts at most 2 MiB. Failed fetches are remembered for 30 seconds. If no usable speed offering is available, the request uses standard service.
+An OpenRouter speed endpoint catalog is fetched again when a request finds it older than 15 minutes. That request, and any that arrive during the fetch, use the copy already held. Each backend process holds at most 256 model entries. A catalog fetch times out after 10 seconds and accepts at most 2 MiB. Failed fetches are remembered for 30 seconds. If no usable speed offering is available, the request uses standard service.
 
 ### Remote chat image inlining
 

@@ -50,7 +50,10 @@ import {
     withTestActor,
 } from '../../../shared/integrationTestUtil.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
-import { CATALOG_TTL_MS } from '../../../shared/cachedRemoteCatalog.js';
+import {
+    CATALOG_TTL_MS,
+    refreshingCatalogs,
+} from '../../../shared/cachedRemoteCatalog.js';
 import liveCatalog from './fixtures/image-generation-models.json';
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';
 import { XAIImageProvider } from './XAIImageProvider.js';
@@ -825,8 +828,9 @@ describe('XAIImageProvider live pricing', () => {
         'medium 1.5k': 8,
         'medium 2k': 9,
     });
+    /** Reads the catalog the way the driver's scheduled rebuild does. */
     const v2Costs = async (provider: XAIImageProvider) =>
-        (await provider.models()).find(
+        (await refreshingCatalogs(() => provider.models())).find(
             (m) => m.id === 'grok-imagine-image-2.0',
         )!.costs;
     const curated = (id: string) =>

@@ -41,6 +41,10 @@ import {
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
+import {
+    CATALOG_TTL_MS,
+    refreshingCatalogs,
+} from '../../../shared/cachedRemoteCatalog.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { mapNeuralwattApiModel, NEURALWATT_DEFAULT_MODEL } from './models.js';
@@ -358,6 +362,67 @@ describe('NeuralwattProvider model catalog', () => {
                 typeof args?.url === 'string' && args.url.endsWith('/quota'),
         );
         expect(quotaCalls).toHaveLength(1);
+    });
+
+    it('answers a completion with the accounting method on hand while /quota is fetched again', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const { provider } = makeProvider();
+        createMock.mockResolvedValue({
+            choices: [
+                {
+                    message: { content: 'hi', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+            cost: { request_cost_usd: 0 },
+        });
+        const complete = () =>
+            withTestActor(() =>
+                provider.complete({
+                    model: 'neuralwatt:deepseek-v4-flash',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ) as Promise<{ usage: Record<string, unknown> }>;
+        const quotaCalls = () =>
+            axiosRequestMock.mock.calls.filter(([args]) =>
+                args?.url?.endsWith('/quota'),
+            ).length;
+        expect((await complete()).usage.accounting_method).toBe('energy');
+
+        vi.advanceTimersByTime(CATALOG_TTL_MS + 1);
+        let releaseQuota!: () => void;
+        const quotaReleased = new Promise<void>(
+            (resolve) => (releaseQuota = resolve),
+        );
+        axiosRequestMock.mockImplementation(async (opts: { url?: string }) => {
+            if (!opts.url?.endsWith('/quota'))
+                return { data: { data: SAMPLE_API_MODELS } };
+            await quotaReleased;
+            return { data: { balance: { accounting_method: 'token' } } };
+        });
+        let waited: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const answered = await Promise.race([
+                complete(),
+                new Promise((resolve) => {
+                    waited = setTimeout(
+                        () => resolve('waited on /quota'),
+                        1000,
+                    );
+                }),
+            ]);
+            expect(answered).toMatchObject({
+                usage: { accounting_method: 'energy' },
+            });
+        } finally {
+            clearTimeout(waited);
+            releaseQuota();
+        }
+
+        await new Promise((resolve) => setImmediate(resolve));
+        expect((await complete()).usage.accounting_method).toBe('token');
+        expect(quotaCalls()).toBe(2);
     });
 });
 
@@ -710,5 +775,5 @@ it('retains the last-good neuralwatt catalog after a malformed refresh', async (
     const good = await provider.models();
     vi.advanceTimersByTime(15 * 60 * 1000 + 1);
     axiosRequestMock.mockResolvedValueOnce({ data: {} });
-    expect(await provider.models()).toBe(good);
+    expect(await refreshingCatalogs(() => provider.models())).toBe(good);
 });

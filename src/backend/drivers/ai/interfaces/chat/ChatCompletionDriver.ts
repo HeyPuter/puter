@@ -131,7 +131,10 @@ import {
     TRANSIENT_UNHEALTHY_TTL_SEC,
     UNHEALTHY_TTL_SEC,
 } from './utils/providerHealth.js';
-import { CATALOG_TTL_MS } from '../../shared/cachedRemoteCatalog.js';
+import {
+    CATALOG_TTL_MS,
+    refreshingCatalogs,
+} from '../../shared/cachedRemoteCatalog.js';
 import { SDK_TIMEOUT_MS } from './utils/sdkClient.js';
 import { fromFinishReason } from './utils/stopReason.js';
 import { AIChatStream } from './utils/Streaming.js';
@@ -733,7 +736,7 @@ export class ChatCompletionDriver extends PuterDriver {
         }).catch(keepMap);
         // Gateway catalogs change under us; rebuild once they've expired.
         this.#modelMapRefresh = setInterval(() => {
-            void this.#buildModelMap().catch(keepMap);
+            void refreshingCatalogs(() => this.#buildModelMap()).catch(keepMap);
         }, CATALOG_TTL_MS);
         this.#modelMapRefresh.unref?.();
     }
@@ -2310,10 +2313,7 @@ export class ChatCompletionDriver extends PuterDriver {
             // they route through a sibling Responses provider pointed at the
             // same Azure endpoint. web_search (also Responses-only) delegates
             // here too.
-            azureResponses = new AzureResponsesProvider(
-                metering,
-                azureConfig,
-            );
+            azureResponses = new AzureResponsesProvider(metering, azureConfig);
             azureCompletions.setResponsesProvider(azureResponses);
             this.#providers['azure-openai'] = azureCompletions;
             this.#providers['azure-openai-responses'] = azureResponses;

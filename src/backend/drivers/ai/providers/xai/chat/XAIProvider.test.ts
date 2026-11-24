@@ -45,6 +45,7 @@ import { SYSTEM_ACTOR } from '../../../../../core/actor.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
+import { refreshingCatalogs } from '../../../shared/cachedRemoteCatalog.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { costsForRequest, usageCost } from '../../../interfaces/chat/utils/pricing.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
@@ -701,7 +702,7 @@ describe('XAIProvider remote pricing catalog', () => {
         vi.setSystemTime(Date.now() + 16 * 60 * 1000);
         axiosGetMock.mockRejectedValue(new Error('upstream down'));
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        expect(await provider.models()).toBe(good);
+        expect(await refreshingCatalogs(() => provider.models())).toBe(good);
         expect(await provider.models()).toBe(good);
         expect(axiosGetMock).toHaveBeenCalledTimes(2);
         expect(warn).toHaveBeenCalledTimes(1);
@@ -907,9 +908,9 @@ describe('XAIProvider resolved catalog snapshot', () => {
             });
 
             // The catalog the provider would have read is newer and higher.
-            const fresh = (await provider.models()).find(
-                (m) => m.id === 'grok-4.5',
-            )!;
+            const fresh = (
+                await refreshingCatalogs(() => provider.models())
+            ).find((m) => m.id === 'grok-4.5')!;
             expect(axiosGetMock).toHaveBeenCalledTimes(2);
             expect(costsForRequest(fresh, 200_000)).toMatchObject({
                 prompt_tokens: 600,
@@ -919,7 +920,7 @@ describe('XAIProvider resolved catalog snapshot', () => {
         },
     );
 
-    it('resolves and refreshes the catalog itself when called without a snapshot', async () => {
+    it('prices a call without a snapshot from the catalog on hand and refreshes it for the next', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         axiosGetMock.mockResolvedValueOnce({
             data: structuredClone(catalogFixture),
@@ -929,17 +930,30 @@ describe('XAIProvider resolved catalog snapshot', () => {
 
         vi.setSystemTime(Date.now() + 16 * 60 * 1000);
         axiosGetMock.mockResolvedValue({ data: higherCatalog() });
-        createMock.mockResolvedValueOnce(okCompletion(promptOf(200_000)));
-        await withTestActor(() =>
-            provider.complete({
-                model: 'grok-4.5-latest',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
+        createMock.mockImplementation(async () =>
+            okCompletion(promptOf(200_000)),
         );
+        const complete = () =>
+            withTestActor(() =>
+                provider.complete({
+                    model: 'grok-4.5-latest',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
 
+        await complete();
         expect(axiosGetMock).toHaveBeenCalledTimes(2);
         expect(createMock.mock.calls[0]![0].model).toBe('grok-4.5');
         expect(recordSpy.mock.calls[0]![3]).toEqual({
+            prompt_tokens: 199_000 * 400,
+            cached_tokens: 1000 * 60,
+            completion_tokens: 100 * 1200,
+        });
+
+        await new Promise((resolve) => setImmediate(resolve));
+        await complete();
+        expect(axiosGetMock).toHaveBeenCalledTimes(2);
+        expect(recordSpy.mock.calls[1]![3]).toEqual({
             prompt_tokens: 199_000 * 600,
             cached_tokens: 1000 * 100,
             completion_tokens: 100 * 1800,

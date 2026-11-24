@@ -29,6 +29,7 @@ import {
 import {
     CATALOG_TTL_MS,
     cachedRemoteCatalog,
+    refreshingCatalogs,
 } from '../../../shared/cachedRemoteCatalog.js';
 import { fetchCloudflareImageCatalog } from './catalog.js';
 import modelSearchFixture from './fixtures/model-search.json';
@@ -497,10 +498,12 @@ describe('fetchCloudflareImageCatalog', () => {
                 );
             });
             vi.advanceTimersByTime(CATALOG_TTL_MS + 1);
-            expect(costsOf(await catalog(), PHOENIX)).toEqual({
-                tile_512: 600000,
-                step: 12000,
-            });
+            expect(costsOf(await refreshingCatalogs(catalog), PHOENIX)).toEqual(
+                {
+                    tile_512: 600000,
+                    step: 12000,
+                },
+            );
             expect(fetchSpy).toHaveBeenCalledTimes(11);
         } finally {
             vi.useRealTimers();

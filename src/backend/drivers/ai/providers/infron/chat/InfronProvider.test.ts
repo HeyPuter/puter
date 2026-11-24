@@ -47,6 +47,7 @@ import {
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
+import { refreshingCatalogs } from '../../../shared/cachedRemoteCatalog.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { InfronProvider } from './InfronProvider.js';
@@ -743,5 +744,5 @@ it('retains the last-good infron catalog after a malformed refresh', async () =>
     const good = await provider.models();
     vi.advanceTimersByTime(15 * 60 * 1000 + 1);
     axiosRequestMock.mockResolvedValueOnce({ data: {} });
-    expect(await provider.models()).toBe(good);
+    expect(await refreshingCatalogs(() => provider.models())).toBe(good);
 });

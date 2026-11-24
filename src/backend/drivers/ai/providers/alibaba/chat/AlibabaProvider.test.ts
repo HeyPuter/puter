@@ -50,7 +50,10 @@ import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { mapAlibabaCatalogModel, type AlibabaApiModel } from './catalog.js';
 import page1 from './fixtures/page1.test.json';
 import page2 from './fixtures/page2.test.json';
-import { CATALOG_TTL_MS } from '../../../shared/cachedRemoteCatalog.js';
+import {
+    CATALOG_TTL_MS,
+    refreshingCatalogs,
+} from '../../../shared/cachedRemoteCatalog.js';
 import { ALIBABA_MODELS } from './models.js';
 import { AlibabaProvider } from './AlibabaProvider.js';
 import { modelLookupNames } from '../../../interfaces/chat/utils/modelRouting.js';
@@ -1123,7 +1126,9 @@ describe('Alibaba official catalog', () => {
                 axiosGetMock.mockResolvedValueOnce({
                     data: { ...page1, output: { ...page1.output, page_no: 2 } },
                 });
-            expect(await provider.models()).toBe(good);
+            expect(await refreshingCatalogs(() => provider.models())).toBe(
+                good,
+            );
             expect(await provider.models()).toBe(good);
             expect(axiosGetMock).toHaveBeenCalledTimes(4);
         },
@@ -1139,7 +1144,7 @@ it('keeps previously discovered Alibaba models when a successful refresh omits t
     await provider.models();
     vi.advanceTimersByTime(CATALOG_TTL_MS + 1);
     axiosGetMock.mockResolvedValueOnce({ data: { success: true, output: { total: 0, page_no: 1, models: [] } } });
-    expect((await provider.models()).some(model => model.id === 'qwen-catalog-fixture')).toBe(true);
+    expect((await refreshingCatalogs(() => provider.models())).some(model => model.id === 'qwen-catalog-fixture')).toBe(true);
 });
 
 

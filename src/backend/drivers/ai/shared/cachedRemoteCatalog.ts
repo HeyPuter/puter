@@ -17,8 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 /** How long a fetched gateway catalog is served before it's fetched again. */
 export const CATALOG_TTL_MS = 15 * 60 * 1000;
+
+/** Set while a scheduled refresh runs: when it began. */
+const scheduledRefresh = new AsyncLocalStorage<{ since: number }>();
+
+/**
+ * Runs a scheduled refresh. A catalog read inside `work` waits for a copy
+ * fetched since the refresh began, so a refresh never reuses the copy the
+ * previous one fetched, however the two timers line up.
+ */
+export const refreshingCatalogs = <R>(work: () => Promise<R>): Promise<R> =>
+    scheduledRefresh.run({ since: Date.now() }, work);
 
 export interface CachedRemoteCatalogOptions<T> {
     /** Names the catalog in the warning a failed fetch logs. */
@@ -30,15 +43,19 @@ export interface CachedRemoteCatalogOptions<T> {
     timeoutMs?: number;
     /** How long a failure is remembered before the upstream is asked again. */
     failureTtlMs?: number;
+    /**
+     * Makes a read of an expired copy wait for the new one. For a value that
+     * must never be older than `ttlMs`, such as a rate that is billed as read.
+     */
+    blocking?: boolean;
 }
 
 /**
- * A remote catalog (a gateway's model list, an account's quota) fetched on
- * demand and served from memory for `ttlMs`. Concurrent callers share one
- * fetch, a fetch past `timeoutMs` is abandoned, and a failure is remembered for
- * `failureTtlMs` so a down upstream isn't asked again on every request. A
- * failed refresh keeps serving the last good value. An outage logs once, not
- * once per retry.
+ * A remote catalog (a gateway's model list, an account's quota) served from
+ * memory for `ttlMs`. A read of an expired copy returns it and fetches the next
+ * one in the background; only a first read, a `blocking` catalog and
+ * {@link refreshingCatalogs} wait. Readers share one fetch, and a failed one
+ * keeps the last good value and isn't retried for `failureTtlMs`.
  */
 export const cachedRemoteCatalog = <T>({
     name,
@@ -47,46 +64,63 @@ export const cachedRemoteCatalog = <T>({
     ttlMs = CATALOG_TTL_MS,
     timeoutMs = 10_000,
     failureTtlMs = 30_000,
+    blocking = false,
 }: CachedRemoteCatalogOptions<T>): (() => Promise<T>) => {
-    let last: { value: T } | undefined;
-    let freshUntil = 0;
+    let last: { value: T; fetchedAt: number } | undefined;
     let retryAt = 0;
     let inFlight: Promise<T> | undefined;
     let failing = false;
 
+    // Never rejects, so a fetch nobody awaits can't become an unhandled
+    // rejection.
     const load = async (): Promise<T> => {
         try {
             const value = await fetch(
                 AbortSignal.timeout(timeoutMs),
                 last?.value,
             );
-            last = { value };
-            freshUntil = Date.now() + ttlMs;
+            last = { value, fetchedAt: Date.now() };
             failing = false;
             return value;
         } catch (e) {
             retryAt = Date.now() + failureTtlMs;
             if (!failing) {
-                console.warn(
-                    `[ai-chat] ${name} fetch failed: ${(e as Error)?.message ?? e}`,
-                );
+                failing = true;
+                try {
+                    console.warn(
+                        `[ai-chat] ${name} fetch failed: ${(e as Error)?.message ?? e}`,
+                    );
+                } catch {
+                    // A thrown value that can't be printed still only fails
+                    // the fetch.
+                    console.warn(`[ai-chat] ${name} fetch failed`);
+                }
             }
-            failing = true;
             return last ? last.value : fallback;
         }
     };
 
+    const revalidate = (): Promise<T> => {
+        inFlight ??= load().finally(() => {
+            inFlight = undefined;
+        });
+        return inFlight;
+    };
+
     return async () => {
         const now = Date.now();
-        if (last && now < freshUntil) return last.value;
+        const refresh = scheduledRefresh.getStore();
+        if (
+            last &&
+            now < last.fetchedAt + ttlMs &&
+            (!refresh || last.fetchedAt >= refresh.since)
+        )
+            return last.value;
         if (now < retryAt) return last ? last.value : fallback;
-        if (inFlight) return inFlight;
-        const pending = load();
-        inFlight = pending;
-        try {
-            return await pending;
-        } finally {
-            if (inFlight === pending) inFlight = undefined;
+        if (last && !refresh && !blocking) {
+            void revalidate();
+            return last.value;
         }
+        return revalidate();
     };
 };

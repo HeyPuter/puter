@@ -33,6 +33,7 @@
  * max_tokens cap, fallback, event emission and cost calculation.
  */
 import type { Readable } from 'node:stream';
+import axios from 'axios';
 import {
     afterAll,
     afterEach,
@@ -414,6 +415,35 @@ describe('ChatCompletionDriver model map', () => {
             expect(await d.list()).toContain('added-later');
             d.onServerShutdown();
         } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('refetches a gateway catalog on every scheduled rebuild when the fetch takes time', async () => {
+        vi.useFakeTimers({
+            toFake: ['Date', 'setTimeout', 'setInterval', 'clearInterval'],
+        });
+        const tags = vi.spyOn(axios, 'request').mockImplementation(
+            () =>
+                new Promise((resolve) =>
+                    setTimeout(
+                        () =>
+                            resolve({
+                                data: { models: [{ name: 'llama' }] },
+                            }),
+                        200,
+                    ),
+                ),
+        );
+        const d = newDriver({ ollama: {} });
+        try {
+            d.onServerStart();
+            await vi.advanceTimersByTimeAsync(200);
+            for (let tick = 0; tick < 4; tick++)
+                await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+            expect(tags).toHaveBeenCalledTimes(5);
+        } finally {
+            d.onServerShutdown();
             vi.useRealTimers();
         }
     });

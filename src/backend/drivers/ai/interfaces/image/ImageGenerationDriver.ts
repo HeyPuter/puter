@@ -34,7 +34,10 @@ import {
 } from '../../shared/generatedMedia.js';
 import { readPuterImageInputs } from '../../shared/mediaInput.js';
 import { ModelCatalog } from '../../shared/modelCatalog.js';
-import { CATALOG_TTL_MS } from '../../shared/cachedRemoteCatalog.js';
+import {
+    CATALOG_TTL_MS,
+    refreshingCatalogs,
+} from '../../shared/cachedRemoteCatalog.js';
 import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import { BytePlusImageProvider } from '../../providers/byteplus/image/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from '../../providers/cloudflare/image/CloudflareImageProvider.js';
@@ -113,10 +116,11 @@ export class ImageGenerationDriver extends PuterDriver {
         // Remote price catalogs expire; rebuild so listings track billing.
         this.#modelMapRefresh = setInterval(() => {
             // Nothing awaits a refresh; a failed one keeps the map it had.
-            void this.#refreshModelMap().catch((error: unknown) =>
-                console.warn(
-                    `[ai-image] model map refresh failed: ${(error as Error)?.message ?? error}`,
-                ),
+            void refreshingCatalogs(() => this.#refreshModelMap()).catch(
+                (error: unknown) =>
+                    console.warn(
+                        `[ai-image] model map refresh failed: ${(error as Error)?.message ?? error}`,
+                    ),
             );
         }, CATALOG_TTL_MS);
         this.#modelMapRefresh.unref?.();

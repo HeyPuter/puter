@@ -47,6 +47,7 @@ import { makeActor } from '../../../../../core/actor.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
+import { refreshingCatalogs } from '../../../shared/cachedRemoteCatalog.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { ChatCompletionDriver } from '../../../interfaces/chat/ChatCompletionDriver.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
@@ -1192,7 +1193,9 @@ describe('OpenRouter catalog refresh validation', () => {
                         ],
                     },
                 });
-            expect(await provider.models()).toBe(good);
+            expect(await refreshingCatalogs(() => provider.models())).toBe(
+                good,
+            );
         },
     );
 });
