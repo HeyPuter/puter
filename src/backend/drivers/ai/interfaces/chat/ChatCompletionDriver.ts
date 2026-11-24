@@ -2662,16 +2662,21 @@ export class ChatCompletionDriver extends PuterDriver {
         return this.#preferHealthy(untried, avoided) ?? untried[0] ?? null;
     }
 
-    /** The first route that is neither marked failing nor steered away from. */
+    /**
+     * The first route that is neither marked failing nor steered away from. A
+     * provider being drained ranks below a route that only failed recently.
+     */
     #preferHealthy(
         models: IChatModel[],
         avoided: ReadonlySet<string> = NO_AVOIDED_PROVIDERS,
     ): IChatModel | undefined {
-        return models.find(
-            (m) =>
-                !avoided.has(m.provider!) &&
-                !isRouteUnhealthy(m.provider!, m.id),
-        );
+        let marked: IChatModel | undefined;
+        for (const m of models) {
+            if (avoided.has(m.provider!)) continue;
+            if (!isRouteUnhealthy(m.provider!, m.id)) return m;
+            marked ??= m;
+        }
+        return avoided.size > 0 ? marked : undefined;
     }
 
     /**

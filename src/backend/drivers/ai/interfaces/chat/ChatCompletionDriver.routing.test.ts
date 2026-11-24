@@ -1521,6 +1521,25 @@ describe('ChatCompletionDriver route policy', () => {
         expect(onlyRoute).not.toHaveBeenCalled();
     });
 
+    it('ranks a drained provider below routes that only failed recently', async () => {
+        markRouteUnhealthy('infron', 'infron:deepseek/deepseek-v4-pro');
+        markRouteUnhealthy('openrouter', 'openrouter:deepseek/deepseek-v4-pro');
+        markRouteUnhealthy(
+            'openrouter',
+            'openrouter:deepseek-ai/deepseek-v4-pro',
+        );
+
+        const attempts = await withRoutePolicy(avoiding(['deepseek']), () =>
+            attemptsFor(SHARED),
+        );
+
+        expect(attempts.map((a) => a.provider)).toEqual([
+            'infron',
+            'openrouter',
+            'openrouter',
+        ]);
+    });
+
     it('skips an avoided route in the fallback walk while another remains', async () => {
         const attempts = await withRoutePolicy(avoiding(['infron']), () =>
             attemptsFor(SHARED),
