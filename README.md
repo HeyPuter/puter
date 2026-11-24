@@ -8,7 +8,7 @@
     <br />
     <a href="https://puter.com/?ref=github.com">Puter.com</a>
     ·
-    <a href="https://apps.puter.com/">App Store</a>
+    <a href="https://office.puter.com/">Office Suite</a>
     ·
     <a href="https://builder.puter.com/">AI Builder</a>
     ·
@@ -17,7 +17,7 @@
     <a href="https://twitter.com/HeyPuter">X</a>
 </p>
 
-<h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot.webp"></h3>
+<h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.com/puter-screenshot.webp"></h3>
 
 <br/>
 
@@ -26,7 +26,7 @@
 Puter is an advanced, open-source, self-hostable internet computer designed to be feature-rich, fast, and highly extensible.
 
 ### For Users
-Puter's goal is to provide you with every app and feature you need to work, create, and play under one roof. From a simple [Notepad](https://online-notepad.com) and [Voice Recorder](https://voice-recorder.com) to [Spreadsheet](https://apps.puter.com/app/spreadsheet) and [Camera](https://online-camera.com), Puter wants to be the all-in-one solution for your digital life.
+Puter's goal is to provide you with everything you need to work, create, and play under one roof. From a simple [Notepad](https://online-notepad.com) and [Camera](https://online-camera.com) to [Office Suite](https://office.puter.com) and [AI Builder](https://builder.puter.com), Puter wants to be the all-in-one solution for your digital life.
 
 
 ### For Developers
