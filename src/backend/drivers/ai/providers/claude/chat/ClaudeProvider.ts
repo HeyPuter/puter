@@ -1521,6 +1521,13 @@ export class ClaudeProvider implements IChatProvider {
             }
             // compaction and any other iteration type: billed at executor rates.
             exec.input_tokens += it.input_tokens ?? 0;
+            exec.ephemeral_5m_input_tokens +=
+                it.cache_creation?.ephemeral_5m_input_tokens ??
+                it.cache_creation_input_tokens ??
+                0;
+            exec.ephemeral_1h_input_tokens +=
+                it.cache_creation?.ephemeral_1h_input_tokens ?? 0;
+            exec.cache_read_input_tokens += it.cache_read_input_tokens ?? 0;
             exec.output_tokens += it.output_tokens ?? 0;
         }
 

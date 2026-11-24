@@ -1683,6 +1683,103 @@ describe('ClaudeProvider.complete non-stream output', () => {
             4500 * Number(haiku.costs.output_tokens),
         );
     });
+
+    it('bills the cache reads and writes of the compaction pass', async () => {
+        const { provider } = makeProvider();
+        // The compaction pass read most of the conversation from cache and
+        // wrote the summary to it; neither is in the top-level counts.
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'done' }],
+            usage: {
+                input_tokens: 2000,
+                output_tokens: 300,
+                cache_read_input_tokens: 500,
+                cache_creation_input_tokens: 0,
+                iterations: [
+                    {
+                        type: 'compaction',
+                        input_tokens: 1000,
+                        output_tokens: 3000,
+                        cache_read_input_tokens: 150_000,
+                        cache_creation_input_tokens: 5000,
+                        cache_creation: {
+                            ephemeral_5m_input_tokens: 4000,
+                            ephemeral_1h_input_tokens: 1000,
+                        },
+                    },
+                    {
+                        type: 'message',
+                        input_tokens: 2000,
+                        output_tokens: 300,
+                        cache_read_input_tokens: 500,
+                    },
+                ],
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                compaction: true,
+            }),
+        );
+
+        const haiku = CLAUDE_MODELS.find(
+            (m) => m.id === 'claude-haiku-4-5-20251001',
+        )!;
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toMatchObject({
+            input_tokens: 3000,
+            output_tokens: 3300,
+            cache_read_input_tokens: 150_500,
+            ephemeral_5m_input_tokens: 4000,
+            ephemeral_1h_input_tokens: 1000,
+        });
+        expect(overrides.cache_read_input_tokens).toBe(
+            150_500 * Number(haiku.costs.cache_read_input_tokens),
+        );
+        expect(overrides.ephemeral_5m_input_tokens).toBe(
+            4000 * Number(haiku.costs.ephemeral_5m_input_tokens),
+        );
+        expect(overrides.ephemeral_1h_input_tokens).toBe(
+            1000 * Number(haiku.costs.ephemeral_1h_input_tokens),
+        );
+    });
+
+    it('bills a compaction pass that reports cache writes without a lifetime split as 5m writes', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'done' }],
+            usage: {
+                input_tokens: 2000,
+                output_tokens: 300,
+                iterations: [
+                    {
+                        type: 'compaction',
+                        input_tokens: 1000,
+                        output_tokens: 3000,
+                        cache_creation_input_tokens: 4000,
+                    },
+                    { type: 'message', input_tokens: 2000, output_tokens: 300 },
+                ],
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                compaction: true,
+            }),
+        );
+
+        const [usage] = recordSpy.mock.calls[0]!;
+        expect(usage).toMatchObject({
+            ephemeral_5m_input_tokens: 4000,
+            ephemeral_1h_input_tokens: 0,
+        });
+    });
 });
 
 // ── Streaming deltas ────────────────────────────────────────────────
