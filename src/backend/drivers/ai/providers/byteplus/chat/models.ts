@@ -32,6 +32,7 @@ const bytePlusModel = (
         input?: string[];
         extraAliases?: string[];
         openWeights?: boolean;
+        longContextPricing?: IChatModel['long_context_pricing'];
     } = {},
 ): IChatModel => ({
     puterId: `byteplus:byteplus/${id}`,
@@ -47,6 +48,9 @@ const bytePlusModel = (
     input_cost_key: 'prompt_tokens',
     output_cost_key: 'completion_tokens',
     costs,
+    ...(opts.longContextPricing
+        ? { long_context_pricing: opts.longContextPricing }
+        : {}),
 });
 
 // An undated series alias (e.g. `seed-1-6`) points at the newest snapshot of
@@ -55,13 +59,20 @@ const series = (alias: string) => [alias, `byteplus/${alias}`];
 
 const VISION = ['text', 'image', 'video'];
 
+// ModelArk's (128, 256]K prompt tier: twice the base input, cached and output
+// rates for the whole request.
+const SEED_2_0_LONG_PROMPT = {
+    threshold: 128 * K,
+    input_multiplier: 2,
+    output_multiplier: 2,
+};
+
 // Hardcoded from https://docs.byteplus.com/en/docs/ModelArk/1330310 (catalog)
 // and https://docs.byteplus.com/en/docs/ModelArk/1544106 (pricing).
 //
-// Some models bill a higher rate for prompts above 128K tokens; the costs
-// below are the base tier. seed-2-0-lite/mini-260428 also accept audio input
-// at a much higher per-token rate ModelArk folds into prompt_tokens, so audio
-// is deliberately left out of `modalities` to keep metering honest.
+// seed-2-0-lite/mini-260428 also accept audio input at a much higher
+// per-token rate ModelArk folds into prompt_tokens, so audio is deliberately
+// left out of `modalities` to keep metering honest.
 export const BYTEPLUS_MODELS: IChatModel[] = [
     bytePlusModel(
         'deepseek-v4-1-flash-261017',
@@ -93,7 +104,11 @@ export const BYTEPLUS_MODELS: IChatModel[] = [
         256 * K,
         128 * K,
         usdPerMToken(0.25, 2, 0.05),
-        { input: VISION, extraAliases: series('seed-2-0-lite') },
+        {
+            input: VISION,
+            extraAliases: series('seed-2-0-lite'),
+            longContextPricing: SEED_2_0_LONG_PROMPT,
+        },
     ),
     bytePlusModel(
         'seed-2-0-mini-260428',
@@ -101,7 +116,11 @@ export const BYTEPLUS_MODELS: IChatModel[] = [
         256 * K,
         128 * K,
         usdPerMToken(0.1, 0.4, 0.02),
-        { input: VISION, extraAliases: series('seed-2-0-mini') },
+        {
+            input: VISION,
+            extraAliases: series('seed-2-0-mini'),
+            longContextPricing: SEED_2_0_LONG_PROMPT,
+        },
     ),
     bytePlusModel(
         'seed-2-0-pro-260328',
@@ -109,7 +128,11 @@ export const BYTEPLUS_MODELS: IChatModel[] = [
         256 * K,
         128 * K,
         usdPerMToken(0.5, 3, 0.1),
-        { input: VISION, extraAliases: series('seed-2-0-pro') },
+        {
+            input: VISION,
+            extraAliases: series('seed-2-0-pro'),
+            longContextPricing: SEED_2_0_LONG_PROMPT,
+        },
     ),
     bytePlusModel(
         'seed-2-0-code-preview-260328',
@@ -117,7 +140,11 @@ export const BYTEPLUS_MODELS: IChatModel[] = [
         256 * K,
         128 * K,
         usdPerMToken(0.5, 3, 0.1),
-        { input: VISION, extraAliases: series('seed-2-0-code-preview') },
+        {
+            input: VISION,
+            extraAliases: series('seed-2-0-code-preview'),
+            longContextPricing: SEED_2_0_LONG_PROMPT,
+        },
     ),
     bytePlusModel(
         'glm-5-3-flash-260828',

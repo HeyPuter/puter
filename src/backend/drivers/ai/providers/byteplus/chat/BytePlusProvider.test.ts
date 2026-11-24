@@ -557,6 +557,84 @@ describe('BytePlusProvider.complete non-stream output', () => {
         );
     });
 
+    // ModelArk's price table has a (128, 256]K prompt tier for the Seed 2.0
+    // models, at twice the base input, cached and output rates.
+    const billedFor = async (model: string, usage: object) => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage,
+        });
+        await withTestActor(() =>
+            provider.complete({
+                model,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+        return recordSpy.mock.calls.at(-1)![3] as Record<string, number>;
+    };
+
+    it.each([
+        // [model, base input, base cached, base output] in cents per 1M.
+        ['seed-2-0-pro-260328', 50, 10, 300],
+        ['seed-2-0-code-preview-260328', 50, 10, 300],
+        ['seed-2-0-lite-260428', 25, 5, 200],
+        ['seed-2-0-mini-260428', 10, 2, 40],
+    ])(
+        'bills a prompt over 128K on %s at twice the base rates',
+        async (model, input, cached, output) => {
+            const overrides = await billedFor(model, {
+                prompt_tokens: 200_000,
+                completion_tokens: 10_000,
+                prompt_tokens_details: { cached_tokens: 50_000 },
+            });
+
+            expect(overrides.prompt_tokens).toBeCloseTo(150_000 * input * 2, 5);
+            expect(overrides.cached_tokens).toBeCloseTo(50_000 * cached * 2, 5);
+            expect(overrides.completion_tokens).toBeCloseTo(
+                10_000 * output * 2,
+                5,
+            );
+        },
+    );
+
+    it('keeps a prompt of exactly 128K, cached tokens included, on the base tier', async () => {
+        const overrides = await billedFor('seed-2-0-pro-260328', {
+            prompt_tokens: 128_000,
+            completion_tokens: 10_000,
+            prompt_tokens_details: { cached_tokens: 50_000 },
+        });
+
+        expect(overrides.prompt_tokens).toBeCloseTo(78_000 * 50, 5);
+        expect(overrides.cached_tokens).toBeCloseTo(50_000 * 10, 5);
+        expect(overrides.completion_tokens).toBeCloseTo(10_000 * 300, 5);
+    });
+
+    it('moves a prompt one token past 128K onto the long-prompt tier', async () => {
+        const overrides = await billedFor('seed-2-0-pro-260328', {
+            prompt_tokens: 128_001,
+            completion_tokens: 10,
+        });
+
+        expect(overrides.prompt_tokens).toBeCloseTo(128_001 * 100, 5);
+        expect(overrides.completion_tokens).toBeCloseTo(10 * 600, 5);
+    });
+
+    it('leaves a model with one published tier at its base rates for a long prompt', async () => {
+        const overrides = await billedFor('dola-seed-2-1-turbo-260628', {
+            prompt_tokens: 200_000,
+            completion_tokens: 10_000,
+        });
+
+        expect(overrides.prompt_tokens).toBeCloseTo(200_000 * 50, 5);
+        expect(overrides.completion_tokens).toBeCloseTo(10_000 * 250, 5);
+    });
+
     it('preserves OpenAI-shaped tool_calls on the assistant response', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce({
