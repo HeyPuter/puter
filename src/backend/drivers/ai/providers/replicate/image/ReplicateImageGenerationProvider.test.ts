@@ -947,6 +947,91 @@ describe('Replicate prediction completion', () => {
         expect(cancelMock).toHaveBeenCalledWith('pending-image');
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
+
+    describe('a cancelled run on a model billed per second', () => {
+        const MODEL = 'adirik/realvisxl-v3.0-turbo';
+        // Aborts while the prediction is processing; Replicate then answers
+        // the cancel with `cancelled`.
+        const abortMidRun = async (cancelled: Record<string, unknown>) => {
+            const controller = new AbortController();
+            createPredictionMock.mockResolvedValueOnce({
+                id: 'pending-image',
+                status: 'processing',
+                output: null,
+            });
+            cancelMock.mockResolvedValueOnce({
+                id: 'pending-image',
+                ...cancelled,
+            });
+            waitMock.mockImplementationOnce(
+                async (prediction, _options, stop) => {
+                    controller.abort();
+                    await stop(prediction);
+                    return prediction;
+                },
+            );
+            await expect(
+                withTestActor(() =>
+                    runWithContext(
+                        {
+                            actor: Context.get('actor'),
+                            abortSignal: controller.signal,
+                        },
+                        () =>
+                            makeProvider().generate({
+                                model: MODEL,
+                                prompt: 'a cube',
+                            } as never),
+                    ),
+                ),
+            ).rejects.toMatchObject({ legacyCode: 'client_aborted' });
+        };
+
+        it('bills the time the run took before it was cancelled', async () => {
+            await abortMidRun({
+                status: 'canceled',
+                metrics: { predict_time: 300 },
+            });
+
+            // 300 s at 0.0975 cents a second.
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
+            expect(batchIncrementUsagesSpy.mock.calls[0]![1]).toEqual([
+                {
+                    usageType: `replicate:${MODEL}:second`,
+                    usageAmount: 300,
+                    costOverride: 29_250_000,
+                },
+            ]);
+        });
+
+        it('bills no more than the window a run is given', async () => {
+            await abortMidRun({
+                status: 'canceled',
+                metrics: { predict_time: 100_000 },
+            });
+
+            expect(batchIncrementUsagesSpy.mock.calls[0]![1]).toMatchObject([
+                { usageAmount: 630 },
+            ]);
+        });
+
+        it.each([
+            ['reports no runtime', { status: 'canceled' }],
+            [
+                'never started',
+                { status: 'aborted', metrics: { predict_time: 0 } },
+            ],
+            [
+                'failed instead',
+                { status: 'failed', metrics: { predict_time: 300 } },
+            ],
+        ])('bills nothing for a run that %s', async (_name, cancelled) => {
+            await abortMidRun(cancelled);
+
+            expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        });
+    });
 });
 
 describe('Replicate abort during creation', () => {

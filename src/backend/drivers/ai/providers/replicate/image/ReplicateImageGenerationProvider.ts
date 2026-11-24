@@ -69,6 +69,8 @@ const PREDICTION_WINDOW_MS = 10 * 60 * 1000;
 const CLEANUP_WINDOW_MS = 30_000;
 // Holds outlive the prediction window, its creation and cleanup.
 const HOLD_TTL_MS = PREDICTION_WINDOW_MS + 5 * 60 * 1000;
+// A prediction can't have run longer than it was given.
+const MAX_BILLED_SECONDS = (PREDICTION_WINDOW_MS + CLEANUP_WINDOW_MS) / 1000;
 
 // Input images are caller-supplied URLs fetched before the credit gate can
 // price them, so the fan-out is bounded in count, concurrency, bytes and time.
@@ -455,6 +457,34 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                             }
                         }
                         if (prediction.status !== 'succeeded' && interrupted) {
+                            // Replicate bills a cancelled run for the time it
+                            // ran; one that never started reports none.
+                            const ranSeconds = prediction.metrics?.predict_time;
+                            if (
+                                prediction.status === 'canceled' &&
+                                catalogInput &&
+                                selectedModel.costs.second !== undefined &&
+                                typeof ranSeconds === 'number' &&
+                                ranSeconds > 0
+                            ) {
+                                this.#meteringService.batchIncrementUsages(
+                                    actor,
+                                    catalogCostComponents(
+                                        selectedModel,
+                                        catalogInput,
+                                        {
+                                            inputMp: 0,
+                                            outputMp: 0,
+                                            seconds: Math.min(
+                                                ranSeconds,
+                                                MAX_BILLED_SECONDS,
+                                            ),
+                                        },
+                                    ).filter(({ usageType }) =>
+                                        usageType.endsWith(':second'),
+                                    ),
+                                );
+                            }
                             throw interrupted;
                         }
                         if (
@@ -495,10 +525,9 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
             }
 
             if (catalogInput) {
-                // A prediction can't have run longer than it was given.
                 const seconds = Math.min(
                     predictionSeconds ?? 0,
-                    (PREDICTION_WINDOW_MS + CLEANUP_WINDOW_MS) / 1000,
+                    MAX_BILLED_SECONDS,
                 );
                 if (
                     selectedModel.costs.second !== undefined &&
