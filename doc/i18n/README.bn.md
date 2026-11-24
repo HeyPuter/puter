@@ -3,10 +3,10 @@
 <h3 align="center">ওপেন-সোর্স ইন্টারনেট কম্পিউটার!</h3>
 
 <p align="center">
-    <a href="https://puter.com/?ref=github.com"><strong>« লাইভ ডেমো »</strong></a>
+    <a href="https://puter.com/"><strong>« লাইভ ডেমো »</strong></a>
     <br />
     <br />
-    <a href="https://puter.com/?ref=github.com">Puter.com</a>
+    <a href="https://puter.com/">Puter.com</a>
     ·
     <a href="https://office.puter.com/">Office Suite</a>
     ·
@@ -17,7 +17,7 @@
     <a href="https://twitter.com/HeyPuter">X</a>
 </p>
 
-<h3 align="center"><img width="800" style="border-radius:5px;" alt="স্ক্রিনশট" src="https://assets.puter.com/puter-screenshot.webp"></h3>
+<h3 align="center"><img width="800" style="border-radius:5px;" alt="স্ক্রিনশট" src="https://assets.puter.com/puter.webp"></h3>
 
 <br/>
 

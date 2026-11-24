@@ -5,7 +5,7 @@
     ·
     <a href="https://developer.puter.com/?ref=github.com">Developer</a>
     ·
-    <a href="https://puter.com/?ref=github.com">Puter.com</a>
+    <a href="https://puter.com/">Puter.com</a>
     ·
     <a href="https://twitter.com/HeyPuter">X</a>
 </p>
