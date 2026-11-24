@@ -1,44 +1,44 @@
-<h3 align="center"><img width="80" alt="Puter.com, A személyi felhő számítógép:  Minden fájl, alkalmazás és játék egy helyen elérhető bárhonnan, bármikor." src="https://assets.puter.site/puter-logo.png"></h3>
+<h3 align="center"><img width="80" alt="Puter.com, a személyes felhőszámítógép: minden fájlod, alkalmazásod és játékod egy helyen, bárhonnan, bármikor elérhetően." src="https://assets.puter.site/puter-logo.png"></h3>
 
-<h3 align="center">Az internetes oprendszer! Ingyenes, nyílt-forráskódú, saját szerveren futtatható.</h3>
+<h3 align="center">A nyílt forráskódú internetes számítógép!</h3>
 
 <p align="center">
-    <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="GitHub License" src="https://img.shields.io/github/license/HeyPuter/puter">
-</p>
-<p align="center">
-    <a href="https://puter.com/"><strong>« ÉLŐ DEMO »</strong></a>
+    <a href="https://puter.com/?ref=github.com"><strong>« ÉLŐ DEMO »</strong></a>
     <br />
     <br />
-    <a href="https://puter.com">Puter.com</a>
+    <a href="https://puter.com/?ref=github.com">Puter.com</a>
     ·
-    <a href="https://docs.puter.com" target="_blank">SDK</a>
+    <a href="https://office.puter.com/">Office Suite</a>
     ·
-    <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
+    <a href="https://builder.puter.com/">AI Builder</a>
     ·
-    <a href="https://reddit.com/r/puter">Reddit</a>
+    <a href="https://developer.puter.com" target="_blank">Fejlesztők</a>
     ·
-    <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
+    <a href="https://twitter.com/HeyPuter">X</a>
 </p>
 
-<h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
+<h3 align="center"><img width="800" style="border-radius:5px;" alt="képernyőkép" src="https://assets.puter.com/puter-screenshot.webp"></h3>
 
 <br/>
 
 ## Puter
-A Puter egy fejlett, nyílt forráskódú internetes operációs rendszer, amelyet úgy terveztek, hogy funkciókban gazdag, kivételesen gyors és nagymértékben bővíthető legyen. A Puter a következőképpen használható:
 
-- Egy adatvédelmet előtérbe helyező személyes felhő, amely minden fájlt, alkalmazást és játékot egy biztonságos helyen tart. Bárhonnan és bármikor elérhető.
-- Egy platform weboldalak, web-appok, és játékok készítéséhez/közzétételéhez.
-- A Dropbox, Google Drive, OneDrive (stb.) alternatívája megújult felülettel és hatékony funkciókkal.
-- Egy távoli desktop-környezet szervereknek és workstation-öknek.
-- Egy barátságos, nyílt forráskódú projekt és közösség, amely a webfejlesztéssel, a felhőalapú számítástechnikával, elosztott rendszerekkel és sok más érdekes témával foglalkozik!
+A Puter egy fejlett, nyílt forráskódú, saját szerveren is futtatható internetes számítógép, amelyet úgy terveztek, hogy funkciógazdag, gyors és rendkívül bővíthető legyen.
+
+### Felhasználóknak
+A Puter célja, hogy mindent megadjon, amire a munkához, az alkotáshoz és a játékhoz szükséged van, egy helyen. Az egyszerű [Notepad](https://online-notepad.com) és [Camera](https://online-camera.com) alkalmazásoktól az [Office Suite](https://office.puter.com) és az [AI Builder](https://builder.puter.com) megoldásokig a Puter a digitális életed mindenre kiterjedő megoldása szeretne lenni.
+
+
+### Fejlesztőknek
+
+A Puter mindent megad, ami webes alkalmazások és játékok készítéséhez és közzétételéhez kell. Az [MI-től](https://developer.puter.com/ai/) a [felhőtárhelyen](https://developer.puter.com/object-storage/) és az [adatbázison](https://developer.puter.com/key-value-database/) át a [szerver nélküli workerekig](https://developer.puter.com/serverless-workers/) mindent megtalálsz benne. A Puter abban is segít, hogy felhasználókat szerezz! Ha elkészült az alkalmazásod, közzéteheted az [App Store](https://apps.puter.com/) felületen, hogy elérd a felhasználókat, és pénzt keress velük.
 
 <br/>
 
 ## Első lépések
 
 
-### 💻 Helyi (lokális) fejlesztés
+### 💻 Helyi fejlesztés
 
 ```bash
 git clone https://github.com/HeyPuter/puter
@@ -46,44 +46,28 @@ cd puter
 npm install
 npm start
 ```
+**→** Ez elindítja a Putert a következő címen:  http://puter.localhost:4100
 
-Ezzel a http://puter.localhost:4100 -on futtatjuk Putert. (vagy a legközelebbi elérhető porton).
-
-<br/>
-
-### 🐳 Docker
-
-
-```bash
-mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
-```
+Ha ezt a checkoutot Dockerrel szeretnéd futtatni, kövesd a [Fordítás forráskódból](../self-hosting.md#building-from-source-instead-of-pulling) részt. Hozz létre egy helyi `docker-compose.override.yml` fájlt a helyi build kiválasztásához. Ha ezeket a beállításokat nem a `docker-compose.yml` fájlban tartod, elkerülheted az ütközéseket a frissítések letöltésekor, és a helyi konfiguráció nem kerül bele a pull requestekbe.
 
 <br/>
 
-
-### 🐙 Docker Compose
-
+### 🚀 Saját szerveren futtatás
 
 #### Linux/macOS
+
 ```bash
-mkdir -p puter/config puter/data
-sudo chown -R 1000:1000 puter
-wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
-docker compose up
+curl -fsSL https://puter.com/selfhost | sh
 ```
-<br/>
 
 #### Windows
 
-
 ```powershell
-mkdir -p puter
-cd puter
-New-Item -Path "puter\config" -ItemType Directory -Force
-New-Item -Path "puter\data" -ItemType Directory -Force
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
-docker compose up
+irm https://puter.com/selfhost?os=windows | iex
 ```
+
+**→** További részletekért lásd a [Puter saját szerveren futtatása](../self-hosting.md) oldalt.
+
 <br/>
 
 ### ☁️ Puter.com
@@ -92,37 +76,59 @@ A Puter elérhető hostolt szolgáltatásként a [**puter.com**](https://puter.c
 
 <br/>
 
-## Rendszerkövetelmények
-
-- **Operációs rendszerek:** Linux, macOS, Windows
-- **RAM:** 2GB minimum (4GB ajánlott)
-- **Tárhely:** 1GB szabad tárhely
-- **Node.js:** 16+ (22+ verzió ajánlott)
-- **npm:** legújabb stabil verzió
-
-<br/>
-
 ## Támogatás
 
-Lépj kapcsolatba a fejlesztőkkel és a közösséggel az alábbi platformokon:
+Lépj kapcsolatba a fejlesztőkkel és a közösséggel az alábbi csatornákon:
 
-- Észrevételeid/javaslataid vannak? Az [alábbi linken](https://github.com/HeyPuter/puter/issues/new/choose) megoszthatod velünk.
-- Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
+- Hibát találtál, vagy új funkciót kérnél? [Nyiss egy issue-t](https://github.com/HeyPuter/puter/issues/new/choose).
 - X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
-- Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
-- Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
-- Biztonsági hibák? [security@puter.com](mailto:security@puter.com)
-- A fejlesztőket a [hi@puter.com](mailto:hi@puter.com) email címen érheted el.
-
+- Biztonsági problémát vagy visszaélést szeretnél jelenteni? [security@puter.com](mailto:security@puter.com)
+- A fejlesztőket a [hi@puter.com](mailto:hi@puter.com) e-mail-címen érheted el.
 
 Mindig örömmel segítünk bármilyen felmerülő kérdésben. Bátran kérdezz tőlünk!
 
 <br/>
 
+## Licenc
 
-##  License
-
-
-Ez a repo, beleértve annak minden tartalmát, alprojektjeit, moduljait és komponenseit, az [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) licenc alatt áll, hacsak másképp nem rendelkeznek róla. A repoban szereplő harmadik fél által fejlesztett könyvtárak saját licencfeltételek alá eshetnek.
+Ez a tárhely, beleértve minden tartalmát, alprojektjét, modulját és összetevőjét, az [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) licenc alatt áll, kivéve, ha kifejezetten másképp van jelezve. A tárhelyen található harmadik féltől származó könyvtárakra saját licencük vonatkozhat.
 
 <br/>
+
+## Fordítások
+
+- [Arabic / العربية](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ar.md)
+- [Armenian / Հայերեն](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hy.md)
+- [Bengali / বাংলা](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.bn.md)
+- [Chinese / 中文](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.zh.md)
+- [Danish / Dansk](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.da.md)
+- [English](https://github.com/HeyPuter/puter/blob/main/README.md)
+- [Farsi / فارسی](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fa.md)
+- [Finnish / Suomi](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fi.md)
+- [French / Français](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fr.md)
+- [German /  Deutsch](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.de.md)
+- [Hebrew/ עברית](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.he.md)
+- [Hindi / हिंदी](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hi.md)
+- [Hungarian / Magyar](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hu.md)
+- [Indonesian / Bahasa Indonesia](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.id.md)
+- [Italian / Italiano](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.it.md)
+- [Japanese / 日本語](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.jp.md)
+- [Korean / 한국어](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ko.md)
+- [Malay / Bahasa Malaysia](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.my.md)
+- [Malayalam / മലയാളം](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ml.md)
+- [Dutch / Nederlands](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.nl.md)
+- [Polish / Polski](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pl.md)
+- [Odia / ଓଡ଼ିଆ](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.od.md)
+- [Portuguese / Português](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pt.md)
+- [Punjabi / ਪੰਜਾਬੀ](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pa.md)
+- [Romanian / Română](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ro.md)
+- [Russian / Русский](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ru.md)
+- [Spanish / Español](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.es.md)
+- [Swedish / Svenska](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.sv.md)
+- [Tamil / தமிழ்](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ta.md)
+- [Telugu / తెలుగు](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.te.md)
+- [Thai / ไทย](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.th.md)
+- [Turkish / Türkçe](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.tr.md)
+- [Ukrainian / Українська](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ua.md)
+- [Urdu / اردو](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ur.md)
+- [Vietnamese / Tiếng Việt](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.vi.md)
