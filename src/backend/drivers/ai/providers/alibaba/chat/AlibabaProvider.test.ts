@@ -576,6 +576,105 @@ describe('AlibabaProvider.complete non-stream output', () => {
         expect(overrides).toMatchObject({ cached_tokens: 0 });
     });
 
+    // Model Studio prices these models by the input tokens of the request:
+    // past a threshold, every token of the request pays the higher tier.
+    const billedAt = async (model: string, usage: object) => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage,
+        });
+        await withTestActor(() =>
+            provider.complete({
+                model,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+        return recordSpy.mock.calls.at(-1)![3] as Record<string, number>;
+    };
+
+    it.each([
+        // [model, prompt tokens, input rate, output rate] in cents per 1M.
+        ['qwen-plus', 500_000, 120, 360],
+        ['qwen-plus-2025-12-01', 500_000, 120, 360],
+        ['qwen3.5-plus', 500_000, 50, 300],
+        ['qwen3.5-plus-2026-04-20', 500_000, 50, 300],
+        ['qwen3.5-plus-2026-02-15', 500_000, 50, 300],
+        ['qwen3.6-plus', 500_000, 200, 600],
+        ['qwen-flash', 500_000, 25, 200],
+        ['qwen3.7-flash', 500_000, 20, 80],
+        ['qwen3.7-flash', 100_000, 10, 40],
+    ])(
+        'bills %s at its input-length tier for a %i-token prompt',
+        async (model, promptTokens, inputRate, outputRate) => {
+            const overrides = await billedAt(model, {
+                prompt_tokens: promptTokens,
+                completion_tokens: 1000,
+            });
+
+            expect(overrides.prompt_tokens).toBeCloseTo(
+                promptTokens * inputRate,
+                5,
+            );
+            expect(overrides.completion_tokens).toBeCloseTo(
+                1000 * outputRate,
+                5,
+            );
+        },
+    );
+
+    it.each([
+        // [model, threshold, base input rate, base output rate]
+        ['qwen-plus', 256_000, 40, 120],
+        ['qwen-flash', 256_000, 5, 40],
+        ['qwen3.7-flash', 32_000, 3, 13],
+    ])(
+        'keeps %s on the base tier for a prompt of exactly %i tokens',
+        async (model, promptTokens, inputRate, outputRate) => {
+            const overrides = await billedAt(model, {
+                prompt_tokens: promptTokens,
+                completion_tokens: 1000,
+            });
+
+            expect(overrides.prompt_tokens).toBeCloseTo(
+                promptTokens * inputRate,
+                5,
+            );
+            expect(overrides.completion_tokens).toBeCloseTo(
+                1000 * outputRate,
+                5,
+            );
+        },
+    );
+
+    it('picks the tier from the whole prompt and bills its cache hits at the tier cached rate', async () => {
+        // 300K prompt tokens, 200K of them read from cache.
+        const overrides = await billedAt('qwen3.6-plus', {
+            prompt_tokens: 300_000,
+            completion_tokens: 1000,
+            prompt_tokens_details: { cached_tokens: 200_000 },
+        });
+
+        expect(overrides.prompt_tokens).toBeCloseTo(100_000 * 200, 5);
+        expect(overrides.cached_tokens).toBeCloseTo(200_000 * 20, 5);
+        expect(overrides.completion_tokens).toBeCloseTo(1000 * 600, 5);
+    });
+
+    it('leaves an untiered snapshot on its flat rate for a long prompt', async () => {
+        const overrides = await billedAt('qwen-plus-2025-07-14', {
+            prompt_tokens: 500_000,
+            completion_tokens: 1000,
+        });
+
+        expect(overrides.prompt_tokens).toBeCloseTo(500_000 * 40, 5);
+        expect(overrides.completion_tokens).toBeCloseTo(1000 * 120, 5);
+    });
+
     it.each(['qwen3.8-max', 'qwen4-max'])(
         'accounts for cached tokens in %s completions',
         async (modelId) => {

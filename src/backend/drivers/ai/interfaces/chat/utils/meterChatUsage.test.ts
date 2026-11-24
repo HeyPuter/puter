@@ -235,19 +235,20 @@ describe('cached reads on OpenAI-compatible catalogs', () => {
             actor,
             'k',
             m,
+            // A prompt under every catalog's first input-length tier.
             splitCachedPrompt({
-                prompt_tokens: 1_000_000,
-                completion_tokens: 100_000,
-                prompt_tokens_details: { cached_tokens: 200_000 },
-                total_tokens: 1_100_000,
+                prompt_tokens: 10_000,
+                completion_tokens: 1000,
+                prompt_tokens_details: { cached_tokens: 2000 },
+                total_tokens: 11_000,
             }),
         );
         const costs = m.costs as Record<string, number>;
         const cachedRate = costs.cached_tokens ?? costs.prompt_tokens;
         expect(calls[0]![2]).toEqual({
-            prompt_tokens: 800_000 * costs.prompt_tokens,
-            completion_tokens: 100_000 * costs.completion_tokens,
-            cached_tokens: 200_000 * cachedRate,
+            prompt_tokens: 8000 * costs.prompt_tokens,
+            completion_tokens: 1000 * costs.completion_tokens,
+            cached_tokens: 2000 * cachedRate,
         });
         if (costs.prompt_tokens > 0) expect(cachedRate).toBeGreaterThan(0);
     });

@@ -17,7 +17,29 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { IChatModel } from '../../../interfaces/chat/types.js';
+import type {
+    IChatModel,
+    ModelPricingOverride,
+} from '../../../interfaces/chat/types.js';
+
+/**
+ * One input-length tier from Model Studio's price table: a request with more
+ * than `minPromptTokens` input tokens pays these rates on all of its tokens.
+ * Rates are cents per 1M tokens, like `costs`.
+ */
+const tier = (
+    minPromptTokens: number,
+    input: number,
+    output: number,
+    cached?: number,
+): ModelPricingOverride => ({
+    minPromptTokens,
+    costs: {
+        prompt_tokens: input,
+        completion_tokens: output,
+        ...(cached !== undefined ? { cached_tokens: cached } : {}),
+    },
+});
 
 // Hardcoded from https://models.dev/api.json
 export const ALIBABA_MODELS: IChatModel[] = [
@@ -148,6 +170,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
             prompt_tokens: 40,
             completion_tokens: 120,
         },
+        pricingOverrides: [tier(256_000, 120, 360)],
     },
     {
         puterId: 'alibaba:qwen/qwen3.5-plus',
@@ -170,6 +193,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
             prompt_tokens: 40,
             completion_tokens: 240,
         },
+        pricingOverrides: [tier(256_000, 50, 300)],
     },
     {
         puterId: 'alibaba:qwen/qwen3.6-plus',
@@ -193,6 +217,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
             completion_tokens: 300,
             cached_tokens: 5,
         },
+        pricingOverrides: [tier(256_000, 200, 600, 20)],
     },
 
     {
@@ -330,6 +355,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
             prompt_tokens: 5,
             completion_tokens: 40,
         },
+        pricingOverrides: [tier(256_000, 25, 200)],
     },
 
     // -- Coding models ----------------------------------------------
@@ -663,6 +689,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
             prompt_tokens: 40,
             completion_tokens: 120,
         },
+        pricingOverrides: [tier(256_000, 120, 360)],
     },
     // -- Qwen3.7 Max snapshots and preview ------------------------
     {
@@ -772,6 +799,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
             prompt_tokens: 40,
             completion_tokens: 240,
         },
+        pricingOverrides: [tier(256_000, 50, 300)],
     },
     {
         puterId: 'alibaba:qwen/qwen3.5-plus-2026-04-20',
@@ -794,6 +822,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
             prompt_tokens: 40,
             completion_tokens: 240,
         },
+        pricingOverrides: [tier(256_000, 50, 300)],
     },
     // -- Qwen3.5 / Qwen3.7 / Qwen3.8 Flash -----------------------
     {
@@ -841,6 +870,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
             completion_tokens: 13,
             cached_tokens: 0.3,
         },
+        pricingOverrides: [tier(32_000, 10, 40, 1), tier(256_000, 20, 80, 2)],
     },
     // No vendor-documented release date; omitted rather than guessed.
     {
