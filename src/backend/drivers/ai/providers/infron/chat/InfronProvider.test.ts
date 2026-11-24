@@ -47,7 +47,7 @@ import {
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { refreshingCatalogs } from '../../../shared/cachedRemoteCatalog.js';
+import { CATALOG_TTL_MS } from '../../../shared/cachedRemoteCatalog.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { InfronProvider } from './InfronProvider.js';
@@ -401,6 +401,38 @@ describe('InfronProvider model catalog', () => {
         );
     });
 
+    it('prices a speed variant from a catalog fetched again once it is older than 15 minutes', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const { provider } = makeProvider();
+        const base = (await provider.models()).find(
+            (m) => m.id === 'infron:openai/gpt-6-astra',
+        )!;
+        expect(
+            (await provider.serviceSpeedModels(base)).fast?.costs.completion,
+        ).toBe(10000);
+
+        vi.advanceTimersByTime(CATALOG_TTL_MS + 1);
+        axiosRequestMock.mockResolvedValueOnce({
+            data: {
+                data: SAMPLE_API_MODELS.map((model) =>
+                    model.id === 'openai/gpt-6-astra'
+                        ? {
+                              ...model,
+                              providers: model.providers!.map((offer) =>
+                                  offer.service_tier === 'priority'
+                                      ? { ...offer, completion_price: 300 }
+                                      : offer,
+                              ),
+                          }
+                        : model,
+                ),
+            },
+        });
+        expect(
+            (await provider.serviceSpeedModels(base)).fast?.costs.completion,
+        ).toBe(30000);
+    });
+
     it('takes a tier variant context window from its own offering', async () => {
         const { provider } = makeProvider();
         const models = await provider.models();
@@ -744,5 +776,5 @@ it('retains the last-good infron catalog after a malformed refresh', async () =>
     const good = await provider.models();
     vi.advanceTimersByTime(15 * 60 * 1000 + 1);
     axiosRequestMock.mockResolvedValueOnce({ data: {} });
-    expect(await refreshingCatalogs(() => provider.models())).toBe(good);
+    expect(await provider.models()).toBe(good);
 });

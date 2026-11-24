@@ -103,7 +103,7 @@ describe('cachedRemoteCatalog', () => {
 
         expect(await get()).toEqual(['a']);
         vi.advanceTimersByTime(1001);
-        expect(await refreshingCatalogs(get)).toEqual(['a']);
+        expect(await get()).toEqual(['a']);
         expect(fetch).toHaveBeenCalledTimes(2);
     });
 
@@ -148,9 +148,8 @@ describe('cachedRemoteCatalog', () => {
         await get();
         expect(warn).toHaveBeenCalledTimes(1);
         await get();
-        // This read has a copy, so its failing fetch runs in the background.
         await get();
-        await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2));
+        expect(warn).toHaveBeenCalledTimes(2);
     });
 
     it('treats a synchronous throw like any other failure', async () => {
@@ -171,21 +170,13 @@ describe('cachedRemoteCatalog', () => {
     });
 });
 
+
 it('passes the last successful snapshot to a refresh without exposing the fallback as fetched data', async () => {
-    const fetch = vi.fn(async (_signal: AbortSignal, previous?: string[]) => [
-        ...(previous ?? []),
-        'model',
-    ]);
-    const get = cachedRemoteCatalog({
-        name: 'fixture',
-        fetch,
-        fallback: ['fallback'],
-        ttlMs: 0,
-    });
+    const fetch = vi.fn(async (_signal: AbortSignal, previous?: string[]) => [...(previous ?? []), 'model']);
+    const get = cachedRemoteCatalog({ name: 'fixture', fetch, fallback: ['fallback'], ttlMs: 0 });
     expect(await get()).toEqual(['model']);
     expect(fetch.mock.calls[0][1]).toBeUndefined();
-    // Already expired: this read gets the copy and starts the refresh.
-    expect(await get()).toEqual(['model']);
+    expect(await get()).toEqual(['model', 'model']);
     expect(fetch.mock.calls[1][1]).toEqual(['model']);
 });
 
@@ -212,7 +203,7 @@ describe('cachedRemoteCatalog read modes', () => {
     /** A catalog holding `['a']` that has just gone stale. */
     const staleCatalog = async (
         fetch: () => Promise<string[]>,
-        options: { failureTtlMs?: number; blocking?: boolean } = {},
+        options: { failureTtlMs?: number; staleWhileRevalidate?: boolean } = {},
     ) => {
         vi.useFakeTimers({ toFake: ['Date'] });
         const get = cachedRemoteCatalog({
@@ -298,7 +289,9 @@ describe('cachedRemoteCatalog read modes', () => {
             .fn<() => Promise<string[]>>()
             .mockResolvedValueOnce(['a'])
             .mockReturnValueOnce(next.promise);
-        const get = await staleCatalog(fetch);
+        const get = await staleCatalog(fetch, {
+            staleWhileRevalidate: true,
+        });
 
         expect(await settled(get())).toEqual(['a']);
 
@@ -313,7 +306,9 @@ describe('cachedRemoteCatalog read modes', () => {
             .fn<() => Promise<string[]>>()
             .mockResolvedValueOnce(['a'])
             .mockReturnValue(new Promise(() => {}));
-        const get = await staleCatalog(fetch);
+        const get = await staleCatalog(fetch, {
+            staleWhileRevalidate: true,
+        });
 
         const reads = await Promise.all(
             [get(), get(), get(), get(), get()].map(settled),
@@ -334,7 +329,9 @@ describe('cachedRemoteCatalog read modes', () => {
                 .mockResolvedValueOnce(['a'])
                 .mockReturnValueOnce(failing.promise)
                 .mockRejectedValue(new Error('down'));
-            const get = await staleCatalog(fetch);
+            const get = await staleCatalog(fetch, {
+                staleWhileRevalidate: true,
+            });
 
             expect(await settled(get())).toEqual(['a']);
             failing.reject(new Error('down'));
@@ -367,7 +364,10 @@ describe('cachedRemoteCatalog read modes', () => {
                 .mockResolvedValueOnce(['a'])
                 .mockRejectedValueOnce(Object.create(null))
                 .mockResolvedValueOnce(['b']);
-            const get = await staleCatalog(fetch, { failureTtlMs: 0 });
+            const get = await staleCatalog(fetch, {
+                failureTtlMs: 0,
+                staleWhileRevalidate: true,
+            });
 
             expect(await settled(get())).toEqual(['a']);
             await flush();
@@ -406,7 +406,10 @@ describe('cachedRemoteCatalog read modes', () => {
                 throw new Error('bad config');
             })
             .mockResolvedValueOnce(['b']);
-        const get = await staleCatalog(fetch, { failureTtlMs: 0 });
+        const get = await staleCatalog(fetch, {
+            failureTtlMs: 0,
+            staleWhileRevalidate: true,
+        });
 
         expect(await settled(get())).toEqual(['a']);
         await flush();
@@ -423,7 +426,9 @@ describe('cachedRemoteCatalog read modes', () => {
             .fn<() => Promise<string[]>>()
             .mockResolvedValueOnce(['a'])
             .mockReturnValueOnce(next.promise);
-        const get = await staleCatalog(fetch);
+        const get = await staleCatalog(fetch, {
+            staleWhileRevalidate: true,
+        });
 
         expect(await settled(get())).toEqual(['a']);
         const scheduled = refreshingCatalogs(get);
@@ -446,13 +451,13 @@ describe('cachedRemoteCatalog read modes', () => {
         expect(await read).toEqual(['a']);
     });
 
-    it('makes a stale read of a blocking catalog wait for the new copy', async () => {
+    it('makes a stale read wait for the new copy unless the catalog opts into stale-while-revalidate', async () => {
         const next = deferred<string[]>();
         const fetch = vi
             .fn<() => Promise<string[]>>()
             .mockResolvedValueOnce(['a'])
             .mockReturnValueOnce(next.promise);
-        const get = await staleCatalog(fetch, { blocking: true });
+        const get = await staleCatalog(fetch);
 
         const read = get();
         expect(await settled(read)).toBe(PENDING);

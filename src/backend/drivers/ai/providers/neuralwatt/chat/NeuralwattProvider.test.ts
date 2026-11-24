@@ -41,10 +41,7 @@ import {
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import {
-    CATALOG_TTL_MS,
-    refreshingCatalogs,
-} from '../../../shared/cachedRemoteCatalog.js';
+import { CATALOG_TTL_MS } from '../../../shared/cachedRemoteCatalog.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { mapNeuralwattApiModel, NEURALWATT_DEFAULT_MODEL } from './models.js';
@@ -775,5 +772,5 @@ it('retains the last-good neuralwatt catalog after a malformed refresh', async (
     const good = await provider.models();
     vi.advanceTimersByTime(15 * 60 * 1000 + 1);
     axiosRequestMock.mockResolvedValueOnce({ data: {} });
-    expect(await refreshingCatalogs(() => provider.models())).toBe(good);
+    expect(await provider.models()).toBe(good);
 });

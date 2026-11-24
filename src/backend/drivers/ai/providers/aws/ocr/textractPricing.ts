@@ -156,8 +156,6 @@ export const textractRates = (
         const catalog = cachedRemoteCatalog<number | null>({
             name: `AWS Textract ${region} price list`,
             fallback,
-            // The rate read here is the rate billed.
-            blocking: true,
             fetch: (signal) => fetchTextractPriceList(region, signal),
         });
         catalogs.set(region, catalog);

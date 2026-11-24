@@ -955,21 +955,19 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         }
     });
 
-    it('refetches a provider catalog on every scheduled rebuild when the fetch takes time', async () => {
+    it('lists the prices each scheduled rebuild fetched, even when the fetch takes time', async () => {
         vi.useFakeTimers({
             toFake: ['Date', 'setTimeout', 'setInterval', 'clearInterval'],
         });
         const bootXaiCatalog = axiosGetMock.getMockImplementation()!;
-        const callsBefore = axiosGetMock.mock.calls.length;
-        axiosGetMock.mockImplementation(
-            () =>
-                new Promise((resolve) =>
-                    setTimeout(
-                        () => resolve(xaiCatalogAt(XAI_LIVE_LOW_1K_CENTS)),
-                        200,
-                    ),
-                ),
-        );
+        // Each catalog fetch takes 200 ms and quotes one cent more.
+        let fetches = 0;
+        axiosGetMock.mockImplementation(() => {
+            const cents = 4 + ++fetches;
+            return new Promise((resolve) =>
+                setTimeout(() => resolve(xaiCatalogAt(cents)), 200),
+            );
+        });
         const xaiDriver = new ImageGenerationDriver(
             {
                 providers: { 'xai-image-generation': { apiKey: 'xai-key' } },
@@ -978,13 +976,27 @@ describe('ImageGenerationDriver.generate provider routing', () => {
             server.stores,
             server.services,
         );
+        const listedLow1k = async () =>
+            (await xaiDriver.models()).find(
+                (m) => m.id === 'grok-imagine-image-2.0',
+            )?.costs['output:1k:low'];
+        const settle = async () => {
+            for (let i = 0; i < 10; i++)
+                await new Promise((resolve) => setImmediate(resolve));
+        };
         try {
             const started = xaiDriver.onServerStart();
             await vi.advanceTimersByTimeAsync(200);
             await started;
-            for (let tick = 0; tick < 4; tick++)
+            expect(await listedLow1k()).toBe(5);
+            // Line the ticks up so each one's fetch lands as the step ends.
+            await vi.advanceTimersByTimeAsync(200);
+            for (let tick = 1; tick <= 4; tick++) {
                 await vi.advanceTimersByTimeAsync(CATALOG_TTL_MS);
-            expect(axiosGetMock.mock.calls.length - callsBefore).toBe(5);
+                await settle();
+                expect(await listedLow1k()).toBe(5 + tick);
+            }
+            expect(fetches).toBe(5);
         } finally {
             xaiDriver.onServerShutdown();
             axiosGetMock.mockImplementation(bootXaiCatalog);

@@ -419,29 +419,42 @@ describe('ChatCompletionDriver model map', () => {
         }
     });
 
-    it('refetches a gateway catalog on every scheduled rebuild when the fetch takes time', async () => {
+    it('lists the models each scheduled rebuild fetched, even when the fetch takes time', async () => {
         vi.useFakeTimers({
             toFake: ['Date', 'setTimeout', 'setInterval', 'clearInterval'],
         });
-        const tags = vi.spyOn(axios, 'request').mockImplementation(
-            () =>
-                new Promise((resolve) =>
-                    setTimeout(
-                        () =>
-                            resolve({
-                                data: { models: [{ name: 'llama' }] },
-                            }),
-                        200,
-                    ),
+        // Each catalog fetch takes 200 ms and names a new model.
+        let fetches = 0;
+        vi.spyOn(axios, 'request').mockImplementation(() => {
+            const name = `llama-${++fetches}`;
+            return new Promise((resolve) =>
+                setTimeout(
+                    () => resolve({ data: { models: [{ name }] } }),
+                    200,
                 ),
-        );
+            );
+        });
         const d = newDriver({ ollama: {} });
+        const listedOllama = async () =>
+            (await d.models())
+                .filter((m) => m.provider === 'ollama')
+                .map((m) => m.id);
+        const settle = async () => {
+            for (let i = 0; i < 10; i++)
+                await new Promise((resolve) => setImmediate(resolve));
+        };
         try {
             d.onServerStart();
             await vi.advanceTimersByTimeAsync(200);
-            for (let tick = 0; tick < 4; tick++)
+            expect(await listedOllama()).toEqual(['ollama:ollama/llama-1']);
+            for (let tick = 1; tick <= 4; tick++) {
                 await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
-            expect(tags).toHaveBeenCalledTimes(5);
+                await settle();
+                expect(await listedOllama()).toEqual([
+                    `ollama:ollama/llama-${1 + tick}`,
+                ]);
+            }
+            expect(fetches).toBe(5);
         } finally {
             d.onServerShutdown();
             vi.useRealTimers();

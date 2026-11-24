@@ -46,10 +46,7 @@ import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
-import {
-    CATALOG_TTL_MS,
-    refreshingCatalogs,
-} from '../../../shared/cachedRemoteCatalog.js';
+import { CATALOG_TTL_MS } from '../../../shared/cachedRemoteCatalog.js';
 import { ImageGenerationDriver } from '../../../interfaces/image/ImageGenerationDriver.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './models.js';
 import { CloudflareImageProvider } from './CloudflareImageProvider.js';
@@ -992,7 +989,7 @@ describe('Cloudflare model-search pricing', () => {
             return okJsonResponse(repricedPhoenix());
         });
         vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60 * 60 * 1000);
-        const refresh = refreshingCatalogs(() => provider.models());
+        const refresh = provider.models();
         await vi.waitFor(() =>
             expect(modelSearchFetch).toHaveBeenCalledTimes(2),
         );
@@ -1019,7 +1016,7 @@ describe('Cloudflare model-search pricing', () => {
         modelSearchFetch.mockResolvedValueOnce(
             new Response('upstream down', { status: 503 }),
         );
-        await refreshingCatalogs(() => provider.models());
+        await provider.models();
         await runPhoenix(provider);
 
         expect(modelSearchFetch).toHaveBeenCalledTimes(2);

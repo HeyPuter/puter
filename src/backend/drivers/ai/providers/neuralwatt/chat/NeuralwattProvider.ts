@@ -147,6 +147,9 @@ export class NeuralwattProvider extends OpenAICompatProvider {
     readonly getAccountingMethod = cachedRemoteCatalog({
         name: 'Neuralwatt quota',
         fallback: undefined as NeuralwattAccountingMethod | undefined,
+        // Read on every completion and never billed, so a completion
+        // doesn't wait on /quota once a value is in.
+        staleWhileRevalidate: true,
         fetch: async (signal) => {
             const resp = await axios.request({
                 method: 'GET',

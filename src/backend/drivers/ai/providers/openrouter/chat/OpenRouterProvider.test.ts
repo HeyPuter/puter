@@ -47,7 +47,7 @@ import { makeActor } from '../../../../../core/actor.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { refreshingCatalogs } from '../../../shared/cachedRemoteCatalog.js';
+import { CATALOG_TTL_MS } from '../../../shared/cachedRemoteCatalog.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { ChatCompletionDriver } from '../../../interfaces/chat/ChatCompletionDriver.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
@@ -1193,9 +1193,7 @@ describe('OpenRouter catalog refresh validation', () => {
                         ],
                     },
                 });
-            expect(await refreshingCatalogs(() => provider.models())).toBe(
-                good,
-            );
+            expect(await provider.models()).toBe(good);
         },
     );
 });
@@ -1261,6 +1259,37 @@ describe('OpenRouter service speed offerings', () => {
         });
         expect(await provider.serviceSpeedModels(base)).toBe(offers);
         expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('fetches the speed prices again once they are older than 15 minutes, before a request is priced', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const { provider } = makeProvider();
+        const base = {
+            ...(await provider.models())[0],
+            provider: 'openrouter',
+        };
+        const priorityAt = (completion: string) => ({
+            data: {
+                data: {
+                    endpoints: [
+                        {
+                            service_tier: 'priority',
+                            pricing: { prompt: '0.000005', completion },
+                        },
+                    ],
+                },
+            },
+        });
+        axiosRequestMock.mockResolvedValueOnce(priorityAt('0.00002'));
+        expect(
+            (await provider.serviceSpeedModels(base)).fast?.costs.completion,
+        ).toBe(2000);
+
+        vi.advanceTimersByTime(CATALOG_TTL_MS + 1);
+        axiosRequestMock.mockResolvedValueOnce(priorityAt('0.00006'));
+        expect(
+            (await provider.serviceSpeedModels(base)).fast?.costs.completion,
+        ).toBe(6000);
     });
 
     it('uses standard when the tier catalog cannot be fetched', async () => {

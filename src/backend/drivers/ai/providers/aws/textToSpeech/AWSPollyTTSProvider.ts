@@ -98,8 +98,6 @@ export class AWSPollyTTSProvider implements ITTSProvider {
             ? cachedRemoteCatalog<PollyRates>({
                   name: `AWS Polly ${region} price list`,
                   fallback: AWS_POLLY_COSTS,
-                  // The rate read here is the rate billed.
-                  blocking: true,
                   fetch: async (signal, previous) => {
                       this.currentRates = {
                           ...(previous ?? AWS_POLLY_COSTS),

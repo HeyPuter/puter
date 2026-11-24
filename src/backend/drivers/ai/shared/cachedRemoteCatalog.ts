@@ -44,18 +44,17 @@ export interface CachedRemoteCatalogOptions<T> {
     /** How long a failure is remembered before the upstream is asked again. */
     failureTtlMs?: number;
     /**
-     * Makes a read of an expired copy wait for the new one. For a value that
-     * must never be older than `ttlMs`, such as a rate that is billed as read.
+     * Makes a read of an expired copy return it while the next one is fetched.
+     * Only for a value no request bills or prices a hold from.
      */
-    blocking?: boolean;
+    staleWhileRevalidate?: boolean;
 }
 
 /**
  * A remote catalog (a gateway's model list, an account's quota) served from
- * memory for `ttlMs`. A read of an expired copy returns it and fetches the next
- * one in the background; only a first read, a `blocking` catalog and
- * {@link refreshingCatalogs} wait. Readers share one fetch, and a failed one
- * keeps the last good value and isn't retried for `failureTtlMs`.
+ * memory for `ttlMs`. A read of an expired copy waits for the next one, unless
+ * the catalog opts into `staleWhileRevalidate`. Readers share one fetch, and a
+ * failed one keeps the last good value and isn't retried for `failureTtlMs`.
  */
 export const cachedRemoteCatalog = <T>({
     name,
@@ -64,7 +63,7 @@ export const cachedRemoteCatalog = <T>({
     ttlMs = CATALOG_TTL_MS,
     timeoutMs = 10_000,
     failureTtlMs = 30_000,
-    blocking = false,
+    staleWhileRevalidate = false,
 }: CachedRemoteCatalogOptions<T>): (() => Promise<T>) => {
     let last: { value: T; fetchedAt: number } | undefined;
     let retryAt = 0;
@@ -117,7 +116,7 @@ export const cachedRemoteCatalog = <T>({
         )
             return last.value;
         if (now < retryAt) return last ? last.value : fallback;
-        if (last && !refresh && !blocking) {
+        if (last && !refresh && staleWhileRevalidate) {
             void revalidate();
             return last.value;
         }

@@ -48,7 +48,6 @@ import { SYSTEM_ACTOR } from '../../../../../core/actor.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { refreshingCatalogs } from '../../../shared/cachedRemoteCatalog.js';
 import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { TogetherAIProvider } from './TogetherAIProvider.js';
@@ -786,5 +785,5 @@ it('retains the last-good together catalog after a malformed refresh', async () 
     const good = await provider.models();
     vi.advanceTimersByTime(15 * 60 * 1000 + 1);
     modelsListMock.mockResolvedValueOnce({});
-    expect(await refreshingCatalogs(() => provider.models())).toBe(good);
+    expect(await provider.models()).toBe(good);
 });
