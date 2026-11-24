@@ -1,44 +1,41 @@
+<h3 align="center"><img width="80" alt="Puter.com，个人云计算机：所有文件、应用程序和游戏集中在一处，随时随地可访问。" src="https://assets.puter.site/puter-logo.png"></h3>
 
-<h3 align="center"><img width="80" alt="Puter.com，个人云计算机：所有文件、应用程序和游戏在一个地方，随时随地可访问。" src="https://assets.puter.site/puter-logo.png"></h3>
-
-<h3 align="center">互联网操作系统！免费、开源且可自行托管。</h3>
-
-<p align="center">
-    <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=latest%20version"> <img alt="GitHub License" src="https://img.shields.io/github/license/HeyPuter/puter">
-</p>
+<h3 align="center">开源互联网计算机！</h3>
 
 <p align="center">
     <a href="https://puter.com/"><strong>« 在线演示 »</strong></a>
     <br />
     <br />
-    <a href="https://puter.com">Puter.com</a>
+    <a href="https://puter.com/">Puter.com</a>
     ·
-    <a href="https://docs.puter.com" target="_blank">SDK</a>
+    <a href="https://office.puter.com/">Office Suite</a>
     ·
-    <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
+    <a href="https://builder.puter.com/">AI Builder</a>
     ·
-    <a href="https://reddit.com/r/puter">Reddit</a>
+    <a href="https://developer.puter.com" target="_blank">开发者</a>
     ·
-    <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
+    <a href="https://twitter.com/HeyPuter">X</a>
 </p>
 
-<h3 align="center"><img width="800" style="border-radius:5px;" alt="screenshot" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
+<h3 align="center"><img width="800" style="border-radius:5px;" alt="截图" src="https://assets.puter.com/puter.webp"></h3>
 
 <br/>
 
 ## Puter
 
-Puter 是一个先进的开源互联网操作系统，设计为功能丰富、速度极快且高度可扩展。Puter 可用作：
+Puter 是一台先进的开源互联网计算机，可自行托管，设计目标是功能丰富、速度快且高度可扩展。
 
-- 一个以隐私为优先的个人云，将所有文件、应用程序和游戏保存在一个安全的地方，随时随地可访问。
-- 构建和发布网站、Web 应用程序和游戏的平台。
-- Dropbox、Google Drive、OneDrive 等的替代品，具有全新的界面和强大的功能。
-- 服务器和工作站的远程桌面环境。
-- 一个友好的开源项目和社区，学习 Web 开发、云计算、分布式系统等更多内容！
+### 面向用户
+Puter 的目标是让你在一个地方完成工作、创作和娱乐。从简单的 [Notepad](https://online-notepad.com) 和 [Camera](https://online-camera.com)，到 [Office Suite](https://office.puter.com) 和 [AI Builder](https://builder.puter.com)，Puter 希望成为你数字生活的一站式解决方案。
+
+
+### 面向开发者
+
+Puter 提供构建和发布 Web 应用与游戏所需的一切。从 [AI](https://developer.puter.com/ai/)、[云存储](https://developer.puter.com/object-storage/)、[数据库](https://developer.puter.com/key-value-database/)到[无服务器 Worker](https://developer.puter.com/serverless-workers/)，Puter 都能满足你的需求。Puter 还能帮你获取用户！应用构建完成后，你可以将它发布到我们的 [App Store](https://apps.puter.com/)，触达用户并实现变现。
 
 <br/>
 
-## 入门指南
+## 快速开始
 
 
 ### 💻 本地开发
@@ -49,90 +46,90 @@ cd puter
 npm install
 npm start
 ```
+**→** 这将在 http://puter.localhost:4100 启动 Puter
 
-这将会在 http://puter.localhost:4100（或下一个可用端口）启动 Puter。
+如需使用 Docker 运行此检出的代码，请参阅 [Building from source](../self-hosting.md#building-from-source-instead-of-pulling)。创建本地的 `docker-compose.override.yml` 来选择本地构建；将这些设置放在 `docker-compose.yml` 之外，可避免拉取更新时产生冲突，也能让本地配置不进入 pull request。
+
 
 <br/>
 
-### 🐳 Docker
-
-
-```bash
-mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
-```
-
-<br/>
-
-
-### 🐙 Docker Compose
-
+### 🚀 自行托管
 
 #### Linux/macOS
+
 ```bash
-mkdir -p puter/config puter/data
-sudo chown -R 1000:1000 puter
-wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
-docker compose up
+curl -fsSL https://puter.com/selfhost | sh
 ```
-<br/>
 
 #### Windows
 
-
 ```powershell
-mkdir -p puter
-cd puter
-New-Item -Path "puter\config" -ItemType Directory -Force
-New-Item -Path "puter\data" -ItemType Directory -Force
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
-docker compose up
+irm https://puter.com/selfhost?os=windows | iex
 ```
+
+**→** 更多详情请参阅[自行托管 Puter](../self-hosting.md)。
+
 <br/>
-
-## 宝塔面板Docker一键部署（推荐）
-
-1. 安装宝塔面板9.2.0及以上版本，前往 [宝塔面板](https://www.bt.cn/new/download.html?r=dk_puter) 官网，选择正式版的脚本下载安装
-
-2. 安装后登录宝塔面板，在左侧菜单栏中点击 `Docker`，首次进入会提示安装`Docker`服务，点击立即安装，按提示完成安装
-
-3. 安装完成后在应用商店中搜索`puter`，点击安装，配置域名等基本信息即可完成安装
-   
 
 ### ☁️ Puter.com
 
-Puter 可以作为托管服务使用，访问 [**puter.com**](https://puter.com)。
-
-<br/>
-
-## 系统要求
-
-- **操作系统：** Linux, macOS, Windows
-- **内存：** 最低 2GB（推荐 4GB）
-- **磁盘空间：** 1GB 可用空间
-- **Node.js：** 版本 16+（推荐 22+）
-- **npm：** 最新稳定版本
+Puter 也提供托管服务，访问 [**puter.com**](https://puter.com) 即可使用。
 
 <br/>
 
 ## 支持
 
-通过以下渠道与维护者和社区联系：
+可通过以下渠道联系维护者和社区：
 
-- 有 Bug 报告或功能请求？请 [提交问题](https://github.com/HeyPuter/puter/issues/new/choose)。
-- Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
-- X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
-- Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
-- Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
-- 安全问题？请联系 [security@puter.com](mailto:security@puter.com)
-- 电子邮件维护者 [hi@puter.com](mailto:hi@puter.com)
+- 要报告 Bug 或提出功能需求？请[提交 issue](https://github.com/HeyPuter/puter/issues/new/choose)。
+- X (Twitter)：[x.com/HeyPuter](https://x.com/HeyPuter)
+- 安全问题或滥用举报？请联系 [security@puter.com](mailto:security@puter.com)
+- 也可以发送电子邮件给维护者：[hi@puter.com](mailto:hi@puter.com)
 
-我们随时乐意帮助您解答任何问题，欢迎随时联系！
+无论有什么问题，我们都乐意为你解答，欢迎随时提问！
 
 <br/>
-
 
 ## 许可证
 
-本仓库，包括其所有内容、子项目、模块和组件，除非另有明确说明，否则均遵循 [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) 许可证。 本仓库中包含的第三方库可能受其各自的许可证约束。
+除非另有明确说明，本仓库及其所有内容、子项目、模块和组件均基于 [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) 授权。本仓库中包含的第三方库可能适用其各自的许可证。
 
 <br/>
+
+## 翻译
+
+- [Arabic / العربية](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ar.md)
+- [Armenian / Հայերեն](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hy.md)
+- [Bengali / বাংলা](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.bn.md)
+- [Chinese / 中文](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.zh.md)
+- [Danish / Dansk](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.da.md)
+- [English](https://github.com/HeyPuter/puter/blob/main/README.md)
+- [Farsi / فارسی](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fa.md)
+- [Finnish / Suomi](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fi.md)
+- [French / Français](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fr.md)
+- [German /  Deutsch](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.de.md)
+- [Hebrew/ עברית](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.he.md)
+- [Hindi / हिंदी](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hi.md)
+- [Hungarian / Magyar](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hu.md)
+- [Indonesian / Bahasa Indonesia](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.id.md)
+- [Italian / Italiano](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.it.md)
+- [Japanese / 日本語](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.jp.md)
+- [Korean / 한국어](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ko.md)
+- [Malay / Bahasa Malaysia](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.my.md)
+- [Malayalam / മലയാളം](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ml.md)
+- [Dutch / Nederlands](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.nl.md)
+- [Polish / Polski](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pl.md)
+- [Odia / ଓଡ଼ିଆ](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.od.md)
+- [Portuguese / Português](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pt.md)
+- [Punjabi / ਪੰਜਾਬੀ](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pa.md)
+- [Romanian / Română](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ro.md)
+- [Russian / Русский](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ru.md)
+- [Spanish / Español](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.es.md)
+- [Swedish / Svenska](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.sv.md)
+- [Tamil / தமிழ்](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ta.md)
+- [Telugu / తెలుగు](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.te.md)
+- [Thai / ไทย](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.th.md)
+- [Turkish / Türkçe](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.tr.md)
+- [Ukrainian / Українська](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ua.md)
+- [Urdu / اردو](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ur.md)
+- [Vietnamese / Tiếng Việt](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.vi.md)

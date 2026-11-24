@@ -1,41 +1,41 @@
-<h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://assets.puter.site/puter-logo.png"></h3>
-<h3 align="center">Internetin käyttöjärjestelmä! Ilmainen, avoimen lähdekoodin ja itse isännöitävä.</h3>
+<h3 align="center"><img width="80" alt="Puter.com, henkilökohtainen pilvitietokone: kaikki tiedostosi, sovelluksesi ja pelisi yhdessä paikassa, käytettävissä mistä tahansa milloin tahansa." src="https://assets.puter.site/puter-logo.png"></h3>
 
-<p align="center">
-    <img alt="GitHub repo size" src="https://img.shields.io/github/repo-size/HeyPuter/puter"> <img alt="GitHub Release" src="https://img.shields.io/github/v/release/HeyPuter/puter?label=viimeisin%20versio"> <img alt="GitHub License" src="https://img.shields.io/github/license/HeyPuter/puter">
-</p>
+<h3 align="center">Avoimen lähdekoodin internet-tietokone!</h3>
+
 <p align="center">
     <a href="https://puter.com/"><strong>« LIVE DEMO »</strong></a>
     <br />
     <br />
-    <a href="https://puter.com">Puter.com</a>
+    <a href="https://puter.com/">Puter.com</a>
     ·
-    <a href="https://docs.puter.com" target="_blank">SDK</a>
+    <a href="https://office.puter.com/">Office Suite</a>
     ·
-    <a href="https://discord.com/invite/PQcx7Teh8u">Discord</a>
+    <a href="https://builder.puter.com/">AI Builder</a>
     ·
-    <a href="https://reddit.com/r/puter">Reddit</a>
+    <a href="https://developer.puter.com" target="_blank">Kehittäjät</a>
     ·
-    <a href="https://twitter.com/HeyPuter">X (Twitter)</a>
+    <a href="https://twitter.com/HeyPuter">X</a>
 </p>
 
-<h3 align="center"><img width="800" style="border-radius:5px;" alt="näyttökuva" src="https://assets.puter.site/puter.com-screenshot-3.webp"></h3>
+<h3 align="center"><img width="800" style="border-radius:5px;" alt="näyttökuva" src="https://assets.puter.com/puter.webp"></h3>
 
 <br/>
 
 ## Puter
 
-Puter on kehittynyt, avoimen lähdekoodin internetin käyttöjärjestelmä, joka on suunniteltu olemaan ominaisuuksiltaan rikas, poikkeuksellisen nopea ja erittäin laajennettava. Puteria voidaan käyttää:
+Puter on kehittynyt, avoimen lähdekoodin ja itse isännöitävä internet-tietokone, joka on suunniteltu ominaisuuksiltaan rikkaaksi, nopeaksi ja erittäin laajennettavaksi.
 
-- Yksityisyyttä kunnioittavana henkilökohtaisena pilvenä, johon voit tallentaa kaikki tiedostosi, sovelluksesi ja pelisi turvallisesti yhdessä paikassa, josta ne ovat saatavilla missä tahansa ja milloin tahansa.
-- Alustana verkkosivustojen, web-sovellusten ja pelien rakentamiseen ja julkaisemiseen.
-- Vaihtoehtona Dropboxille, Google Drivelle, OneDrivelle jne. tuoreella käyttöliittymällä ja tehokkailla ominaisuuksilla.
-- Etätyöpöytäympäristönä palvelimille ja työasemille.
-- Ystävällisenä, avoimen lähdekoodin projektina ja yhteisönä, jossa voit oppia verkkokehityksestä, pilvipalveluista, hajautetuista järjestelmistä ja paljon muusta!
+### Käyttäjille
+Puterin tavoitteena on tarjota kaikki, mitä tarvitset työskentelyyn, luomiseen ja pelaamiseen saman katon alla. Yksinkertaisesta [Notepadista](https://online-notepad.com) ja [Camerasta](https://online-camera.com) aina [Office Suiteen](https://office.puter.com) ja [AI Builderiin](https://builder.puter.com) Puter haluaa olla kaiken kattava ratkaisu digitaaliseen elämääsi.
+
+
+### Kehittäjille
+
+Puter tarjoaa kaiken, mitä tarvitset verkkosovellusten ja pelien rakentamiseen ja julkaisemiseen. [Tekoälystä](https://developer.puter.com/ai/) [pilvitallennukseen](https://developer.puter.com/object-storage/), [tietokantaan](https://developer.puter.com/key-value-database/) ja [Serverless Workerseihin](https://developer.puter.com/serverless-workers/), Puter kattaa tarpeesi. Puter auttaa myös löytämään käyttäjiä! Kun sovelluksesi on valmis, voit julkaista sen [App Storessamme](https://apps.puter.com/) tavoittaaksesi käyttäjiä ja ansaitaksesi sillä.
 
 <br/>
 
-## Aloittaminen
+## Aloitus
 
 
 ### 💻 Paikallinen kehitys
@@ -46,44 +46,29 @@ cd puter
 npm install
 npm start
 ```
+**→** Tämän pitäisi käynnistää Puter osoitteessa http://puter.localhost:4100
 
-Tämä käynnistää Puterin osoitteessa http://puter.localhost:4100 (tai seuraavassa vapaassa portissa).
+Jos haluat ajaa tämän kopion Dockerilla, seuraa ohjetta [Building from source](../self-hosting.md#building-from-source-instead-of-pulling). Luo paikallinen `docker-compose.override.yml` valitaksesi paikallisen version. Kun nämä asetukset pidetään poissa tiedostosta `docker-compose.yml`, vältät ristiriidat päivityksiä haettaessa eivätkä paikalliset asetukset päädy pull requesteihin.
+
 
 <br/>
 
-### 🐳 Docker
-
-
-```bash
-mkdir puter && cd puter && mkdir -p puter/config puter/data && sudo chown -R 1000:1000 puter && docker run --rm -p 4100:4100 -v `pwd`/puter/config:/etc/puter -v `pwd`/puter/data:/var/puter  ghcr.io/heyputer/puter
-```
-
-<br/>
-
-
-### 🐙 Docker Compose
-
+### 🚀 Itse isännöinti
 
 #### Linux/macOS
+
 ```bash
-mkdir -p puter/config puter/data
-sudo chown -R 1000:1000 puter
-wget https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml
-docker compose up
+curl -fsSL https://puter.com/selfhost | sh
 ```
-<br/>
 
 #### Windows
 
-
 ```powershell
-mkdir -p puter
-cd puter
-New-Item -Path "puter\config" -ItemType Directory -Force
-New-Item -Path "puter\data" -ItemType Directory -Force
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml" -OutFile "docker-compose.yml"
-docker compose up
+irm https://puter.com/selfhost?os=windows | iex
 ```
+
+**→** Lisätietoja löydät sivulta [Self-Hosting Puter](../self-hosting.md).
+
 <br/>
 
 ### ☁️ Puter.com
@@ -92,35 +77,59 @@ Puter on saatavilla isännöitynä palveluna osoitteessa [**puter.com**](https:/
 
 <br/>
 
-## Järjestelmävaatimukset
-
-- **Käyttöjärjestelmät:** Linux, macOS, Windows
-- **RAM:** Vähintään 2GB (Suositeltu 4GB)
-- **Levytila:** 1GB vapaata tilaa
-- **Node.js:** Versio 16+ (Suositeltu versio 22+)
-- **npm:** Uusin vakaa versio
-
-<br/>
-
 ## Tuki
 
 Ota yhteyttä ylläpitäjiin ja yhteisöön näiden kanavien kautta:
 
-- Onko sinulla virheraportti tai ominaisuuspyyntö? Ole hyvä ja [avaa uusi issue](https://github.com/HeyPuter/puter/issues/new/choose).
-- Discord: [discord.com/invite/PQcx7Teh8u](https://discord.com/invite/PQcx7Teh8u)
+- Virheraportti tai ominaisuuspyyntö? [Avaa issue](https://github.com/HeyPuter/puter/issues/new/choose).
 - X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
-- Reddit: [reddit.com/r/puter/](https://www.reddit.com/r/puter/)
-- Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
-- Turvallisuusongelmat? [security@puter.com](mailto:security@puter.com)
-- Ota yhteyttä ylläpitäjiin sähköpostitse osoitteessa [hi@puter.com](mailto:hi@puter.com)
+- Tietoturvaongelmia tai väärinkäyttöilmoituksia? [security@puter.com](mailto:security@puter.com)
+- Lähetä ylläpitäjille sähköpostia osoitteeseen [hi@puter.com](mailto:hi@puter.com)
 
-Olemme aina valmiita auttamaan sinua kaikissa kysymyksissäsi. Älä epäröi kysyä!
+Autamme mielellämme kaikissa kysymyksissäsi. Älä epäröi kysyä!
 
 <br/>
 
+## Lisenssi
 
-##  Lisenssi
-
-Tämä repository, mukaan lukien kaikki sen sisältö, aliprojektit, moduulit ja komponentit, on lisensoitu [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt)-lisenssillä, ellei toisin mainita. Tämän repositoryn mukana tulevat kolmannen osapuolen kirjastot voivat olla omien lisenssiensä alaisia.
+Tämä repositorio kaikkine sisältöineen, aliprojekteineen, moduuleineen ja komponentteineen on lisensoitu [AGPL-3.0](https://github.com/HeyPuter/puter/blob/main/LICENSE.txt) -lisenssillä, ellei toisin ole erikseen mainittu. Tähän repositorioon sisältyviin kolmannen osapuolen kirjastoihin voi päteä niiden omia lisenssejä.
 
 <br/>
+
+## Käännökset
+
+- [Arabic / العربية](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ar.md)
+- [Armenian / Հայերեն](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hy.md)
+- [Bengali / বাংলা](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.bn.md)
+- [Chinese / 中文](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.zh.md)
+- [Danish / Dansk](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.da.md)
+- [English](https://github.com/HeyPuter/puter/blob/main/README.md)
+- [Farsi / فارسی](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fa.md)
+- [Finnish / Suomi](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fi.md)
+- [French / Français](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.fr.md)
+- [German /  Deutsch](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.de.md)
+- [Hebrew/ עברית](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.he.md)
+- [Hindi / हिंदी](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hi.md)
+- [Hungarian / Magyar](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.hu.md)
+- [Indonesian / Bahasa Indonesia](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.id.md)
+- [Italian / Italiano](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.it.md)
+- [Japanese / 日本語](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.jp.md)
+- [Korean / 한국어](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ko.md)
+- [Malay / Bahasa Malaysia](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.my.md)
+- [Malayalam / മലയാളം](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ml.md)
+- [Dutch / Nederlands](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.nl.md)
+- [Polish / Polski](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pl.md)
+- [Odia / ଓଡ଼ିଆ](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.od.md)
+- [Portuguese / Português](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pt.md)
+- [Punjabi / ਪੰਜਾਬੀ](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.pa.md)
+- [Romanian / Română](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ro.md)
+- [Russian / Русский](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ru.md)
+- [Spanish / Español](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.es.md)
+- [Swedish / Svenska](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.sv.md)
+- [Tamil / தமிழ்](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ta.md)
+- [Telugu / తెలుగు](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.te.md)
+- [Thai / ไทย](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.th.md)
+- [Turkish / Türkçe](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.tr.md)
+- [Ukrainian / Українська](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ua.md)
+- [Urdu / اردو](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.ur.md)
+- [Vietnamese / Tiếng Việt](https://github.com/HeyPuter/puter/blob/main/doc/i18n/README.vi.md)
