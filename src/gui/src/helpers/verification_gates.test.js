@@ -188,6 +188,17 @@ describe('runVerificationGates', () => {
         expect(order).toEqual(['card', 'phone', 'email']);
     });
 
+    test('asks for a card the phone step added when the card gate already ran', async () => {
+        const order = track();
+        globalThis.puter = { os: { user: vi.fn(async () => ({ requires_card_verification: true })) } };
+        try {
+            await runVerificationGates({ requires_phone_verification: true, email_gate_last: true }, true, false, false);
+        } finally {
+            delete globalThis.puter;
+        }
+        expect(order).toEqual(['phone', 'card', 'email']);
+    });
+
     test('skips the email when not asked, and the card when the phone fallback cleared it', async () => {
         const order = track();
         phoneGate.mockImplementationOnce(async () => order.push('phone') && 'card');
