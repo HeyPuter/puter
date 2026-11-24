@@ -1000,6 +1000,74 @@ describe('AzureChatProvider Grok reasoning reconciliation', () => {
     });
 });
 
+// -- Grok reasoning charges per catalog model ------------------------
+
+describe('AzureChatProvider Grok reasoning charges', () => {
+    /** Usage shapes, with what the vendor charged for them in tokens. */
+    const CASES = [
+        {
+            name: 'reasoning outside completion (15/51/167, total 233)',
+            usage: {
+                prompt_tokens: 15,
+                completion_tokens: 51,
+                total_tokens: 233,
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            billed: { prompt: 15, output: 218 },
+        },
+        {
+            name: 'reasoning outside completion (2000/1000/4000, total 7000)',
+            usage: {
+                prompt_tokens: 2000,
+                completion_tokens: 1000,
+                total_tokens: 7000,
+                completion_tokens_details: { reasoning_tokens: 4000 },
+            },
+            billed: { prompt: 2000, output: 5000 },
+        },
+        {
+            name: 'reasoning inside completion (15/218/167, total 233)',
+            usage: {
+                prompt_tokens: 15,
+                completion_tokens: 218,
+                total_tokens: 233,
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            billed: { prompt: 15, output: 218 },
+        },
+        {
+            // Unprovable, so the visible completion is all that is billed.
+            name: 'no total_tokens (15/51/167)',
+            usage: {
+                prompt_tokens: 15,
+                completion_tokens: 51,
+                completion_tokens_details: { reasoning_tokens: 167 },
+            },
+            billed: { prompt: 15, output: 51 },
+        },
+    ];
+
+    it.each(
+        ['grok-4-20-reasoning', 'grok-4-1-fast-reasoning'].flatMap((model) =>
+            CASES.map((c) => ({ model, ...c })),
+        ),
+    )(
+        'charges $model the catalog price for $name',
+        async ({ model, name, usage, billed }) => {
+            const { costs } = AZURE_MODELS.find((m) => m.id === model)!;
+            const { costs: recorded } = await meter(usage, { model });
+            const charged = Object.values(recorded).reduce((a, b) => a + b, 0);
+            expect({ model, name, charged }).toEqual({
+                model,
+                name,
+                charged:
+                    billed.prompt * Number(costs.prompt_tokens) +
+                    billed.output * Number(costs.completion_tokens),
+            });
+        },
+    );
+});
+
 // -- Streaming -------------------------------------------------------
 
 describe('AzureChatProvider.complete streaming', () => {
