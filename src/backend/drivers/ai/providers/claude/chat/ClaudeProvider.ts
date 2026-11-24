@@ -1486,14 +1486,23 @@ export class ClaudeProvider implements IChatProvider {
         // Reported as upstream sent it; the folded totals below are for billing.
         const topInputTokens = raw.input_tokens ?? 0;
         const topOutputTokens = raw.output_tokens ?? 0;
+        // A stream reports the lifetime split once, then keeps raising the
+        // total. Writes the split misses are shared out as it splits, 5m when
+        // it names none.
+        const split5m = raw.cache_creation?.ephemeral_5m_input_tokens ?? 0;
+        const split1h = raw.cache_creation?.ephemeral_1h_input_tokens ?? 0;
+        const unsplit = Math.max(
+            (raw.cache_creation_input_tokens ?? 0) - split5m - split1h,
+            0,
+        );
+        const unsplit1h =
+            split1h > 0
+                ? Math.round((unsplit * split1h) / (split5m + split1h))
+                : 0;
         const exec = {
             input_tokens: raw.input_tokens ?? 0,
-            ephemeral_5m_input_tokens:
-                raw.cache_creation?.ephemeral_5m_input_tokens ??
-                raw.cache_creation_input_tokens ??
-                0,
-            ephemeral_1h_input_tokens:
-                raw.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+            ephemeral_5m_input_tokens: split5m + unsplit - unsplit1h,
+            ephemeral_1h_input_tokens: split1h + unsplit1h,
             cache_read_input_tokens: raw.cache_read_input_tokens ?? 0,
             output_tokens: raw.output_tokens ?? 0,
         };
