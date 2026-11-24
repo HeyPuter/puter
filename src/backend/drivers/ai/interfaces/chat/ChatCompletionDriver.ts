@@ -848,12 +848,12 @@ export class ChatCompletionDriver extends PuterDriver {
         const pinnedFallback = await this.#pinnedRefusalFallback(args, model);
         if (pinnedFallback) model = pinnedFallback;
 
-        // Steering never moves a pinned provider, so a pinned request isn't
-        // asked.
+        // Steering never moves a pinned first attempt, only its fallback walk,
+        // so a pinned request is asked once that attempt has failed.
         const pinned =
             !!pinnedFallback ||
             (!!intendedProvider && model.provider === intendedProvider);
-        const avoided =
+        let avoided =
             pinned || args.test_mode === true
                 ? NO_AVOIDED_PROVIDERS
                 : await this.#avoidedProviders(actor, model);
@@ -1194,6 +1194,9 @@ export class ChatCompletionDriver extends PuterDriver {
             // With `fallback: false` the caller wants this route's answer or
             // its error, not a bill for another provider's attempt.
             const fallbackAllowed = args.fallback !== false;
+            if (pinned && fallbackAllowed && !useFakeProvider) {
+                avoided = await this.#avoidedProviders(actor, model);
+            }
 
             while (
                 fallbackAllowed &&

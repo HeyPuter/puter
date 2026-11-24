@@ -1436,6 +1436,34 @@ describe('ChatCompletionDriver route policy', () => {
         expect(listener).toHaveBeenCalledTimes(1);
     });
 
+    it('honours a pinned provider over the policy, and steers its fallback', async () => {
+        const listener = avoiding(['deepseek', 'infron']);
+
+        const attempts = await withRoutePolicy(listener, () =>
+            attemptsFor(SHARED, undefined, { provider: 'deepseek' }),
+        );
+
+        expect(attempts[0].provider).toBe('deepseek');
+        expect(attempts[1].provider).toBe('openrouter');
+    });
+
+    it('asks a pinned request only once its route has failed', async () => {
+        mockOneCompletion();
+        const listener = vi.fn();
+
+        await withRoutePolicy(listener, () =>
+            withTestActor(() =>
+                driver.complete({
+                    model: SHARED,
+                    provider: 'deepseek',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        );
+
+        expect(listener).not.toHaveBeenCalled();
+    });
+
     it('does not ask for a request it could not steer', async () => {
         const listener = vi.fn();
 
@@ -1460,9 +1488,13 @@ describe('ChatCompletionDriver route policy', () => {
         const listener = vi.fn();
         markRouteUnhealthy('deepseek', 'deepseek-v4-pro');
 
-        await withRoutePolicy(listener, () => attemptsFor(SHARED));
+        await withRoutePolicy(listener, async () => {
+            await attemptsFor(SHARED);
+            await attemptsFor(SHARED, undefined, { provider: 'openrouter' });
+        });
 
         expect(listener.mock.calls.map(([, event]) => event.model)).toEqual([
+            'deepseek-v4-pro',
             'deepseek-v4-pro',
         ]);
     });
