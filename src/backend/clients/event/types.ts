@@ -110,6 +110,16 @@ export type EventMap = {
         custom?: unknown;
         [key: string]: unknown;
     };
+    // Awaited on the chat request path, so answer from memory. Add provider ids
+    // to `avoidProviders`, keeping any already there; null changes nothing.
+    'ai.chat.route.policy': {
+        actor: Actor;
+        /** The id of the model's top-ranked route. */
+        model: string;
+        /** Providers serving `model`, in preference order. */
+        providers: string[];
+        avoidProviders: string[] | null;
+    };
     'ai.prompt.complete': {
         username: string;
         completionId: string;

@@ -1286,6 +1286,35 @@ describe('ChatCompletionDriver connection-failure classification across the chai
     });
 });
 
+type PolicyEvent = {
+    actor?: unknown;
+    model: string;
+    providers: string[];
+    avoidProviders: unknown;
+};
+
+/** Runs `fn` with `listener` answering the route policy event. */
+const withRoutePolicy = async <T>(
+    listener: (key: string, event: PolicyEvent) => unknown,
+    fn: () => Promise<T>,
+): Promise<T> => {
+    const events = server.clients.event as unknown as {
+        on: (key: string, cb: unknown) => void;
+        off: (key: string, cb: unknown) => void;
+    };
+    events.on('ai.chat.route.policy', listener);
+    try {
+        return await fn();
+    } finally {
+        events.off('ai.chat.route.policy', listener);
+    }
+};
+
+const avoiding = (avoid: unknown) =>
+    vi.fn((_key: string, event: PolicyEvent) => {
+        event.avoidProviders = avoid;
+    });
+
 // Azure is served ahead of OpenAI for the models it fronts, at OpenAI's list
 // price — the long-context tier included.
 describe('ChatCompletionDriver Azure-served OpenAI pricing', () => {
@@ -1363,5 +1392,160 @@ describe('ChatCompletionDriver Azure-served OpenAI pricing', () => {
                 1_000_000,
         );
         recorded.mockRestore();
+    });
+});
+
+describe('ChatCompletionDriver route policy', () => {
+    // deepseek-v4-pro: deepseek, then infron, then two openrouter routes.
+    const SHARED = 'deepseek-v4-pro';
+
+    const mockOneCompletion = () =>
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'hi' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+
+    it('steers the first attempt off a provider the policy avoids', async () => {
+        const listener = avoiding(['deepseek']);
+
+        const attempts = await withRoutePolicy(listener, () =>
+            attemptsFor(SHARED),
+        );
+
+        expect(attempts[0].provider).toBe('infron');
+        expect(listener).toHaveBeenCalledTimes(1);
+        const event = listener.mock.calls[0][1];
+        expect(event.model).toBe('deepseek-v4-pro');
+        expect(event.providers).toEqual(['deepseek', 'infron', 'openrouter']);
+        expect(event.actor).toBeDefined();
+    });
+
+    it('keeps the preferred route when the policy answers nothing', async () => {
+        const listener = vi.fn();
+
+        const attempts = await withRoutePolicy(listener, () =>
+            attemptsFor(SHARED),
+        );
+
+        expect(attempts[0].provider).toBe('deepseek');
+        expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not ask for a request it could not steer', async () => {
+        const listener = vi.fn();
+
+        await withRoutePolicy(listener, async () => {
+            await attemptsFor(SHARED, undefined, {
+                provider: 'deepseek',
+                fallback: false,
+            });
+            await withTestActor(() =>
+                driver.complete({
+                    model: SHARED,
+                    test_mode: true,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        });
+
+        expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('names the model the same whichever route resolved first', async () => {
+        const listener = vi.fn();
+        markRouteUnhealthy('deepseek', 'deepseek-v4-pro');
+
+        await withRoutePolicy(listener, () => attemptsFor(SHARED));
+
+        expect(listener.mock.calls.map(([, event]) => event.model)).toEqual([
+            'deepseek-v4-pro',
+        ]);
+    });
+
+    it('still serves a model whose every route is avoided', async () => {
+        const everyRoute = avoiding(['deepseek', 'infron', 'openrouter']);
+        const attempts = await withRoutePolicy(everyRoute, () =>
+            attemptsFor(SHARED),
+        );
+        // Each fallback is avoided too, and is still tried rather than skipped.
+        expect(attempts.map((a) => a.provider)).toEqual([
+            'deepseek',
+            'infron',
+            'openrouter',
+        ]);
+        expect(everyRoute).toHaveBeenCalledTimes(1);
+
+        // One provider leaves the answer nothing to change, so it isn't asked.
+        const onlyRoute = avoiding(['infron']);
+        const single = await withRoutePolicy(onlyRoute, () =>
+            attemptsFor('google/gemini-2.5-flash-image-preview'),
+        );
+        expect(single[0].provider).toBe('infron');
+        expect(onlyRoute).not.toHaveBeenCalled();
+    });
+
+    it('skips an avoided route in the fallback walk while another remains', async () => {
+        const attempts = await withRoutePolicy(avoiding(['infron']), () =>
+            attemptsFor(SHARED),
+        );
+
+        expect(attempts.map((a) => a.provider)).toEqual([
+            'deepseek',
+            'openrouter',
+            'openrouter',
+        ]);
+    });
+
+    describe('fails open when the policy throws or answers garbage', () => {
+        const servedBy = async (
+            listener: (key: string, event: PolicyEvent) => unknown,
+        ) => {
+            mockOneCompletion();
+            const record = vi.spyOn(
+                server.services.metering,
+                'utilRecordUsageObject',
+            );
+            try {
+                await withRoutePolicy(listener, () =>
+                    withTestActor(() =>
+                        driver.complete({
+                            model: SHARED,
+                            messages: [{ role: 'user', content: 'hi' }],
+                        }),
+                    ),
+                );
+                return String(record.mock.calls.at(-1)![2]);
+            } finally {
+                record.mockRestore();
+            }
+        };
+
+        it('drops the answer of a listener that throws', async () => {
+            const listener = vi.fn((_key: string, event: PolicyEvent) => {
+                event.avoidProviders = ['deepseek'];
+                throw new Error('policy store down');
+            });
+
+            expect(await servedBy(listener)).toMatch(/^deepseek:/);
+            expect(listener).toHaveBeenCalledTimes(1);
+        });
+
+        it('ignores an answer that is not a list', async () => {
+            const listener = avoiding('deepseek');
+
+            expect(await servedBy(listener)).toMatch(/^deepseek:/);
+            expect(listener).toHaveBeenCalledTimes(1);
+        });
+
+        it('keeps the provider ids of a list with other values in it', async () => {
+            expect(await servedBy(avoiding([42, 'deepseek']))).toMatch(
+                /^infron:/,
+            );
+        });
     });
 });

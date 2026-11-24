@@ -19,7 +19,10 @@
 
 import crypto from 'node:crypto';
 import { PassThrough } from 'node:stream';
-import { EventMap } from '../../../../clients/event/types.js';
+import {
+    EventMap,
+    type EventMetadata,
+} from '../../../../clients/event/types.js';
 import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError, isHttpError } from '../../../../core/http/HttpError.js';
@@ -430,6 +433,8 @@ const isTransientFailure = (a: ProviderAttempt) =>
 // One bucket can hold the same model id under several providers *and* several
 // ids under one provider, so only the pair identifies an attempt.
 const routeId = (provider: string, modelId: string) => `${provider}:${modelId}`;
+
+const NO_AVOIDED_PROVIDERS: ReadonlySet<string> = new Set();
 
 /**
  * The error surfaced for a request-level upstream failure (a 4xx that is the
@@ -843,6 +848,23 @@ export class ChatCompletionDriver extends PuterDriver {
         const pinnedFallback = await this.#pinnedRefusalFallback(args, model);
         if (pinnedFallback) model = pinnedFallback;
 
+        // Steering never moves a pinned provider, so a pinned request isn't
+        // asked.
+        const pinned =
+            !!pinnedFallback ||
+            (!!intendedProvider && model.provider === intendedProvider);
+        const avoided =
+            pinned || args.test_mode === true
+                ? NO_AVOIDED_PROVIDERS
+                : await this.#avoidedProviders(actor, model);
+        if (!pinned && avoided.has(model.provider!)) {
+            model =
+                this.#preferHealthy(
+                    this.#modelIdMap[model.id] ?? [],
+                    avoided,
+                ) ?? model;
+        }
+
         this.#normalizeRequest(args);
 
         // Before the credit hold and the round trip.
@@ -1178,7 +1200,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 lastError &&
                 attempts.length < MAX_ATTEMPTS
             ) {
-                const fallback = this.#findFallback(bucketKey, tried);
+                const fallback = this.#findFallback(bucketKey, tried, avoided);
                 if (!fallback) break;
 
                 const fbProvider = this.#providers[fallback.provider!];
@@ -2622,7 +2644,11 @@ export class ChatCompletionDriver extends PuterDriver {
         assertInputModalities(model, args.messages);
     }
 
-    #findFallback(modelId: string, tried: Set<string>): IChatModel | null {
+    #findFallback(
+        modelId: string,
+        tried: Set<string>,
+        avoided: ReadonlySet<string>,
+    ): IChatModel | null {
         const models = this.#modelIdMap[modelId];
         if (!models) return null;
         const untried = models.filter(
@@ -2630,10 +2656,61 @@ export class ChatCompletionDriver extends PuterDriver {
         );
         // Degrade to a marked route rather than to no route at all: the marks
         // are a hint about recent failures, not a quota.
-        return this.#preferHealthy(untried) ?? untried[0] ?? null;
+        return this.#preferHealthy(untried, avoided) ?? untried[0] ?? null;
     }
 
-    #preferHealthy(models: IChatModel[]): IChatModel | undefined {
-        return models.find((m) => !isRouteUnhealthy(m.provider!, m.id));
+    /** The first route that is neither marked failing nor steered away from. */
+    #preferHealthy(
+        models: IChatModel[],
+        avoided: ReadonlySet<string> = NO_AVOIDED_PROVIDERS,
+    ): IChatModel | undefined {
+        return models.find(
+            (m) =>
+                !avoided.has(m.provider!) &&
+                !isRouteUnhealthy(m.provider!, m.id),
+        );
+    }
+
+    /**
+     * The providers an extension wants `model` steered away from for this
+     * request. A listener that throws, or an answer that isn't a list, leaves
+     * routing as it is.
+     */
+    async #avoidedProviders(
+        actor: Actor,
+        model: IChatModel,
+    ): Promise<ReadonlySet<string>> {
+        if (!this.clients.event.hasListeners('ai.chat.route.policy')) {
+            return NO_AVOIDED_PROVIDERS;
+        }
+        const bucket = this.#modelIdMap[model.id] ?? [];
+        const providers = [...new Set(bucket.map((m) => m.provider!))];
+        if (providers.length < 2) return NO_AVOIDED_PROVIDERS;
+        const policy: EventMap['ai.chat.route.policy'] = {
+            actor,
+            // The top-ranked route's id, so the name doesn't move with which
+            // route resolved first.
+            model: bucket[0].id,
+            providers,
+            avoidProviders: null,
+        };
+        const meta: EventMetadata = {};
+        try {
+            await this.clients.event.emitAndWait(
+                'ai.chat.route.policy',
+                policy,
+                meta,
+            );
+        } catch (e) {
+            console.warn('[ai-chat] route policy failed:', e);
+            return NO_AVOIDED_PROVIDERS;
+        }
+        const answer: unknown = policy.avoidProviders;
+        if (meta.listener_failed || !Array.isArray(answer)) {
+            return NO_AVOIDED_PROVIDERS;
+        }
+        return new Set(
+            answer.filter((p): p is string => typeof p === 'string'),
+        );
     }
 }
