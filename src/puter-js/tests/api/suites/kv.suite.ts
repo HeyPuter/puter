@@ -360,6 +360,42 @@ export default suite('kv', {
         ]);
     },
 
+    // 1,200 entries of about 1 KB each: more than one SDK page, and more than
+    // the store returns in one response.
+    'list without a limit returns every match of a large listing': async (
+        t,
+    ) => {
+        const total = 1200;
+        const pad = 'x'.repeat(1000);
+        const keys = Array.from(
+            { length: total },
+            (_, i) => `kv-suite-full-${String(i).padStart(4, '0')}`,
+        );
+        for (let i = 0; i < total; i += 600) {
+            await t.puter.kv.set(
+                keys.slice(i, i + 600).map((key) => ({ key, value: pad })),
+            );
+        }
+
+        const listedKeys = (await t.puter.kv.list(
+            'kv-suite-full-*',
+        )) as string[];
+        t.assert.deepEqual(listedKeys, keys);
+
+        const entries = (await t.puter.kv.list(
+            'kv-suite-full-*',
+            true,
+        )) as Array<{ key: string; value: string }>;
+        t.assert.deepEqual(
+            entries.map((entry) => entry.key),
+            keys,
+        );
+        t.assert.ok(
+            entries.every((entry) => entry.value === pad),
+            'every entry carries its value',
+        );
+    },
+
     'list with stream iterates pages via for await': async (t) => {
         for (let i = 1; i <= 3; i++) {
             await t.puter.kv.set(`kv-suite-stream-${i}`, `v${i}`);
