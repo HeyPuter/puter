@@ -29,9 +29,9 @@ import TeePromise from './TeePromise.js';
 
 const POPUP_FEATURES = 'width=500,height=600';
 
-// Provider ids the GUI renders with dedicated branded buttons. Any other id
-// returned by `/auth/oidc/providers` (i.e. a self-hosted admin's custom OIDC
-// provider) gets a generic button built from these helpers instead.
+// Provider ids the GUI renders with dedicated branded buttons. Any other
+// provider (e.g. a self-hosted admin's custom OIDC IdP) gets a generic button
+// built from these helpers instead.
 export const KNOWN_OIDC_PROVIDERS = ['google', 'apple', 'microsoft'];
 
 // Generic key icon for OIDC providers without dedicated branding.
