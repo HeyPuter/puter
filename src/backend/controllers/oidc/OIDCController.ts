@@ -23,12 +23,9 @@ import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
-import { SignInRefusedError } from '../../services/auth/SignInService.js';
-import { startWebSession } from '../auth/webSession.js';
 import {
-    completeOidcLoginReturn,
+    finishOidcLogin,
     mintOidcPopupReturn,
-    OIDC_POPUP_RETURN_COOKIE_NAME,
     type OidcLoginContinuation,
 } from '../auth/oidcLoginReturn.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
@@ -306,66 +303,6 @@ function isSameOrigin(target: string, origin: string): boolean {
  */
 export class OIDCController extends PuterController {
     registerRoutes(router: PuterRouter): void {
-        // -- POST /auth/oidc/verify-popup-return ---------------------
-        // Public — hand back the facts a popup-return proof attests to.
-        //
-        // A sign-in popup returning from a provider is told the opener's
-        // origin and that a login completed. It cannot check either: the
-        // values arrive as query parameters, and a URL built from a verified
-        // `state` looks exactly like one anybody can type. The opener's
-        // origin decides which app a token gets minted for, so the popup
-        // redeems the signed proof here instead of believing the raw
-        // parameters.
-        //
-        // Served on the GUI origin too: the binding cookie is host-only.
-        //
-        // Unauthenticated on purpose — it reveals nothing the caller did not
-        // already hand over, and a proof that isn't this browser's yields
-        // nothing.
-
-        router.post(
-            '/auth/oidc/verify-popup-return',
-            {
-                subdomain: ['api', ''],
-                rateLimit: {
-                    scope: 'oidc-verify-popup-return',
-                    limit: 60,
-                    window: 60_000,
-                },
-            },
-            async (req: Request, res: Response) => {
-                const proof = req.body?.opener_state;
-                if (typeof proof !== 'string' || !proof) {
-                    throw new HttpError(400, 'Missing `opener_state`', {
-                        legacyCode: 'bad_request',
-                    });
-                }
-                const decoded = this.services.oidc.verifyPopupReturn(proof);
-                const cookieNonce =
-                    req.cookies?.[OIDC_POPUP_RETURN_COOKIE_NAME];
-
-                if (
-                    !decoded ||
-                    typeof decoded.nonce !== 'string' ||
-                    typeof cookieNonce !== 'string' ||
-                    !secretsEqual(cookieNonce, decoded.nonce)
-                ) {
-                    throw new HttpError(400, 'Invalid `opener_state`', {
-                        legacyCode: 'bad_request',
-                    });
-                }
-                // Single-use; a rejected call must not burn the cookie.
-                res.clearCookie(OIDC_POPUP_RETURN_COOKIE_NAME, { path: '/' });
-                res.json({
-                    opener_origin: decoded.opener_origin ?? null,
-                    msg_id: decoded.msg_id ?? null,
-                    action: decoded.action ?? null,
-                    oidc_login: decoded.oidc_login === true,
-                    user_uuid: decoded.user_uuid ?? null,
-                });
-            },
-        );
-
         // -- GET /auth/oidc/providers --------------------------------
         // Public — list enabled provider IDs for the frontend.
         //
@@ -803,7 +740,7 @@ if (window.opener) {
     #mintPopupReturn(res: Response, payload: Record<string, unknown>): string {
         return mintOidcPopupReturn(res, payload, {
             config: this.config,
-            oidc: this.services.oidc,
+            token: this.services.token,
         });
     }
 
@@ -1020,81 +957,48 @@ if (window.opener) {
                     ? null
                     : String(stateDecoded.msg_id),
         };
-        if (user.otp_enabled) {
-            const challenge = this.services.token.sign(
-                'otp',
-                {
-                    purpose: 'otp-login',
-                    user_uid: user.uuid,
-                    jti: crypto.randomUUID(),
-                    oidcContinuation: continuation,
+        await finishOidcLogin(
+            req,
+            res,
+            user,
+            continuation,
+            {
+                config: this.config,
+                auth: this.services.auth,
+                signIn: this.services.signIn,
+                token: this.services.token,
+                kv: this.stores.kv,
+                user: this.stores.user,
+            },
+            {
+                method,
+                popupRetryUrl: () => {
+                    const retry = new URL(
+                        buildErrorRedirectUrl(
+                            origin,
+                            'login',
+                            'other',
+                            'unauthorized',
+                            stateDecoded,
+                            undefined,
+                            (payload) => this.#mintPopupReturn(res, payload),
+                        ),
+                    );
+                    retry.searchParams.delete('auth_error');
+                    retry.searchParams.delete('message');
+                    return retry.href;
                 },
-                { expiresIn: '5m' },
-            );
-            res.set('Cache-Control', 'no-store');
-            res.set('Referrer-Policy', 'no-referrer');
-            let retryUrl = `${origin}/action/login`;
-            if (continuation.embeddedInPopup) {
-                const retry = new URL(
+                refusedUrl: (code, requestCode) =>
                     buildErrorRedirectUrl(
                         origin,
-                        'login',
+                        sourceFlow,
                         'other',
-                        'unauthorized',
+                        code,
                         stateDecoded,
-                        undefined,
-                        (payload) => this.#mintPopupReturn(res, payload),
+                        requestCode,
+                        (p) => this.#mintPopupReturn(res, p),
                     ),
-                );
-                retry.searchParams.delete('auth_error');
-                retry.searchParams.delete('message');
-                retryUrl = retry.href;
-            }
-            const fragment = new URLSearchParams({
-                token: challenge,
-                retryUrl,
-            });
-            res.redirect(302, `${origin}/action/oidc-2fa#${fragment}`);
-            return;
-        }
-        try {
-            await startWebSession(
-                req,
-                res,
-                user,
-                {
-                    config: this.config,
-                    auth: this.services.auth,
-                    signIn: this.services.signIn,
-                    token: this.services.token,
-                    kv: this.stores.kv,
-                    user: this.stores.user,
-                },
-                method,
-            );
-        } catch (e) {
-            // A sign-in that has to be made again lands back on its page.
-            const retry = e instanceof HttpError && e.code === 'signin_retry';
-            if (!(e instanceof SignInRefusedError) && !retry) throw e;
-            return res.redirect(
-                302,
-                buildErrorRedirectUrl(
-                    origin,
-                    sourceFlow,
-                    'other',
-                    retry ? 'unauthorized' : 'signin_blocked',
-                    stateDecoded,
-                    retry ? undefined : (e as SignInRefusedError).requestCode,
-                    (p) => this.#mintPopupReturn(res, p),
-                ),
-            );
-        }
-        res.redirect(
-            302,
-            completeOidcLoginReturn(res, user, continuation, {
-                config: this.config,
-                oidc: this.services.oidc,
-            }),
+            },
         );
     }
 }

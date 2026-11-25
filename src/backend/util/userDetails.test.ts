@@ -250,6 +250,49 @@ describe('buildUserDetails lookups', () => {
     });
 });
 
+describe('the revalidate URL', () => {
+    it("uses an auth.reauth.options listener's URL for an OIDC-only account", async () => {
+        const user = { ...(await makeUser()), password: null };
+        const listener = (
+            _key: unknown,
+            data: { userUuid: string; revalidateUrl: string | null },
+        ) => {
+            if (data.userUuid === user.uuid) {
+                data.revalidateUrl = 'https://puter.test/auth/sso/revalidate';
+            }
+        };
+        server.clients.event.on('auth.reauth.options', listener);
+        try {
+            const details = await buildUserDetails(user, deps(), {
+                isUser: true,
+            });
+            expect(details.oidc_revalidate_url).toBe(
+                'https://puter.test/auth/sso/revalidate',
+            );
+        } finally {
+            server.clients.event.off('auth.reauth.options', listener);
+        }
+    });
+
+    it('does not ask for one for a password account', async () => {
+        const user = await makeUser();
+        const heard: string[] = [];
+        const listener = (_key: unknown, data: { userUuid: string }) => {
+            heard.push(data.userUuid);
+        };
+        server.clients.event.on('auth.reauth.options', listener);
+        try {
+            const details = await buildUserDetails(user, deps(), {
+                isUser: true,
+            });
+            expect(details).not.toHaveProperty('oidc_revalidate_url');
+            expect(heard).not.toContain(user.uuid);
+        } finally {
+            server.clients.event.off('auth.reauth.options', listener);
+        }
+    });
+});
+
 describe('the team a seat belongs to', () => {
     it('names it for the account itself', async () => {
         const user = await makeUser();

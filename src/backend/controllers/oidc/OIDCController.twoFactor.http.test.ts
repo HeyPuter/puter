@@ -8,6 +8,7 @@ import {
 } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { hashRecoveryCode } from '../../services/auth/OTPUtil.js';
+import { verifyOidcPopupReturn } from '../auth/oidcLoginReturn.js';
 
 describe('OIDC account second-factor login', () => {
     let env: PuterTestEnv;
@@ -214,7 +215,8 @@ describe('OIDC account second-factor login', () => {
         expect(target.pathname).toBe('/action/sign-in');
         expect(target.searchParams.get('msg_id')).toBe('message-123');
         expect(target.searchParams.get('oidc_login')).toBe('true');
-        const proof = env.server.services.oidc.verifyPopupReturn(
+        const proof = verifyOidcPopupReturn(
+            env.server.services.token,
             target.searchParams.get('opener_state')!,
         );
         expect(proof).toMatchObject({
@@ -315,7 +317,9 @@ describe('OIDC account second-factor login', () => {
     it('preserves ordinary OIDC login for accounts without 2FA', async () => {
         await account(false);
         const response = await callback('login', { return_to: '/dashboard' });
-        expect(response.headers.get('location')).toBe(`${env.origin}/dashboard`);
+        expect(response.headers.get('location')).toBe(
+            `${env.origin}/dashboard`,
+        );
         expect(
             response.headers.get('set-cookie')?.includes('puter_auth_token='),
         ).toBe(true);

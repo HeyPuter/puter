@@ -49,8 +49,8 @@ const CODE_MESSAGES = {
  * @param {string} route The part after `/user-protected/`.
  * @param {Record<string, unknown>} body The change itself, sent on every attempt.
  * @param {object} [opts]
- * @param {string} [opts.password] Sent on the first attempt only; signing in
- *   with the provider stands in for it on a retry.
+ * @param {string} [opts.password] Sent on the first attempt only, and never
+ *   for an account without one: signing in with the provider stands in for it.
  * @param {() => void} [opts.onRevalidate] Runs just before the sign-in popup opens.
  * @returns {Promise<UserProtectedResult>}
  */
@@ -74,30 +74,42 @@ export default async function postUserProtected (route, body, { password, onReva
         return { ok: false, data, message: known ? i18n(known, [], false) : data.message || res.statusText || i18n('error_unknown_cause', [], false) };
     };
 
+    /** Resolves to null once signed in, or to the i18n key of why it didn't finish. */
     const revalidate = async (url) => {
         onRevalidate?.();
         try {
-            await openRevalidatePopup(url || window.user?.oidc_revalidate_url);
-            return true;
-        } catch {
-            return false;
+            await openRevalidatePopup(url);
+            return null;
+        } catch ( err ) {
+            return err?.code === 'popup_blocked' ? 'revalidate_popup_blocked' : 'revalidate_failed';
         }
     };
-    const revalidateFailed = () => ({ ok: false, data: {}, message: i18n('revalidate_failed', [], false) });
+    const revalidateFailed = (key) => ({ ok: false, data: {}, message: i18n(key, [], false) });
 
-    // A temporary account has no password either, but no linked provider: the
-    // routes that admit it (deleting it) need no proof of identity at all.
-    if ( window.user?.oidc_only && ! window.user.is_temp && ! password ) {
-        if ( ! await revalidate() ) return revalidateFailed();
+    // The popup opens straight from the click while the sign-in URL is known;
+    // without one, the server says where to sign in. A temporary account has
+    // no password either, but no linked provider: the routes that admit it
+    // (deleting it) need no proof of identity at all.
+    const user = window.user;
+    if ( user?.oidc_only && ! user.is_temp && user.oidc_revalidate_url ) {
+        const failed = await revalidate(user.oidc_revalidate_url);
+        if ( failed ) return revalidateFailed(failed);
         return settle(await post(body));
     }
 
-    const result = await settle(await post(password ? { ...body, password } : body));
-    // `oidc_only` on the cached user can lag the account's real state, so
-    // the server has the last word on whether a provider sign-in is needed.
-    if ( result.data.code === 'oidc_revalidation_required' && result.data.revalidate_url ) {
-        if ( ! await revalidate(result.data.revalidate_url) ) return revalidateFailed();
-        return settle(await post(body));
+    const sendPassword = password && ! user?.oidc_only;
+    const result = await settle(await post(sendPassword ? { ...body, password } : body));
+    if ( result.data.code !== 'oidc_revalidation_required' ) return result;
+    // The server answers this only for an account without a password, and
+    // it has the last word over a cached `oidc_only` that lags.
+    if ( ! result.data.revalidate_url ) {
+        return { ...result, message: i18n('revalidate_unavailable', [], false) };
     }
-    return result;
+    if ( user ) {
+        user.oidc_only = true;
+        user.oidc_revalidate_url = result.data.revalidate_url;
+    }
+    const failed = await revalidate(result.data.revalidate_url);
+    if ( failed ) return revalidateFailed(failed);
+    return settle(await post(body));
 }
