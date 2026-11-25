@@ -388,6 +388,25 @@ describe('who may publish into a user scope', () => {
         expect(refused.status).toBe(400);
     });
 
+    it('rejects a named app that is not an app uid', async () => {
+        for (const named of ['app-\u7528\u6237', 'not an app', 'app-']) {
+            const listed = await call(
+                'GET',
+                `/events/handlers/list?scope=user&appUid=${encodeURIComponent(named)}`,
+                userToken,
+            );
+            expect(listed.status).toBe(400);
+            expect(listed.body.code).toBe('bad_request');
+            const removed = await call(
+                'POST',
+                '/events/handlers/remove',
+                userToken,
+                { scope: 'user', name: 'daily', appUid: named },
+            );
+            expect(removed.status).toBe(400);
+        }
+    });
+
     it('reserves `@` names for what the server mints from a source', async () => {
         const refused = await publishUser(
             userToken,

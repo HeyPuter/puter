@@ -356,3 +356,30 @@ describe('createErrorHandler — dbBatchFailed load-shed errors', () => {
         expect(onUnhandled).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('createErrorHandler — value outside a column charset', () => {
+    it('answers 400 with a client code instead of a generic 500', () => {
+        const onUnhandled = vi.fn();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const handler = createErrorHandler({ onUnhandled });
+        const err = Object.assign(new Error('Illegal mix of collations'), {
+            code: 'ER_CANT_AGGREGATE_2COLLATIONS',
+            sqlMessage:
+                "Illegal mix of collations (ascii_general_ci,IMPLICIT) and (utf8mb4_unicode_ci,COERCIBLE) for operation '='",
+            sql: "SELECT * FROM `user` WHERE `username` = 'secret-value'",
+        });
+        const { out } = runHandler(handler, err, {
+            req: { method: 'POST', path: '/lookup' },
+        });
+
+        expect(out.statusCode).toBe(400);
+        expect(out.body).toMatchObject({ code: 'client_bad_characters' });
+        expect(JSON.stringify(out.body)).not.toContain('secret-value');
+        expect(onUnhandled).not.toHaveBeenCalled();
+        // The route is logged, the statement is not.
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0][0])).toContain('POST /lookup');
+        expect(String(warn.mock.calls[0][0])).not.toContain('secret-value');
+        warn.mockRestore();
+    });
+});
