@@ -18,8 +18,8 @@
  */
 
 // The "Sign in with Google" (and other identity provider) buttons of the
-// login and signup screens. A button navigates to the backend's OIDC start
-// route, which comes back to the page the flow started from.
+// login and signup screens. A button navigates to the provider's start route,
+// which comes back to the page the flow started from.
 
 import { get_oidc_return_to } from '../../helpers/authRedirect.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../../util/openid.js';
@@ -53,15 +53,27 @@ export const mayOfferProviders = () => ! (window.embedded_in_popup
         || window.url_query_params?.get('cross_origin_isolated') === 'true'));
 
 /**
- * The URL that starts a provider's sign-in.
+ * The route a provider's sign-in starts at: the one its listing names, else
+ * the core OIDC route.
  *
  * @param {string} provider
+ * @param {{ startUrl?: unknown } | undefined} detail
+ * @returns {string}
+ */
+const startRouteFor = (provider, detail) => (typeof detail?.startUrl === 'string' && detail.startUrl
+    ? new URL(detail.startUrl, window.gui_origin).href
+    : `${window.gui_origin}/auth/oidc/${encodeURIComponent(provider)}/start`);
+
+/**
+ * The URL that starts a provider's sign-in.
+ *
+ * @param {string} startRoute From {@link startRouteFor}.
  * @param {'login'|'signup'} kind
  * @param {string | undefined} referrer
  * @returns {string}
  */
-export const providerStartUrl = (provider, kind, referrer) => {
-    let url = `${window.gui_origin}/auth/oidc/${encodeURIComponent(provider)}/start?flow=${kind}`;
+export const providerStartUrl = (startRoute, kind, referrer) => {
+    let url = `${startRoute}${startRoute.includes('?') ? '&' : '?'}flow=${kind}`;
     // Return to the interface the flow started from (the backend whitelists the path).
     const return_to = get_oidc_return_to();
     if ( return_to ) url += `&return_to=${encodeURIComponent(return_to)}`;
@@ -75,26 +87,45 @@ export const providerStartUrl = (provider, kind, referrer) => {
     return url;
 };
 
-/** @type {WeakMap<import('./authFlow.js').AuthFlow, Promise<{ providers?: string[], signupOidcOnly?: boolean } | null>>} */
+/**
+ * @typedef {Object} ProviderListing
+ * @property {string[]} [providers]
+ * @property {{ id: string, label?: string, startUrl?: string }[]} [details]
+ * @property {boolean} [signupOidcOnly]
+ */
+
+/** @type {WeakMap<import('./authFlow.js').AuthFlow, Promise<ProviderListing | null>>} */
 const lookups = new WeakMap();
+
+/**
+ * One provider listing, or null when it isn't served or doesn't parse.
+ *
+ * @param {string} path
+ * @returns {Promise<ProviderListing | null>}
+ */
+const fetchListing = async (path) => {
+    try {
+        const res = await fetch(`${window.api_origin}${path}`);
+        if ( ! res.ok ) return null;
+        const data = await res.json();
+        return Array.isArray(data?.providers) ? data : null;
+    } catch {
+        return null;
+    }
+};
 
 /**
  * The configured providers, looked up once per auth flow so moving between
  * its screens draws them straight away instead of after another round trip.
+ * The SSO listing wins; the core OIDC one is the fallback while it isn't served.
  *
  * @param {import('./authFlow.js').AuthFlow} flow
  */
 const lookUpProviders = (flow) => {
     let lookup = lookups.get(flow);
     if ( ! lookup ) {
-        lookup = (async () => {
-            try {
-                const res = await fetch(`${window.api_origin}/auth/oidc/providers`);
-                return res.ok ? await res.json() : null;
-            } catch {
-                return null;
-            }
-        })();
+        lookup = (async () => await fetchListing('/auth/sso/providers')
+            ?? await fetchListing('/auth/oidc/providers'))();
         lookups.set(flow, lookup);
     }
     return lookup;
@@ -121,12 +152,18 @@ export async function renderProviderButtons ($list, { kind, referrer, flow }) {
         ...KNOWN_ORDER.filter((provider) => data.providers.includes(provider)),
         ...data.providers.filter((provider) => ! KNOWN_OIDC_PROVIDERS.includes(provider)),
     ];
+    const details = Array.isArray(data.details) ? data.details : [];
+    const detailFor = (provider) => details.find((d) => d?.id === provider);
+    const startRoutes = new Map(ordered.map((provider) => [provider, startRouteFor(provider, detailFor(provider))]));
+
     let h = '';
     for ( const provider of ordered ) {
         const known = KNOWN[provider];
+        const listedLabel = detailFor(provider)?.label;
+        const name = typeof listedLabel === 'string' && listedLabel ? listedLabel : humanizeOidcProviderId(provider);
         const label = known
             ? i18n(known[kind])
-            : i18n(kind === 'login' ? 'sign_in_with_provider' : 'sign_up_with_provider', [humanizeOidcProviderId(provider)]);
+            : i18n(kind === 'login' ? 'sign_in_with_provider' : 'sign_up_with_provider', [html_encode(name)]);
         const icon = known ? known.icon : OIDC_GENERIC_PROVIDER_ICON;
         h += `<button type="button" class="dashboard-dialog-btn auth-provider-btn oidc-${known ? provider : 'custom'}-btn" data-provider="${html_encode(provider)}">`;
         h += `<span class="auth-provider-icon" aria-hidden="true">${icon}</span><span>${label}</span>`;
@@ -134,7 +171,9 @@ export async function renderProviderButtons ($list, { kind, referrer, flow }) {
     }
     $list.html(h);
     $list.on('click', '.auth-provider-btn', function () {
-        const url = providerStartUrl($(this).attr('data-provider'), kind, referrer());
+        const startRoute = startRoutes.get($(this).attr('data-provider'));
+        if ( ! startRoute ) return;
+        const url = providerStartUrl(startRoute, kind, referrer());
         // A provider won't load in a frame, so the framing page opens this
         // in a popup instead. `unavailable` covers an SDK that can't.
         if ( window.embedded_in_frame ) {

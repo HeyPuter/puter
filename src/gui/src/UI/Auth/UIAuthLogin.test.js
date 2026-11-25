@@ -458,12 +458,34 @@ describe('account checks set at sign-in', () => {
 
 describe('OIDC buttons on the login and signup screens', () => {
     const PROVIDERS_URL = 'https://api.puter.test/auth/oidc/providers';
+    const SSO_PROVIDERS_URL = 'https://api.puter.test/auth/sso/providers';
     const asPopup = (query) => {
         window.embedded_in_popup = true;
         window.gui_action = 'sign-in';
         window.url_query_params = new URLSearchParams(query);
     };
-    const askedForProviders = () => fetch.mock.calls.some(([url]) => url === PROVIDERS_URL);
+    const askedForProviders = () => fetch.mock.calls.some(([url]) => url === PROVIDERS_URL || url === SSO_PROVIDERS_URL);
+    /** Answers each listing URL with its own reply; anything unlisted is a 404. */
+    const listings = (byUrl) => {
+        globalThis.fetch = vi.fn(async (url) => byUrl[url] ? byUrl[url]() : reply(404, {}));
+    };
+    /** Clicks a provider button and returns where it sent the page. */
+    const startedAt = (selector) => {
+        const assign = vi.fn();
+        const original = window.location;
+        delete window.location;
+        window.location = { ...original, set href (url) {
+            assign(url);
+        }, get href () {
+            return original.href;
+        } };
+        try {
+            $(selector).trigger('click');
+        } finally {
+            window.location = original;
+        }
+        return assign.mock.calls[0]?.[0];
+    };
 
     beforeEach(() => {
         globalThis.fetch = vi.fn(async () => reply(200, { providers: ['google'] }));
@@ -523,6 +545,59 @@ describe('OIDC buttons on the login and signup screens', () => {
             delete window.embedded_in_frame;
             delete window.tell_popup_frame;
         }
+    });
+
+    it('starts at the route the SSO listing names', async () => {
+        listings({
+            [SSO_PROVIDERS_URL]: () => reply(200, {
+                providers: ['google'],
+                details: [{ id: 'google', kind: 'google', label: 'Google', startUrl: '/auth/sso/google/start' }],
+            }),
+        });
+        void UIAuthLogin({ referrer: 'ref' });
+        await vi.waitFor(() => expect($('.oidc-google-btn')).toHaveLength(1));
+        expect(startedAt('.oidc-google-btn')).toBe('https://puter.test/auth/sso/google/start?flow=login&referrer=ref');
+        expect(fetch.mock.calls.map(([url]) => url)).not.toContain(PROVIDERS_URL);
+    });
+
+    it('falls back to the OIDC listing and route when the SSO listing isn\'t served', async () => {
+        listings({ [PROVIDERS_URL]: () => reply(200, { providers: ['google'] }) });
+        void UIAuthLogin();
+        await vi.waitFor(() => expect($('.oidc-google-btn')).toHaveLength(1));
+        expect(fetch.mock.calls.map(([url]) => url)).toEqual([SSO_PROVIDERS_URL, PROVIDERS_URL]);
+        expect(startedAt('.oidc-google-btn')).toBe('https://puter.test/auth/oidc/google/start?flow=login');
+    });
+
+    it.each([
+        ['an error status', () => reply(500, {})],
+        ['a network failure', () => Promise.reject(new Error('offline'))],
+        ['no provider list', () => reply(200, { nope: true })],
+    ])('falls back when the SSO listing gives %s', async (_case, sso) => {
+        listings({ [SSO_PROVIDERS_URL]: sso, [PROVIDERS_URL]: () => reply(200, { providers: ['apple'] }) });
+        void UIAuthLogin();
+        await vi.waitFor(() => expect($('.oidc-apple-btn')).toHaveLength(1));
+    });
+
+    it('labels a listed custom provider with its escaped label and keeps a query on its route', async () => {
+        listings({
+            [SSO_PROVIDERS_URL]: () => reply(200, {
+                providers: ['oidc:acme'],
+                details: [{ id: 'oidc:acme', kind: 'oidc', label: 'Acme <b>SSO</b>', startUrl: 'https://puter.test/auth/sso/oidc%3Aacme/start?x=1' }],
+            }),
+        });
+        void UIAuthLogin();
+        await vi.waitFor(() => expect($('.oidc-custom-btn')).toHaveLength(1));
+        expect($('.oidc-custom-btn').text()).toContain('Acme <b>SSO</b>');
+        expect($('.oidc-custom-btn b')).toHaveLength(0);
+        expect(startedAt('.oidc-custom-btn')).toBe('https://puter.test/auth/sso/oidc%3Aacme/start?x=1&flow=login');
+    });
+
+    it('offers no providers when neither listing is served', async () => {
+        listings({});
+        void UIAuthLogin();
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        await tick();
+        expect($('.auth-provider-btn')).toHaveLength(0);
     });
 });
 
