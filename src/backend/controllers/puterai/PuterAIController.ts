@@ -317,7 +317,7 @@ export class PuterAIController extends PuterController {
             normalize: false,
             streamToolInput: true,
             ...(body.tools ? { tools: body.tools as unknown[] } : {}),
-            ...(body.temperature !== undefined
+            ...(body.temperature != null
                 ? { temperature: Number(body.temperature) }
                 : {}),
             ...(finiteMaxTokens(
@@ -325,7 +325,7 @@ export class PuterAIController extends PuterController {
             ) ?? {}),
             ...toolChoiceFromBody(body, 'chat'),
             parallel_tool_calls:
-                body.parallel_tool_calls === undefined
+                body.parallel_tool_calls == null
                     ? true
                     : !!body.parallel_tool_calls,
             ...stopSequencesFromBody(body),
@@ -534,7 +534,7 @@ export class PuterAIController extends PuterController {
             stream,
             // Pinned provider-native — this route translates the shape itself.
             normalize: false,
-            ...(body.temperature !== undefined
+            ...(body.temperature != null
                 ? { temperature: Number(body.temperature) }
                 : {}),
             ...(finiteMaxTokens(body.max_tokens) ?? {}),
@@ -694,16 +694,16 @@ export class PuterAIController extends PuterController {
             ...(body.tools ? { tools: body.tools as unknown[] } : {}),
             ...toolChoiceFromBody(body, 'responses'),
             parallel_tool_calls:
-                body.parallel_tool_calls === undefined
+                body.parallel_tool_calls == null
                     ? true
                     : !!body.parallel_tool_calls,
-            ...(body.temperature !== undefined
+            ...(body.temperature != null
                 ? { temperature: Number(body.temperature) }
                 : {}),
-            ...(body.max_output_tokens !== undefined
+            ...(body.max_output_tokens != null
                 ? { max_tokens: Number(body.max_output_tokens) }
                 : {}),
-            ...(body.top_p !== undefined ? { top_p: Number(body.top_p) } : {}),
+            ...(body.top_p != null ? { top_p: Number(body.top_p) } : {}),
             ...(body.reasoning
                 ? {
                       reasoning:
@@ -1270,7 +1270,8 @@ const toStringOrEmpty = (v: unknown): string =>
 // Drop it instead so the request runs with no client-requested cap rather than
 // a poisoned one.
 const finiteMaxTokens = (v: unknown): { max_tokens: number } | undefined => {
-    if (v === undefined) return undefined;
+    // `null` is how OpenAI clients ask for the default; `Number(null)` is 0.
+    if (v === undefined || v === null) return undefined;
     const n = Number(v);
     return Number.isFinite(n) ? { max_tokens: n } : undefined;
 };

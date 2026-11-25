@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 25, 2026
+
+- Fixed the OpenAI-compatible Chat Completions, Completions, and Responses APIs reading some `null` settings as `0` or `false`. A `null` output token limit could be refused with `insufficient_funds`, and `null` for `temperature`, `top_p`, or `parallel_tool_calls` now works like leaving the setting out.
+
 ## November 24, 2026
 
 - Fixed missing `usageDetails.iterations` and incomplete cache-write counts in streamed responses from Claude models through [`puter.ai.chat()`](/AI/chat/). See [ChatResponseChunk](/Objects/chatresponsechunk/#usagedetails).
