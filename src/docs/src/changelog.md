@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 24, 2026
+
+- Fixed missing `usageDetails.iterations` and incomplete cache-write counts in streamed responses from Claude models through [`puter.ai.chat()`](/AI/chat/). See [ChatResponseChunk](/Objects/chatresponsechunk/#usagedetails).
+
 ## November 23, 2026
 
 - Changed Puter.js in an app that Puter opens in its own browser tab to remove the `puter.*` launch parameters from the address bar once the page has loaded, keeping the app's other query parameters and its URL hash. Code that reads them from `location.search` has to do so before or during the `load` event.

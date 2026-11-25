@@ -1372,7 +1372,12 @@ export class ClaudeProvider implements IChatProvider {
             .finalMessage()
             .catch((): null => null);
         if (finalMessage) {
+            const deltaIterations = finalUsage?.iterations;
             finalUsage = finalMessage.usage ?? finalUsage;
+            // The non-beta SDK accumulator omits iterations from message_delta.
+            if (deltaIterations != null) {
+                finalUsage = { ...finalUsage, iterations: deltaIterations };
+            }
             if (!emittedCompaction) {
                 const block = ((finalMessage.content as unknown[]) ?? []).find(
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1497,6 +1502,39 @@ export class ClaudeProvider implements IChatProvider {
             cache_read_input_tokens: raw.cache_read_input_tokens ?? 0,
             output_tokens: raw.output_tokens ?? 0,
         };
+
+        const iterations = raw.iterations as
+            Anthropic.Beta.Messages.BetaIterationsUsage | undefined;
+        const messageIterations =
+            iterations?.filter((iteration) => iteration.type === 'message') ??
+            [];
+        if (
+            messageIterations.length > 0 &&
+            messageIterations.every(
+                (iteration) =>
+                    iteration.cache_creation != null ||
+                    iteration.cache_creation_input_tokens === 0,
+            )
+        ) {
+            const write5m = messageIterations.reduce(
+                (total, iteration) =>
+                    total +
+                    (iteration.cache_creation?.ephemeral_5m_input_tokens ?? 0),
+                0,
+            );
+            const write1h = messageIterations.reduce(
+                (total, iteration) =>
+                    total +
+                    (iteration.cache_creation?.ephemeral_1h_input_tokens ?? 0),
+                0,
+            );
+            // The SDK retains message_start's split while the aggregate grows.
+            // Replace it only with reported lifetimes covering the full total.
+            if (write5m + write1h === raw.cache_creation_input_tokens) {
+                exec.ephemeral_5m_input_tokens = write5m;
+                exec.ephemeral_1h_input_tokens = write1h;
+            }
+        }
 
         let advisorInput = 0;
         let advisorW5m = 0;
