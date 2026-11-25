@@ -137,19 +137,52 @@ export const forwardedDestination = (redirectURL, relayOrigins) => {
     return named === url.host.toLowerCase() ? null : named;
 };
 
+const hostnameOf = (value) => {
+    try {
+        return new URL(value).hostname.toLowerCase()
+            .replace(/^\[/, '').replace(/\]$/, '')
+            .replace(/\.+$/, '');
+    } catch {
+        return null;
+    }
+};
+
 /**
- * Does the redirect land back on the GUI itself?
+ * Does the redirect land on a host this deployment serves?
  *
  * GUI pages pass their query on to what they open (`/app/<name>` hands it to
- * that app), so a grant delivered there reaches whatever the URL opens rather
- * than the page the dialog names. A grant is never delivered to the GUI.
+ * that app), and the API and WebDAV hosts serve users' files inline, so a
+ * grant delivered to any of them reaches content the dialog doesn't name.
+ * Hosts are compared by name, ignoring scheme, port and a trailing dot, and
+ * every host under the deployment's domain counts. The configured relays are
+ * the exception, and a loopback destination other than the GUI itself is the
+ * user's own machine.
  *
  * @param {string} redirectURL
- * @param {string[]} guiOrigins - The origins this GUI is served on.
+ * @param {object} deployment
+ * @param {string} [deployment.domain] - The deployment's domain (`gui_params.domain`).
+ * @param {string[]} [deployment.guiOrigins] - The origins this GUI is served on.
+ * @param {string[]} [deployment.relayOrigins] - Exact origins of the configured relays.
  * @returns {boolean}
  */
-export const isGuiRedirect = (redirectURL, guiOrigins) =>
-    isListedOrigin(redirectURL, guiOrigins);
+export const isDeploymentRedirect = (
+    redirectURL,
+    { domain, guiOrigins = [], relayOrigins = [] } = {},
+) => {
+    if ( isListedOrigin(redirectURL, guiOrigins) ) return true;
+    if ( isListedOrigin(redirectURL, relayOrigins) ) return false;
+    if ( isLoopbackTarget(redirectURL) ) return false;
+
+    const host = hostnameOf(redirectURL);
+    if ( ! host ) return false;
+    const ownHosts = guiOrigins.map(hostnameOf).filter(Boolean);
+    if ( ownHosts.includes(host) ) return true;
+
+    const ownDomain = typeof domain === 'string'
+        ? domain.toLowerCase().replace(/\.+$/, '')
+        : '';
+    return !!ownDomain && (host === ownDomain || host.endsWith(`.${ownDomain}`));
+};
 
 /**
  * Was a full account session explicitly requested?

@@ -74,7 +74,7 @@ import {
     forwardedDestination,
     fullTokenAllowed,
     isDeliverableRedirect,
-    isGuiRedirect,
+    isDeploymentRedirect,
     shouldUseRemoteAuthme,
     urlTokenParam,
     wantsFullToken,
@@ -210,7 +210,11 @@ const postAuthActions = async (action) => {
             await UIAlert({ message: i18n('authme_bad_redirect_url') });
             return;
         }
-        if ( redirectURL && isGuiRedirect(redirectURL, [window.location.origin, window.gui_origin]) ) {
+        if ( redirectURL && isDeploymentRedirect(redirectURL, {
+            domain: window.gui_params?.domain,
+            guiOrigins: [window.location.origin, window.gui_origin],
+            relayOrigins: window.gui_params?.authmeRelayOrigins,
+        }) ) {
             await UIAlert({ message: i18n('authme_gui_redirect_url') });
             return;
         }
