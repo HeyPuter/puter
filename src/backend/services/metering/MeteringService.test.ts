@@ -6,6 +6,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import murmurhash from 'murmurhash';
@@ -3475,6 +3476,38 @@ describe('MeteringService', () => {
                 (shards * (shards + 1)) / 2,
             );
             expect((await target.getGlobalUsage('1999-02')).total).toBe(0);
+        });
+
+        it('sums every month in one listing, across pages', async () => {
+            const ctor = target.constructor as typeof MeteringService;
+            const pageItems = ctor.SHARD_SWEEP_PAGE_ITEMS;
+            ctor.SHARD_SWEEP_PAGE_ITEMS = 3;
+            onTestFinished(() => {
+                ctor.SHARD_SWEEP_PAGE_ITEMS = pageItems;
+            });
+            const months = ['1998-01', '1998-02', '1998-03'];
+            for (const [i, month] of months.entries()) {
+                for (let shard = 0; shard < ctor.GLOBAL_SHARD_COUNT; shard++) {
+                    await server.stores.kv.set({
+                        key: `${METRICS_V2_PREFIX}:puter:${shard}:${month}`,
+                        value: { total: 10 ** i },
+                    });
+                }
+            }
+            // Under the prefix, but not a shard.
+            await server.stores.kv.set({
+                key: `${METRICS_V2_PREFIX}:puter:notes:1998-01`,
+                value: { total: 5000 },
+            });
+            const list = vi.spyOn(server.stores.kv, 'list');
+
+            const totals = await target.getGlobalUsageByMonth();
+
+            expect(months.map((month) => totals.get(month))).toEqual(
+                [1, 10, 100].map((each) => each * ctor.GLOBAL_SHARD_COUNT),
+            );
+            expect(list.mock.calls.length).toBeGreaterThan(1);
+            list.mockRestore();
         });
 
         it('returns total only, with no per-model breakdown', async () => {

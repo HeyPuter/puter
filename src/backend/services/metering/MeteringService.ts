@@ -18,6 +18,7 @@
  */
 
 import { randomInt } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import murmurhash from 'murmurhash';
 import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
@@ -116,6 +117,15 @@ type UsageWriteResult = {
     detail: Promise<FlatUsageDetail>;
 };
 
+/** Every month's global shard sits under this, as `<shard>:<YYYY-MM>`. */
+const GLOBAL_USAGE_PREFIX = `${METRICS_V2_PREFIX}:puter:`;
+const GLOBAL_SHARD_KEY_RE = /^\d+:(\d{4}-\d{2})$/;
+/**
+ * Read units a sweep of the global shards draws per second. Their partition
+ * serves 3,000 and every request's metering reads share it.
+ */
+const SHARD_SWEEP_READ_UNITS_PER_SECOND = 1000;
+
 /** Compares fleet-wide spend against `maxGlobalUsagePerMinute`. */
 const GLOBAL_RATE_CHECK_JOB = 'metering.globalRateCheck';
 const GLOBAL_RATE_CHECK_EVERY_MS = 25 * 60 * 1000;
@@ -183,6 +193,8 @@ export class MeteringService extends PuterService {
      */
     static GLOBAL_SHARD_COUNT = 10000;
     static APP_SHARD_COUNT = 10000;
+    /** Shards one page of a sweep reads; the pause between pages is the pacing. */
+    static SHARD_SWEEP_PAGE_ITEMS = 1000;
 
     /**
      * Share of the allowance past which an approximate running total is no
@@ -2522,24 +2534,50 @@ export class MeteringService extends PuterService {
         );
     }
 
-    /**
-     * Summed over every global shard for `month` (default: this one) — each is
-     * `{ total }` only.
-     */
+    /** The global total for `month` (default: this one). */
     async getGlobalUsage(
         month: string = this.monthYearString(),
     ): Promise<UsageByType> {
-        const keyPrefix = `${METRICS_V2_PREFIX}:puter:`;
-        const keys = Array.from(
-            { length: MeteringService.GLOBAL_SHARD_COUNT },
-            (_, shard) => `${keyPrefix}${shard}:${month}`,
-        );
+        const totals = await this.getGlobalUsageByMonth();
+        return { total: totals.get(month) ?? 0 } as UsageByType;
+    }
 
-        const { res } = await this.stores.kv.get({ key: keys });
-        const usages = (res ?? []) as (UsageByType | null)[];
-        let total = 0;
-        for (const entry of usages) total += entry?.total || 0;
-        return { total } as UsageByType;
+    /**
+     * The global total of every month on record, by `YYYY-MM`. Shards sort by
+     * number before month, so one listing covers them all; it is charged by
+     * bytes read, where getting each shard by key is charged per key.
+     */
+    async getGlobalUsageByMonth(): Promise<Map<string, number>> {
+        const totals = new Map<string, number>();
+        let cursor: string | undefined;
+        do {
+            const startedAt = Date.now();
+            const { res, usage } = await this.stores.kv.list({
+                as: 'entries',
+                keyPrefix: GLOBAL_USAGE_PREFIX,
+                limit: MeteringService.SHARD_SWEEP_PAGE_ITEMS,
+                cursor,
+            });
+            const page = res as {
+                items: { key: string; value: unknown }[];
+                cursor?: string;
+            };
+            for (const { key, value } of page.items) {
+                const month = GLOBAL_SHARD_KEY_RE.exec(
+                    key.slice(GLOBAL_USAGE_PREFIX.length),
+                )?.[1];
+                if (!month) continue;
+                const total = Number((value as UsageByType | null)?.total);
+                if (Number.isFinite(total))
+                    totals.set(month, (totals.get(month) ?? 0) + total);
+            }
+            cursor = page.cursor;
+            const waitMs =
+                (usage.read / SHARD_SWEEP_READ_UNITS_PER_SECOND) * 1000 -
+                (Date.now() - startedAt);
+            if (cursor && waitMs > 0) await sleep(waitMs);
+        } while (cursor);
+        return totals;
     }
 
     async updateAddonCredit(
@@ -2640,7 +2678,7 @@ export class MeteringService extends PuterService {
         const hash =
             murmurhash.v3(`${userId}:${appId}`) %
             MeteringService.GLOBAL_SHARD_COUNT;
-        return `${METRICS_V2_PREFIX}:puter:${hash}:${currentMonth}`;
+        return `${GLOBAL_USAGE_PREFIX}${hash}:${currentMonth}`;
     }
 
     private appUsageKey(

@@ -20,7 +20,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MeteringService } from './MeteringService.ts';
 
-const GLOBAL_SHARD_COUNT = MeteringService.GLOBAL_SHARD_COUNT;
+const SHARDS = 8;
+const PER_SHARD = 1000;
+const MONTH = new Date().toISOString().slice(0, 7);
 
 /** `checkRateOfChange` is private; call it through this narrowed view. */
 type RateCheckable = { checkRateOfChange(): Promise<void> };
@@ -30,15 +32,24 @@ const makeService = (
     baseline: unknown,
 ): {
     svc: RateCheckable;
-    kv: { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> };
+    kv: {
+        get: ReturnType<typeof vi.fn>;
+        list: ReturnType<typeof vi.fn>;
+        set: ReturnType<typeof vi.fn>;
+    };
     alarmCreate: ReturnType<typeof vi.fn>;
 } => {
     const kv = {
-        get: vi.fn(async ({ key }: { key: string | string[] }) =>
-            Array.isArray(key)
-                ? { res: key.map(() => ({ total: 1 })) }
-                : { res: baseline },
-        ),
+        get: vi.fn(async () => ({ res: baseline })),
+        list: vi.fn(async () => ({
+            res: {
+                items: Array.from({ length: SHARDS }, (_, shard) => ({
+                    key: `metering:v2:puter:${shard}:${MONTH}`,
+                    value: { total: PER_SHARD },
+                })),
+            },
+            usage: { read: 0, write: 0, cachedRead: 0 },
+        })),
         set: vi.fn(async () => ({ res: true })),
     };
     const alarmCreate = vi.fn();
@@ -62,6 +73,7 @@ describe('MeteringService.checkRateOfChange', () => {
             await svc.checkRateOfChange();
 
             expect(kv.get).not.toHaveBeenCalled();
+            expect(kv.list).not.toHaveBeenCalled();
             expect(kv.set).not.toHaveBeenCalled();
             expect(alarmCreate).not.toHaveBeenCalled();
         },
@@ -75,17 +87,16 @@ describe('MeteringService.checkRateOfChange', () => {
 
         await svc.checkRateOfChange();
 
-        expect(kv.get).toHaveBeenCalledTimes(2);
+        expect(kv.get).toHaveBeenCalledTimes(1);
         expect(kv.get.mock.calls[0][0].key).toBe(
             'metering:lastGlobalUsageCheck',
         );
-        const secondKey = kv.get.mock.calls[1][0].key;
-        expect(Array.isArray(secondKey)).toBe(true);
-        expect(secondKey).toHaveLength(GLOBAL_SHARD_COUNT);
+        expect(kv.list).toHaveBeenCalledTimes(1);
+        expect(kv.list.mock.calls[0][0].keyPrefix).toBe('metering:v2:puter:');
 
         expect(kv.set).toHaveBeenCalledTimes(1);
         const setArg = kv.set.mock.calls[0][0];
-        expect(setArg.value.total).toBe(GLOBAL_SHARD_COUNT);
+        expect(setArg.value.total).toBe(SHARDS * PER_SHARD);
         expect(typeof setArg.value.timestamp).toBe('number');
 
         expect(alarmCreate).not.toHaveBeenCalled();
@@ -134,6 +145,7 @@ describe('MeteringService.checkRateOfChange', () => {
         await svc.checkRateOfChange();
 
         expect(kv.get).toHaveBeenCalledTimes(1);
+        expect(kv.list).not.toHaveBeenCalled();
         expect(kv.set).not.toHaveBeenCalled();
         expect(alarmCreate).not.toHaveBeenCalled();
     });
