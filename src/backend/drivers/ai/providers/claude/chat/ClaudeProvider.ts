@@ -1535,6 +1535,15 @@ export class ClaudeProvider implements IChatProvider {
                 exec.ephemeral_1h_input_tokens = write1h;
             }
         }
+        // Writes the split doesn't cover (e.g. after a server tool ran in a
+        // stream without iterations) are billed at the 5m rate.
+        const uncoveredWrites =
+            (raw.cache_creation_input_tokens ?? 0) -
+            exec.ephemeral_5m_input_tokens -
+            exec.ephemeral_1h_input_tokens;
+        if (uncoveredWrites > 0) {
+            exec.ephemeral_5m_input_tokens += uncoveredWrites;
+        }
 
         let advisorInput = 0;
         let advisorW5m = 0;
