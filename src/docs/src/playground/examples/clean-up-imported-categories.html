@@ -54,11 +54,9 @@
         }
 
         async function openCsvFile () {
-            const request = puter.ui.showOpenFilePicker({ multiple: false, accept: '.csv' });
-            // A failure only rejects the picker's own promise. A desktop cancel settles undefinedOnCancel,
-            // and a website popup cancel resolves the picker's own promise with a cancel message.
-            const file = await Promise.race([request, request.undefinedOnCancel]);
-            if ( file === undefined || file?.msg === 'fileOpenCanceled' ) {
+            // A cancel resolves undefinedOnCancel to undefined.
+            const file = await puter.ui.showOpenFilePicker({ multiple: false, accept: '.csv' }).undefinedOnCancel;
+            if ( file === undefined ) {
                 return null;
             }
             if ( Array.isArray(file) || file?.isDir || typeof file?.read !== 'function' || ! /\.csv$/i.test(String(file.name)) ) {
@@ -121,6 +119,7 @@
         }
 
         const MAX_REPLY_LENGTH = 100_000;
+        const MAX_LABELS = 100;
 
         function parseProposal (content, labels) {
             const mapping = new Map(labels.map(label => [label, null]));
@@ -160,7 +159,6 @@
         }
 
         const CLEAN_COLUMN = 'cleanCategory';
-        const MAX_LABELS = 100;
         const MAX_LABEL_LENGTH = 80;
 
         function checkColumns (rows) {
@@ -265,10 +263,9 @@
         }
 
         async function saveCsvFile (csv, suggestedName) {
-            const request = puter.ui.showSaveFilePicker(csv, suggestedName);
-            // A desktop cancel settles undefinedOnCancel, and a website popup cancel resolves with a cancel message.
-            const saved = await Promise.race([request, request.undefinedOnCancel]);
-            if ( saved === undefined || saved?.msg === 'fileSaveCanceled' ) {
+            // A cancel or a save that didn't complete resolves undefinedOnCancel to undefined.
+            const saved = await puter.ui.showSaveFilePicker(csv, suggestedName).undefinedOnCancel;
+            if ( saved === undefined ) {
                 return null;
             }
             // Only a result that names the saved file confirms the save.
@@ -385,12 +382,12 @@
             try {
                 // The save dialog opens before any other await, while the click still counts as a user action.
                 const saved = await saveCsvFile(csv, name);
+                // null means cancelled or not completed. The file can still have been written.
                 status.textContent = saved === null
-                    ? 'Save cancelled. No file was saved.'
+                    ? 'The save was cancelled or did not complete. Check the destination before saving again.'
                     : `Saved the cleaned CSV as ${ saved.name }.`;
             } catch ( error ) {
-                // A rejection can follow a completed write whose response was lost.
-                status.textContent = `Save could not be confirmed (${ messageOf(error) }). Check the destination before retrying.`;
+                status.textContent = `Save could not be confirmed (${ messageOf(error) }). Check the destination before saving again.`;
             } finally {
                 busy = false;
                 update();
