@@ -120,6 +120,8 @@ type UsageWriteResult = {
 /** Every month's global shard sits under this, as `<shard>:<YYYY-MM>`. */
 const GLOBAL_USAGE_PREFIX = `${METRICS_V2_PREFIX}:puter:`;
 const GLOBAL_SHARD_KEY_RE = /^\d+:(\d{4}-\d{2})$/;
+/** A closed month's total, one item beside the shards as `total:<YYYY-MM>`. */
+const GLOBAL_MONTH_TOTAL_KEY_RE = /^total:(\d{4}-\d{2})$/;
 /**
  * Read units a sweep of the global shards draws per second. Their partition
  * serves 3,000 and every request's metering reads share it.
@@ -130,6 +132,11 @@ const SHARD_SWEEP_READ_UNITS_PER_SECOND = 1000;
 const GLOBAL_RATE_CHECK_JOB = 'metering.globalRateCheck';
 const GLOBAL_RATE_CHECK_EVERY_MS = 25 * 60 * 1000;
 const GLOBAL_RATE_CHECK_LEASE_MS = 5 * 60 * 1000;
+
+/** Stores closed months' global totals whether or not anything reads them. */
+const GLOBAL_MONTH_CLOSE_JOB = 'metering.closeGlobalMonths';
+const GLOBAL_MONTH_CLOSE_EVERY_MS = 24 * 60 * 60 * 1000;
+const GLOBAL_MONTH_CLOSE_LEASE_MS = 30 * 60 * 1000;
 
 // -- Helpers ----------------------------------------------------------
 
@@ -193,8 +200,30 @@ export class MeteringService extends PuterService {
      */
     static GLOBAL_SHARD_COUNT = 10000;
     static APP_SHARD_COUNT = 10000;
+    /** Off while nothing reads the per-app aggregate; flip it on with a reader. */
+    static TRACK_APP_AGGREGATE = false;
     /** Shards one page of a sweep reads; the pause between pages is the pacing. */
     static SHARD_SWEEP_PAGE_ITEMS = 1000;
+    /**
+     * How long after a month ends its global total is stored as one item. Usage
+     * is written under the month it happened in, so this only has to outlast
+     * buffered counters and replication between deployments.
+     */
+    static GLOBAL_MONTH_CLOSE_GRACE_MS = 24 * 60 * 60 * 1000;
+    /**
+     * Off until every version a deployment can roll back to reads stored month
+     * totals: an older one sums the shards, and reports a deleted month as
+     * zero.
+     */
+    static DELETE_CLOSED_SHARDS = false;
+    /**
+     * How long a stored month total stands before its shards are deleted, so no
+     * sweep that began without the total sums a partly deleted month.
+     */
+    static CLOSED_SHARD_DELETE_DELAY_MS = 60 * 60 * 1000;
+    /** Closed shards deleted per call, and the write units drawn per second. */
+    static CLOSED_SHARD_DELETE_PAGE_ITEMS = 100;
+    static CLOSED_SHARD_DELETE_UNITS_PER_SECOND = 100;
 
     /**
      * Share of the allowance past which an approximate running total is no
@@ -442,6 +471,13 @@ export class MeteringService extends PuterService {
                 this.#rememberForceExact(data.userUuid);
             },
         );
+
+        this.services.jobs.register(GLOBAL_MONTH_CLOSE_JOB, {
+            every: GLOBAL_MONTH_CLOSE_EVERY_MS,
+            scope: 'fleet',
+            leaseMs: GLOBAL_MONTH_CLOSE_LEASE_MS,
+            run: ({ signal }) => this.closeGlobalMonths(signal),
+        });
 
         const maxPerMinute = this.config.maxGlobalUsagePerMinute;
         if (maxPerMinute && maxPerMinute > 0) {
@@ -869,7 +905,9 @@ export class MeteringService extends PuterService {
                         (totals.res as unknown as UsageByType).detailPaths ?? 0,
                     appTotalCost,
                     appCallCount,
-                    includeAppAggregate: appId !== GLOBAL_APP_KEY,
+                    includeAppAggregate:
+                        MeteringService.TRACK_APP_AGGREGATE &&
+                        appId !== GLOBAL_APP_KEY,
                 });
             } catch (e) {
                 // The total is already settled — a detail failure must never
@@ -2546,9 +2584,34 @@ export class MeteringService extends PuterService {
      * The global total of every month on record, by `YYYY-MM`. Shards sort by
      * number before month, so one listing covers them all; it is charged by
      * bytes read, where getting each shard by key is charged per key.
+     *
+     * A month past `GLOBAL_MONTH_CLOSE_GRACE_MS` is summed once: the first read
+     * stores its total and later reads answer from that item.
      */
     async getGlobalUsageByMonth(): Promise<Map<string, number>> {
+        return (await this.#sweepGlobalUsage()).totals;
+    }
+
+    /**
+     * The daily job: a sweep, which stores the total of each month that closed
+     * since the last one, then the deletion of shards a stored total replaced.
+     * Deleting only here keeps it to the one process holding the job.
+     */
+    async closeGlobalMonths(signal?: AbortSignal): Promise<void> {
+        const { replaced } = await this.#sweepGlobalUsage();
+        if (MeteringService.DELETE_CLOSED_SHARDS)
+            await this.#deleteClosedShards(replaced, signal);
+    }
+
+    /** Every month's total, and the shard keys a stored total has replaced. */
+    async #sweepGlobalUsage(): Promise<{
+        totals: Map<string, number>;
+        replaced: string[];
+    }> {
+        const now = Date.now();
         const totals = new Map<string, number>();
+        const stored = new Map<string, { total: number; closedAt: number }>();
+        const closedShardKeys = new Map<string, string[]>();
         let cursor: string | undefined;
         do {
             const startedAt = Date.now();
@@ -2563,10 +2626,28 @@ export class MeteringService extends PuterService {
                 cursor?: string;
             };
             for (const { key, value } of page.items) {
-                const month = GLOBAL_SHARD_KEY_RE.exec(
-                    key.slice(GLOBAL_USAGE_PREFIX.length),
-                )?.[1];
+                const suffix = key.slice(GLOBAL_USAGE_PREFIX.length);
+                const storedMonth = GLOBAL_MONTH_TOTAL_KEY_RE.exec(suffix)?.[1];
+                if (storedMonth) {
+                    const item = value as {
+                        total?: number;
+                        closedAt?: number;
+                    } | null;
+                    const total = Number(item?.total);
+                    if (Number.isFinite(total))
+                        stored.set(storedMonth, {
+                            total,
+                            closedAt: Number(item?.closedAt) || 0,
+                        });
+                    continue;
+                }
+                const month = GLOBAL_SHARD_KEY_RE.exec(suffix)?.[1];
                 if (!month) continue;
+                if (this.#globalMonthClosed(month, now)) {
+                    const keys = closedShardKeys.get(month);
+                    if (keys) keys.push(key);
+                    else closedShardKeys.set(month, [key]);
+                }
                 const total = Number((value as UsageByType | null)?.total);
                 if (Number.isFinite(total))
                     totals.set(month, (totals.get(month) ?? 0) + total);
@@ -2577,7 +2658,65 @@ export class MeteringService extends PuterService {
                 (Date.now() - startedAt);
             if (cursor && waitMs > 0) await sleep(waitMs);
         } while (cursor);
-        return totals;
+
+        const replaced: string[] = [];
+        for (const [month, keys] of closedShardKeys) {
+            const total = stored.get(month);
+            if (!total) {
+                // Another deployment may be storing the same sum; first wins.
+                this.handleAuxPromise(
+                    `globalMonthTotal ${month}`,
+                    this.stores.kv.set({
+                        key: `${GLOBAL_USAGE_PREFIX}total:${month}`,
+                        value: { total: totals.get(month) ?? 0, closedAt: now },
+                        onlyIfAbsent: true,
+                    }),
+                );
+            } else if (
+                now - total.closedAt >=
+                MeteringService.CLOSED_SHARD_DELETE_DELAY_MS
+            ) {
+                for (const key of keys) replaced.push(key);
+            }
+        }
+
+        // A stored total is final: shards still listed beside it are leftovers.
+        for (const [month, { total }] of stored) totals.set(month, total);
+        return { totals, replaced };
+    }
+
+    /** Whether `month` (`YYYY-MM`) ended at least the close grace ago. */
+    #globalMonthClosed(month: string, now: number): boolean {
+        const [year, monthOfYear] = month.split('-').map(Number);
+        // `Date.UTC` takes a 0-indexed month, so this is the next month's start.
+        return (
+            now >=
+            Date.UTC(year!, monthOfYear!, 1) +
+                MeteringService.GLOBAL_MONTH_CLOSE_GRACE_MS
+        );
+    }
+
+    /** Deletes shards a stored month total replaced, paced by write units. */
+    async #deleteClosedShards(
+        keys: string[],
+        signal?: AbortSignal,
+    ): Promise<void> {
+        const pageItems = MeteringService.CLOSED_SHARD_DELETE_PAGE_ITEMS;
+        for (let i = 0; i < keys.length; i += pageItems) {
+            // The rest are listed again by the next run.
+            if (signal?.aborted) return;
+            const startedAt = Date.now();
+            const { usage } = await this.stores.kv.batchDel({
+                keys: keys.slice(i, i + pageItems),
+            });
+            const waitMs =
+                (usage.write /
+                    MeteringService.CLOSED_SHARD_DELETE_UNITS_PER_SECOND) *
+                    1000 -
+                (Date.now() - startedAt);
+            if (i + pageItems < keys.length && waitMs > 0)
+                await sleep(waitMs, undefined, { ref: false });
+        }
     }
 
     async updateAddonCredit(

@@ -64,6 +64,12 @@ const EXPECTED_JOBS = {
         nearPrimary: false,
         leaseMs: 5 * MINUTE,
     },
+    'metering.closeGlobalMonths': {
+        every: 24 * HOUR,
+        scope: 'fleet',
+        nearPrimary: false,
+        leaseMs: 30 * MINUTE,
+    },
     'events.subscriptions.expirySweep': {
         every: HOUR,
         scope: 'fleet',

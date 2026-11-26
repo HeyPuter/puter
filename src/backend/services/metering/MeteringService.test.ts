@@ -13,6 +13,7 @@ import murmurhash from 'murmurhash';
 import type { Actor } from '../../core/actor.ts';
 import { SYSTEM_ACTOR, makeActor as resolveActor } from '../../core/actor.ts';
 import { PuterServer } from '../../server.ts';
+import { testJobContext } from '../jobs/jobsTestUtil.ts';
 import { bucketTag } from '../../stores/metering/MeteringBufferStore.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import {
@@ -1562,11 +1563,35 @@ describe('MeteringService', () => {
             auxSpy.mockRestore();
         });
 
+        /** Turns the per-app aggregate on for the running test. */
+        const trackAppAggregate = () => {
+            const ctor = target.constructor as typeof MeteringService;
+            ctor.TRACK_APP_AGGREGATE = true;
+            onTestFinished(() => {
+                ctor.TRACK_APP_AGGREGATE = false;
+            });
+        };
+
+        it('writes no per-app aggregate while tracking it is off', async () => {
+            const appActor: Actor = resolveActor({
+                ...actor,
+                app: { uid: 'untracked-app' },
+            });
+            const auxSpy = vi.spyOn(server.stores.meteringBuffer, 'incrAux');
+            await target.incrementUsage(appActor, 'kv:read', 1, 10);
+            const keys = auxSpy.mock.calls.map(([input]) => input.key);
+            expect(
+                keys.some((key) => key.startsWith(`${METRICS_V2_PREFIX}:app:`)),
+            ).toBe(false);
+            auxSpy.mockRestore();
+        });
+
         // The per-app aggregate is what an app's developer reads. Usage with no
         // app behind it belongs to nobody there, and writing it anyway costs a
         // record per shard on every increment — which, now that ordinary
         // traffic is metered, is most of them.
         it('writes no per-app aggregate for an actor with no app', async () => {
+            trackAppAggregate();
             const auxSpy = vi.spyOn(server.stores.meteringBuffer, 'incrAux');
             await target.batchIncrementUsages(actor, [
                 { usageType: 'egress:bytes', usageAmount: 10, costOverride: 1 },
@@ -1579,6 +1604,7 @@ describe('MeteringService', () => {
         });
 
         it('still writes the per-app aggregate for an app actor', async () => {
+            trackAppAggregate();
             const appActor: Actor = resolveActor({
                 ...actor,
                 app: { uid: 'batch-app' },
@@ -1600,6 +1626,7 @@ describe('MeteringService', () => {
         });
 
         it('writes the global and per-app aggregates as {total} only, once per call', async () => {
+            trackAppAggregate();
             const appActor: Actor = resolveActor({
                 ...actor,
                 app: { uid: 'agg-app' },
@@ -3508,6 +3535,147 @@ describe('MeteringService', () => {
             );
             expect(list.mock.calls.length).toBeGreaterThan(1);
             list.mockRestore();
+        });
+
+        describe('a closed month', () => {
+            const ctor = () => target.constructor as typeof MeteringService;
+            const shardKey = (shard: number, month: string) =>
+                `${METRICS_V2_PREFIX}:puter:${shard}:${month}`;
+            const totalKey = (month: string) =>
+                `${METRICS_V2_PREFIX}:puter:total:${month}`;
+            const seedShards = async (month: string, each: number) => {
+                for (let shard = 0; shard < ctor().GLOBAL_SHARD_COUNT; shard++) {
+                    await server.stores.kv.set({
+                        key: shardKey(shard, month),
+                        value: { total: each },
+                    });
+                }
+            };
+            const drainAux = () =>
+                Promise.allSettled([...internals.pendingAuxPromises]);
+            const liveShards = async (month: string) => {
+                const { res } = await server.stores.kv.get({
+                    key: Array.from(
+                        { length: ctor().GLOBAL_SHARD_COUNT },
+                        (_, shard) => shardKey(shard, month),
+                    ),
+                });
+                return (res as unknown[]).filter((value) => value !== null)
+                    .length;
+            };
+
+            it('stores the total on the first read and answers from it after', async () => {
+                const month = '1997-01';
+                await seedShards(month, 25);
+                const sum = 25 * ctor().GLOBAL_SHARD_COUNT;
+
+                expect((await target.getGlobalUsage(month)).total).toBe(sum);
+                await drainAux();
+                const { res } = await server.stores.kv.get({
+                    key: totalKey(month),
+                });
+                expect(res).toMatchObject({ total: sum });
+
+                // The stored total stands whatever the shards say afterwards,
+                // and a read deletes none of them.
+                await server.stores.kv.set({
+                    key: shardKey(0, month),
+                    value: { total: 9999 },
+                });
+                expect((await target.getGlobalUsage(month)).total).toBe(sum);
+                await drainAux();
+                expect(await liveShards(month)).toBe(ctor().GLOBAL_SHARD_COUNT);
+            });
+
+            it('the job stores a total nothing has read', async () => {
+                const month = '1997-03';
+                await seedShards(month, 4);
+
+                await target.closeGlobalMonths();
+                await drainAux();
+
+                const { res } = await server.stores.kv.get({
+                    key: totalKey(month),
+                });
+                expect(res).toMatchObject({
+                    total: 4 * ctor().GLOBAL_SHARD_COUNT,
+                });
+            });
+
+            it('only the job deletes the shards, once the stored total is old enough', async () => {
+                const month = '1997-02';
+                const pageItems = ctor().CLOSED_SHARD_DELETE_PAGE_ITEMS;
+                const unitsPerSecond =
+                    ctor().CLOSED_SHARD_DELETE_UNITS_PER_SECOND;
+                ctor().CLOSED_SHARD_DELETE_PAGE_ITEMS = 3;
+                ctor().CLOSED_SHARD_DELETE_UNITS_PER_SECOND = 1e6;
+                onTestFinished(() => {
+                    ctor().CLOSED_SHARD_DELETE_PAGE_ITEMS = pageItems;
+                    ctor().CLOSED_SHARD_DELETE_UNITS_PER_SECOND =
+                        unitsPerSecond;
+                    ctor().DELETE_CLOSED_SHARDS = false;
+                });
+                const count = ctor().GLOBAL_SHARD_COUNT;
+                await seedShards(month, 7);
+                await server.stores.kv.set({
+                    key: totalKey(month),
+                    value: {
+                        total: 1234,
+                        closedAt:
+                            Date.now() - ctor().CLOSED_SHARD_DELETE_DELAY_MS,
+                    },
+                });
+
+                // Off by default: neither a read nor the job deletes.
+                await target.closeGlobalMonths();
+                expect(await liveShards(month)).toBe(count);
+
+                ctor().DELETE_CLOSED_SHARDS = true;
+                expect((await target.getGlobalUsage(month)).total).toBe(1234);
+                await drainAux();
+                expect(await liveShards(month)).toBe(count);
+
+                // A run that lost the job stops before its next batch.
+                const lost = testJobContext();
+                lost.abort();
+                await target.closeGlobalMonths(lost.signal);
+                expect(await liveShards(month)).toBe(count);
+
+                await target.closeGlobalMonths(testJobContext().signal);
+                expect(await liveShards(month)).toBe(0);
+                expect((await target.getGlobalUsage(month)).total).toBe(1234);
+            });
+
+            it('keeps summing a month still inside the close grace', async () => {
+                const now = new Date();
+                const lastMonth = new Date(
+                    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
+                );
+                const month = `${lastMonth.getUTCFullYear()}-${String(
+                    lastMonth.getUTCMonth() + 1,
+                ).padStart(2, '0')}`;
+                const grace = ctor().GLOBAL_MONTH_CLOSE_GRACE_MS;
+                // Long enough that last month is still open today.
+                ctor().GLOBAL_MONTH_CLOSE_GRACE_MS = 40 * 24 * 60 * 60 * 1000;
+                onTestFinished(async () => {
+                    ctor().GLOBAL_MONTH_CLOSE_GRACE_MS = grace;
+                    await server.stores.kv.batchDel({
+                        keys: Array.from(
+                            { length: ctor().GLOBAL_SHARD_COUNT },
+                            (_, shard) => shardKey(shard, month),
+                        ),
+                    });
+                });
+                await seedShards(month, 5);
+
+                await target.getGlobalUsage(month);
+                await drainAux();
+
+                const { res } = await server.stores.kv.get({
+                    key: totalKey(month),
+                });
+                expect(res).toBeNull();
+            });
         });
 
         it('returns total only, with no per-model breakdown', async () => {
