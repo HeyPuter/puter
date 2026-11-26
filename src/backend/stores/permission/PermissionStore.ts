@@ -35,6 +35,7 @@ import {
 } from '../../services/permission/consts';
 import { chunk, runWithConcurrencyLimit } from '../../util/concurrency';
 import { kv } from '../../util/kvSingleton';
+import { fitsCharset } from '../../util/narrowCharset';
 import { clampLimit, keysetPage, openIdCursor } from '../../util/pagination';
 import { bumpGeneration } from '../../util/redisGeneration';
 import { escapeLike } from '../../util/sqlLike';
@@ -725,7 +726,8 @@ export class PermissionStore extends PuterStore {
         issuerUserId: number,
         permissions: readonly string[],
     ): { scope: string; params: unknown[] } {
-        const unique = [...new Set(permissions)];
+        const unique = this.#matchable(permissions);
+        if (unique.length === 0) return { scope: '1 = 0', params: [] };
         const list = unique.map(() => '?').join(', ');
         const exact = this.clients.db.case({
             mysql: {
@@ -738,6 +740,17 @@ export class PermissionStore extends PuterStore {
             scope: `\`holder_user_id\` = ? AND \`issuer_user_id\` = ? AND ${exact.sql}`,
             params: [holderUserId, issuerUserId, ...exact.params],
         };
+    }
+
+    /**
+     * `permissions` without duplicates and, on MySQL, without the values its
+     * ascii `permission` columns cannot hold: such a value matches no row, and
+     * in an `IN` list it fails the statement.
+     */
+    #matchable(permissions: readonly string[]): string[] {
+        const unique = [...new Set(permissions)];
+        if (this.clients.db.engineName !== 'mysql') return unique;
+        return unique.filter((permission) => fitsCharset(permission, 'ascii'));
     }
 
     /**
@@ -1068,13 +1081,14 @@ export class PermissionStore extends PuterStore {
             params.push(filter.holderUserId);
         }
         if (filter.permissions !== undefined) {
-            if (filter.permissions.length === 0) {
+            const permissions = this.#matchable(filter.permissions);
+            if (permissions.length === 0) {
                 return { sql: '1 = 0', params: [] };
             }
             clauses.push(
-                `\`permission\` IN (${filter.permissions.map(() => '?').join(', ')})`,
+                `\`permission\` IN (${permissions.map(() => '?').join(', ')})`,
             );
-            params.push(...filter.permissions);
+            params.push(...permissions);
         }
         if (clauses.length === 0) {
             throw new Error('listUserUserAudit requires a filter');
@@ -1699,7 +1713,7 @@ export class PermissionStore extends PuterStore {
         Array<{ holder_user_id: number; permission: string; user_id: number }>
     > {
         const holders = [...new Set(userIds)];
-        const perms = [...new Set(permissions)];
+        const perms = this.#matchable(permissions);
         if (holders.length === 0 || perms.length === 0) return [];
         const changed = await this.tombstonedCacheKeys(
             holders.map((holder) => this.#u2gCacheKey(holder)),
@@ -1799,7 +1813,7 @@ export class PermissionStore extends PuterStore {
         issuerUserId: number,
         permissions: readonly string[],
     ): Promise<{ removed: string[]; members: GroupMember[] }> {
-        const unique = [...new Set(permissions)];
+        const unique = this.#matchable(permissions);
         if (unique.length === 0) return { removed: [], members: [] };
         const where =
             '`group_id` = ? AND `user_id` = ? AND `permission` IN (' +
@@ -2321,8 +2335,9 @@ export class PermissionStore extends PuterStore {
         perms: string[],
     ): Promise<LinkedUserUserPermRow[]> {
         const rows: LinkedUserUserPermRow[] = [];
+        const permChunks = chunk(this.#matchable(perms), 700);
         for (const holderChunk of chunk(holders, 200)) {
-            for (const permChunk of chunk(perms, 700)) {
+            for (const permChunk of permChunks) {
                 const found = await read(
                     'SELECT * FROM `user_to_user_permissions` WHERE ' +
                         `\`holder_user_id\` IN (${holderChunk.map(() => '?').join(', ')}) ` +

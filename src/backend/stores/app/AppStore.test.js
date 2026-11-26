@@ -379,6 +379,31 @@ describe('AppStore batched lookups', () => {
         expect((await appStore.getByUid(a.uid))?.id).toBe(a.id);
     });
 
+    it('uid lookups match no row for a value the column cannot hold', async () => {
+        const a = await createApp('Narrow');
+        const db = server.clients.db;
+        const reads = [
+            vi.spyOn(db, 'read'),
+            vi.spyOn(db, 'pread'),
+            vi.spyOn(db, 'tryHardRead'),
+        ];
+        for (const uid of ['app-\u7528\u6237', 'app-\u0080', 'app-\u{1F600}']) {
+            expect(await appStore.getByUid(uid)).toBeNull();
+            expect(await appStore.uidExistsOnPrimary(uid)).toBe(false);
+            expect((await appStore.getByUids([uid])).size).toBe(0);
+            expect(await appStore.listOwnedDescendantUids(1, uid)).toEqual([]);
+        }
+        for (const spy of reads) {
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        }
+        // A name is utf8mb4, and a mixed batch keeps its storable uids.
+        expect(await appStore.getByName('\u7528\u6237')).toBeNull();
+        expect([
+            ...(await appStore.getByUids([a.uid, 'app-\u7528\u6237'])).keys(),
+        ]).toEqual([a.uid]);
+    });
+
     it('getByIds still resolves id-keyed lookups off the shared engine', async () => {
         const a = await createApp('Alpha');
 

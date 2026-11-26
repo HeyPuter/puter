@@ -88,6 +88,7 @@ import { assertActorHasCredits } from '../../services/metering/enforcement.js';
 import { SignInRefusedError } from '../../services/auth/SignInService.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { runAfterResponse } from '../auth/webSession.js';
+import { isCharsetMismatch } from '../../util/dbError.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import type { ResolvedShare } from '../../services/share/ShareService.js';
 
@@ -1353,6 +1354,10 @@ function sendDavError(res: Response, err: unknown): void {
     if (res.headersSent) return;
     if (err instanceof HttpError) {
         res.status(err.statusCode).send(err.message);
+        return;
+    }
+    if (isCharsetMismatch(err)) {
+        res.status(400).send('Bad Request');
         return;
     }
     console.error('[webdav] unhandled error', err);
