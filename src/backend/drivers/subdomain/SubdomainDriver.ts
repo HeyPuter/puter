@@ -40,6 +40,7 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import type { AppView } from '../../util/appView.js';
 import { MANAGE_PERM_PREFIX } from '../../services/permission/consts.js';
+import { carriesClosedAppData } from '../../services/permission/appDataScopes.js';
 import {
     APP_ICONS_SUBDOMAIN,
     PROFILES_SUBDOMAIN,
@@ -617,20 +618,31 @@ export class SubdomainDriver extends PuterDriver {
         // First, because this is the check that masks a directory the caller
         // cannot see at all as a 404.
         await this.services.fs.checkFSAccess(entry, actor);
-        if (entry.userId === actor.user?.id) return;
-        try {
-            await this.services.fs.checkFSAccess(
-                entry,
-                actor,
-                MANAGE_PERM_PREFIX,
-            );
-        } catch {
-            // Reached only with access to the directory, so its existence is
-            // not news and there is nothing to mask.
+        if (entry.userId !== actor.user?.id) {
+            try {
+                await this.services.fs.checkFSAccess(
+                    entry,
+                    actor,
+                    MANAGE_PERM_PREFIX,
+                );
+            } catch {
+                // Reached only with access to the directory, so its existence
+                // is not news and there is nothing to mask.
+                throw new HttpError(
+                    403,
+                    'Publishing this directory is up to whoever owns it',
+                    { legacyCode: 'access_denied' },
+                );
+            }
+        }
+        // Same rule as copy, move and share: an app may not hand on another
+        // app's closed AppData.
+        const app = actor.effectiveApp;
+        if (app && (await carriesClosedAppData(this.stores, entry, app.uid))) {
             throw new HttpError(
                 403,
-                'Publishing this directory is up to whoever owns it',
-                { legacyCode: 'access_denied' },
+                "Cannot publish a folder holding another app's private data",
+                { legacyCode: 'forbidden' },
             );
         }
     }
