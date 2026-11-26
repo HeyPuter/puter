@@ -30,6 +30,7 @@ import {
     OIDCService as OIDCServiceClass,
     type OIDCService,
 } from './OIDCService.js';
+import { signRevalidation } from '../../core/http/middleware/userProtected.js';
 
 const TEST_ORIGIN = 'http://test.local';
 const MS_CLIENT_ID = 'ms-client';
@@ -883,7 +884,7 @@ describe('OIDCService — state tokens', () => {
     });
 
     it('signs a revalidation token naming the user and purpose', () => {
-        const token = oidc().signRevalidation('user-uuid-1');
+        const token = signRevalidation(server.services.token, 'user-uuid-1');
         expect(server.services.token.verify('oidc-state', token)).toMatchObject(
             {
                 user_uuid: 'user-uuid-1',
@@ -894,7 +895,7 @@ describe('OIDCService — state tokens', () => {
 
     it('does not accept a revalidation token as a state', () => {
         expect(
-            oidc().verifyState(oidc().signRevalidation('user-uuid-1')),
+            oidc().verifyState(signRevalidation(server.services.token, 'user-uuid-1')),
         ).toBeNull();
     });
 });

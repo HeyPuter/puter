@@ -21,7 +21,7 @@ import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import type { UserRow } from '../../stores/user/UserStore';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
-import { PuterService } from '../types';
+import { PuterService, type IExtensionServiceInstances } from '../types';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import { generateUsername } from '../../util/username.js';
 import { requestIp } from '../../util/requestIp.js';
@@ -52,7 +52,6 @@ const MICROSOFT_SCOPES = 'openid email profile';
 const MICROSOFT_CONSUMER_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
 const STATE_EXPIRY_SEC = 600; // 10 minutes
 const VALID_OIDC_FLOWS = ['login', 'signup', 'revalidate'] as const;
-const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
 
 interface ProviderConfig {
     client_id: string;
@@ -67,6 +66,12 @@ interface ProviderConfig {
     // configured without discovery (those use the userinfo path instead).
     jwks_uri?: string;
     issuer?: string;
+}
+
+/** What a new account created by a provider sign-in inherits from its flow. */
+export interface OIDCSignupOptions {
+    referrer?: string | null;
+    bonusCode?: string | null;
 }
 
 interface OIDCUserInfo {
@@ -88,7 +93,9 @@ interface OIDCUserInfo {
  * ... }`
  */
 export class OIDCService extends PuterService {
-    declare protected services: LayerInstances<typeof puterServices>;
+    // Includes optional services an extension registers (team seats).
+    declare protected services: LayerInstances<typeof puterServices> &
+        IExtensionServiceInstances;
 
     #discoveryCache: Map<string, Record<string, string>> = new Map();
     #discoveryInFlight: Map<string, Promise<Record<string, string> | null>> =
@@ -284,19 +291,6 @@ export class OIDCService extends PuterService {
         }
     }
 
-    // -- Revalidation tokens -----------------------------------------
-
-    signRevalidation(userUuid: string): string {
-        return this.services.token.sign(
-            'oidc-state',
-            {
-                user_uuid: userUuid,
-                purpose: 'revalidate',
-            },
-            { expiresIn: REVALIDATION_EXPIRY_SEC },
-        );
-    }
-
     // -- Token exchange ----------------------------------------------
 
     async exchangeCodeForTokens(
@@ -387,6 +381,109 @@ export class OIDCService extends PuterService {
 
     // -- User lookup / creation --------------------------------------
 
+    /**
+     * Resolve an identity a provider vouched for to a Puter user. In order:
+     *
+     * 1. Existing link on (provider, sub) → that user.
+     * 2. Email matches an existing account whose email is CONFIRMED → link
+     *    (provider, sub) to that user.
+     * 3. Email matches an account whose email is UNCONFIRMED → refuse. We don't
+     *    know who owns an unconfirmed address, so linking would let whoever
+     *    controls the OIDC identity hijack a pending signup. The exception is a
+     *    team seat's address with a provider-verified email: the seat gives it
+     *    up and step 4 runs.
+     * 4. Otherwise create a new user and link.
+     *
+     * Step 2 also requires `email_verified !== false` on the OIDC side,
+     * otherwise a malicious IdP could claim someone else's email.
+     *
+     * The email-match path does NOT touch the existing user's password, so
+     * password login keeps working.
+     */
+    async resolveOrCreateUser(
+        provider: string,
+        userinfo: { sub: string; email?: unknown; [k: string]: unknown },
+        signup: OIDCSignupOptions = {},
+        attempt = 0,
+    ): Promise<
+        | { error: string; code?: string; requestCode?: string }
+        | {
+              user: UserRow;
+              /** Created by this callback, so its sign-in is the signup's. */
+              created?: boolean;
+          }
+    > {
+        // 1. Existing provider/sub link.
+        const linked = await this.findUserByProviderSub(provider, userinfo.sub);
+        if (linked) return { user: linked };
+
+        // 2/3. Email match branch.
+        const claimedEmail =
+            typeof userinfo.email === 'string' ? userinfo.email : null;
+        if (claimedEmail) {
+            // On the retry after a lost race, read the primary — the winning
+            // row may be younger than the replica snapshot.
+            const byEmail = await this.findUserByEmail(claimedEmail, {
+                force: attempt > 0,
+            });
+            // A seat's unconfirmed address was typed by its team; an inbox the
+            // provider verified takes it back and signs up fresh.
+            const releasedFromSeat =
+                byEmail !== null &&
+                !byEmail.email_confirmed &&
+                userinfo.email_verified === true &&
+                (await this.services.team?.releaseUnconfirmedSeatEmail(
+                    byEmail.id,
+                ));
+            if (byEmail && !releasedFromSeat) {
+                if (!byEmail.email_confirmed) {
+                    return {
+                        error: 'An account with this email exists but the email is not yet confirmed. Please sign in with your password to confirm it first.',
+                    };
+                }
+                const outcome = await this.linkProviderToUser(
+                    byEmail.id,
+                    provider,
+                    userinfo as { sub: string; email?: string },
+                );
+                if (!outcome.success) {
+                    return {
+                        error: outcome.error ?? 'Failed to link provider.',
+                    };
+                }
+                return { user: byEmail };
+            }
+        }
+
+        // 3. Fresh account.
+        const outcome = await this.createUserFromOIDC(
+            provider,
+            userinfo as { sub: string; email?: string },
+            signup.referrer ?? null,
+            { bonusCode: signup.bonusCode ?? null },
+        );
+        // A concurrent callback (a second tab, a provider retry) created the
+        // account between step 2 and the insert. Nothing went wrong for the
+        // user — start over and we'll find the winner at step 1 or 2. One retry
+        // only: a second miss means something other than a race is going on.
+        if (outcome.raced && attempt === 0) {
+            return this.resolveOrCreateUser(
+                provider,
+                userinfo,
+                signup,
+                attempt + 1,
+            );
+        }
+        if (!outcome.success || !outcome.user) {
+            return {
+                error: outcome.error ?? 'Account creation failed.',
+                code: outcome.code,
+                requestCode: outcome.requestCode,
+            };
+        }
+        return { user: outcome.user, created: true };
+    }
+
     async findUserByProviderSub(
         provider: string,
         providerSub: string,
@@ -468,7 +565,7 @@ export class OIDCService extends PuterService {
      *
      * `raced` means a concurrent callback got there first and the caller should
      * re-resolve rather than surface an error — see
-     * `#resolveOrCreateOIDCUser`.
+     * {@link OIDCService.resolveOrCreateUser}.
      *
      * `bonusCode` must already be canonical (`normalizeBonusCode`).
      */

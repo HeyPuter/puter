@@ -832,6 +832,37 @@ export class AuthController extends PuterController {
         );
     }
 
+    // -- SSO revalidation landing ------------------------------------
+
+    /**
+     * Where a revalidation popup lands once the identity provider has
+     * re-confirmed the user: tell the opener, then close. A constant page, so
+     * it gets its own generous bucket instead of sharing the sign-in routes'.
+     */
+    @Get('/auth/revalidate-done', {
+        subdomain: '',
+        rateLimit: {
+            scope: 'oidc-revalidate-done',
+            limit: 600,
+            window: 60_000,
+        },
+    })
+    async handleRevalidateDone(_req: Request, res: Response): Promise<void> {
+        const origin = this.config.origin ?? '';
+        res.set('Content-Type', 'text/html; charset=utf-8');
+        res.send(`<!DOCTYPE html><html><head><title>Re-validated</title></head><body><script>
+(function(){
+var origin = ${JSON.stringify(origin)};
+if (window.opener) {
+  try { window.opener.postMessage({ type: 'puter-revalidate-done' }, origin); } catch (e) {}
+  window.close();
+} else {
+  document.body.innerHTML = '<p>Re-validated. You can close this tab.</p>';
+}
+})();
+</script><p>Re-validated. Closing&hellip;</p></body></html>`);
+    }
+
     // -- SSO popup return --------------------------------------------
 
     /**

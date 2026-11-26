@@ -1876,7 +1876,7 @@ describe('OIDCController signup callback', () => {
 
     it('redirects to action=signup with auth_error when user resolution fails (unconfirmed email)', async () => {
         // Seed an UNCONFIRMED password account so the email-match path
-        // in #resolveOrCreateOIDCUser refuses to link.
+        // in OIDCService.resolveOrCreateUser refuses to link.
         const email = `pending-${Math.random().toString(36).slice(2, 8)}@test.local`;
         await server.stores.user.create({
             username: `pending-${Math.random().toString(36).slice(2, 8)}`,

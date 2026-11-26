@@ -27,6 +27,7 @@ import type { UserStore, UserRow } from '../../../stores/user/UserStore';
 import type { OIDCService } from '../../../services/auth/OIDCService';
 import type { TokenService } from '../../../services/auth/TokenService';
 import type { EventClient } from '../../../clients/event/EventClient';
+import { sessionCookieFlags } from '../../../util/cookieFlags.js';
 import { resolveRevalidateUrl } from '../../../util/revalidateUrl.js';
 import { isTemporaryAccount } from '../../../util/userDetails.js';
 
@@ -57,11 +58,48 @@ import { isTemporaryAccount } from '../../../util/userDetails.js';
  *    bounded whether or not it declares a limit of its own.
  */
 
-const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
+export const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
+const REVALIDATION_EXPIRY_SEC = 300;
+const REVALIDATION_TOKEN_SCOPE = 'oidc-state';
+const REVALIDATION_PURPOSE = 'revalidate';
 
 interface RevalidationPayload {
     user_uuid: string;
     purpose: string;
+}
+
+/** A proof, accepted by this gate, that `userUuid` just re-proved who they are. */
+export function signRevalidation(
+    token: TokenService,
+    userUuid: string,
+): string {
+    return token.sign(
+        REVALIDATION_TOKEN_SCOPE,
+        { user_uuid: userUuid, purpose: REVALIDATION_PURPOSE },
+        { expiresIn: REVALIDATION_EXPIRY_SEC },
+    );
+}
+
+/**
+ * Set the revalidation cookie this gate checks. Call only after an identity
+ * provider re-confirmed the account behind `userUuid`.
+ */
+export function issueRevalidation(
+    res: Response,
+    userUuid: string,
+    deps: { config: IConfig; token: TokenService },
+): void {
+    res.cookie(
+        REVALIDATION_COOKIE_NAME,
+        signRevalidation(deps.token, userUuid),
+        {
+            // Same-site only: `lax` even on HTTPS.
+            ...sessionCookieFlags(deps.config, { crossSite: false }),
+            httpOnly: true,
+            maxAge: REVALIDATION_EXPIRY_SEC * 1000,
+            path: '/',
+        },
+    );
 }
 
 export interface UserProtectedGateDeps {
@@ -262,11 +300,11 @@ export const createUserProtectedGate = (
         if (cookieValue) {
             try {
                 const payload = tokenService.verify<RevalidationPayload>(
-                    'oidc-state',
+                    REVALIDATION_TOKEN_SCOPE,
                     cookieValue,
                 );
                 if (
-                    payload?.purpose === 'revalidate' &&
+                    payload?.purpose === REVALIDATION_PURPOSE &&
                     payload.user_uuid === user.uuid
                 ) {
                     return next();

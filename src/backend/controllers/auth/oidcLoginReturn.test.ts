@@ -34,6 +34,7 @@ import {
     verifyOidcPopupReturn,
     type OidcFinishLoginOptions,
 } from './oidcLoginReturn.js';
+import { signRevalidation } from '../../core/http/middleware/userProtected.js';
 
 const TEST_ORIGIN = 'http://test.local';
 
@@ -81,7 +82,7 @@ describe('popup-return proof', () => {
         expect(
             verifyOidcPopupReturn(
                 token(),
-                oidc().signRevalidation('user-uuid-1'),
+                signRevalidation(server.services.token, 'user-uuid-1'),
             ),
         ).toBeNull();
     });

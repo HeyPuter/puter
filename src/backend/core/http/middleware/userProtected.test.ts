@@ -28,7 +28,11 @@ import { PuterServer } from '../../../server';
 import type { UserStore } from '../../../stores/user/UserStore';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
-import { createUserProtectedGate } from './userProtected';
+import {
+    createUserProtectedGate,
+    issueRevalidation,
+    REVALIDATION_COOKIE_NAME,
+} from './userProtected';
 
 // ── Server-backed harness ───────────────────────────────────────────
 //
@@ -365,6 +369,26 @@ describe('userProtected — verifyIdentity (step 3)', () => {
             withUser(user, {
                 cookies: { puter_revalidation: cookieValue },
             }),
+        );
+        expect(arg).toBeUndefined();
+    });
+
+    it('accepts the cookie issueRevalidation sets', async () => {
+        const user = await makeUserWithPassword('hunter2');
+        const set: Record<string, { value: string; opts: Record<string, unknown> }> = {};
+        const res = {
+            cookie: (name: string, value: string, opts: Record<string, unknown>) => {
+                set[name] = { value, opts };
+            },
+        } as unknown as Response;
+        issueRevalidation(res, user.uuid, { config: baseConfig, token: tokenService });
+
+        const issued = set[REVALIDATION_COOKIE_NAME];
+        expect(issued.opts).toMatchObject({ httpOnly: true, path: '/', maxAge: 300_000 });
+        const [, , verifyIdentity] = buildGate();
+        const arg = await run(
+            verifyIdentity,
+            withUser(user, { cookies: { [REVALIDATION_COOKIE_NAME]: issued.value } }),
         );
         expect(arg).toBeUndefined();
     });

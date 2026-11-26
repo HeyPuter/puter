@@ -18,29 +18,26 @@
  */
 
 import crypto from 'node:crypto';
-import { validate as validateUuid } from 'uuid';
 import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
+import { issueRevalidation } from '../../core/http/middleware/userProtected.js';
 import {
     finishOidcLogin,
     mintOidcPopupReturn,
     type OidcLoginContinuation,
 } from '../auth/oidcLoginReturn.js';
+import {
+    buildErrorRedirectUrl,
+    resolutionErrorCode,
+    sanitizeReturnTo,
+} from '../auth/ssoRedirects.js';
+import type { OIDCSignupOptions } from '../../services/auth/OIDCService.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { secretsEqual } from '../../util/secureCompare.js';
 import { normalizeBonusCode } from '../../util/signupBonus.js';
-import { parseMaskedSharePath } from '../../services/fs/sharePathMask.js';
-import {
-    SHARE_DEEP_LINK_ITEMS_LIMIT,
-    SHARE_DEEP_LINK_PARAM,
-    SHARE_RECIPIENT_PARAM,
-} from '../../services/share/shareDeepLink.js';
-
-const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
-const REVALIDATION_EXPIRY_SEC = 300;
 
 // Companion cookie that binds an OIDC flow to the browser that started it.
 // Expiry mirrors STATE_EXPIRY_SEC in OIDCService — the state and its
@@ -51,45 +48,6 @@ const OIDC_NONCE_EXPIRY_SEC = 600;
 // The popup branch below hard-codes this return target.
 const POPUP_RETURN_ACTION = 'sign-in';
 
-const OIDC_ERROR_REDIRECT_MAP: Record<string, Record<string, string>> = {
-    login: { account_not_found: 'signup', other: 'login' },
-    signup: { account_already_exists: 'login', other: 'signup' },
-};
-
-// The `message` query param is clamped to these codes — the GUI maps them to
-// display text. Free-text errors (which may describe internals or, for vetoed
-// signups, the block reason) never reach the redirect URL.
-const ALLOWED_ERRORS = [
-    'account_suspended',
-    'unauthorized',
-    'signup_blocked',
-    'signin_blocked',
-    'bonus_code_invalid',
-] as const;
-
-/**
- * Pick the display code for a failed user resolution.
- *
- * A `code` is only ever set when the signup-validate harness vetoed the signup,
- * but the code it stamps comes from an abuse listener and is not drawn from
- * {@link ALLOWED_ERRORS} — so clamping it directly turns every vetoed OIDC
- * signup into a bare `unauthorized`, which reads as "sign-in broke" and hides
- * both the real cause and the Request Code that support looks the decision up
- * by. Anything unrecognized falls back to the veto's own category instead.
- */
-function resolutionErrorCode(code: string | undefined): string {
-    if (!code) return 'unauthorized';
-    return (ALLOWED_ERRORS as readonly string[]).includes(code)
-        ? code
-        : 'signup_blocked';
-}
-
-/** What a new account created by an OIDC callback inherits from its flow. */
-interface OIDCSignupOptions {
-    referrer?: string | null;
-    bonusCode?: string | null;
-}
-
 function signupOptionsFromState(
     stateDecoded: Record<string, unknown>,
 ): OIDCSignupOptions {
@@ -99,188 +57,6 @@ function signupOptionsFromState(
         // value signup acts on.
         bonusCode: normalizeBonusCode(stateDecoded.bonus_code),
     };
-}
-
-// GUI pages an OIDC flow may return to: the root (where a share email lands),
-// /dashboard, and direct app landings (/app/<name>, mirroring
-// APP_NAME_REGEX in AppDriver). Strict whitelist — never a client-supplied URL
-// (no open redirect).
-function isWhitelistedReturnPath(path: string): boolean {
-    return (
-        path === '/' ||
-        path === '/dashboard' ||
-        /^\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
-    );
-}
-
-/**
- * The share items a return target's query names, or null when the query is
- * anything else at all.
- *
- * A share email lands on `/?shared=…`, and its recipient usually has to sign in
- * before they can see what was shared. An OIDC flow leaves the origin and comes
- * back to a URL this server builds, so the parameter travels through the flow
- * or the recipient returns to a bare Home with nothing to say what they were
- * sent.
- *
- * Only `shared` makes the trip, with values shaped like the masked path the
- * mail was built from — the value is user-visible text, so a hand-edited one is
- * refused rather than reflected back into the browser. The mail's one recipient
- * hint (`user_uuid`) rides along when it is a single uuid.
- */
-function sharedReturnQuery(query: string): {
-    paths: string[];
-    recipientUuid?: string;
-} | null {
-    const paths: string[] = [];
-    let recipientUuid: string | undefined;
-    for (const [key, value] of new URLSearchParams(query)) {
-        if (key === SHARE_RECIPIENT_PARAM) {
-            if (recipientUuid || !validateUuid(value)) return null;
-            recipientUuid = value;
-            continue;
-        }
-        if (key !== SHARE_DEEP_LINK_PARAM) return null;
-        const parsed = parseMaskedSharePath(value);
-        // The segment after the uuid is the shared item itself. A mask without
-        // one addresses the owner's parent directory, which is not the
-        // recipient's to open.
-        if (!parsed || !parsed.tail) return null;
-        // Same rule the link builder follows: the first items are the ones
-        // that travel, so what gets highlighted reads as the top of the list.
-        if (
-            paths.length < SHARE_DEEP_LINK_ITEMS_LIMIT &&
-            !paths.includes(value)
-        ) {
-            paths.push(value);
-        }
-    }
-    return { paths, recipientUuid };
-}
-
-/**
- * A client-supplied `return_to` reduced to what will actually be redirected to,
- * or null when it isn't a page an OIDC flow returns to.
- *
- * The path is matched as given, never parsed as a URL: a protocol-relative
- * value (`//evil.test/desktop`) has to fail the whitelist rather than smuggle
- * an origin through as a `pathname`. The query is rebuilt from the values that
- * survived, so nothing reaches the redirect verbatim.
- */
-function sanitizeReturnTo(raw: string): string | null {
-    const separator = raw.indexOf('?');
-    const path = separator === -1 ? raw : raw.slice(0, separator);
-    if (!isWhitelistedReturnPath(path)) return null;
-
-    const shared =
-        separator === -1
-            ? { paths: [] }
-            : sharedReturnQuery(raw.slice(separator + 1));
-    if (shared === null) return null;
-    // The root is only a destination when it names something: on its own it is
-    // where the flow already lands.
-    if (shared.paths.length === 0) return path === '/' ? null : path;
-
-    const params = new URLSearchParams();
-    for (const value of shared.paths)
-        params.append(SHARE_DEEP_LINK_PARAM, value);
-    if (shared.recipientUuid) {
-        params.set(SHARE_RECIPIENT_PARAM, shared.recipientUuid);
-    }
-    return `${path}?${params.toString()}`;
-}
-
-function buildErrorRedirectUrl(
-    origin: string,
-    sourceFlow: string,
-    errorCondition: string,
-    message: string,
-    stateDecoded?: Record<string, unknown>,
-    requestCode?: string,
-    // Omitted by callers with no state to attest.
-    mintPopupReturn?: (payload: Record<string, unknown>) => string,
-): string {
-    const targetFlow =
-        OIDC_ERROR_REDIRECT_MAP[sourceFlow]?.[errorCondition] ?? sourceFlow;
-    const base = origin.replace(/\/$/, '') || '/';
-    const clamped = (ALLOWED_ERRORS as readonly string[]).includes(message)
-        ? message
-        : 'unauthorized';
-
-    // Land back on the whitelisted page the flow started from (e.g. an
-    // /app/<name> landing) so the retry — and the eventual success — keeps
-    // the user's destination. redirect_uri comes from the signed state and
-    // was built server-side, but re-check the path against the whitelist.
-    // A share link's items come back too: the retry happens on that page, and
-    // its success reloads it, so they have to be on it to survive.
-    let pagePath = '/';
-    let sharedPaths: string[] = [];
-    let shareRecipientUuid: string | undefined;
-    if (typeof stateDecoded?.redirect_uri === 'string') {
-        try {
-            const stateUrl = new URL(stateDecoded.redirect_uri);
-            if (isWhitelistedReturnPath(stateUrl.pathname)) {
-                pagePath = stateUrl.pathname;
-                const shared = sharedReturnQuery(stateUrl.search);
-                sharedPaths = shared?.paths ?? [];
-                shareRecipientUuid = shared?.recipientUuid;
-            }
-        } catch {
-            // unparsable redirect_uri: fall back to the root page
-        }
-    }
-
-    let params: URLSearchParams;
-    if (stateDecoded?.embedded_in_popup && stateDecoded?.msg_id != null) {
-        params = new URLSearchParams({
-            embedded_in_popup: 'true',
-            msg_id: String(stateDecoded.msg_id),
-            auth_error: '1',
-            message: clamped,
-            action: targetFlow,
-        });
-        if (stateDecoded?.opener_origin) {
-            params.set('opener_origin', String(stateDecoded.opener_origin));
-        }
-        // Same reasoning as the success leg: the popup cannot tell a verified
-        // `opener_origin` from a typed one, so attest it. The error leg is a
-        // real return from the provider too — the flow failed, not the hop.
-        if (mintPopupReturn) {
-            params.set(
-                'opener_state',
-                mintPopupReturn({
-                    opener_origin: stateDecoded?.opener_origin ?? null,
-                    msg_id: stateDecoded?.msg_id ?? null,
-                    oidc_login: false,
-                    // The popup checks this against the action it lands on.
-                    action: targetFlow,
-                }),
-            );
-        }
-    } else {
-        params = new URLSearchParams({
-            action: targetFlow,
-            auth_error: '1',
-            message: clamped,
-        });
-    }
-    if (requestCode) {
-        params.set('request_code', requestCode);
-    }
-    // A retry from the error page keeps the bonus code, unless it's what failed.
-    if (
-        typeof stateDecoded?.bonus_code === 'string' &&
-        clamped !== 'bonus_code_invalid'
-    ) {
-        params.set('bonusCode', stateDecoded.bonus_code);
-    }
-    for (const path of sharedPaths) {
-        params.append(SHARE_DEEP_LINK_PARAM, path);
-    }
-    if (shareRecipientUuid) {
-        params.set(SHARE_RECIPIENT_PARAM, shareRecipientUuid);
-    }
-    return `${base}${pagePath}?${params.toString()}`;
 }
 
 /**
@@ -511,7 +287,7 @@ export class OIDCController extends PuterController {
 
             const { provider, userinfo, stateDecoded } = result;
 
-            const resolved = await this.#resolveOrCreateOIDCUser(
+            const resolved = await this.services.oidc.resolveOrCreateUser(
                 provider,
                 userinfo,
                 signupOptionsFromState(stateDecoded),
@@ -585,7 +361,7 @@ export class OIDCController extends PuterController {
 
             const { provider, userinfo, stateDecoded } = result;
 
-            const resolved = await this.#resolveOrCreateOIDCUser(
+            const resolved = await this.services.oidc.resolveOrCreateUser(
                 provider,
                 userinfo,
                 signupOptionsFromState(stateDecoded),
@@ -673,13 +449,9 @@ export class OIDCController extends PuterController {
                 return;
             }
 
-            const token = this.services.oidc.signRevalidation(user.uuid);
-            res.cookie(REVALIDATION_COOKIE_NAME, token, {
-                // Revalidation flow is same-site only — `lax` even on HTTPS.
-                ...sessionCookieFlags(this.config, { crossSite: false }),
-                httpOnly: true,
-                maxAge: REVALIDATION_EXPIRY_SEC * 1000,
-                path: '/',
+            issueRevalidation(res, user.uuid, {
+                config: this.config,
+                token: this.services.token,
             });
 
             const origin = (this.config.origin ?? '').replace(/\/$/, '');
@@ -693,45 +465,6 @@ export class OIDCController extends PuterController {
         };
         router.get('/auth/oidc/callback/revalidate', cbOpts, revalidateCb);
         router.post('/auth/oidc/callback/revalidate', cbOpts, revalidateCb);
-
-        // -- GET /auth/revalidate-done -------------------------------
-        // Landing page after revalidation; posts to opener for popup flow.
-        //
-        // Deliberately not on the `oidc-general` bucket the start/callback
-        // routes share: those exchange codes with an identity provider, this
-        // one is a constant HTML page that touches nothing. Sharing a bucket
-        // meant everyone reachable through one address — an office, a school,
-        // a carrier gateway — competed for the same 30 popup closes a minute.
-        // The replacement is sized for the humans behind one such address
-        // re-validating at once, not for a fleet: it is still auth surface,
-        // and one page view per revalidation is a low-volume event.
-
-        router.get(
-            '/auth/revalidate-done',
-            {
-                subdomain: '',
-                rateLimit: {
-                    scope: 'oidc-revalidate-done',
-                    limit: 600,
-                    window: 60_000,
-                },
-            },
-            (_req: Request, res: Response) => {
-                const origin = this.config.origin ?? '';
-                res.set('Content-Type', 'text/html; charset=utf-8');
-                res.send(`<!DOCTYPE html><html><head><title>Re-validated</title></head><body><script>
-(function(){
-var origin = ${JSON.stringify(origin)};
-if (window.opener) {
-  try { window.opener.postMessage({ type: 'puter-revalidate-done' }, origin); } catch (e) {}
-  window.close();
-} else {
-  document.body.innerHTML = '<p>Re-validated. You can close this tab.</p>';
-}
-})();
-</script><p>Re-validated. Closing&hellip;</p></body></html>`);
-            },
-        );
     }
 
     // -- Shared helpers ----------------------------------------------
@@ -742,113 +475,6 @@ if (window.opener) {
             config: this.config,
             token: this.services.token,
         });
-    }
-
-    /**
-     * Resolve an OIDC callback to a Puter user. In order:
-     *
-     * 1. Existing link on (provider, sub) → that user.
-     * 2. Email matches an existing account whose email is CONFIRMED → link
-     *    (provider, sub) to that user.
-     * 3. Email matches an account whose email is UNCONFIRMED → refuse. We don't
-     *    know who owns an unconfirmed address, so linking would let whoever
-     *    controls the OIDC identity hijack a pending signup. The exception is a
-     *    team seat's address with a provider-verified email: the seat gives it
-     *    up and step 4 runs.
-     * 4. Otherwise create a new user and link.
-     *
-     * Step 2 also requires `email_verified !== false` on the OIDC side,
-     * otherwise a malicious IdP could claim someone else's email.
-     *
-     * The email-match path does NOT touch the existing user's password, so
-     * password login keeps working.
-     */
-    async #resolveOrCreateOIDCUser(
-        provider: string,
-        userinfo: { sub: string; email?: unknown; [k: string]: unknown },
-        signup: OIDCSignupOptions = {},
-        attempt = 0,
-    ): Promise<
-        | { error: string; code?: string; requestCode?: string }
-        | {
-              user: import('../../stores/user/UserStore.js').UserRow;
-              /** Created by this callback, so its sign-in is the signup's. */
-              created?: boolean;
-          }
-    > {
-        // 1. Existing provider/sub link.
-        const linked = await this.services.oidc.findUserByProviderSub(
-            provider,
-            userinfo.sub,
-        );
-        if (linked) return { user: linked };
-
-        // 2/3. Email match branch.
-        const claimedEmail =
-            typeof userinfo.email === 'string' ? userinfo.email : null;
-        if (claimedEmail) {
-            // On the retry after a lost race, read the primary — the winning
-            // row may be younger than the replica snapshot.
-            const byEmail = await this.services.oidc.findUserByEmail(
-                claimedEmail,
-                { force: attempt > 0 },
-            );
-            // A seat's unconfirmed address was typed by its team; an inbox the
-            // provider verified takes it back and signs up fresh.
-            const releasedFromSeat =
-                byEmail !== null &&
-                !byEmail.email_confirmed &&
-                userinfo.email_verified === true &&
-                (await this.services.team?.releaseUnconfirmedSeatEmail(
-                    byEmail.id,
-                ));
-            if (byEmail && !releasedFromSeat) {
-                if (!byEmail.email_confirmed) {
-                    return {
-                        error: 'An account with this email exists but the email is not yet confirmed. Please sign in with your password to confirm it first.',
-                    };
-                }
-                const outcome = await this.services.oidc.linkProviderToUser(
-                    byEmail.id,
-                    provider,
-                    userinfo as { sub: string; email?: string },
-                );
-                if (!outcome.success) {
-                    return {
-                        error: outcome.error ?? 'Failed to link provider.',
-                    };
-                }
-                return { user: byEmail };
-            }
-        }
-
-        // 3. Fresh account.
-        const outcome = await this.services.oidc.createUserFromOIDC(
-            provider,
-            userinfo as { sub: string; email?: string },
-            signup.referrer ?? null,
-            { bonusCode: signup.bonusCode ?? null },
-        );
-        // A concurrent callback (a second tab, a provider retry) created the
-        // account between step 2 and the insert. Nothing went wrong for the
-        // user — start over and we'll find the winner at step 1 or 2. One retry
-        // only: a second miss means something other than a race is going on.
-        if (outcome.raced && attempt === 0) {
-            return this.#resolveOrCreateOIDCUser(
-                provider,
-                userinfo,
-                signup,
-                attempt + 1,
-            );
-        }
-        if (!outcome.success || !outcome.user) {
-            return {
-                error: outcome.error ?? 'Account creation failed.',
-                code: outcome.code,
-                requestCode: outcome.requestCode,
-            };
-        }
-        return { user: outcome.user, created: true };
     }
 
     async #processCallback(
