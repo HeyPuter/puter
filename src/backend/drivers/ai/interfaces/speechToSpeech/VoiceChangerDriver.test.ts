@@ -917,3 +917,32 @@ describe('VoiceChangerDriver.convert file inputs', () => {
         },
     );
 });
+
+describe('VoiceChangerDriver.convert request log', () => {
+    it('logs the request with its audio summarized before converting', async () => {
+        const { actor } = await makeUser();
+        fetchSpy.mockResolvedValueOnce(
+            okResponse(new ArrayBuffer(0), 'audio/mpeg'),
+        );
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        const audio = dataUrl(Buffer.from('x'), 'audio/mpeg');
+
+        await withActor(actor, () =>
+            driver.convert({ audio, model_id: 'eleven_english_sts_v2' }),
+        );
+
+        expect(emit).toHaveBeenCalledWith(
+            'ai.log.media',
+            expect.objectContaining({
+                kind: 'sts',
+                actor,
+                model_used: 'eleven_english_sts_v2',
+                service_used: 'elevenlabs',
+                parameters: expect.objectContaining({
+                    audio: `[data URI audio/mpeg, ${audio.length} chars]`,
+                }),
+            }),
+            {},
+        );
+    });
+});

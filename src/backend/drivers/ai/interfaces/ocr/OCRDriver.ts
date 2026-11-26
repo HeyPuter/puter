@@ -28,6 +28,7 @@ import {
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import { assertScalarOptions } from '../../shared/scalarOptions.js';
+import { emitMediaLog } from '../../shared/mediaLog.js';
 import { resolveFileInput } from '../../../util/fileInput.js';
 import {
     type ProviderCatalog,
@@ -203,6 +204,14 @@ export class OCRDriver extends PuterDriver {
                 maxBytes: OCR_MAX_INPUT_BYTES[model.provider],
             },
         );
+
+        emitMediaLog(this.clients.event, {
+            kind: 'ocr',
+            actor,
+            parameters: args,
+            model: model.id,
+            provider: model.provider,
+        });
 
         return provider.recognize(resolved, args, model, actor);
     }

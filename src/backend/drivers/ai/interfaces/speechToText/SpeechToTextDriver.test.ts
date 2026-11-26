@@ -937,3 +937,64 @@ describe('SpeechToTextDriver provider routing', () => {
         expect(transcriptionsCreateMock).not.toHaveBeenCalled();
     });
 });
+
+describe('SpeechToTextDriver request log', () => {
+    it('logs a transcription with its audio summarized', async () => {
+        const { actor } = await makeUser();
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        const file = dataUrl(Buffer.from('audio'), 'audio/mpeg');
+
+        await withActor(actor, () =>
+            driver.transcribe({
+                file,
+                model: 'gpt-transcribe',
+                test_mode: true,
+            }),
+        );
+
+        expect(emit).toHaveBeenCalledWith(
+            'ai.log.media',
+            expect.objectContaining({
+                kind: 'stt',
+                actor,
+                model_used: 'gpt-transcribe',
+                service_used: 'openai',
+                parameters: expect.objectContaining({
+                    file: `[data URI audio/mpeg, ${file.length} chars]`,
+                }),
+            }),
+            {},
+        );
+    });
+
+    it('logs a translation before the provider answers it', async () => {
+        const { actor } = await makeUser();
+        const emit = vi.spyOn(server.clients.event, 'emit');
+
+        await expect(
+            withActor(actor, () =>
+                driver.translate({
+                    file: dataUrl(Buffer.from('audio'), 'audio/mpeg'),
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(emit).toHaveBeenCalledWith(
+            'ai.log.media',
+            expect.objectContaining({ kind: 'stt', service_used: 'openai' }),
+            {},
+        );
+    });
+
+    it('logs nothing without an actor', async () => {
+        const emit = vi.spyOn(server.clients.event, 'emit');
+
+        await driver.transcribe({ file: undefined, test_mode: true });
+
+        expect(emit).not.toHaveBeenCalledWith(
+            'ai.log.media',
+            expect.anything(),
+            expect.anything(),
+        );
+    });
+});

@@ -870,6 +870,7 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const validateEvent: EventMap['ai.prompt.validate'] = {
             username: actor.user?.username || '',
+            kind: 'chat',
             actor,
             completionId,
             allow: true,
@@ -2310,10 +2311,7 @@ export class ChatCompletionDriver extends PuterDriver {
             // they route through a sibling Responses provider pointed at the
             // same Azure endpoint. web_search (also Responses-only) delegates
             // here too.
-            azureResponses = new AzureResponsesProvider(
-                metering,
-                azureConfig,
-            );
+            azureResponses = new AzureResponsesProvider(metering, azureConfig);
             azureCompletions.setResponsesProvider(azureResponses);
             this.#providers['azure-openai'] = azureCompletions;
             this.#providers['azure-openai-responses'] = azureResponses;

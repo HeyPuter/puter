@@ -28,6 +28,7 @@ import {
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import { assertScalarOptions } from '../../shared/scalarOptions.js';
+import { emitMediaLog } from '../../shared/mediaLog.js';
 import { usesGoogleGeminiEndpoint } from '../../providers/gemini/geminiRest.js';
 import { ProviderRegistry } from '../../shared/providerRegistry.js';
 import { readProviderKey } from '../../../../util/aiProviderKey.js';
@@ -164,9 +165,18 @@ export class TTSDriver extends PuterDriver {
             );
         }
 
-        return provider.synthesize(
-            this.#providerArgs(providerName, args),
-        ) as Promise<
+        const providerArgs = this.#providerArgs(providerName, args);
+        // Polly names its voice engine where the other providers name a model.
+        const model = providerArgs.model ?? providerArgs.engine;
+        emitMediaLog(this.clients.event, {
+            kind: 'tts',
+            actor,
+            parameters: providerArgs,
+            model: typeof model === 'string' ? model : null,
+            provider: providerName,
+        });
+
+        return provider.synthesize(providerArgs) as Promise<
             DriverStreamResult | { url: string; content_type: string }
         >;
     }
