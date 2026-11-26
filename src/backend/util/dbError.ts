@@ -81,10 +81,12 @@ export function isMissingTable(err: unknown): boolean {
     );
 }
 
+// The n-operand form (`IN` with three or more values) names no operands, so it
+// can't be told from two columns that disagree. A lookup that builds such a
+// list checks its values with `fitsCharset` first.
 const COLLATION_MIX_CODES = new Set([
     'ER_CANT_AGGREGATE_2COLLATIONS',
     'ER_CANT_AGGREGATE_3COLLATIONS',
-    'ER_CANT_AGGREGATE_NCOLLATIONS',
 ]);
 
 /**

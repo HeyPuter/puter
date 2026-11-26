@@ -137,7 +137,7 @@ describe('isCharsetMismatch', () => {
                 ),
             ),
         ).toBe(true);
-        // `IN (...)` reports the three- and n-operand forms.
+        // `IN` with two values.
         expect(
             isCharsetMismatch(
                 mix(
@@ -146,12 +146,17 @@ describe('isCharsetMismatch', () => {
                 ),
             ),
         ).toBe(true);
+    });
+
+    it('leaves the n-operand form alone, which names no operands', () => {
         expect(
-            isCharsetMismatch({
-                code: 'ER_CANT_AGGREGATE_NCOLLATIONS',
-                message: "Illegal mix of collations for operation ' IN ' (COERCIBLE)",
-            }),
-        ).toBe(true);
+            isCharsetMismatch(
+                mix(
+                    'ER_CANT_AGGREGATE_NCOLLATIONS',
+                    "Illegal mix of collations for operation ' IN '",
+                ),
+            ),
+        ).toBe(false);
     });
 
     it('leaves a mismatch between two columns, and other errors, alone', () => {
