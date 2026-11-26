@@ -17,6 +17,7 @@ import { runWithContext } from '../../core/context.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { createSecret as otpCreateSecret } from '../../services/auth/OTPUtil.js';
+import type { EventMap } from '../../clients/event/types.js';
 import type { WebDAVController } from './WebDAVController.js';
 
 let server: PuterServer;
@@ -756,6 +757,198 @@ describe('WebDAVController', () => {
             } finally {
                 seat.mockRestore();
             }
+        });
+    });
+
+    describe('Basic-auth sign-in decisions', () => {
+        // Every case pins its own addresses: the client record is per address.
+        const makeSignInUser = async () => {
+            const username = `webdav-si-${Math.random().toString(36).slice(2, 10)}`;
+            const created = await server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: await bcryptHash('correct-horse', 4),
+                email: `${username}@test.local`,
+                free_storage: 100 * 1024 * 1024,
+                requires_email_confirmation: false,
+            });
+            await server.stores.user.update(created.id, {
+                email_confirmed: 1,
+            });
+            await generateDefaultFsentries(
+                server.clients.db,
+                server.stores.user,
+                created,
+            );
+            return { id: created.id, uuid: created.uuid, username };
+        };
+
+        const propfindFrom = async (
+            username: string,
+            password: string,
+            ip: string,
+        ) => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'PROPFIND',
+                    headers: { authorization: basicAuth(username, password) },
+                    ip,
+                }),
+                res,
+                noop,
+            );
+            return captured;
+        };
+
+        const watch = <K extends 'puter.signin' | 'puter.signin.validate'>(
+            key: K,
+            userUuid: string,
+            onEvent: (event: EventMap[K]) => void = () => undefined,
+        ) => {
+            const seen: EventMap[K][] = [];
+            const listener = async (_key: string, data: unknown) => {
+                const event = data as EventMap[K];
+                const uuid =
+                    'user_uuid' in event
+                        ? event.user_uuid
+                        : (event as EventMap['puter.signin.validate']).user
+                              .uuid;
+                if (uuid !== userUuid) return;
+                seen.push({ ...event });
+                onEvent(event);
+            };
+            server.clients.event.on(key, listener);
+            return {
+                seen,
+                stop: () => server.clients.event.off(key, listener),
+            };
+        };
+
+        it('signs in once a day per account and address', async () => {
+            const { uuid, username } = await makeSignInUser();
+            const signIns = watch('puter.signin', uuid);
+            try {
+                for (let i = 0; i < 3; i++) {
+                    const captured = await propfindFrom(
+                        username,
+                        'correct-horse',
+                        '198.51.100.20',
+                    );
+                    expect(captured.statusCode).toBe(207);
+                }
+                expect(signIns.seen).toHaveLength(1);
+                expect(signIns.seen[0]).toMatchObject({
+                    method: 'webdav',
+                    ip: '198.51.100.20',
+                    session_uuid: null,
+                    known_device: false,
+                });
+
+                await propfindFrom(username, 'correct-horse', '198.51.100.21');
+                expect(signIns.seen).toHaveLength(2);
+            } finally {
+                signIns.stop();
+            }
+        });
+
+        it('refuses the sign-in when it sets a verification gate, and keeps refusing', async () => {
+            const { id, uuid, username } = await makeSignInUser();
+            const validations = watch('puter.signin.validate', uuid, (event) => {
+                event.requires_phone_verification = true;
+            });
+            try {
+                const first = await propfindFrom(
+                    username,
+                    'correct-horse',
+                    '198.51.100.30',
+                );
+                expect(first.statusCode).toBe(403);
+                expect(
+                    (await server.stores.user.getById(id, { force: true }))
+                        ?.requires_phone_verification,
+                ).toBeTruthy();
+
+                const again = await propfindFrom(
+                    username,
+                    'correct-horse',
+                    '198.51.100.30',
+                );
+                expect(again.statusCode).toBe(403);
+                // The pending gate refuses before the sign-in runs again.
+                expect(validations.seen).toHaveLength(1);
+            } finally {
+                validations.stop();
+            }
+        });
+
+        it('refuses a sign-in a listener refuses', async () => {
+            const { uuid, username } = await makeSignInUser();
+            const validations = watch('puter.signin.validate', uuid, (event) => {
+                event.allow = false;
+            });
+            try {
+                const captured = await propfindFrom(
+                    username,
+                    'correct-horse',
+                    '198.51.100.40',
+                );
+                expect(captured.statusCode).toBe(403);
+            } finally {
+                validations.stop();
+            }
+        });
+
+        it("refuses while the account's /login password budget is spent", async () => {
+            const { id, username } = await makeSignInUser();
+            const user = (await server.stores.user.getById(id))!;
+            // Twenty wrong passwords at /login, the way it charges them.
+            for (let i = 0; i < 20; i++) {
+                await server.services.signIn.reservePasswordAttempt(
+                    user,
+                    Promise.resolve(null),
+                );
+                await server.services.signIn.recordPasswordFailure(
+                    makeReq({ method: 'POST', ip: '198.51.100.50' }),
+                    user,
+                );
+            }
+            const captured = await propfindFrom(
+                username,
+                'correct-horse',
+                '198.51.100.51',
+            );
+            expect(captured.statusCode).toBe(429);
+        });
+
+        it('spends the /login password budget on a wrong password', async () => {
+            const { id, username } = await makeSignInUser();
+            for (let i = 0; i < 10; i++) {
+                const captured = await propfindFrom(
+                    username,
+                    `wrong-${i}`,
+                    '198.51.100.60',
+                );
+                expect(captured.statusCode).toBe(401);
+            }
+            const user = (await server.stores.user.getById(id))!;
+            // Ten more at /login make twenty.
+            for (let i = 0; i < 10; i++) {
+                await server.services.signIn.reservePasswordAttempt(
+                    user,
+                    Promise.resolve(null),
+                );
+                await server.services.signIn.recordPasswordFailure(
+                    makeReq({ method: 'POST', ip: '198.51.100.61' }),
+                    user,
+                );
+            }
+            const attempt = await server.services.signIn.reservePasswordAttempt(
+                user,
+                Promise.resolve(null),
+            );
+            await attempt.release();
+            expect(attempt.locked).toBe(true);
         });
     });
 

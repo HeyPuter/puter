@@ -83,7 +83,8 @@ export type KvOp = 'set' | 'del' | 'expire';
 export type KvMutation = KvOp | 'flush';
 
 /** How an interactive sign-in proved the account. */
-export type SignInMethod = 'password' | 'otp' | 'recovery_code' | 'oidc';
+export type SignInMethod =
+    'password' | 'otp' | 'recovery_code' | 'oidc' | 'webdav';
 
 export type EventMap = {
     // ---- Server lifecycle ----
@@ -394,7 +395,8 @@ export type EventMap = {
         dormant_days: number | null;
         is_dormant: boolean;
         known_device: boolean;
-        session_uuid: string;
+        /** Null for a client that signs in on every request, such as WebDAV. */
+        session_uuid: string | null;
     };
     /** A sign-in's password is known to be exposed, once per source. */
     'puter.signin.credential_exposed': {

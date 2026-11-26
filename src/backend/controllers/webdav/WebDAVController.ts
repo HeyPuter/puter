@@ -85,6 +85,9 @@ import {
     peekRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import { assertActorHasCredits } from '../../services/metering/enforcement.js';
+import { SignInRefusedError } from '../../services/auth/SignInService.js';
+import type { UserRow } from '../../stores/user/UserStore.js';
+import { runAfterResponse } from '../auth/webSession.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import type { ResolvedShare } from '../../services/share/ShareService.js';
 
@@ -453,29 +456,33 @@ export class WebDAVController extends PuterController {
         // If 2FA is enabled the password MUST be suffixed with the 6-digit
         // TOTP code — HTTP Basic has no channel for a second factor.
         const otpEnabled = Boolean(user.otp_enabled);
-        let passwordOk = false;
-        if (otpEnabled) {
-            if (password.length <= 6) {
-                await this.#recordAuthFailure(req, failureAccount);
-                res.status(401)
-                    .set('WWW-Authenticate', 'Basic realm="WebDAV"')
-                    .send('Invalid credentials');
-                return null;
-            }
-            const basePassword = password.slice(0, -6);
-            const otpCode = password.slice(-6);
-            const baseOk = await bcryptCompare(basePassword, user.password);
-            const otpOk =
-                baseOk &&
-                typeof user.otp_secret === 'string' &&
-                verifyOtp(user.username, user.otp_secret, otpCode);
-            passwordOk = Boolean(otpOk);
-        } else {
-            passwordOk = await bcryptCompare(password, user.password);
+        if (otpEnabled && password.length <= 6) {
+            await this.#recordAuthFailure(req, failureAccount);
+            res.status(401)
+                .set('WWW-Authenticate', 'Basic realm="WebDAV"')
+                .send('Invalid credentials');
+            return null;
         }
+        const basePassword = otpEnabled ? password.slice(0, -6) : password;
+        const [baseOk, client] = await Promise.all([
+            bcryptCompare(basePassword, user.password),
+            this.services.signIn.passwordClientState(req, user),
+        ]);
+        const passwordOk =
+            baseOk &&
+            (!otpEnabled ||
+                (typeof user.otp_secret === 'string' &&
+                    verifyOtp(
+                        user.username,
+                        user.otp_secret,
+                        password.slice(-6),
+                    )));
 
         if (!passwordOk) {
-            await this.#recordAuthFailure(req, failureAccount);
+            await Promise.all([
+                this.#recordAuthFailure(req, failureAccount),
+                baseOk ? null : this.#chargeWrongPassword(req, user),
+            ]);
             res.status(401)
                 .set('WWW-Authenticate', 'Basic realm="WebDAV"')
                 .send('Invalid credentials');
@@ -491,10 +498,90 @@ export class WebDAVController extends PuterController {
             return null;
         }
 
+        const signedIn = client.recent
+            ? user
+            : await this.#signIn(req, res, user, basePassword, client.known);
+
         // The same row→actor mapping the cookie / `-token` paths use, so the
         // gates in #context see every flag (requires_password_change,
         // otp_enabled, the verification flags) rather than a hand-picked few.
-        return this.services.auth.buildPasswordActor(user);
+        return this.services.auth.buildPasswordActor(signedIn);
+    }
+
+    /**
+     * The sign-in decisions /login makes, for a password that verified from an
+     * address with no sign-in to the account in the last day. A DAV client
+     * can't take an interactive step, so a verification gate that is pending,
+     * or that the sign-in sets, refuses it.
+     */
+    async #signIn(
+        req: Request,
+        res: Response,
+        user: UserRow,
+        password: string,
+        known: boolean,
+    ): Promise<UserRow> {
+        this.#assertUsable(user);
+        const device = Promise.resolve({ known, anyRecorded: true });
+        const attempt = await this.services.signIn.reservePasswordAttempt(
+            user,
+            device,
+        );
+        void attempt.release();
+        if (attempt.locked) {
+            throw new HttpError(
+                429,
+                'Too many incorrect passwords for this account. Reset your password, or try again later.',
+                { legacyCode: 'too_many_requests', code: 'login_locked' },
+            );
+        }
+        const afterResponse = (task: () => Promise<void>) =>
+            runAfterResponse(res, task);
+        const credentialCheck = this.services.signIn.prepareCredentialCheck(
+            req,
+            user,
+            password,
+        );
+        if (credentialCheck) afterResponse(credentialCheck);
+
+        let signedIn: UserRow;
+        try {
+            ({ user: signedIn } = await this.services.signIn.signIn({
+                req,
+                user,
+                method: 'webdav',
+                device,
+                afterResponse,
+            }));
+        } catch (e) {
+            // Counted like a wrong password, so a client retrying a refused
+            // sign-in stops at the failure limit.
+            if (e instanceof SignInRefusedError) {
+                await this.#recordAuthFailure(req, user.username);
+            }
+            throw e;
+        }
+        this.#assertUsable(signedIn);
+        await this.services.signIn.rememberPasswordClient(req, signedIn);
+        return signedIn;
+    }
+
+    /**
+     * A wrong password spends the account's /login budget too. The kept
+     * reservation is that budget's regional charge.
+     */
+    async #chargeWrongPassword(req: Request, user: UserRow): Promise<void> {
+        await this.services.signIn.reservePasswordAttempt(
+            user,
+            Promise.resolve(null),
+        );
+        await this.services.signIn.recordPasswordFailure(req, user);
+    }
+
+    #assertUsable(user: UserRow): void {
+        const { user: actorUser } = this.services.auth.buildPasswordActor(user);
+        assertNotSuspended(actorUser);
+        assertVerifiedAccount(actorUser);
     }
 
     // -- OPTIONS ------------------------------------------------------
