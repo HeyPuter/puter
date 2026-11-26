@@ -760,3 +760,36 @@ describe('TTSDriver.synthesize request log', () => {
         );
     });
 });
+
+describe('TTSDriver.synthesize request cost', () => {
+    it('reports the charge, once the audio starts, under the logged request', async () => {
+        openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        const events = (key: string) =>
+            emit.mock.calls
+                .filter(([k]) => k === key)
+                .map(([, event]) => event as Record<string, unknown>);
+
+        // The response is streamed while the request is still being served.
+        await withActor(async () => {
+            const result = await driver.synthesize({
+                text: 'hello there',
+                provider: 'openai',
+                model: 'tts-1',
+            });
+            expect(events('ai.log.media.cost')).toEqual([]);
+            await readStreamResult(result);
+        });
+
+        const [logged] = events('ai.log.media');
+        await vi.waitFor(() =>
+            expect(events('ai.log.media.cost')).toEqual([
+                {
+                    completionId: logged!.completionId,
+                    ucents: expect.any(Number),
+                },
+            ]),
+        );
+        expect(events('ai.log.media.cost')[0]!.ucents).toBeGreaterThan(0);
+    });
+});
