@@ -26,6 +26,7 @@ import {
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import { assertScalarOptions } from '../../shared/scalarOptions.js';
+import { emitMediaLog } from '../../shared/mediaLog.js';
 import { ProviderRegistry } from '../../shared/providerRegistry.js';
 import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import {
@@ -127,13 +128,31 @@ export class SpeechToTextDriver extends PuterDriver {
     }
 
     async transcribe(args: ITranscribeArgs) {
-        assertScalarOptions(args, SCALAR_OPTIONS);
-        return this.#provider(args).transcribe(this.#providerArgs(args));
+        return this.#run('transcribe', args);
     }
 
     async translate(args: ITranscribeArgs) {
+        return this.#run('translate', args);
+    }
+
+    #run(method: 'transcribe' | 'translate', args: ITranscribeArgs) {
         assertScalarOptions(args, SCALAR_OPTIONS);
-        return this.#provider(args).translate(this.#providerArgs(args));
+        const provider = this.#provider(args);
+        const providerArgs = this.#providerArgs(args);
+        const actor = Context.get('actor');
+        if (actor) {
+            emitMediaLog(this.clients.event, {
+                kind: 'stt',
+                actor,
+                parameters: providerArgs,
+                model:
+                    typeof providerArgs.model === 'string'
+                        ? providerArgs.model
+                        : null,
+                provider: provider.providerName,
+            });
+        }
+        return provider[method](providerArgs);
     }
 
     // -- Provider routing --------------------------------------------
