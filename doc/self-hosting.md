@@ -469,9 +469,8 @@ belong to, 3 by default. Set it to `0` to keep every month's records forever:
 Changing it, including to `0`, applies to records first written after the
 change; records already stamped keep their expiry.
 
-The total across all accounts is the exception: a day after a month ends, its
-total is stored as one record that never expires, and the per-month counters
-it was summed from are deleted.
+The total across all accounts is the exception: once a month has ended, a
+daily job stores its total as one record that never expires.
 
 ### Captcha on signup / login
 

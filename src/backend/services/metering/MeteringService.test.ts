@@ -13,6 +13,7 @@ import murmurhash from 'murmurhash';
 import type { Actor } from '../../core/actor.ts';
 import { SYSTEM_ACTOR, makeActor as resolveActor } from '../../core/actor.ts';
 import { PuterServer } from '../../server.ts';
+import { testJobContext } from '../jobs/jobsTestUtil.ts';
 import { bucketTag } from '../../stores/metering/MeteringBufferStore.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import {
@@ -3576,7 +3577,7 @@ describe('MeteringService', () => {
                 expect(res).toMatchObject({ total: sum });
 
                 // The stored total stands whatever the shards say afterwards,
-                // and they are kept until the delete delay has passed.
+                // and a read deletes none of them.
                 await server.stores.kv.set({
                     key: shardKey(0, month),
                     value: { total: 9999 },
@@ -3586,7 +3587,22 @@ describe('MeteringService', () => {
                 expect(await liveShards(month)).toBe(ctor().GLOBAL_SHARD_COUNT);
             });
 
-            it('deletes the shards once the stored total is old enough', async () => {
+            it('the job stores a total nothing has read', async () => {
+                const month = '1997-03';
+                await seedShards(month, 4);
+
+                await target.closeGlobalMonths();
+                await drainAux();
+
+                const { res } = await server.stores.kv.get({
+                    key: totalKey(month),
+                });
+                expect(res).toMatchObject({
+                    total: 4 * ctor().GLOBAL_SHARD_COUNT,
+                });
+            });
+
+            it('only the job deletes the shards, once the stored total is old enough', async () => {
                 const month = '1997-02';
                 const pageItems = ctor().CLOSED_SHARD_DELETE_PAGE_ITEMS;
                 const unitsPerSecond =
@@ -3597,7 +3613,9 @@ describe('MeteringService', () => {
                     ctor().CLOSED_SHARD_DELETE_PAGE_ITEMS = pageItems;
                     ctor().CLOSED_SHARD_DELETE_UNITS_PER_SECOND =
                         unitsPerSecond;
+                    ctor().DELETE_CLOSED_SHARDS = false;
                 });
+                const count = ctor().GLOBAL_SHARD_COUNT;
                 await seedShards(month, 7);
                 await server.stores.kv.set({
                     key: totalKey(month),
@@ -3608,9 +3626,22 @@ describe('MeteringService', () => {
                     },
                 });
 
+                // Off by default: neither a read nor the job deletes.
+                await target.closeGlobalMonths();
+                expect(await liveShards(month)).toBe(count);
+
+                ctor().DELETE_CLOSED_SHARDS = true;
                 expect((await target.getGlobalUsage(month)).total).toBe(1234);
                 await drainAux();
+                expect(await liveShards(month)).toBe(count);
 
+                // A run that lost the job stops before its next batch.
+                const lost = testJobContext();
+                lost.abort();
+                await target.closeGlobalMonths(lost.signal);
+                expect(await liveShards(month)).toBe(count);
+
+                await target.closeGlobalMonths(testJobContext().signal);
                 expect(await liveShards(month)).toBe(0);
                 expect((await target.getGlobalUsage(month)).total).toBe(1234);
             });

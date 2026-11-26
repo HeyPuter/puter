@@ -133,6 +133,11 @@ const GLOBAL_RATE_CHECK_JOB = 'metering.globalRateCheck';
 const GLOBAL_RATE_CHECK_EVERY_MS = 25 * 60 * 1000;
 const GLOBAL_RATE_CHECK_LEASE_MS = 5 * 60 * 1000;
 
+/** Stores closed months' global totals whether or not anything reads them. */
+const GLOBAL_MONTH_CLOSE_JOB = 'metering.closeGlobalMonths';
+const GLOBAL_MONTH_CLOSE_EVERY_MS = 24 * 60 * 60 * 1000;
+const GLOBAL_MONTH_CLOSE_LEASE_MS = 30 * 60 * 1000;
+
 // -- Helpers ----------------------------------------------------------
 
 /**
@@ -205,6 +210,12 @@ export class MeteringService extends PuterService {
      * buffered counters and replication between deployments.
      */
     static GLOBAL_MONTH_CLOSE_GRACE_MS = 24 * 60 * 60 * 1000;
+    /**
+     * Off until every version a deployment can roll back to reads stored month
+     * totals: an older one sums the shards, and reports a deleted month as
+     * zero.
+     */
+    static DELETE_CLOSED_SHARDS = false;
     /**
      * How long a stored month total stands before its shards are deleted, so no
      * sweep that began without the total sums a partly deleted month.
@@ -338,8 +349,6 @@ export class MeteringService extends PuterService {
      * a call's aux writes instead of guessing with a sleep.
      */
     private pendingAuxPromises = new Set<Promise<unknown>>();
-    /** One closed-shard deletion per process at a time. */
-    #deletingClosedShards = false;
 
     /** Uuid → resolved policy + expiry; `lookupFailed` marks a fallback. */
     private subscriptionCache = new BoundedTtlMap<
@@ -462,6 +471,13 @@ export class MeteringService extends PuterService {
                 this.#rememberForceExact(data.userUuid);
             },
         );
+
+        this.services.jobs.register(GLOBAL_MONTH_CLOSE_JOB, {
+            every: GLOBAL_MONTH_CLOSE_EVERY_MS,
+            scope: 'fleet',
+            leaseMs: GLOBAL_MONTH_CLOSE_LEASE_MS,
+            run: ({ signal }) => this.closeGlobalMonths(signal),
+        });
 
         const maxPerMinute = this.config.maxGlobalUsagePerMinute;
         if (maxPerMinute && maxPerMinute > 0) {
@@ -2570,10 +2586,28 @@ export class MeteringService extends PuterService {
      * bytes read, where getting each shard by key is charged per key.
      *
      * A month past `GLOBAL_MONTH_CLOSE_GRACE_MS` is summed once: the first read
-     * stores its total, later reads answer from that item, and its shards are
-     * deleted in the background.
+     * stores its total and later reads answer from that item.
      */
     async getGlobalUsageByMonth(): Promise<Map<string, number>> {
+        return (await this.#sweepGlobalUsage()).totals;
+    }
+
+    /**
+     * The daily job: a sweep, which stores the total of each month that closed
+     * since the last one, then the deletion of shards a stored total replaced.
+     * Deleting only here keeps it to the one process holding the job.
+     */
+    async closeGlobalMonths(signal?: AbortSignal): Promise<void> {
+        const { replaced } = await this.#sweepGlobalUsage();
+        if (MeteringService.DELETE_CLOSED_SHARDS)
+            await this.#deleteClosedShards(replaced, signal);
+    }
+
+    /** Every month's total, and the shard keys a stored total has replaced. */
+    async #sweepGlobalUsage(): Promise<{
+        totals: Map<string, number>;
+        replaced: string[];
+    }> {
         const now = Date.now();
         const totals = new Map<string, number>();
         const stored = new Map<string, { total: number; closedAt: number }>();
@@ -2645,11 +2679,10 @@ export class MeteringService extends PuterService {
                 for (const key of keys) replaced.push(key);
             }
         }
-        this.#deleteClosedShards(replaced);
 
         // A stored total is final: shards still listed beside it are leftovers.
         for (const [month, { total }] of stored) totals.set(month, total);
-        return totals;
+        return { totals, replaced };
     }
 
     /** Whether `month` (`YYYY-MM`) ended at least the close grace ago. */
@@ -2664,30 +2697,26 @@ export class MeteringService extends PuterService {
     }
 
     /** Deletes shards a stored month total replaced, paced by write units. */
-    #deleteClosedShards(keys: string[]): void {
-        if (this.#deletingClosedShards || keys.length === 0) return;
-        this.#deletingClosedShards = true;
+    async #deleteClosedShards(
+        keys: string[],
+        signal?: AbortSignal,
+    ): Promise<void> {
         const pageItems = MeteringService.CLOSED_SHARD_DELETE_PAGE_ITEMS;
-        const run = async () => {
-            try {
-                for (let i = 0; i < keys.length; i += pageItems) {
-                    const startedAt = Date.now();
-                    const { usage } = await this.stores.kv.batchDel({
-                        keys: keys.slice(i, i + pageItems),
-                    });
-                    const waitMs =
-                        (usage.write /
-                            MeteringService.CLOSED_SHARD_DELETE_UNITS_PER_SECOND) *
-                            1000 -
-                        (Date.now() - startedAt);
-                    if (i + pageItems < keys.length && waitMs > 0)
-                        await sleep(waitMs, undefined, { ref: false });
-                }
-            } finally {
-                this.#deletingClosedShards = false;
-            }
-        };
-        this.handleAuxPromise('closedGlobalShards', run());
+        for (let i = 0; i < keys.length; i += pageItems) {
+            // The rest are listed again by the next run.
+            if (signal?.aborted) return;
+            const startedAt = Date.now();
+            const { usage } = await this.stores.kv.batchDel({
+                keys: keys.slice(i, i + pageItems),
+            });
+            const waitMs =
+                (usage.write /
+                    MeteringService.CLOSED_SHARD_DELETE_UNITS_PER_SECOND) *
+                    1000 -
+                (Date.now() - startedAt);
+            if (i + pageItems < keys.length && waitMs > 0)
+                await sleep(waitMs, undefined, { ref: false });
+        }
     }
 
     async updateAddonCredit(
