@@ -162,6 +162,14 @@ export type EventMap = {
         model_used: string | null;
         service_used: string;
     };
+    /**
+     * One AI charge recorded while serving a logged media request, in µ¢ before
+     * any cost factor. A request can record several.
+     */
+    'ai.log.media.cost': {
+        completionId: string;
+        ucents: number;
+    };
 
     // ---- Apps ----
     /** Awaited before lookup; listeners may mutate or replace appNames. */

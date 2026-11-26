@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 import type { EventClient } from '../../../clients/event/EventClient.js';
 import type { AiMediaKind } from '../../../clients/event/types.js';
 import type { Actor } from '../../../core/actor.js';
+import { tieChargesToMediaLog } from '../../../util/aiCostFactor.js';
 
 // Deep enough for every file field the media interfaces take.
 const MAX_DEPTH = 4;
@@ -53,7 +54,7 @@ export function loggedParameters(value: unknown, depth = 0): unknown {
 
 /**
  * Reports one media request to `ai.log.media` listeners, before its upstream
- * call.
+ * call. The charges the request then records follow on `ai.log.media.cost`.
  */
 export function emitMediaLog(
     events: EventClient,
@@ -65,16 +66,18 @@ export function emitMediaLog(
         provider: string;
     },
 ): void {
+    const completionId = randomUUID().replaceAll('-', '').slice(0, 25);
     events.emit(
         'ai.log.media',
         {
             kind: entry.kind,
             actor: entry.actor,
-            completionId: randomUUID().replaceAll('-', '').slice(0, 25),
+            completionId,
             parameters: loggedParameters(entry.parameters),
             model_used: entry.model,
             service_used: entry.provider,
         },
         {},
     );
+    tieChargesToMediaLog(completionId);
 }
