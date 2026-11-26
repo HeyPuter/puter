@@ -607,7 +607,7 @@ const creditHoldRetry = (ctx) => {
     };
 };
 
-// The 403 account-verification gates the hosting GUI can walk a user through.
+// The 403 account-verification gates a user can be walked through.
 const VERIFICATION_GATE_CODES = new Set([
     'email_confirmation_required',
     'phone_verification_required',
@@ -620,24 +620,82 @@ const isVerificationGateCode = (code) => VERIFICATION_GATE_CODES.has(code);
 // Single-flighted per gate: one gate's answer is not another's.
 const pendingVerificationGates = new Map();
 
+// The gates a website can clear: the sign-in window walks an account through
+// its pending phone and card verification before it hands a token back.
+const WEBSITE_GATE_CODES = new Set([
+    'phone_verification_required',
+    'card_verification_required',
+]);
+
+// How long a website stays quiet after it has shown that window, so a page
+// that polls, or a refusal the window could not clear, doesn't reopen it on
+// every call.
+const WEBSITE_GATE_QUIET_MS = 60_000;
+let websiteGatePromptedAt = 0;
+
 /**
- * Drive the hosting GUI's verification flow for a 403 `*_required` gate code.
- * Only apps hosted by the Puter GUI can prompt; every other environment
- * resolves unverified and the rejection reaches the caller unchanged.
+ * Whether a website can walk the user through this gate. A route asking for a
+ * verified factor (`factors`) is not something the sign-in window shows, a
+ * background request opens nothing, and an isolated page can't hear the
+ * window close.
+ */
+const websiteCanClearGate = (code, factors, interactive) =>
+    globalThis.puter?.env === 'web' &&
+    WEBSITE_GATE_CODES.has(code) &&
+    interactive &&
+    !Array.isArray(factors) &&
+    !globalThis.crossOriginIsolated &&
+    Date.now() - websiteGatePromptedAt >= WEBSITE_GATE_QUIET_MS;
+
+/**
+ * The sign-in window for the signed-in account's pending verification.
+ * Verified only when the same account comes back: the window can sign another
+ * one in, and the refused call was not that account's.
+ */
+async function clearGateOnWebsite() {
+    const account = puter.whoami?.uuid;
+    try {
+        if (!account) return { verified: false };
+        await puter.auth.signIn();
+        const user = await puter.getUser();
+        return { verified: user?.uuid === account };
+    } catch (e) {
+        return { verified: false };
+    } finally {
+        websiteGatePromptedAt = Date.now();
+    }
+}
+
+/**
+ * Walk the user through a 403 `*_required` gate code. An app hosted by the
+ * Puter GUI asks the desktop; a website opens the sign-in window for a phone
+ * or card gate set on the account. Every other case resolves unverified and
+ * the rejection reaches the caller unchanged.
  *
  * @param {string} code - The gate's error code.
  * @param {string[]} [factors] - Sent when a route asked for a verified factor
  *   rather than the account being flagged: the verifications it accepts, in
  *   the order to offer them.
+ * @param {{ interactive?: boolean }} [options] - `interactive: false` for a
+ *   request that may not open a window.
  * @returns {Promise<{ verified: boolean }>}
  */
-async function resolveVerificationGate(code, factors) {
-    if (globalThis.puter?.env !== 'app') return { verified: false };
-    // The gate alone, as `ctx.done` keys it; factors do not divide it.
-    const key = code;
+async function resolveVerificationGate(
+    code,
+    factors,
+    { interactive = true } = {},
+) {
+    const onWebsite = websiteCanClearGate(code, factors, interactive);
+    if (globalThis.puter?.env !== 'app' && !onWebsite) {
+        return { verified: false };
+    }
+    // The gate alone, as `ctx.done` keys it; factors do not divide it. One
+    // sign-in window clears every gate a website can.
+    const key = onWebsite ? 'website' : code;
     let pending = pendingVerificationGates.get(key);
     if (!pending) {
         pending = (async () => {
+            if (onWebsite) return clearGateOnWebsite();
             try {
                 const verified = await puter.ui.requestVerificationGate(
                     code,
@@ -850,6 +908,7 @@ async function classifyRetry(outcome, ctx) {
             const res = await resolveVerificationGate(
                 gateCode,
                 parsed?.factors ?? parsed?.error?.factors,
+                { interactive: spec?.interactiveReauth !== false },
             );
             if (res.verified) {
                 ctx.done.add(gateCode);

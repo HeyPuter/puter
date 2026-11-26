@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 26, 2026
+
+- Changed Puter.js on a website to open the [`puter.auth.signIn()`](/Auth/signIn/) window when a call is rejected with `phone_verification_required` or `card_verification_required` because the user's account has a verification pending. The call is retried once the user completes it, and rejects with the same error if the user closes the window.
+
 ## November 24, 2026
 
 - Fixed missing `usageDetails.iterations` and incomplete cache-write counts in streamed responses from Claude models through [`puter.ai.chat()`](/AI/chat/). See [ChatResponseChunk](/Objects/chatresponsechunk/#usagedetails).
