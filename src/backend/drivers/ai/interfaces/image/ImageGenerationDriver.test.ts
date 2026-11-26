@@ -428,7 +428,7 @@ describe('image model data policy', () => {
         fetchSpy.mockResolvedValueOnce(cloudflareModelSearch());
         await limitedDriver.onServerStart();
         await withActor(() => limitedDriver.generate({ prompt: 'hi', test_mode: true }));
-        expect(eventEmitSpy).toHaveBeenCalledWith('ai.log.image', expect.objectContaining({
+        expect(eventEmitSpy).toHaveBeenCalledWith('ai.log.media', expect.objectContaining({
             service_used: 'cloudflare-image-generation',
         }), {});
     });
@@ -535,7 +535,7 @@ describe('ImageGenerationDriver.generate provider routing', () => {
                 }),
             );
             expect(eventEmitSpy).toHaveBeenCalledWith(
-                'ai.log.image',
+                'ai.log.media',
                 expect.objectContaining({
                     service_used: `${provider}-image-generation`,
                 }),
@@ -563,7 +563,7 @@ describe('ImageGenerationDriver.generate provider routing', () => {
                 driver.generate({ provider, prompt: 'hi', test_mode: true }),
             );
             expect(eventEmitSpy).toHaveBeenCalledWith(
-                'ai.log.image',
+                'ai.log.media',
                 expect.objectContaining({
                     service_used: 'openai-image-generation',
                 }),
@@ -582,7 +582,7 @@ describe('ImageGenerationDriver.generate provider routing', () => {
             }),
         );
         expect(eventEmitSpy).toHaveBeenCalledWith(
-            'ai.log.image',
+            'ai.log.media',
             expect.objectContaining({
                 service_used: 'openai-image-generation',
             }),
@@ -620,7 +620,7 @@ describe('ImageGenerationDriver.generate provider routing', () => {
             ),
         ).rejects.toThrow('no longer available through together-image-generation');
         expect(eventEmitSpy).not.toHaveBeenCalledWith(
-            'ai.log.image',
+            'ai.log.media',
             expect.anything(),
             expect.anything(),
         );
@@ -654,13 +654,13 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         async (model) => {
             eventEmitSpy.mockClear();
             await withActor(() => driver.generate({ model, prompt: 'hi', test_mode: true }));
-            expect(eventEmitSpy).toHaveBeenCalledWith('ai.log.image', expect.objectContaining({
+            expect(eventEmitSpy).toHaveBeenCalledWith('ai.log.media', expect.objectContaining({
                 service_used: 'openai-image-generation',
             }), {});
             for (const pinned of [{ model, provider: 'replicate' }, { model: `replicate:${model}` }]) {
                 eventEmitSpy.mockClear();
                 await withActor(() => driver.generate({ ...pinned, prompt: 'hi', test_mode: true }));
-                expect(eventEmitSpy, JSON.stringify(pinned)).toHaveBeenCalledWith('ai.log.image', expect.objectContaining({
+                expect(eventEmitSpy, JSON.stringify(pinned)).toHaveBeenCalledWith('ai.log.media', expect.objectContaining({
                     service_used: 'replicate-image-generation',
                 }), {});
             }
@@ -714,7 +714,7 @@ describe('ImageGenerationDriver.generate provider routing', () => {
                 driver.generate({ model, prompt: 'hi', test_mode: true }),
             );
             expect(eventEmitSpy, model).toHaveBeenCalledWith(
-                'ai.log.image',
+                'ai.log.media',
                 expect.objectContaining({
                     service_used: 'cloudflare-image-generation',
                 }),
@@ -762,7 +762,7 @@ describe('ImageGenerationDriver.generate provider routing', () => {
                         }),
                     );
                     expect(eventEmitSpy, id).toHaveBeenCalledWith(
-                        'ai.log.image',
+                        'ai.log.media',
                         expect.objectContaining(
                             firstParty.get(id.toLowerCase()) ?? {
                                 model_used: model.id,
@@ -1176,7 +1176,7 @@ describe('ImageGenerationDriver.generate Puter file inputs', () => {
         expect(sent).not.toContain(path);
         expect(inputImages).toEqual([path]);
         const [, log] = eventEmitSpy.mock.calls.find(
-            ([eventName]) => eventName === 'ai.log.image',
+            ([eventName]) => eventName === 'ai.log.media',
         )!;
         expect(
             (log as { parameters: { input_images: string[] } }).parameters
@@ -1203,7 +1203,7 @@ describe('ImageGenerationDriver.generate Puter file inputs', () => {
 // ── Audit log ──────────────────────────────────────────────────────
 
 describe('ImageGenerationDriver.generate audit log', () => {
-    it('emits an ai.log.image event with actor, model, and resolved provider BEFORE the upstream call', async () => {
+    it('emits an ai.log.media event with actor, model, and resolved provider BEFORE the upstream call', async () => {
         openaiImagesGenerateMock.mockResolvedValueOnce({
             data: [{ url: 'https://oai/img.png' }],
         });
@@ -1217,7 +1217,7 @@ describe('ImageGenerationDriver.generate audit log', () => {
         );
 
         const aiLogCall = eventEmitSpy.mock.calls.find(
-            ([eventName]) => eventName === 'ai.log.image',
+            ([eventName]) => eventName === 'ai.log.media',
         );
         expect(aiLogCall).toBeDefined();
         const [, payload] = aiLogCall!;
@@ -1245,7 +1245,7 @@ describe('ImageGenerationDriver.generate audit log', () => {
 
         // Audit log fires before the throw.
         const aiLogCalls = eventEmitSpy.mock.calls.filter(
-            ([eventName]) => eventName === 'ai.log.image',
+            ([eventName]) => eventName === 'ai.log.media',
         );
         expect(aiLogCalls.length).toBe(1);
     });
@@ -1483,7 +1483,7 @@ describe('image dimension parsing at the driver boundary', () => {
         );
         expect(args).toEqual(snapshot);
         const logged = eventEmitSpy.mock.calls.find(
-            (call) => call[0] === 'ai.log.image',
+            (call) => call[0] === 'ai.log.media',
         )![1] as { parameters: Record<string, unknown> };
         expect(logged.parameters).not.toHaveProperty('imageSize');
     });
@@ -1534,7 +1534,7 @@ it('rejects an unavailable provider without a model before dispatch', async () =
         message: 'Image provider not available: byteplus',
     });
     expect(eventEmitSpy).not.toHaveBeenCalledWith(
-        'ai.log.image',
+        'ai.log.media',
         expect.anything(),
         expect.anything(),
     );
@@ -1556,7 +1556,7 @@ it('only advertises aliases that route to that entry without a provider hint', a
                 'https://puter-sample-data.puter.site/image_example.png',
             );
             expect(eventEmitSpy, `${model.provider} ${alias}`).toHaveBeenCalledWith(
-                'ai.log.image',
+                'ai.log.media',
                 expect.objectContaining({
                     model_used: model.id,
                     service_used: model.provider,
@@ -1615,7 +1615,7 @@ it('leaves the caller args untouched and logs the normalized request', async () 
     await withActor(() => driver.generate(args as never));
     expect(args).toEqual(snapshot);
     expect(eventEmitSpy).toHaveBeenCalledWith(
-        'ai.log.image',
+        'ai.log.media',
         expect.objectContaining({
             parameters: expect.objectContaining({
                 model: 'gpt-image-2',
@@ -1627,7 +1627,7 @@ it('leaves the caller args untouched and logs the normalized request', async () 
         {},
     );
     const logged = eventEmitSpy.mock.calls.find(
-        (call) => call[0] === 'ai.log.image',
+        (call) => call[0] === 'ai.log.media',
     )![1] as { parameters: Record<string, unknown> };
     expect(logged.parameters).not.toHaveProperty('width');
     expect(logged.parameters).not.toHaveProperty('height');

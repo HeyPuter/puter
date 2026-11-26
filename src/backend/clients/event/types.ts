@@ -85,6 +85,12 @@ export type KvMutation = KvOp | 'flush';
 /** How an interactive sign-in proved the account. */
 export type SignInMethod = 'password' | 'otp' | 'recovery_code' | 'oidc';
 
+/** The AI requests checked through `ai.prompt.validate`. */
+export type AiPromptKind = 'chat' | 'realtime';
+
+/** The AI requests logged through `ai.log.media`. */
+export type AiMediaKind = 'image' | 'video' | 'tts' | 'stt' | 'sts' | 'ocr';
+
 export type EventMap = {
     // ---- Server lifecycle ----
     serverStart: Record<string, never>;
@@ -103,6 +109,7 @@ export type EventMap = {
     // ---- AI ----
     'ai.prompt.validate': {
         username: string;
+        kind?: AiPromptKind;
         intended_service: string;
         parameters: unknown;
         allow?: boolean;
@@ -141,12 +148,17 @@ export type EventMap = {
             costs_currency: string;
         };
     };
-    'ai.log.image': {
+    /**
+     * A media request, emitted before its upstream call. File bytes in
+     * `parameters` arrive summarized.
+     */
+    'ai.log.media': {
+        kind: AiMediaKind;
         actor: unknown;
         completionId: string;
         parameters: unknown;
-        intended_service: string;
-        model_used: string;
+        /** Null when the provider picks its own default model. */
+        model_used: string | null;
         service_used: string;
     };
 

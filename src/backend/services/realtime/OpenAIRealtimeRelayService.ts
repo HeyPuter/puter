@@ -1155,15 +1155,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     identity?.type === 'app-under-user'
                         ? identity.session
                         : undefined;
-                if (
-                    !(
-                        sessionUids?.has(sessionUid ?? '') ||
-                        sessionUids?.has(parentUid ?? '') ||
-                        (tokenUid &&
-                            identity?.type === 'access-token' &&
-                            identity.token_uid === tokenUid)
-                    )
-                )
+                if (!(
+                    sessionUids?.has(sessionUid ?? '') ||
+                    sessionUids?.has(parentUid ?? '') ||
+                    (tokenUid &&
+                        identity?.type === 'access-token' &&
+                        identity.token_uid === tokenUid)
+                ))
                     return;
                 if (token) {
                     kv.del(realtimeAuthKey(token));
@@ -1531,6 +1529,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             const completionId = randomUUID().replaceAll('-', '').slice(0, 25);
             const check: EventMap['ai.prompt.validate'] = {
                 username: actor!.user?.username || '',
+                kind: 'realtime',
                 actor,
                 completionId,
                 allow: true,

@@ -27,6 +27,7 @@ import {
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import { assertScalarOptions } from '../../shared/scalarOptions.js';
+import { emitMediaLog } from '../../shared/mediaLog.js';
 import {
     resolveOutputPath,
     saveGeneratedMediaToFS,
@@ -354,6 +355,18 @@ export class VideoGenerationDriver extends PuterDriver {
                 }
             }
         }
+
+        emitMediaLog(this.clients.event, {
+            kind: 'video',
+            actor,
+            parameters: {
+                ...request,
+                model: model.id,
+                provider: model.provider,
+            },
+            model: model.id,
+            provider: model.provider!,
+        });
 
         const result = await provider.generate({
             ...(request.test_mode

@@ -1316,3 +1316,33 @@ describe('VideoGenerationDriver cost factor', () => {
         expect(held).toEqual([held[0], Math.round(held[0]! * 2)]);
     });
 });
+
+describe('VideoGenerationDriver.generate request log', () => {
+    it('logs the normalized request with its resolved model and provider', async () => {
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        const image = `data:image/png;base64,${Buffer.from('png').toString('base64')}`;
+
+        await withActor(() =>
+            driver.generate({
+                prompt: 'a cat',
+                input_reference: image,
+                test_mode: true,
+            } as never),
+        );
+
+        expect(emit).toHaveBeenCalledWith(
+            'ai.log.media',
+            expect.objectContaining({
+                kind: 'video',
+                actor: SYSTEM_ACTOR,
+                model_used: expect.any(String),
+                service_used: 'together-video-generation',
+                parameters: expect.objectContaining({
+                    prompt: 'a cat',
+                    input_reference: `[data URI image/png, ${image.length} chars]`,
+                }),
+            }),
+            {},
+        );
+    });
+});

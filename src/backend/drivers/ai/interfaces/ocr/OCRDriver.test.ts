@@ -1595,3 +1595,30 @@ describe('OCRDriver default provider selection', () => {
         expect(mistralOcrProcessMock).not.toHaveBeenCalled();
     });
 });
+
+describe('OCRDriver.recognize request log', () => {
+    it('logs the resolved model with the source summarized', async () => {
+        const { actor } = await makeUser();
+        textractSendMock.mockResolvedValueOnce({ Blocks: [] });
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        const source = dataUrl(Buffer.from('imgdata'), 'image/png');
+
+        await withActor(actor, () =>
+            driver.recognize({ source, provider: 'aws-textract' }),
+        );
+
+        expect(emit).toHaveBeenCalledWith(
+            'ai.log.media',
+            expect.objectContaining({
+                kind: 'ocr',
+                actor,
+                model_used: expect.any(String),
+                service_used: 'aws-textract',
+                parameters: expect.objectContaining({
+                    source: `[data URI image/png, ${source.length} chars]`,
+                }),
+            }),
+            {},
+        );
+    });
+});
