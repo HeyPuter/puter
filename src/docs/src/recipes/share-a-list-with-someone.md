@@ -172,18 +172,22 @@ The helper's `watch()` calls [`puter.events.onLocal()`](/Events/onLocal/), so
 each person sees the other's changes while the list is open:
 
 ```js
-await alicesList.watch('item:*', (event) => {
+await alicesList.watch('item:*', async (event) => {
     if (event.op === 'gap') return reloadList();
     if (event.self && !event.viaWorker) return;
-    if (event.op === 'del') removeItem(event.key);
-    else showItem(event.key, event.value);
+    if (event.op === 'del') return removeItem(event.key);
+    if (event.op === 'set') {
+        showItem(event.key, 'value' in event ? event.value : await alicesList.get(event.key));
+    }
 });
 ```
 
 The `self` check skips the user's own writes, which your app already shows, but
 not changes a worker made as them, which have `viaWorker` set. A `gap` event
 means some changes weren't delivered, for example during a reconnect, so reload
-the list. [The event](/Events/subjects/#the-event) lists every field.
+the list. An event sometimes arrives without its value, and the handler then
+reads the item with `get()`. [The event](/Events/subjects/#the-event) lists
+every field.
 
 For Dan, `watch()` puts your app's id from [`puter.appID`](/Utils/appID/) in the
 subject, since a `kv:` subject for a key that contains `:` needs it, as
@@ -192,6 +196,9 @@ change the same item at about the same time, the last write wins.
 
 ## Next Steps
 
+- To keep both changes when two people change the same value at once, such as
+  a count, see
+  [Combine Changes From Several Users](/recipes/combine-changes-from-several-users/).
 - To keep some entries in the prefix private, see
   [Share Only Part of the Data](/recipes/let-someone-view-your-data/#share-only-part-of-the-data).
 - To let each person change only their own items, give each one a part of the

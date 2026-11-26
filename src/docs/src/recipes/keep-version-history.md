@@ -44,8 +44,11 @@ async function saveNote (noteId, text) {
 ```
 
 [`puter.kv.incr()`](/KV/incr/) gives every save its own number, even when two
-tabs save at once. The number is padded with zeros so the keys sort in order
-(otherwise `10` would come before `9`).
+tabs save at once. Two saves at nearly the same moment from different places,
+such as two devices far apart, can still get the same number, as
+[`puter.kv.set()`](/KV/set/#writing-only-if-absent) explains for `onlyIfAbsent`.
+One copy then replaces the other in the history. The number is padded with
+zeros so the keys sort in order (otherwise `10` would come before `9`).
 
 Passing an array to [`puter.kv.set()`](/KV/set/) writes both keys in one
 request. The copy gets an `expireAt`, a Unix time in seconds, so it's deleted

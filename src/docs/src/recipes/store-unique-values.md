@@ -63,9 +63,11 @@ IDs from
 [`crypto.randomUUID()`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID)
 don't contain dots, so they work without it.
 
-An empty string, `__proto__`, `constructor` and `prototype` can't be field names,
-even inside `member()`, and the call rejects with `bad_request`. If users can
-type anything, add a prefix, like `member('tag:' + value)`.
+The names `__proto__`, `constructor` and `prototype` can't be field names, even
+inside `member()`, and the call rejects with `bad_request`. An empty string
+inside `member()` is rejected the same way. Without `member()`, an empty string
+is the path to the whole value, so the call replaces the whole set. If users
+can type anything, add a prefix, like `member('tag:' + value)`.
 
 ## Remove a Value
 
@@ -76,8 +78,10 @@ await puter.kv.remove('bookmarks', member(url));
 ```
 
 Removing a value that isn't in the set does nothing. To remove several at once,
-pass each one as a separate argument. Passing the same value twice in one call
-rejects with `bad_request`, so remove duplicates first:
+pass each one as a separate argument. One call fits a limited number of values,
+like [`puter.kv.update()`](/KV/update/), so split bigger removals into several
+calls. Passing the same value twice in one call rejects with `bad_request`, so
+remove duplicates first:
 
 ```js
 await puter.kv.remove('tags', ...[ ...new Set(tagsToRemove) ].map(member));

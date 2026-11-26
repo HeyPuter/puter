@@ -109,7 +109,7 @@ async function loadCart () {
 }
 
 const { lines, total } = await loadCart();
-const totalText = (total / 100).toFixed(2);   // '60.00'
+const totalText = (total / 100).toFixed(2);   // '44.00'
 ```
 
 The filter also skips a product with only some of its fields, which is left

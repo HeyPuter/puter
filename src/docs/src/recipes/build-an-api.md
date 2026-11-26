@@ -42,7 +42,7 @@ router.get('/me', async ({ user }) => {
 });
 ```
 
-Each HTTP verb has its own method, such as
+GET, POST, PUT, DELETE and OPTIONS each have their own method, such as
 [`router.post()`](/Workers/router/#http-methods) and
 [`router.delete()`](/Workers/router/#http-methods).
 
@@ -100,7 +100,9 @@ router.get('/notes/:id', async ({ params, user }) => {
 ```
 
 Captured values are always strings, so convert them yourself when you need a
-number.
+number. They're still URL-encoded, so a space arrives as `%20`. Decode a value
+that can contain spaces or other special characters with
+[`decodeURIComponent()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/decodeURIComponent).
 
 Query strings are not part of the path. To read one, parse the request URL:
 
@@ -190,10 +192,11 @@ third-party response before your app sees it:
 
 ```js
 router.get('/weather/:city', async ({ params }) => {
-    const res = await fetch(`https://wttr.in/${encodeURIComponent(params.city)}?format=j1`);
+    const city = decodeURIComponent(params.city);
+    const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`);
     const data = await res.json();
 
-    return { city: params.city, tempC: data.current_condition[0].temp_C };
+    return { city, tempC: data.current_condition[0].temp_C };
 });
 ```
 
