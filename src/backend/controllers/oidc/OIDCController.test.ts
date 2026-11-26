@@ -342,6 +342,34 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
         expect(String(decoded?.redirect_uri)).toContain('msg_id=msg-42');
     });
 
+    it.each([
+        ['same-origin', true],
+        ['cross-site', undefined],
+        [undefined, undefined],
+    ])('marks a popup flow with a %s start as started in Puter sign-in: %s', async (site, expected) => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/:provider/start',
+            makeReq({
+                params: { provider: 'custom' },
+                query: {
+                    embedded_in_popup: 'true',
+                    msg_id: 'msg-43',
+                    opener_origin: 'https://opener.test',
+                },
+                headers: site ? { 'sec-fetch-site': site } : {},
+            }),
+            res,
+        );
+        const state = new URL(captured.redirectUrl ?? '').searchParams.get(
+            'state',
+        );
+        expect(oidc().verifyState(state!)?.startedInPuterSignIn).toBe(
+            expected,
+        );
+    });
+
     it('propagates referrer into state when supplied', async () => {
         const { res, captured } = makeRes();
         await callRoute(
@@ -1001,7 +1029,7 @@ describe('OIDCController login callback', () => {
         expect(captured.cookies).toHaveLength(0);
     });
 
-    it('appends oidc_login=true and uses popup-style URL when state is from a popup flow', async () => {
+    it("attests the login in the proof when Puter's sign-in screen started the popup flow", async () => {
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;
         const popupRedirect = `${TEST_ORIGIN}/action/sign-in?embedded_in_popup=true&msg_id=msg-1`;
@@ -1010,6 +1038,7 @@ describe('OIDCController login callback', () => {
             redirect_uri: popupRedirect,
             embedded_in_popup: true,
             msg_id: 'msg-1',
+            startedInPuterSignIn: true,
         });
         vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
             access_token: 'access',
@@ -1050,6 +1079,41 @@ describe('OIDCController login callback', () => {
         expect(binding?.value).toBeTruthy();
         expect(proof?.nonce).toBe(binding!.value);
         expect(proof?.action).toBe('sign-in');
+    });
+
+    it('leaves the login unattested when the popup flow was started off Puter', async () => {
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: `${TEST_ORIGIN}/action/sign-in?embedded_in_popup=true&msg_id=msg-2`,
+            embedded_in_popup: true,
+            msg_id: 'msg-2',
+            opener_origin: 'https://opener.test',
+        });
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub,
+            email,
+            email_verified: true,
+        } as never);
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        const proof = oidc().verifyPopupReturn(
+            new URL(captured.redirectUrl!).searchParams.get('opener_state')!,
+        );
+        // The popup shows the account picker, which names the site.
+        expect(proof?.oidc_login).toBe(false);
+        expect(proof?.opener_origin).toBe('https://opener.test');
     });
 
     it('uses popup-style error URL (msg_id + opener_origin) when the popup-state user is suspended', async () => {

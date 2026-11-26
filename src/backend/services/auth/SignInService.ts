@@ -28,9 +28,18 @@ import {
     hasVerifiedCard,
     hasVerifiedPhone,
 } from '../../core/http/middleware/gates.js';
+import {
+    listConfiguredRateLimitBackends,
+    reserveRateLimit,
+} from '../../core/http/middleware/rateLimit.js';
 import type { OrgSeatRow } from '../../core/teams.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { generateEmailConfirmCode } from '../../util/credentials.js';
+import {
+    chargeFailure,
+    failureBudgetOpen,
+    type FailureLimit,
+} from '../../util/failureBudget.js';
 import { claimOnce } from '../../util/kvClaim.js';
 import { requestIp } from '../../util/requestIp.js';
 import {
@@ -74,6 +83,65 @@ const exposureNoticeKey = (userUuid: string): string =>
 const exposureNotifiedKey = (userUuid: string): string =>
     `credential-exposure-notified:${userUuid}`;
 
+/**
+ * Wrong passwords per account, from every network together. While a window is
+ * spent, password sign-in is refused whatever the password, except from a
+ * device known to the account. Each attempt reserves a slot in the region's
+ * limiter, kept only when the password is wrong. Keyed by
+ * {@link passwordBudgetSubject}.
+ */
+const PASSWORD_FAILURE_LIMITS: readonly FailureLimit[] = [
+    { scope: 'login-password-failure', limit: 20, window: 60 * 60_000 },
+    {
+        scope: 'login-password-failure-day',
+        limit: 50,
+        window: 24 * 60 * 60_000,
+    },
+];
+
+/**
+ * The same windows in the system KV, which every region reads: charged on a
+ * wrong password, so guesses spread over regions share one budget.
+ */
+const SHARED_PASSWORD_FAILURE_LIMITS: readonly FailureLimit[] = [
+    { scope: 'login-password-failure-global', limit: 20, window: 60 * 60_000 },
+    {
+        scope: 'login-password-failure-global-day',
+        limit: 50,
+        window: 24 * 60 * 60_000,
+    },
+];
+
+/**
+ * Whose wrong-password budget an attempt spends: the account under its current
+ * password, so any password replacement starts a fresh budget everywhere.
+ */
+const passwordBudgetSubject = (user: UserRow): string =>
+    `${user.uuid}:${passwordTag(user) ?? 'none'}`;
+
+// Redis reserves atomically; the KV backend lists, then writes.
+const regionalPasswordBackend = (): 'redis' | undefined =>
+    listConfiguredRateLimitBackends().available.includes('redis')
+        ? 'redis'
+        : undefined;
+
+/**
+ * One lockout alarm and owner email a day per account and password, in every
+ * region.
+ */
+const PASSWORD_LOCK_NOTICE_SECONDS = 24 * 60 * 60;
+const passwordLockNoticeKey = (subject: string): string =>
+    `login-lock-notice:${subject}`;
+
+/**
+ * When an account last signed in from an address with its current password, by
+ * a client that sends the password on every request. Kept as long as a known
+ * device record.
+ */
+const passwordClientKey = (user: UserRow, ip: string | null): string =>
+    `signin-password-client:${passwordBudgetSubject(user)}:${ip ?? '-'}`;
+const PASSWORD_CLIENT_TTL_SECONDS = 365 * DAY_SECONDS;
+
 // Claimed before a new sign-in email; one per account per hour.
 const newSignInNoticeKey = (userUuid: string): string =>
     `signin-notice:${userUuid}`;
@@ -91,8 +159,11 @@ export interface SignInInput {
     method: SignInMethod | 'signup';
     /** Started by the caller before the sign-in; null when unknowable. */
     device: Promise<SignInDevice | null>;
-    /** Mint the session and record the device. Runs once the sign-in is allowed. */
-    openSession: (
+    /**
+     * Mint the session and record the device. Runs once the sign-in is allowed.
+     * Omitted by a client that sends its password on every request.
+     */
+    openSession?: (
         user: UserRow,
     ) => Promise<{ sessionUuid: string; guiToken: string }>;
     /** Run `task` once the response has gone out. */
@@ -100,7 +171,8 @@ export interface SignInInput {
 }
 
 export interface SignInResult {
-    guiToken: string;
+    /** Absent when no session was opened. */
+    guiToken?: string;
     /** The row with any verification gate this sign-in set. */
     user: UserRow;
     /** The account's team seat, when this sign-in read it; saves a second read. */
@@ -158,8 +230,15 @@ const requestData = (
     method: SignInMethod,
 ): Record<string, unknown> => {
     const body: unknown = req.body;
-    // An OIDC callback body is the provider's authorization response.
-    if (method === 'oidc' || !body || typeof body !== 'object') return {};
+    // An OIDC callback body is the provider's authorization response, and a
+    // WebDAV body is file content.
+    if (
+        method === 'oidc' ||
+        method === 'webdav' ||
+        !body ||
+        typeof body !== 'object'
+    )
+        return {};
     return Object.fromEntries(
         Object.entries(body).filter(([key]) => !CREDENTIAL_FIELDS.has(key)),
     );
@@ -237,9 +316,9 @@ const describeDevice = (req: Request, userAgent: string | null): string => {
 };
 
 /**
- * The bookkeeping of every interactive sign-in (password, second factor, OIDC,
- * signup's auto sign-in) and the credential-exposure checks a verified password
- * triggers.
+ * The bookkeeping of every sign-in (password, second factor, OIDC, signup's
+ * auto sign-in, WebDAV), the wrong-password budget, and the credential-exposure
+ * checks a verified password triggers.
  */
 export class SignInService extends PuterService {
     #pwnedFailures = 0;
@@ -335,7 +414,9 @@ export class SignInService extends PuterService {
             emailCode,
         });
 
-        const { sessionUuid, guiToken } = await input.openSession(user);
+        const session = input.openSession
+            ? await input.openSession(user)
+            : null;
         const device = earlyDevice ?? (await input.device);
         const knownDevice = device?.known ?? false;
 
@@ -358,7 +439,7 @@ export class SignInService extends PuterService {
                 dormant_days: dormantDays,
                 is_dormant: isDormant,
                 known_device: knownDevice,
-                session_uuid: sessionUuid,
+                session_uuid: session?.sessionUuid ?? null,
             },
             {},
         );
@@ -382,7 +463,105 @@ export class SignInService extends PuterService {
                 this.#sendNewSignInNotice(req, signedIn, { ip, userAgent }),
             );
         }
-        return { guiToken, user, orgSeat: facts.seat };
+        return { guiToken: session?.guiToken, user, orgSeat: facts.seat };
+    }
+
+    /**
+     * Reserve this attempt in the account's wrong-password budget. Locked when
+     * a regional window refuses the reservation or a shared window is spent,
+     * unless `device` signed in to the account before (whose wrong guesses
+     * still count). The reservation is kept as the regional charge for a wrong
+     * password; `release` gives it back and never rejects.
+     */
+    async reservePasswordAttempt(
+        user: UserRow,
+        device: Promise<SignInDevice | null>,
+    ): Promise<{ locked: boolean; release: () => Promise<void> }> {
+        const budget = passwordBudgetSubject(user);
+        const regional = regionalPasswordBackend();
+        const [reservations, sharedOpen, knownDevice] = await Promise.all([
+            Promise.all(
+                PASSWORD_FAILURE_LIMITS.map(({ scope, limit, window }) =>
+                    reserveRateLimit(
+                        `${scope}:${budget}`,
+                        limit,
+                        window,
+                        regional,
+                    ),
+                ),
+            ),
+            failureBudgetOpen(SHARED_PASSWORD_FAILURE_LIMITS, budget, 'kv'),
+            device,
+        ]);
+        const spent = !sharedOpen || reservations.some((r) => !r.ok);
+        return {
+            // An account with no email can't reset its way out, so a lock
+            // would let anyone keep it out of new browsers.
+            locked: spent && !knownDevice?.known && Boolean(user.email),
+            release: async () => {
+                await Promise.all(reservations.map((r) => r.release()));
+            },
+        };
+    }
+
+    /**
+     * Charge a wrong password to the shared windows; the attempt's reservation
+     * charged this region. Alarms and emails the owner once a window is spent.
+     */
+    async recordPasswordFailure(req: Request, user: UserRow): Promise<void> {
+        const budget = passwordBudgetSubject(user);
+        await chargeFailure(SHARED_PASSWORD_FAILURE_LIMITS, budget, 'kv');
+        const open = await Promise.all([
+            failureBudgetOpen(
+                PASSWORD_FAILURE_LIMITS,
+                budget,
+                regionalPasswordBackend(),
+            ),
+            failureBudgetOpen(SHARED_PASSWORD_FAILURE_LIMITS, budget, 'kv'),
+        ]);
+        if (open.every(Boolean)) return;
+        await this.#notifyPasswordLock(req, user, budget);
+    }
+
+    /**
+     * For a client that sends a verified password on every request: whether
+     * this address signed in to the account with its current password in the
+     * last day (`recent`), or ever (`known`, which stands in for a known
+     * device). Reads as neither when the record can't be read.
+     */
+    async passwordClientState(
+        req: Request,
+        user: UserRow,
+    ): Promise<{ recent: boolean; known: boolean }> {
+        try {
+            const seenAt = Number(
+                await this.clients.redis.get(
+                    passwordClientKey(user, requestIp(req)),
+                ),
+            );
+            if (!(seenAt > 0)) return { recent: false, known: false };
+            return {
+                recent: Math.floor(Date.now() / 1000) - seenAt < DAY_SECONDS,
+                known: true,
+            };
+        } catch (e) {
+            console.warn('[auth] password client record unreadable:', e);
+            return { recent: false, known: false };
+        }
+    }
+
+    /** Record that this address just completed a sign-in for the account. */
+    async rememberPasswordClient(req: Request, user: UserRow): Promise<void> {
+        try {
+            await this.clients.redis.set(
+                passwordClientKey(user, requestIp(req)),
+                String(Math.floor(Date.now() / 1000)),
+                'EX',
+                PASSWORD_CLIENT_TTL_SECONDS,
+            );
+        } catch (e) {
+            console.warn('[auth] password client record not kept:', e);
+        }
     }
 
     /**
@@ -742,6 +921,57 @@ export class SignInService extends PuterService {
         }
         await this.stores.user.update(user.id, patch);
         return { ...user, ...patch, metadata };
+    }
+
+    /**
+     * Alarm and email the owner that password sign-in is locked, once a day per
+     * account and password. Best effort: a failed notice never changes the
+     * answer.
+     */
+    async #notifyPasswordLock(
+        req: Request,
+        user: UserRow,
+        budget: string,
+    ): Promise<void> {
+        const claimed = await claimOnce(
+            this.stores.kv,
+            passwordLockNoticeKey(budget),
+            PASSWORD_LOCK_NOTICE_SECONDS,
+        );
+        if (!claimed) return;
+        try {
+            this.clients.alarm?.create(
+                `auth:login-locked:${user.uuid}`,
+                user.email
+                    ? 'Password sign-in locked after repeated wrong passwords'
+                    : 'Repeated wrong passwords on an account with no email (not locked)',
+                {
+                    username: user.username,
+                    user_uuid: user.uuid,
+                    ip: requestIp(req),
+                },
+                'warning',
+                { dedup: true },
+            );
+        } catch (e) {
+            console.warn('[login] lockout alarm failed:', e);
+        }
+        if (!this.clients.email || !user.email) return;
+        const origin = this.config.origin ?? '';
+        try {
+            await this.clients.email.send(
+                user.email,
+                'login_locked_notification',
+                {
+                    username: user.username,
+                    reset_link: `${origin}/action/password-recovery`,
+                    sessions_link: `${origin}/dashboard#security`,
+                },
+                { stream: 'auth' },
+            );
+        } catch (e) {
+            console.warn('[login] lockout notice send failed:', e);
+        }
     }
 
     async #sendNewSignInNotice(

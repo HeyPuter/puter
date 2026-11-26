@@ -76,6 +76,7 @@ describe('OIDC account second-factor login', () => {
     const callback = async (
         flow = 'login',
         extra: Record<string, string> = {},
+        startHeaders: Record<string, string> = {},
     ) => {
         const start = new URL(
             `/auth/oidc/custom/start?flow=${flow}`,
@@ -84,7 +85,10 @@ describe('OIDC account second-factor login', () => {
         Object.entries(extra).forEach(([key, value]) =>
             start.searchParams.set(key, value),
         );
-        const begun = await fetch(start, { redirect: 'manual' });
+        const begun = await fetch(start, {
+            redirect: 'manual',
+            headers: startHeaders,
+        });
         expect(begun.status).toBe(302);
         const state = new URL(begun.headers.get('location')!).searchParams.get(
             'state',
@@ -169,11 +173,16 @@ describe('OIDC account second-factor login', () => {
 
     it('preserves an unauthenticated popup retry and attests login only after verification', async () => {
         const { otp, user } = await account();
-        const response = await callback('login', {
-            embedded_in_popup: 'true',
-            msg_id: 'message-123',
-            opener_origin: 'https://app.example',
-        });
+        // Started from Puter's own sign-in popup.
+        const response = await callback(
+            'login',
+            {
+                embedded_in_popup: 'true',
+                msg_id: 'message-123',
+                opener_origin: 'https://app.example',
+            },
+            { 'sec-fetch-site': 'same-origin' },
+        );
         const token = challenge(response);
         const fragment = new URLSearchParams(
             new URL(response.headers.get('location')!).hash.slice(1),

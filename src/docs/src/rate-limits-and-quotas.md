@@ -499,6 +499,10 @@ The last two apply to an `fs:` permission request for a path that doesn't exist 
 
 Successful sign-ins don't count. Over either sign-in limit, `dav` answers `429` until the window passes, even for the right password, so a client retrying a stale password keeps itself locked out: fix the password, then wait. This only affects `dav`; the desktop, the API and `puter.auth` keep working.
 
+A wrong password on `dav` also counts toward the account's [wrong-password limit](#sign-in) for signing in to Puter. While that limit is spent, a password sign-in on `dav` answers `429` too, unless the same IP address signed in to the account on `dav` in the last day.
+
+A password sign-in on `dav` runs the same checks as the sign-in screen, at most once a day per account and IP address. If a check asks for a verification step, such as confirming a phone number, `dav` answers `403` until the step is done in the Puter desktop.
+
 A `LOCK` gets the `Timeout` the client asks for, up to 1 hour, and the response states the timeout granted. Refresh the lock before it runs out to keep it.
 
 For long-lived mounts, sign in with a `-token` username and an API token as the password. That skips the per-account sign-in limit, and the token can be revoked from the dashboard without changing the account password.

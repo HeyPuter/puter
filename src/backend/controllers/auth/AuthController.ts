@@ -38,10 +38,8 @@ import { isAppActor, isPlainUserActor, makeActor } from '../../core/actor.js';
 import {
     checkRateLimit,
     consumeRouteRateLimit,
-    listConfiguredRateLimitBackends,
     peekRateLimit,
     peekRouteRateLimit,
-    reserveRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import {
     signStepUpToken,
@@ -105,7 +103,6 @@ import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import {
     buildUserDetails,
     isTemporaryAccount,
-    passwordTag,
     scrubSensitive,
 } from '../../util/userDetails.js';
 import {
@@ -145,6 +142,11 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
 import type { SignInInput } from '../../services/auth/SignInService.js';
 import { claimOnce } from '../../util/kvClaim.js';
+import {
+    chargeFailure,
+    failureBudgetOpen,
+    type FailureLimit,
+} from '../../util/failureBudget.js';
 import { knownDeviceStatus } from './knownDevice.js';
 import {
     rememberProvenDevice,
@@ -295,62 +297,6 @@ const SECOND_FACTOR_FAILURE_LIMIT = {
     window: 30 * 60_000,
 } as const;
 
-interface FailureLimit {
-    scope: string;
-    limit: number;
-    window: number;
-}
-
-/**
- * Wrong passwords per account on `/login`, from every network together. While a
- * window is spent, password sign-in is refused whatever the password, except
- * from a device known to the account. Each attempt reserves a slot in the
- * region's limiter, kept only when the password is wrong. Keyed by
- * {@link passwordBudgetSubject}.
- */
-const PASSWORD_FAILURE_LIMITS: readonly FailureLimit[] = [
-    { scope: 'login-password-failure', limit: 20, window: 60 * 60_000 },
-    {
-        scope: 'login-password-failure-day',
-        limit: 50,
-        window: 24 * 60 * 60_000,
-    },
-];
-
-/**
- * The same windows in the system KV, which every region reads: charged on a
- * wrong password, so guesses spread over regions share one budget.
- */
-const SHARED_PASSWORD_FAILURE_LIMITS: readonly FailureLimit[] = [
-    { scope: 'login-password-failure-global', limit: 20, window: 60 * 60_000 },
-    {
-        scope: 'login-password-failure-global-day',
-        limit: 50,
-        window: 24 * 60 * 60_000,
-    },
-];
-
-/**
- * Whose wrong-password budget an attempt spends: the account under its current
- * password, so any password replacement starts a fresh budget everywhere.
- */
-const passwordBudgetSubject = (user: UserRow): string =>
-    `${user.uuid}:${passwordTag(user) ?? 'none'}`;
-
-// Redis reserves atomically; the KV backend lists, then writes.
-const regionalPasswordBackend = (): 'redis' | undefined =>
-    listConfiguredRateLimitBackends().available.includes('redis')
-        ? 'redis'
-        : undefined;
-
-/**
- * One lockout alarm and owner email a day per account and password, in every
- * region.
- */
-const PASSWORD_LOCK_NOTICE_SECONDS = 24 * 60 * 60;
-const passwordLockNoticeKey = (subject: string): string =>
-    `login-lock-notice:${subject}`;
-
 /** Wrong email confirmation codes per account. Charged only on a wrong code. */
 const CONFIRM_CODE_FAILURE_LIMITS: readonly FailureLimit[] = [
     { scope: 'confirm-email-failure', limit: 10, window: 60 * 60_000 },
@@ -360,32 +306,6 @@ const CONFIRM_CODE_FAILURE_LIMITS: readonly FailureLimit[] = [
         window: 24 * 60 * 60_000,
     },
 ];
-
-/** Whether every window of a failure budget has room left. Fails open. */
-const failureBudgetOpen = async (
-    limits: readonly FailureLimit[],
-    subject: string,
-    backend?: 'kv' | 'redis',
-): Promise<boolean> =>
-    (
-        await Promise.all(
-            limits.map(({ scope, limit, window }) =>
-                peekRateLimit(`${scope}:${subject}`, limit, window, backend),
-            ),
-        )
-    ).every(Boolean);
-
-const chargeFailure = async (
-    limits: readonly FailureLimit[],
-    subject: string,
-    backend?: 'kv',
-): Promise<void> => {
-    await Promise.all(
-        limits.map(({ scope, limit, window }) =>
-            checkRateLimit(`${scope}:${subject}`, limit, window, backend),
-        ),
-    );
-};
 
 /**
  * Drop credentials a handler has finished with, parsed and raw, so nothing
@@ -705,13 +625,18 @@ export class AuthController extends PuterController {
 
         // The budget is reserved alongside the compare, so a burst can't all
         // pass on its last slot. A 2FA account's checks run at its code.
-        const budget = passwordBudgetSubject(user);
         if (!user.otp_enabled) {
             this.services.signIn.preloadAccountFacts(req, user, 'password');
         }
         const [compared, reserved] = await Promise.allSettled([
             bcrypt.compare(password, user.password as string),
-            this.#reservePasswordAttempt(req, user, budget),
+            this.services.signIn.reservePasswordAttempt(
+                user,
+                knownDeviceStatus(req, user.uuid, {
+                    token: this.services.token,
+                    kv: this.stores.kv,
+                }),
+            ),
         ]);
         if (compared.status === 'rejected') {
             if (reserved.status === 'fulfilled') await reserved.value.release();
@@ -733,7 +658,7 @@ export class AuthController extends PuterController {
             );
         }
         if (!passwordMatch) {
-            await this.#recordPasswordFailure(req, user, budget);
+            await this.services.signIn.recordPasswordFailure(req, user);
             throw new HttpError(401, 'Incorrect password.', {
                 legacyCode: 'password_mismatch',
             });
@@ -5090,117 +5015,6 @@ export class AuthController extends PuterController {
     async #recordSecondFactorFailure(userUid: string): Promise<void> {
         const { scope, limit, window } = SECOND_FACTOR_FAILURE_LIMIT;
         await checkRateLimit(`${scope}:${userUid}`, limit, window);
-    }
-
-    /**
-     * Reserve this attempt in the account's wrong-password budget. Locked when
-     * a regional window refuses the reservation or a shared window is spent,
-     * unless the device signed in to the account before (whose wrong guesses
-     * still count). The device read also serves the sign-in that may follow.
-     * `release` gives the reservation back; it never rejects.
-     */
-    async #reservePasswordAttempt(
-        req: Request,
-        user: UserRow,
-        budget: string,
-    ): Promise<{ locked: boolean; release: () => Promise<void> }> {
-        const regional = regionalPasswordBackend();
-        const [reservations, sharedOpen, device] = await Promise.all([
-            Promise.all(
-                PASSWORD_FAILURE_LIMITS.map(({ scope, limit, window }) =>
-                    reserveRateLimit(
-                        `${scope}:${budget}`,
-                        limit,
-                        window,
-                        regional,
-                    ),
-                ),
-            ),
-            failureBudgetOpen(SHARED_PASSWORD_FAILURE_LIMITS, budget, 'kv'),
-            knownDeviceStatus(req, user.uuid, {
-                token: this.services.token,
-                kv: this.stores.kv,
-            }),
-        ]);
-        const spent = !sharedOpen || reservations.some((r) => !r.ok);
-        return {
-            // An account with no email can't reset its way out, so a lock
-            // would let anyone keep it out of new browsers.
-            locked: spent && !device.known && Boolean(user.email),
-            release: async () => {
-                await Promise.all(reservations.map((r) => r.release()));
-            },
-        };
-    }
-
-    /** The reservation charged this region; the shared windows are charged here. */
-    async #recordPasswordFailure(
-        req: Request,
-        user: UserRow,
-        budget: string,
-    ): Promise<void> {
-        await chargeFailure(SHARED_PASSWORD_FAILURE_LIMITS, budget, 'kv');
-        const open = await Promise.all([
-            failureBudgetOpen(
-                PASSWORD_FAILURE_LIMITS,
-                budget,
-                regionalPasswordBackend(),
-            ),
-            failureBudgetOpen(SHARED_PASSWORD_FAILURE_LIMITS, budget, 'kv'),
-        ]);
-        if (open.every(Boolean)) return;
-        await this.#notifyPasswordLock(req, user, budget);
-    }
-
-    /**
-     * Alarm and email the owner that password sign-in is locked, once a day per
-     * account and password. Best effort: a failed notice never changes the
-     * answer.
-     */
-    async #notifyPasswordLock(
-        req: Request,
-        user: UserRow,
-        budget: string,
-    ): Promise<void> {
-        const claimed = await claimOnce(
-            this.stores.kv,
-            passwordLockNoticeKey(budget),
-            PASSWORD_LOCK_NOTICE_SECONDS,
-        );
-        if (!claimed) return;
-        try {
-            this.clients.alarm?.create(
-                `auth:login-locked:${user.uuid}`,
-                user.email
-                    ? 'Password sign-in locked after repeated wrong passwords'
-                    : 'Repeated wrong passwords on an account with no email (not locked)',
-                {
-                    username: user.username,
-                    user_uuid: user.uuid,
-                    ip: requestIp(req),
-                },
-                'warning',
-                { dedup: true },
-            );
-        } catch (e) {
-            console.warn('[login] lockout alarm failed:', e);
-        }
-        if (!this.clients.email || !user.email) return;
-        const origin = this.config.origin ?? '';
-        try {
-            await this.clients.email.send(
-                user.email,
-                'login_locked_notification',
-                {
-                    username: user.username,
-                    reset_link: `${origin}/action/password-recovery`,
-                    sessions_link: `${origin}/dashboard#security`,
-                },
-                { stream: 'auth' },
-            );
-        } catch (e) {
-            console.warn('[login] lockout notice send failed:', e);
-        }
     }
 
     async #sendPasswordChangeNotification(user: {

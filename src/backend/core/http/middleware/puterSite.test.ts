@@ -1807,6 +1807,79 @@ describe('createPuterSiteMiddleware — __workers/ is never served', () => {
     });
 });
 
+describe("createPuterSiteMiddleware — another app's closed AppData", () => {
+    const setup = async (siteApp: 'publisher' | 'closed' | null) => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const [publisher, closed] = await Promise.all(
+            [{}, { share_app_data: false }].map(
+                async (metadata) =>
+                    (await server.stores.app.create(
+                        {
+                            name: `ps-app-${uuidv4()}`,
+                            title: 'App',
+                            index_url: `https://ps-${uuidv4()}.example.test/`,
+                            metadata: JSON.stringify(metadata),
+                        },
+                        { ownerUserId: owner.id },
+                    )) as { uid: string; id: number },
+            ),
+        );
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `ad-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+            appOwner:
+                siteApp === null
+                    ? null
+                    : (siteApp === 'publisher' ? publisher : closed)!.id,
+        });
+        // Written after publishing, so no publish-time check saw it.
+        await server.services.fs.mkdir(owner.id, {
+            path: `${homePath}/AppData/${closed!.uid}`,
+            createMissingParents: true,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/AppData/${closed!.uid}/token.txt`,
+            Buffer.from('closed-app-secret'),
+            'text/plain',
+        );
+        return { sub, closedUid: closed!.uid };
+    };
+
+    const request = async (sub: string, path: string) => {
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({ hostname: `${sub}.site.puter.localhost`, path }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return out;
+    };
+
+    it('404s it on a site another app published', async () => {
+        const { sub, closedUid } = await setup('publisher');
+        const out = await request(sub, `/AppData/${closedUid}/token.txt`);
+        expect(out.statusCode).toBe(404);
+        expect(String(out.body)).not.toContain('closed-app-secret');
+    });
+
+    it.each(['closed', null] as const)(
+        'serves it on a site published by %s',
+        async (siteApp) => {
+            const { sub, closedUid } = await setup(siteApp);
+            const out = await request(sub, `/AppData/${closedUid}/token.txt`);
+            expect(out.statusCode).toBe(200);
+            expect(String(out.body)).toBe('closed-app-secret');
+        },
+    );
+});
+
 describe('createPuterSiteMiddleware — hosting CSP', () => {
     const POLICY = "script-src * 'unsafe-inline'; object-src 'none'";
 

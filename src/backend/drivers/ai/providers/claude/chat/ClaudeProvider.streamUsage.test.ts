@@ -282,11 +282,43 @@ describe('Claude streamed cache lifetimes', () => {
         [messageIteration(1024, 3072)],
         [messageIteration(1024, 3072), { ...messageIteration(8192, 0), cache_creation: null }],
         [messageIteration(1024, 3072), messageIteration(12288, 0)],
-    ])('preserves the reported split when iteration lifetimes are incomplete (%#)', async (iterations) => {
+    ])('keeps the reported 1h count and bills uncovered writes at 5m when iteration lifetimes are incomplete (%#)', async (iterations) => {
         const { usage } = await streamUsage(startUsage, { ...endUsage, iterations });
         expect(usage).toMatchObject({
-            ephemeral_5m_input_tokens: 1024,
+            ephemeral_5m_input_tokens: 9216,
             ephemeral_1h_input_tokens: 3072,
+        });
+    });
+
+    it('bills cache written after a server tool at 5m when the stream reports no iterations', async () => {
+        const { usage, costs, details } = await streamUsage({
+            input_tokens: 10,
+            output_tokens: 1,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 5095,
+            cache_creation: {
+                ephemeral_5m_input_tokens: 0,
+                ephemeral_1h_input_tokens: 5095,
+            },
+        }, {
+            input_tokens: 20,
+            output_tokens: 80,
+            cache_read_input_tokens: 5095,
+            cache_creation_input_tokens: 5312,
+            server_tool_use: { web_search_requests: 0, web_fetch_requests: 1 },
+        });
+        expect(usage).toMatchObject({
+            ephemeral_5m_input_tokens: 217,
+            ephemeral_1h_input_tokens: 5095,
+            web_fetch_requests: 1,
+        });
+        expect(costs).toMatchObject({
+            ephemeral_5m_input_tokens: 217 * 125,
+            ephemeral_1h_input_tokens: 5095 * 200,
+        });
+        expect(details).toMatchObject({
+            cacheWrite5mTokens: 217,
+            cacheWrite1hTokens: 5095,
         });
     });
 

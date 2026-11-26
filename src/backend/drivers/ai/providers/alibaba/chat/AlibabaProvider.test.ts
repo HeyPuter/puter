@@ -627,6 +627,147 @@ describe('AlibabaProvider.complete non-stream output', () => {
             });
         },
     );
+
+    it.each([
+        ['qwen3-omni-flash', 381],
+        ['qwen3.5-omni-flash', 300],
+        ['qwen3.5-omni-plus', 1100],
+    ])('bills prompt audio on %s at its audio rate', async (modelId, audioRate) => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 176,
+                completion_tokens: 96,
+                prompt_tokens_details: {
+                    cached_tokens: 0,
+                    audio_tokens: 114,
+                    text_tokens: 62,
+                },
+            },
+        });
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: modelId,
+                messages: [{ role: 'user', content: 'transcribe' }],
+            }),
+        );
+
+        const model = ALIBABA_MODELS.find((m) => m.id === modelId)!;
+        expect(model.costs.audio_tokens).toBe(audioRate);
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 62,
+            audio_tokens: 114,
+            completion_tokens: 96,
+            cached_tokens: 0,
+        });
+        expect(overrides).toEqual({
+            prompt_tokens: 62 * Number(model.costs.prompt_tokens),
+            audio_tokens: 114 * audioRate,
+            completion_tokens: 96 * Number(model.costs.completion_tokens),
+            cached_tokens: 0,
+        });
+        expect(
+            (result as { usageDetails?: unknown }).usageDetails,
+        ).toMatchObject({ inputTokens: 176, outputTokens: 96 });
+    });
+
+    it('bills streamed prompt audio at the audio rate when the live catalog lists the model', async () => {
+        axiosGetMock.mockResolvedValueOnce({
+            data: {
+                success: true,
+                output: {
+                    total: 1,
+                    page_no: 1,
+                    models: [
+                        {
+                            model: 'qwen3.5-omni-flash',
+                            capabilities: ['TG', 'VU'],
+                            inference_metadata: {
+                                request_modality: [
+                                    'Text',
+                                    'Image',
+                                    'Audio',
+                                    'Video',
+                                ],
+                                response_modality: ['Text', 'Audio'],
+                            },
+                        },
+                    ],
+                },
+            },
+        });
+        const { provider } = makeProvider();
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                { choices: [{ delta: { content: 'ok' } }] },
+                {
+                    choices: [],
+                    usage: {
+                        prompt_tokens: 176,
+                        completion_tokens: 96,
+                        prompt_tokens_details: { audio_tokens: 114 },
+                    },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'qwen3.5-omni-flash',
+                messages: [{ role: 'user', content: 'transcribe' }],
+                stream: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toMatchObject({ prompt_tokens: 62, audio_tokens: 114 });
+        expect(overrides).toMatchObject({ audio_tokens: 114 * 300 });
+    });
+
+    it('keeps one input rate for prompt audio on qwen3.8-omni-flash', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 176,
+                completion_tokens: 96,
+                prompt_tokens_details: { cached_tokens: 0, audio_tokens: 114 },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'qwen3.8-omni-flash',
+                messages: [{ role: 'user', content: 'transcribe' }],
+            }),
+        );
+
+        const [usage] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 176,
+            completion_tokens: 96,
+            cached_tokens: 0,
+        });
+    });
 });
 
 // ── Streaming deltas ────────────────────────────────────────────────

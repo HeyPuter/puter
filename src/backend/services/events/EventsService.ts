@@ -7058,8 +7058,8 @@ export class EventsService extends PuterService {
     }
 
     #eagerDeploy:
-        | ((scope: HandlerScope, script: string) => Promise<unknown>)
-        | null = null;
+        ((scope: HandlerScope, script: string) => Promise<unknown>) | null =
+        null;
 
     /** Fire and forget: the publish has answered, and a miss deploys anyway. */
     #deployEagerly(

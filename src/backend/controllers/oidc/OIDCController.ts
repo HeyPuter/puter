@@ -30,6 +30,7 @@ import {
     mintOidcPopupReturn,
     OIDC_POPUP_RETURN_COOKIE_NAME,
     type OidcLoginContinuation,
+    startedInPuterSignIn,
 } from '../auth/oidcLoginReturn.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
@@ -497,6 +498,9 @@ export class OIDCController extends PuterController {
                     statePayload.embedded_in_popup = true;
                     statePayload.msg_id = msgId;
                     if (openerOrigin) statePayload.opener_origin = openerOrigin;
+                    if (startedInPuterSignIn(req, openerOrigin, this.config)) {
+                        statePayload.startedInPuterSignIn = true;
+                    }
                 }
                 if (flow === 'revalidate') {
                     const rawUserUuid = Array.isArray(req.query.user_uuid)
@@ -1011,6 +1015,7 @@ if (window.opener) {
                     ? stateDecoded.redirect_uri
                     : origin || '/',
             embeddedInPopup: stateDecoded.embedded_in_popup === true,
+            startedInPuterSignIn: stateDecoded.startedInPuterSignIn === true,
             openerOrigin:
                 typeof stateDecoded.opener_origin === 'string'
                     ? stateDecoded.opener_origin

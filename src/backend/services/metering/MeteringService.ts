@@ -89,10 +89,7 @@ export interface ActorSubscriptionStatus {
 
 /** A `provisional` answer wins but is cached only for the fallback window. */
 export type SubscriptionAnswer =
-    | string
-    | { id: string | null; provisional: boolean }
-    | null
-    | undefined;
+    string | { id: string | null; provisional: boolean } | null | undefined;
 
 export type SubscriptionResolver = (
     actor: Actor,
