@@ -80,3 +80,29 @@ export function isMissingTable(err: unknown): boolean {
         String(message ?? err),
     );
 }
+
+// The n-operand form (`IN` with three or more values) names no operands, so it
+// can't be told from two columns that disagree. A lookup that builds such a
+// list checks its values with `fitsCharset` first.
+const COLLATION_MIX_CODES = new Set([
+    'ER_CANT_AGGREGATE_2COLLATIONS',
+    'ER_CANT_AGGREGATE_3COLLATIONS',
+]);
+
+/**
+ * True when MySQL refused a comparison because a value in the statement does
+ * not convert to the column's charset (see `narrowCharset.ts`). `COERCIBLE`
+ * marks a literal operand, which tells this apart from two columns that
+ * genuinely disagree.
+ */
+export function isCharsetMismatch(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const { code, message, sqlMessage } = err as {
+        code?: unknown;
+        message?: unknown;
+        sqlMessage?: unknown;
+    };
+    if (typeof code !== 'string' || !COLLATION_MIX_CODES.has(code))
+        return false;
+    return String(sqlMessage ?? message ?? '').includes('COERCIBLE');
+}

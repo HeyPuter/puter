@@ -837,11 +837,33 @@ describe('UserStore batched and uncached lookups', () => {
         ).toBe(0);
     });
 
-    it('short-circuits identifying lookups whose value cannot exist in a latin1 column', async () => {
-        expect(await server.stores.user.getByUsername('用户')).toBeNull();
+    it('short-circuits identifying lookups whose value the column cannot hold', async () => {
+        const db = server.clients.db;
+        const reads = [
+            vi.spyOn(db, 'read'),
+            vi.spyOn(db, 'pread'),
+            vi.spyOn(db, 'tryHardRead'),
+        ];
+        // `username` is ascii, so a latin1 letter is already out.
+        for (const username of ['用户', 'm\u00e1genta', 'a\u0080'])
+            expect(await server.stores.user.getByUsername(username)).toBeNull();
+        for (const email of ['用户@test.local', 'a\u0085b@test.local'])
+            expect(await server.stores.user.getByEmail(email)).toBeNull();
+        expect(await server.stores.user.getByUuid('用户')).toBeNull();
+        for (const spy of reads) {
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        }
+    });
+
+    it('still looks up an address with latin1 letters', async () => {
         expect(
-            await server.stores.user.getByEmail('用户@test.local'),
+            await server.stores.user.getByEmail('jos\u00e9-nobody@test.local'),
         ).toBeNull();
+        const user = await makeUser();
+        expect((await server.stores.user.getByEmail(user.email))?.id).toBe(
+            user.id,
+        );
     });
 
     it('matches no row on a text column for a value that is not a string', async () => {
@@ -892,6 +914,9 @@ describe('UserStore batched and uncached lookups', () => {
         const user = await makeUser();
         await expect(
             server.stores.user.update(user.id, { username: '用户' }),
+        ).rejects.toMatchObject({ code: 'userFieldNotLatin1' });
+        await expect(
+            server.stores.user.update(user.id, { username: 'm\u00e1genta' }),
         ).rejects.toMatchObject({ code: 'userFieldNotLatin1' });
         // Columns outside the latin1 set are unaffected.
         await expect(

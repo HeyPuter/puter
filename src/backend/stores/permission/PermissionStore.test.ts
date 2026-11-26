@@ -21,13 +21,19 @@
 import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    AbstractDatabaseClient,
+    type WriteResult,
+} from '../../clients/database/DatabaseClient.ts';
 import { PuterServer } from '../../server.ts';
 import { PermissionUtil } from '../../services/permission/permissionUtil.ts';
 import { lagReadReplica, setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
+import type { IConfig } from '../../types';
 import { CACHE_TOMBSTONE_SUFFIX } from '../types.ts';
 import {
     FLAT_PERM_SCAN_CONCURRENCY,
+    PermissionStore,
     U2U_CACHE_MAX_ROWS,
     U2U_EXACT_DELETE_CHUNK,
 } from './PermissionStore.ts';
@@ -3342,6 +3348,95 @@ describe('PermissionStore', () => {
                     extra: {},
                 },
             ]);
+        });
+    });
+
+    // -- values an ascii `permission` column cannot hold ----------------
+
+    describe('permission lists with a non-ASCII value', () => {
+        const WIDE = 'kv-share:owner:app:\u7528\u6237';
+        const LIST = ['fs:a:read', 'fs:b:read', WIDE];
+
+        /** Answers no rows and records what it was asked. */
+        class RecordingClient extends AbstractDatabaseClient {
+            override readonly engineName = 'mysql';
+            readonly params: unknown[][] = [];
+
+            constructor() {
+                super({ port: 0, extensions: [] } as IConfig);
+            }
+
+            override async read(_query: string, params: unknown[] = []) {
+                this.params.push(params);
+                return [];
+            }
+
+            override async pread(_query: string, params: unknown[] = []) {
+                this.params.push(params);
+                return [];
+            }
+
+            override async write(
+                _query: string,
+                params: unknown[] = [],
+            ): Promise<WriteResult> {
+                this.params.push(params);
+                return { insertId: 0, affectedRows: 0, anyRowsAffected: false };
+            }
+        }
+
+        it('leaves it out of the lists sent to MySQL', async () => {
+            const db = new RecordingClient();
+            const mysqlStore = new PermissionStore(
+                { port: 0, extensions: [], jwt_secret_v2: 'x' } as IConfig,
+                { db } as unknown as ConstructorParameters<
+                    typeof PermissionStore
+                >[1],
+            );
+
+            await mysqlStore.findUserUserPermsByIssuer(1, 2, LIST);
+            await mysqlStore.deleteUserUserPermsByHolder(1, LIST, 2);
+            await mysqlStore.readLinkedUserUserPermsForHolders([1, 2], LIST);
+            await mysqlStore.readUserGroupPermsForHolders([1, 2], LIST);
+            await mysqlStore.deleteUserGroupPerms(1, 2, LIST);
+            await mysqlStore.listUserUserAudit({ permissions: LIST });
+            await mysqlStore.countUserUserAudit({ permissions: LIST });
+
+            const sent = db.params.flat();
+            expect(sent).not.toContain(WIDE);
+            expect(sent).toContain('fs:a:read');
+
+            // Nothing but such values: no statement names one.
+            db.params.length = 0;
+            expect(
+                await mysqlStore.findUserUserPermsByIssuer(1, 2, [WIDE]),
+            ).toEqual([]);
+            expect(
+                await mysqlStore.deleteUserUserPermByHolder(1, WIDE, 2),
+            ).toBe(false);
+            expect(
+                await mysqlStore.readUserGroupPermsForHolders([1], [WIDE]),
+            ).toEqual([]);
+            expect(
+                (await mysqlStore.listUserUserAudit({ permissions: [WIDE] }))
+                    .items,
+            ).toEqual([]);
+            expect(db.params.flat()).not.toContain(WIDE);
+        });
+
+        it('still matches it where the column holds any text', async () => {
+            if (server.clients.db.engineName === 'mysql') return;
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            await store.upsertUserUserPerm(holder.id, issuer.id, WIDE, {});
+
+            expect(
+                await store.findUserUserPermsByIssuer(holder.id, issuer.id, [
+                    'fs:a:read',
+                    'fs:b:read',
+                    WIDE,
+                ]),
+            ).toEqual([WIDE]);
         });
     });
 });

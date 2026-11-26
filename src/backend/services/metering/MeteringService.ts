@@ -747,7 +747,7 @@ export class MeteringService extends PuterService {
                         return await this.#addonsForSettle(actor);
                     } catch (e) {
                         settleReadError = e as Error;
-                        return null;
+                        return undefined;
                     }
                 })(),
             ]);
@@ -3226,7 +3226,7 @@ export class MeteringService extends PuterService {
         userId: string;
         actorUsages: UsageByType;
         actorSubscription: SubscriptionPolicy;
-        actorAddons: UsageAddons;
+        actorAddons?: UsageAddons;
         incrementCost: number;
         batchUsages: UsageInput[];
     }): void {
@@ -3252,9 +3252,9 @@ export class MeteringService extends PuterService {
         // allowance-sized expense the moment the credit runs dry. (Purchased
         // credit is a lifetime balance, so in the month it finally runs out this
         // also grants a small grace window before paging.)
-        const purchasedCredits = actorAddons.purchasedCredits || 0;
+        const purchasedCredits = actorAddons?.purchasedCredits || 0;
         const consumedPurchaseCredits =
-            actorAddons.consumedPurchaseCredits || 0;
+            actorAddons?.consumedPurchaseCredits || 0;
         const netUsage = actorUsages.total - purchasedCredits;
         const previousNetUsage = netUsage - incrementCost;
 

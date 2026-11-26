@@ -18,6 +18,7 @@
  */
 
 import type { ErrorRequestHandler, RequestHandler } from 'express';
+import { isCharsetMismatch } from '../../../util/dbError.js';
 import { HttpError, isHttpError } from '../HttpError';
 
 interface ErrorHandlerOptions {
@@ -83,6 +84,12 @@ export const createErrorHandler = (
 
         const translated = translateKnownClientError(err);
         if (translated) {
+            // Names the route so its lookup can refuse the value itself.
+            if (isCharsetMismatch(err)) {
+                console.warn(
+                    `[v2] ${req.method} ${req.path}: value outside the column charset`,
+                );
+            }
             err = translated;
         }
 
@@ -148,6 +155,8 @@ export const createErrorHandler = (
  * - Body-parser `entity.parse.failed` (malformed JSON in request body)
  * - Body-parser `request.aborted` / `ECONNABORTED` (client closed socket
  *   mid-upload)
+ * - A request value MySQL could not convert to the charset of the column it was
+ *   compared with
  * - Anything else that already opted into `expose: true` with a numeric
  *   `statusCode` is mapped to `client_bad_request` so it surfaces with the
  *   declared status instead of becoming a 500.
@@ -156,6 +165,12 @@ const translateKnownClientError = (err: unknown): HttpError | null => {
     if (err instanceof URIError) {
         return new HttpError(400, 'Bad request URL', {
             legacyCode: 'client_bad_url',
+        });
+    }
+
+    if (isCharsetMismatch(err)) {
+        return new HttpError(400, 'Request contains unsupported characters', {
+            legacyCode: 'client_bad_characters',
         });
     }
 
