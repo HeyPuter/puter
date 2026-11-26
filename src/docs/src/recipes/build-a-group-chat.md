@@ -119,9 +119,12 @@ const openRoom = ({ prefix = '', handle }) => {
     };
 };
 
-// The creator opens the room by its prefix, and a member by their share's handle.
-const room = handle ? openRoom({ handle }) : openRoom({ prefix });
+// The creator opens the room by its prefix.
+const room = openRoom({ prefix });
 ```
+
+A member opens the same room with `openRoom({ handle })`, using the `handle` of
+their share.
 
 ## Send a Message
 
@@ -166,16 +169,22 @@ Subscribe to the room's messages with the helper's `watch()`, which uses
 people with the chat open, so a subscription that ends with the page is enough:
 
 ```js
-await room.watch('msg:*', (event) => {
+await room.watch('msg:*', async (event) => {
     if (event.op === 'gap') return reloadMessages();
-    if (event.op === 'set') showMessage(event.key, event.value);
-    if (event.op === 'del') removeMessage(event.key);
+    if (event.op === 'del') return removeMessage(event.key);
+    if (event.op === 'set') {
+        showMessage(event.key, 'value' in event ? event.value : await room.get(event.key));
+    }
 });
 ```
 
 Every message arrives this way, including the sender's own, so sending doesn't
 need to draw anything. A `gap` event means some messages weren't delivered, for
-example during a reconnect, so load the latest page again.
+example during a reconnect, so load the latest page again. An event sometimes
+arrives without its value, for example for a very long message, and the handler
+then reads the message with `room.get()`.
+[Getting the new value](/Events/subjects/#getting-the-new-value) lists the
+cases.
 
 ## Remove a Member or Leave the Room
 
@@ -352,8 +361,7 @@ const openRoom = ({ prefix = '', handle }) => {
     };
 };
 
-// The creator opens the room by its prefix, and a member by their share's handle.
-const room = handle ? openRoom({ handle }) : openRoom({ prefix });
+const room = openRoom({ prefix });    // a member: openRoom({ handle })
 const user = await puter.auth.getUser();
 
 const sendMessage = (text) => room.set(
@@ -364,9 +372,11 @@ const sendMessage = (text) => room.set(
 const page = await room.latest('msg:*');
 showMessages(page.items.reverse());
 
-await room.watch('msg:*', (event) => {
+await room.watch('msg:*', async (event) => {
     if (event.op === 'gap') return reloadMessages();
-    if (event.op === 'set') showMessage(event.key, event.value);
-    if (event.op === 'del') removeMessage(event.key);
+    if (event.op === 'del') return removeMessage(event.key);
+    if (event.op === 'set') {
+        showMessage(event.key, 'value' in event ? event.value : await room.get(event.key));
+    }
 });
 ```

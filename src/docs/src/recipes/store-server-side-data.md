@@ -114,6 +114,8 @@ const board = await (await puter.workers.exec(`${ API }/scores`)).json();
 ```
 
 Every user of your app now reads and writes the same board.
+[Build a Message Board](/recipes/build-a-message-board/) uses the same setup
+for a feature where users post, read and delete messages.
 
 ## Full Code
 

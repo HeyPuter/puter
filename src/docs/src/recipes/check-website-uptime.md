@@ -12,8 +12,8 @@ checks, HTTP errors and connection failures.
 
 This example checks a site when the user clicks a button, keeps each result
 for seven days, and shows the latest 20 checks. Each user's history lives in
-their own account. The first check opens the Puter sign-in window if the user
-isn't signed in yet.
+their own account. Loading the history opens the Puter sign-in window if the
+user isn't signed in yet.
 
 ## Check the Site
 

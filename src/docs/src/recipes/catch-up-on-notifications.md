@@ -31,20 +31,22 @@ To show notifications as they arrive, subscribe to `notif:app-user` with
 
 ```js
 const sub = await puter.events.onLocal('notif:app-user', ({ event }) => {
-    if (event.op === 'gap') return;
+    if (event.op !== 'post') return;
     showNotification(event);
 });
 ```
 
-A gap carries no notification, so this handler skips it.
+A new notification has `op: 'post'`. A gap carries no notification, and neither
+does the `dismiss` event sent when the user dismisses one, so this handler
+skips both.
 [Catch Up, Then Keep Listening](#catch-up-then-keep-listening) handles gaps
 properly. The fields to use are:
 
 - `id`, the notification's ID. A notification has the same `id` whether it
   arrives live or from [`fetch()`](/Events/fetch/).
 - `type`, what kind of notification it is, such as `app.events.ended`.
-- `notification.title`, the text to show. The other fields in `notification`
-  depend on the type.
+- `notification.title`, the text to show. A `kv.share.received` notification
+  has a `label` instead. The other fields in `notification` depend on the type.
 - `ts`, when it was created, in milliseconds since the epoch.
 - `replaced`, `true` when your app's notification replaced an earlier one in
   its [group](/Notifications/notify/#groups). It keeps the earlier `id`, and its
@@ -137,19 +139,22 @@ async function catchUp () {
     await save();
 }
 
-await puter.events.onLocal(subject, async ({ event }) => {
-    if (event.op === 'gap') return catchUp();
-    showOnce(event);
-    await save();
+await puter.events.onLocal(subject, ({ event }) => {
+    if (event.op === 'dismiss') return;
+    return catchUp();
 });
 await catchUp();
 ```
 
-Subscribe first, then fetch, so a notification created while `catchUp()` runs
-still reaches the handler. A notification can then arrive both live and from
-[`fetch()`](/Events/fetch/), and `showOnce()` drops the second copy. A
-replacement has the same `ts` on both copies, so `showOnce()` keys it on `id`
-and `ts` and shows each replacement once.
+Notifications sent within 250 ms of each other arrive as one event, the last
+of them. So the handler doesn't show the event it gets. It calls `catchUp()`,
+which reads every notification since the saved cursor.
+
+Subscribe first, then fetch, so a notification created while the first
+`catchUp()` runs starts another one. The same notification can then come back
+from two reads, and `showOnce()` drops the second copy. A replacement has the
+same `ts` on every copy, so `showOnce()` keys it on `id` and `ts` and shows
+each replacement once.
 
 The last page has no cursor, so the saved cursor stays on the page before it,
 and the next visit reads that page again. That's why the IDs are saved along
@@ -163,7 +168,7 @@ was closed comes back with `replaced` set and its new `ts`, and `showOnce()`
 shows it.
 
 A [gap](/recipes/watch-for-changes/#handle-gaps) means notifications weren't
-delivered, and one also arrives after a reconnect. Calling `catchUp()` on a gap
-reads what was missed, and `showOnce()` skips the rest. The subscription tells
-you when something new arrives, so there's no need to call
-[`fetch()`](/Events/fetch/) on a timer.
+delivered, and one also arrives after a reconnect. The handler calls
+`catchUp()` for a gap too, which reads what was missed, and `showOnce()` skips
+the rest. The subscription tells you when something new arrives, so there's no
+need to call [`fetch()`](/Events/fetch/) on a timer.

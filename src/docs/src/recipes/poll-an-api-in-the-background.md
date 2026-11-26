@@ -94,11 +94,11 @@ await puter.events.onSchedule({
 Create it once per user. [Run Code on a Schedule](/recipes/run-code-on-a-schedule/#create-the-schedule-once-per-user)
 shows how to check [`listSchedules()`](/Events/listSchedules/) first.
 
-The `context` is stored with the schedule and can't be changed. When the
-user's key changes, remove the schedule with
-[`puter.events.removeSchedule()`](/Events/removeSchedule/) and create a new
-one. The [`listSchedules()`](/Events/listSchedules/) method shows the names
-of the `context` keys, never their values.
+The `context` is stored with the schedule. When the user's key changes,
+replace the whole `context` with
+[`puter.events.updateSchedule(scheduleId, { context })`](/Events/updateSchedule/).
+The [`listSchedules()`](/Events/listSchedules/) method shows the names of the
+`context` keys, never their values.
 
 The schedule runs every 15 minutes from when it's created, which is as often
 as a free plan allows. A paid plan can run one every minute. See
@@ -158,7 +158,9 @@ A few details:
   every run would fail at the same page.
 - The extra run is a one-time schedule with the same handler and the same
   `context`, plus `followUp: true`. It continues from the saved cursor and
-  ends on its own after it runs.
+  ends on its own after it runs. It finds the handler by its published name,
+  so this version needs the published handler. A handler passed inline has no
+  name to bind to, and the call rejects with `events_handler_not_found`.
 - An extra run doesn't schedule another one. Whatever it leaves over, the
   next 15-minute run picks up. A schedule created from a handler counts as
   one step deeper in a [handler chain](/Events/onPersistent/#handlers-that-trigger-handlers),

@@ -187,17 +187,24 @@ If two tabs open at the same moment, both might create a subscription. When
 [`list()`](/Events/list/) returns more than one match, keep one and unsubscribe
 the rest.
 
-With `queue: true`, Puter treats the subscription like a work queue, so every
-new file gets recorded. A run that fails with a network error, a timeout or
-another temporary error is retried after 2 seconds, then 4, then 8, up to 5
-minutes apart. Runs over the per-minute limit for your app wait and run later.
+With `queue: true`, Puter treats the subscription like a work queue. A run
+that fails with a network error, a timeout or another temporary error is
+retried after 2 seconds, then 4, then 8, up to 5 minutes apart. Runs over the
+per-minute limit for your app wait and run later.
 Without `queue`, a failed run isn't retried and runs over the limit are
 skipped, so uploading 100 files at once would record only about 60.
+
+A queue also takes a [limited number of events a minute](/rate-limits-and-quotas/#delivery).
+Events past that are replaced by a [gap](/recipes/watch-for-changes/#handle-gaps),
+which this handler skips. If users can add several hundred files at once, list
+the folder with [`user.fs.readdir()`](/FS/readdir/) when the handler gets a
+gap, and record what's missing.
 
 Queued events cost more per event, as
 [What events cost](/rate-limits-and-quotas/#what-events-cost) lists. For work
 where a missed event doesn't matter, such as refreshing a summary that the next
-change refreshes anyway, leave `queue` out.
+change refreshes anyway, leave `queue` out. To queue work your app starts
+itself and show its progress, see [Build a Job Queue](/recipes/build-a-job-queue/).
 
 ## Pass Settings to the Handler
 

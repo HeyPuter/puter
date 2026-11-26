@@ -93,10 +93,15 @@ holds and end the scope, pass the app's uid to
 [`puter.events.workers.destroy()`](/Events/workers/) with `scope: 'user'`:
 
 ```js
-await puter.events.workers.destroy(puter.appID, { scope: 'user' });
+const held = await puter.events.handlers.list({ scope: 'user' });
+if (held.length > 0) {
+    await puter.events.workers.destroy(puter.appID, { scope: 'user' });
+}
 ```
 
-Do this after you've ended the subscriptions and schedules that use it, with
+A scope that holds no handlers has nothing to remove, and
+[`workers.destroy()`](/Events/workers/) rejects for it with
+`events_handler_not_found`, so the code checks first. Do this after you've ended the subscriptions and schedules that use it, with
 `unsubscribe()` and `removeSchedule()`. Listing and removing don't need credit,
 and [`workers.list()`](/Events/workers/) shows the user's scopes with
 `scope: 'user'`.

@@ -72,15 +72,19 @@ await puter.kv.remove('todos', id);
 ```
 
 To delete several items, pass each ID as a separate argument. This clears every
-completed todo:
+completed todo, 50 at a time:
 
 ```js
 const doneIds = items.filter((item) => item.done).map((item) => item.id);
 
-if ( doneIds.length > 0 ) {
-    await puter.kv.remove('todos', ...doneIds);
+for ( let i = 0; i < doneIds.length; i += 50 ) {
+    await puter.kv.remove('todos', ...doneIds.slice(i, i + 50));
 }
 ```
+
+All the IDs in one call go into one write of limited size, and a call with too
+many rejects with `bad_request`. [`puter.kv.remove()`](/KV/remove/) explains
+the limit.
 
 ## When to Switch
 
