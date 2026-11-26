@@ -757,6 +757,17 @@ describe('SubdomainStore listing and counting', () => {
         return app.id as number;
     };
 
+    it('reads when a user last created a subdomain', async () => {
+        const mine = await makeUser();
+        expect(await store.getLatestCreatedTs(mine)).toBeNull();
+        const before = Math.floor(Date.now() / 1000);
+        await createFor(mine, `${prefix()}a`);
+
+        const latest = await store.getLatestCreatedTs(mine);
+        expect(latest).toBeGreaterThanOrEqual(before - 1);
+        expect(latest).toBeLessThanOrEqual(before + 10);
+    });
+
     it('lists a user own subdomains, ordered by id, and never another user rows', async () => {
         const mine = await makeUser();
         const theirs = await makeUser();

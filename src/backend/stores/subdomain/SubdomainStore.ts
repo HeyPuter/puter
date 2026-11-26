@@ -396,6 +396,24 @@ export class SubdomainStore extends PuterStore {
         );
     }
 
+    /**
+     * When `userId` last created a subdomain, in unix seconds. `primary` skips
+     * the replica, for a caller that must see one created a moment ago.
+     */
+    async getLatestCreatedTs(
+        userId: number,
+        { primary = false }: { primary?: boolean } = {},
+    ): Promise<number | null> {
+        const db = this.clients.db;
+        const sql = `SELECT ${db.unixSecondsSql('MAX(`ts`)')} AS \`latest\` FROM \`subdomains\` WHERE \`user_id\` = ?`;
+        const rows = (
+            primary
+                ? await db.pread(sql, [userId])
+                : await db.read(sql, [userId])
+        ) as { latest: number | string | null }[];
+        return rows[0]?.latest == null ? null : Number(rows[0].latest);
+    }
+
     async listByUserId(
         userId: number,
         {

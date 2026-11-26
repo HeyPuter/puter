@@ -1523,6 +1523,29 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect(await appStore.getRecentAppOpens(userId)).toEqual([uid]);
     });
 
+    it('reads when a user last opened an app', async () => {
+        const userId = 4720;
+        expect(await appStore.getLatestOpenTs(userId)).toBeNull();
+        await appStore.recordOpen('app-latest-a', userId, 1000);
+        await appStore.recordOpen('app-latest-b', userId, 2000);
+        await appStore.recordOpen('app-latest-c', 4721, 3000);
+        expect(await appStore.getLatestOpenTs(userId)).toBe(2000);
+    });
+
+    it('reads when an owner last created an app', async () => {
+        const ownerUserId = 4730;
+        expect(await appStore.getLatestCreatedTs(ownerUserId)).toBeNull();
+        const before = Math.floor(Date.now() / 1000);
+        const name = `latest-${Math.random().toString(36).slice(2, 10)}`;
+        await appStore.create(
+            { name, title: name, index_url: `https://${name}.example.com/` },
+            { ownerUserId },
+        );
+        const latest = await appStore.getLatestCreatedTs(ownerUserId);
+        expect(latest).toBeGreaterThanOrEqual(before - 1);
+        expect(latest).toBeLessThanOrEqual(before + 10);
+    });
+
     it('lists the names of approved apps only, up to the limit', async () => {
         const make = async () => {
             const name = `approved-${Math.random().toString(36).slice(2, 10)}`;
