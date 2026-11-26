@@ -36,29 +36,51 @@ summary below.
 ## Carry the Artifact Forward
 
 When the response includes an artifact, replace the compacted history with the
-assistant turn that produced it. Keep its other fields and put the artifact first:
+assistant turn that produced it. Keep its other fields and put the artifact
+first. Add the reply text after it when the reply has text. A turn that only
+calls tools has none:
 
 ```js
 if (result.compaction) {
     context = [{ ...result.message, content: [
         result.compaction,
-        { type: 'text', text: result.message.content ?? '' },
+        ...(result.message.content ? [{ type: 'text', text: result.message.content }] : []),
     ] }];
 }
 context.push({ role: 'user', content: 'What is the project called?' });
 ```
 
 Send the artifact unchanged to the same model. Keep system instructions first
-and byte-identical on every call, followed by the changing conversation. This
-also gives prompt caching a reusable prefix. Compaction fires only after the
-model's threshold is reached. See [Compaction](/AI/chat/#compaction) for thresholds.
+and byte-identical on every call, followed by the changing conversation.
+Compaction fires only after the model's threshold is reached. See
+[Compaction](/AI/chat/#compaction) for thresholds.
 
 ## Keep the Full Transcript
 
 Archive each user, assistant, and tool message separately from the compacted
-context. The full code splits each serialized message into small keys, following
-[Split a Large Value Across Keys](/recipes/split-a-large-value/). This keeps a
-large reply or reasoning artifact from filling a single KV entry.
+context. The `archive()` function below splits each serialized message into
+small keys, following [Split a Large Value Across Keys](/recipes/split-a-large-value/).
+This keeps a large reply or reasoning artifact from filling a single KV entry.
+It numbers the message with [`puter.kv.incr()`](/KV/incr/) and writes the parts
+in one [`puter.kv.set()`](/KV/set/) call:
+
+```js
+const chatId = crypto.randomUUID();
+const prefix = `conversation:${chatId}:`;
+
+async function archive(message) {
+    const number = await puter.kv.incr(`${prefix}count`);
+    const json = JSON.stringify(message);
+    const parts = [];
+    for (let start = 0; start < json.length; start += 8000) {
+        parts.push(json.slice(start, start + 8000));
+    }
+    await puter.kv.set(parts.map((value, index) => ({
+        key: `${prefix}transcript:${String(number).padStart(10, '0')}:${String(index).padStart(6, '0')}`,
+        value,
+    })));
+}
+```
 
 The example has one active writer per chat. Queue sends in your app, and open a
 separate chat for an independent tab. A counter is not a distributed lock. Keep
@@ -67,14 +89,135 @@ model context stays in memory in this building block.
 
 ## Recover an Earlier Detail
 
-Give the model a `search_transcript` tool. It searches archived messages a page at
-a time with [`puter.kv.list()`](/KV/list/) and returns up to five excerpts. The
-model can ask for a fact that its compacted context omitted. A larger archive
-can use a search index with the same tool contract.
+Give the model a `search_transcript` tool. The model can ask for a fact that its
+compacted context omitted:
+
+```js
+const tools = [{
+    type: 'function',
+    function: {
+        name: 'search_transcript',
+        description: 'Find earlier messages containing an exact phrase.',
+        parameters: {
+            type: 'object', properties: { query: { type: 'string' } },
+            required: ['query'], additionalProperties: false,
+        },
+    },
+}];
+```
+
+The tool runs the `searchTranscript()` function. It searches archived messages a
+page at a time with [`puter.kv.list()`](/KV/list/) and returns up to five
+excerpts. A larger archive can use a search index with the same tool contract:
+
+```js
+async function searchTranscript(query) {
+    if (typeof query !== 'string' || !query.trim() || query.length > 100) {
+        throw new Error('query must contain 1 to 100 characters');
+    }
+    const matches = [];
+    let current = '';
+    let pieces = [];
+    const collect = () => {
+        const json = pieces.join('');
+        const index = json.toLowerCase().indexOf(query.toLowerCase());
+        if (index >= 0) {
+            matches.push({ number: current, excerpt: json.slice(Math.max(0, index - 500), index + 1500) });
+        }
+    };
+    for await (const page of puter.kv.list({
+        pattern: `${prefix}transcript:`, returnValues: true, stream: true, limit: 100,
+    })) {
+        for (const { key, value } of page.items) {
+            const number = key.split(':').at(-2);
+            if (current && number !== current) {
+                collect();
+                if (matches.length === 5) return matches;
+                pieces = [];
+            }
+            current = number;
+            pieces.push(value);
+        }
+    }
+    if (pieces.length) collect();
+    return matches;
+}
+```
+
+The `send()` function runs one user message through the model. It archives each
+message, carries the artifact as in the section above, and runs the tool calls
+the model asks for. It starts from an empty `context`, since it adds every
+message itself:
+
+```js
+context = [];
+const system = 'Help with this conversation. Use search_transcript for older details.';
+let busy = false;
+
+async function send(text) {
+    if (busy) throw new Error('Wait for the current reply.');
+    if (typeof text !== 'string' || !text.trim() || text.length > 8000) {
+        throw new Error('Enter 1 to 8000 characters.');
+    }
+    busy = true;
+    try {
+        const userMessage = { role: 'user', content: text };
+        await archive(userMessage);
+        context.push(userMessage);
+        for (let step = 0; step < 5; step++) {
+            const result = await puter.ai.chat([
+                { role: 'system', content: system }, ...context,
+            ], { model, normalize: true, compaction: true, tools, max_tokens: 1024 });
+            const message = result.message;
+            const done = !message.tool_calls?.length;
+            if (done && (result.finish_reason !== 'stop' || typeof message.content !== 'string')) {
+                throw new Error(`Reply incomplete: ${result.finish_reason}`);
+            }
+            await archive(message);
+            if (result.compaction) {
+                context = [{ ...message, content: [
+                    result.compaction,
+                    ...(message.content ? [{ type: 'text', text: message.content }] : []),
+                ] }];
+            } else {
+                context.push(message);
+            }
+            if (done) return message.content;
+            const toolMessages = [];
+            for (const call of message.tool_calls) {
+                let output;
+                try {
+                    if (call.function.name !== 'search_transcript') throw new Error('Unknown tool');
+                    const args = JSON.parse(call.function.arguments);
+                    output = await searchTranscript(args.query);
+                } catch (error) {
+                    output = { error: error.message };
+                }
+                toolMessages.push({
+                    role: 'tool', tool_call_id: call.id, content: JSON.stringify(output),
+                });
+            }
+            context.push(...toolMessages);
+            for (const toolMessage of toolMessages) await archive(toolMessage);
+        }
+        throw new Error('The conversation reached its tool step limit.');
+    } finally {
+        busy = false;
+    }
+}
+
+console.log(await send('Remember that the project is called Blue Kite.'));
+console.log(await send('What is the project called?'));
+```
 
 Keep the returned assistant message intact, including `reasoning_details` and
 any tool metadata. Tool failures become tool results. A five-step limit stops
 the loop with an explicit error.
+
+A reply without tool calls is checked before it joins `context`, so an
+incomplete reply rejects `send()` and stays out of the conversation. The tool
+results join `context` before they're archived. A failed archive write then
+can't leave a tool call without its result, which the next call would reject.
 
 ## Summarize for Another Model
 
@@ -103,15 +246,85 @@ async function summarizeOlderTurns() {
 
 In this mode, omit `compaction` from the main call and await
 `summarizeOlderTurns()` before adding the next user message. Run it only after
-all tool calls have results. Bound each turn as in the full code so the summary
-call itself fits in the chosen model's context window. This is an extra billed
-call, and summaries can omit details.
+all tool calls have results. Bound each turn, as `send()` does with its input
+length check and `max_tokens`, so the summary call itself fits in the chosen
+model's context window. This is an extra billed call, and summaries can omit
+details.
+
+To support both modes, choose the model with a `nativeCompaction` flag in place
+of the fixed model ID from the first section. Set the flag before starting a new
+chat:
+
+```js
+const nativeCompaction = true;
+const modelId = nativeCompaction ? 'claude-sonnet-4-6' : 'gemini-3.5-flash-lite';
+const model = models.find(item => item.id === modelId)?.puterId;
+if (!model) throw new Error('The conversation model is unavailable.');
+```
+
+Then have `send()` follow the flag. This version summarizes before it adds the
+user message, and enables compaction only in native mode:
+
+```js
+async function send(text) {
+    if (busy) throw new Error('Wait for the current reply.');
+    if (typeof text !== 'string' || !text.trim() || text.length > 8000) {
+        throw new Error('Enter 1 to 8000 characters.');
+    }
+    busy = true;
+    try {
+        if (!nativeCompaction) await summarizeOlderTurns();
+        const userMessage = { role: 'user', content: text };
+        await archive(userMessage);
+        context.push(userMessage);
+        for (let step = 0; step < 5; step++) {
+            const result = await puter.ai.chat([
+                { role: 'system', content: system }, ...context,
+            ], { model, normalize: true, ...(nativeCompaction ? { compaction: true } : {}), tools, max_tokens: 1024 });
+            const message = result.message;
+            const done = !message.tool_calls?.length;
+            if (done && (result.finish_reason !== 'stop' || typeof message.content !== 'string')) {
+                throw new Error(`Reply incomplete: ${result.finish_reason}`);
+            }
+            await archive(message);
+            if (result.compaction) {
+                context = [{ ...message, content: [
+                    result.compaction,
+                    ...(message.content ? [{ type: 'text', text: message.content }] : []),
+                ] }];
+            } else {
+                context.push(message);
+            }
+            if (done) return message.content;
+            const toolMessages = [];
+            for (const call of message.tool_calls) {
+                let output;
+                try {
+                    if (call.function.name !== 'search_transcript') throw new Error('Unknown tool');
+                    const args = JSON.parse(call.function.arguments);
+                    output = await searchTranscript(args.query);
+                } catch (error) {
+                    output = { error: error.message };
+                }
+                toolMessages.push({
+                    role: 'tool', tool_call_id: call.id, content: JSON.stringify(output),
+                });
+            }
+            context.push(...toolMessages);
+            for (const toolMessage of toolMessages) await archive(toolMessage);
+        }
+        throw new Error('The conversation reached its tool step limit.');
+    } finally {
+        busy = false;
+    }
+}
+```
 
 ## Full Code
 
-This version includes both modes. Set `nativeCompaction` before starting a new
-chat. API failures reject `send()` so your UI can show sign-in, funds, and
-subscription actions, or another failure with its code and message:
+This version includes both modes. API failures reject `send()` so your UI can
+show sign-in, funds, and subscription actions, or another failure with its code
+and message:
 
 ```js
 const models = await puter.ai.listModels();
@@ -121,8 +334,8 @@ const model = models.find(item => item.id === modelId)?.puterId;
 if (!model) throw new Error('The conversation model is unavailable.');
 const chatId = crypto.randomUUID();
 const prefix = `conversation:${chatId}:`;
-const system = 'Help with this conversation. Use search_transcript for older details.';
 let context = [];
+const system = 'Help with this conversation. Use search_transcript for older details.';
 let busy = false;
 const tools = [{
     type: 'function',
@@ -213,20 +426,21 @@ async function send(text) {
                 { role: 'system', content: system }, ...context,
             ], { model, normalize: true, ...(nativeCompaction ? { compaction: true } : {}), tools, max_tokens: 1024 });
             const message = result.message;
+            const done = !message.tool_calls?.length;
+            if (done && (result.finish_reason !== 'stop' || typeof message.content !== 'string')) {
+                throw new Error(`Reply incomplete: ${result.finish_reason}`);
+            }
             await archive(message);
             if (result.compaction) {
                 context = [{ ...message, content: [
-                    result.compaction, { type: 'text', text: message.content ?? '' },
+                    result.compaction,
+                    ...(message.content ? [{ type: 'text', text: message.content }] : []),
                 ] }];
             } else {
                 context.push(message);
             }
-            if (!message.tool_calls?.length) {
-                if (result.finish_reason !== 'stop' || typeof message.content !== 'string') {
-                    throw new Error(`Reply incomplete: ${result.finish_reason}`);
-                }
-                return message.content;
-            }
+            if (done) return message.content;
+            const toolMessages = [];
             for (const call of message.tool_calls) {
                 let output;
                 try {
@@ -236,12 +450,12 @@ async function send(text) {
                 } catch (error) {
                     output = { error: error.message };
                 }
-                const toolMessage = {
+                toolMessages.push({
                     role: 'tool', tool_call_id: call.id, content: JSON.stringify(output),
-                };
-                await archive(toolMessage);
-                context.push(toolMessage);
+                });
             }
+            context.push(...toolMessages);
+            for (const toolMessage of toolMessages) await archive(toolMessage);
         }
         throw new Error('The conversation reached its tool step limit.');
     } finally {
