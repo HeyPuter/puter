@@ -1229,6 +1229,32 @@ describe('ImageGenerationDriver.generate audit log', () => {
         expect((p.completionId as string).length).toBeGreaterThan(0);
     });
 
+    it('reports the charge for the image under the logged request', async () => {
+        openaiImagesGenerateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://oai/img.png' }],
+        });
+
+        await withActor(() =>
+            driver.generate({
+                model: 'gpt-image-2',
+                prompt: 'hi',
+                ratio: { w: 1024, h: 1024 },
+            } as never),
+        );
+
+        const events = (key: string) =>
+            eventEmitSpy.mock.calls
+                .filter(([eventName]) => eventName === key)
+                .map(([, payload]) => payload as Record<string, unknown>);
+        const [logged] = events('ai.log.media');
+        const costs = events('ai.log.media.cost');
+        expect(costs.length).toBeGreaterThan(0);
+        for (const cost of costs) {
+            expect(cost.completionId).toBe(logged!.completionId);
+            expect(cost.ucents).toBeGreaterThan(0);
+        }
+    });
+
     it('still emits the audit log when the upstream provider call fails (logs precede the network round-trip)', async () => {
         const apiError = new Error('upstream blew up');
         openaiImagesGenerateMock.mockRejectedValueOnce(apiError);

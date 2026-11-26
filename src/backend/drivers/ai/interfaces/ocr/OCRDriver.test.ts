@@ -1622,3 +1622,32 @@ describe('OCRDriver.recognize request log', () => {
         );
     });
 });
+
+describe('OCRDriver.recognize request cost', () => {
+    it('reports the pages it meters under the logged request', async () => {
+        const { actor } = await makeUser();
+        textractSendMock.mockResolvedValueOnce({
+            Blocks: [{ BlockType: 'PAGE' }, { BlockType: 'PAGE' }],
+        });
+        const emit = vi.spyOn(server.clients.event, 'emit');
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.from('imgdata'), 'image/png'),
+                provider: 'aws-textract',
+            }),
+        );
+
+        const events = (key: string) =>
+            emit.mock.calls
+                .filter(([k]) => k === key)
+                .map(([, event]) => event as Record<string, unknown>);
+        const [logged] = events('ai.log.media');
+        const costs = events('ai.log.media.cost');
+        expect(costs.length).toBeGreaterThan(0);
+        for (const cost of costs) {
+            expect(cost.completionId).toBe(logged!.completionId);
+            expect(cost.ucents).toBeGreaterThan(0);
+        }
+    });
+});

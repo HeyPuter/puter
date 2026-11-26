@@ -111,18 +111,39 @@ const scaleCost = (cost: number, factor: number): number =>
 /** Context key for the pre-factor µ¢ of each AI charge the request recorded. */
 const REQUEST_COSTS_KEY = 'aiRecordedCosts';
 
-/** Notes what each usage will cost before the factor, as the ledger counts it. */
-const noteRequestCosts = (usages: UsageInput[]): void => {
+/** Context key for the completion id of the media request being served. */
+const MEDIA_LOG_KEY = 'aiMediaLogCompletionId';
+
+/**
+ * Ties the AI charges the rest of the current request records to the media
+ * request logged under `completionId`: each is reported on
+ * `ai.log.media.cost`.
+ */
+export const tieChargesToMediaLog = (completionId: string): void => {
+    if (Context.current()) Context.set(MEDIA_LOG_KEY, completionId);
+};
+
+/**
+ * Notes what each usage will cost before the factor, as the ledger counts it,
+ * and reports the charge when it belongs to a logged media request.
+ */
+const noteRequestCosts = (events: EventClient, usages: UsageInput[]): void => {
     if (!Context.current()) return;
     let costs = Context.get(REQUEST_COSTS_KEY) as number[] | undefined;
     if (!costs) {
         costs = [];
         Context.set(REQUEST_COSTS_KEY, costs);
     }
+    let charged = 0;
     for (const { usageAmount, costOverride } of usages) {
         // The ledger skips a zero amount and charges nothing for no price.
         if (usageAmount === 0 || !Number.isFinite(costOverride)) continue;
         costs.push(costOverride as number);
+        charged += costOverride as number;
+    }
+    const completionId = Context.get(MEDIA_LOG_KEY);
+    if (typeof completionId === 'string' && charged > 0) {
+        events.emit('ai.log.media.cost', { completionId, ucents: charged }, {});
     }
 };
 
@@ -264,7 +285,7 @@ export function withAiCostFactor(
         costOverride?: number,
     ): Promise<UsageByType> => {
         const usage = { usageType, usageAmount, costOverride };
-        noteRequestCosts([usage]);
+        noteRequestCosts(events, [usage]);
         if (!hooked(usage))
             return metering.incrementUsage(
                 actor,
@@ -286,7 +307,7 @@ export function withAiCostFactor(
         actor: Actor,
         usages: UsageInput[],
     ): Promise<UsageByType> => {
-        noteRequestCosts(usages ?? []);
+        noteRequestCosts(events, usages ?? []);
         if (!usages?.some(hooked))
             return metering.batchIncrementUsages(actor, usages);
         return scaleUsages(actor, usages).then((scaled) =>
@@ -313,6 +334,7 @@ export function withAiCostFactor(
             ]),
         ) as T;
         noteRequestCosts(
+            events,
             Object.entries(trackedUsageObject).map(([key, usageAmount]) => ({
                 usageType: key,
                 usageAmount,

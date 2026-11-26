@@ -18,6 +18,7 @@ import {
     aiModelKey,
     factoredTotal,
     requestAiCosts,
+    tieChargesToMediaLog,
     withAiCostFactor,
     withAiCreditHold,
 } from './aiCostFactor.ts';
@@ -227,6 +228,54 @@ describe('AI cost factor', () => {
             expect(ledger).toBe(1602 + 533);
         } finally {
             recorded.mockRestore();
+        }
+    });
+
+    it('reports each charge of a logged media request, before the factor', async () => {
+        listen(1.6);
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        try {
+            await runWithContext({ actor }, async () => {
+                // A charge before the request is logged belongs to no media log.
+                await scoped.incrementUsage(actor, 'xai:stt:second', 1, 50);
+                tieChargesToMediaLog('media-cuid');
+                await scoped.utilRecordUsageObject(
+                    { input_tokens: 100, output_tokens: 0 },
+                    actor,
+                    'claude:sonnet',
+                    { input_tokens: 1001, output_tokens: 7 },
+                );
+                await scoped.incrementUsage(actor, 'xai:stt:second', 3, 333);
+                // Unpriced and zero-amount usage charges nothing.
+                await scoped.incrementUsage(actor, 'xai:stt:second', 0, 9);
+                await scoped.incrementUsage(actor, 'xai:stt:second', 2);
+            });
+            const reported = emit.mock.calls.filter(
+                ([key]) => key === 'ai.log.media.cost',
+            );
+            expect(reported.map(([, event]) => event)).toEqual([
+                { completionId: 'media-cuid', ucents: 1001 },
+                { completionId: 'media-cuid', ucents: 333 },
+            ]);
+        } finally {
+            emit.mockRestore();
+        }
+    });
+
+    it('reports nothing for a request without a media log', async () => {
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        try {
+            await runWithContext({ actor }, () =>
+                scoped.incrementUsage(actor, 'xai:stt:second', 3, 333),
+            );
+            // Outside any request, tying is a no-op.
+            tieChargesToMediaLog('media-cuid');
+            await scoped.incrementUsage(actor, 'xai:stt:second', 3, 333);
+            expect(
+                emit.mock.calls.some(([key]) => key === 'ai.log.media.cost'),
+            ).toBe(false);
+        } finally {
+            emit.mockRestore();
         }
     });
 
