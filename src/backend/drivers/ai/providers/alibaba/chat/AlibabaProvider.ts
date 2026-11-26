@@ -26,7 +26,9 @@ import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
     type ChatProviderConfig,
     OpenAICompatProvider,
+    type UsageSource,
 } from '../../../protocols/openaiCompatible/OpenAICompatProvider.js';
+import * as OpenAIUtil from '../../../protocols/openaiCompatible/OpenAIUtil.js';
 import { ALIBABA_MODELS } from './models.js';
 
 export class AlibabaProvider extends OpenAICompatProvider {
@@ -58,6 +60,27 @@ export class AlibabaProvider extends OpenAICompatProvider {
 
     override async models(): Promise<IChatModel[]> {
         return this.#catalog();
+    }
+
+    /** Prompt audio is billed at the model's audio rate where it has one. */
+    protected override meteredUsage(source: UsageSource, model: IChatModel) {
+        const metered = super.meteredUsage(source, model);
+        if (model.costs.audio_tokens === undefined) return metered;
+        const { usage } = metered;
+        const reported = source.usage?.prompt_tokens_details?.audio_tokens;
+        const audioTokens =
+            typeof reported === 'number' && Number.isFinite(reported)
+                ? Math.min(Math.max(0, reported), usage.prompt_tokens)
+                : 0;
+        return {
+            ...metered,
+            usage: {
+                ...usage,
+                prompt_tokens: usage.prompt_tokens - audioTokens,
+                audio_tokens: audioTokens,
+            },
+            usageDetails: OpenAIUtil.usageDetailsFromTrackedUsage(usage),
+        };
     }
 
     #catalog = cachedRemoteCatalog({

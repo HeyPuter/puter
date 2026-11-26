@@ -527,7 +527,8 @@ export const ALIBABA_MODELS: IChatModel[] = [
             completion_tokens: 160,
         },
     },
-    // -- Omni models (text interface, audio costs excluded) ---------
+    // -- Omni models ------------------------------------------------
+    // Rates per input modality: https://www.alibabacloud.com/help/en/model-studio/model-pricing
     {
         puterId: 'alibaba:qwen/qwen3-omni-flash',
         id: 'qwen3-omni-flash',
@@ -550,6 +551,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 43,
+            audio_tokens: 381,
             completion_tokens: 166,
         },
     },
@@ -907,7 +909,8 @@ export const ALIBABA_MODELS: IChatModel[] = [
             completion_tokens: 600,
         },
     },
-    // -- Omni additions (text interface, audio costs excluded) ----
+    // -- Omni additions ---------------------------------------------
+    // Rates per input modality: https://www.alibabacloud.com/help/en/model-studio/model-pricing
     {
         puterId: 'alibaba:qwen/qwen3.5-omni-flash',
         id: 'qwen3.5-omni-flash',
@@ -929,6 +932,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
+            audio_tokens: 300,
             completion_tokens: 220,
         },
     },
@@ -953,6 +957,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 140,
+            audio_tokens: 1100,
             completion_tokens: 830,
         },
     },
@@ -974,6 +979,7 @@ export const ALIBABA_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         serviceSpeedVariants: { fast: 'qwen3.8-omni-flash-prime' },
+        // One input rate for every modality, audio included.
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 15,
