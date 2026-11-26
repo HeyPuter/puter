@@ -171,7 +171,7 @@ const examples = [
             },
             {
                 title: 'Read a Receipt',
-                description: 'Read the merchant, date, currency, and total from a sample receipt image using Puter.js AI API. Run and modify this example in the playground.',
+                description: 'Read the merchant, date, currency, and total from a receipt image you pick using Puter.js AI API. Run and modify this example in the playground.',
                 slug: 'build-an-expense-report-from-receipts',
                 source: '/playground/examples/build-an-expense-report-from-receipts.html',
             },

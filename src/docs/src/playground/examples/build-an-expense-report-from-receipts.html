@@ -46,11 +46,9 @@
         }
 
         async function pickReceiptImage () {
-            const request = puter.ui.showOpenFilePicker({ multiple: false, accept: 'image/*' });
-            // A failure only rejects the picker's own promise. A desktop cancel settles undefinedOnCancel,
-            // and a website popup cancel resolves the picker's own promise with a cancel message.
-            const file = await Promise.race([request, request.undefinedOnCancel]);
-            if ( file === undefined || file?.msg === 'fileOpenCanceled' ) {
+            // Resolves to undefined when the user closes the picker without choosing a file.
+            const file = await puter.ui.showOpenFilePicker({ multiple: false, accept: 'image/*' }).undefinedOnCancel;
+            if ( file === undefined ) {
                 return null;
             }
             const type = IMAGE_TYPES.get(/\.([a-z]+)$/i.exec(String(file?.name))?.[1].toLowerCase());
@@ -328,7 +326,8 @@
                 const checked = parseDraft(next);
                 const expected = JSON.stringify(checked);
 
-                // The save number is reserved before the write, so a write that lands late can't rank above a later save.
+                // The save number is reserved before the write, so a write that lands late keeps the number it reserved.
+                // Saves from two far-apart devices can get the same number. The UUID keeps their keys different.
                 let order;
                 try {
                     order = await puter.kv.incr(COUNTER_KEY);
@@ -489,10 +488,9 @@
         }
 
         async function saveCsvFile (csv, suggestedName) {
-            const request = puter.ui.showSaveFilePicker(csv, suggestedName);
-            // A desktop cancel settles undefinedOnCancel, and a website popup cancel resolves with a cancel message.
-            const saved = await Promise.race([request, request.undefinedOnCancel]);
-            if ( saved === undefined || saved?.msg === 'fileSaveCanceled' ) {
+            // Resolves to undefined when the user cancels or the save doesn't complete.
+            const saved = await puter.ui.showSaveFilePicker(csv, suggestedName).undefinedOnCancel;
+            if ( saved === undefined ) {
                 return null;
             }
             // Only a result that names the saved file confirms the save.
@@ -626,11 +624,11 @@
             try {
                 const saved = await saveCsvFile(exportCsv(), 'expense-report.csv');
                 status.textContent = saved === null
-                    ? 'Save cancelled. No CSV file was saved.'
+                    ? 'The save was canceled or didn\'t complete. If you didn\'t cancel, check the destination before saving again.'
                     : `Saved the report as ${ saved.name }.`;
             } catch ( error ) {
-                // A rejection can follow a completed write whose response was lost.
-                status.textContent = `Save could not be confirmed (${ messageOf(error) }). Check the destination before retrying.`;
+                // The dialog answered without a file name, so the save is unconfirmed.
+                status.textContent = `Save could not be confirmed (${ messageOf(error) }). Check the destination before saving again.`;
             }
         }));
 
