@@ -1915,21 +1915,29 @@ window.initgui = async function (options) {
             let session = null;
             let session_user = null;
             if (host_user && window.is_auth()) {
+                const look_up_saved = () => savedAccountSession({
+                    hostUser: host_user,
+                    savedUsers: window.logged_in_users,
+                    hostOrigin: window.openerOrigin,
+                    apiOrigin: window.api_origin,
+                });
+                // The stored user is the active account, so a page signed in
+                // as another one has its lookup sent with the session's.
+                const early_lookup =
+                    String(window.user?.uuid ?? '').toLowerCase() !== host_user
+                        ? look_up_saved()
+                        : null;
                 try {
                     session = await puter.os.user();
                     session_user = String(session?.uuid ?? '').toLowerCase();
                 } catch (e) {
                     session_user = null;
                 }
-            }
-            // Switched away from without signing out: the frame runs as that saved account.
-            if (host_user && window.is_auth() && session_user !== host_user) {
-                const saved = await savedAccountSession({
-                    hostUser: host_user,
-                    savedUsers: window.logged_in_users,
-                    hostOrigin: window.openerOrigin,
-                    apiOrigin: window.api_origin,
-                });
+                // Switched away from without signing out: the frame runs as that saved account.
+                const saved =
+                    session_user === host_user
+                        ? null
+                        : await (early_lookup ?? look_up_saved());
                 if (saved) {
                     adoptBorrowedSession(saved);
                     session = saved.user;
