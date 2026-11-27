@@ -333,6 +333,7 @@ export class AlarmClient extends PuterClient {
         if (existing) {
             this.alarms.delete(id);
             this.alarms.set(id, existing);
+            existing.summary = opts.summary;
             this.recordOccurrence(existing, message, fields);
             this.handleRepeat(existing);
             return;

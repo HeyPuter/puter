@@ -25,6 +25,7 @@ describe('buildSlackMessage', () => {
             alert({
                 summary: 'New Replicate model: vendor/image',
                 severity: 'info',
+                trace: 'HttpError: known failure\n    at handler',
             }),
             { serverId: 'sydney' },
         );
@@ -32,6 +33,7 @@ describe('buildSlackMessage', () => {
             ':information_source: New Replicate model: vendor/image',
         );
         expect(msg.attachments[0].fields).toEqual([]);
+        expect(msg.attachments[0].text).toBeUndefined();
         expect(msg.attachments[0].footer).toBe('amber-delta-fox • sydney');
     });
 
