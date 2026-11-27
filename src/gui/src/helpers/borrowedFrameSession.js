@@ -36,15 +36,17 @@ let borrowed = false;
 export const frameSessionIsBorrowed = () => borrowed;
 
 /**
- * Makes this page send `token` without storing it as the active session. The
- * boot's `update_auth_data` then takes on its user, as for any session.
+ * Makes this page run as `user`, sending `token`, without storing either as
+ * the active session. The boot's `update_auth_data` then finishes taking it
+ * on, as for any session; the account checks before it read `user` already.
  *
- * @param {{ token: string }} session
+ * @param {{ token: string, user: Record<string, unknown> }} session
  * @param {Window} [win]
  */
-export const adoptBorrowedSession = ({ token }, win = window) => {
+export const adoptBorrowedSession = ({ token, user }, win = window) => {
     borrowed = true;
     win.auth_token = token;
+    win.user = user;
     win.puter?.setAuthToken?.(token, win.api_origin);
 };
 

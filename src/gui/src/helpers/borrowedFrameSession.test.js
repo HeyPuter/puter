@@ -114,13 +114,15 @@ describe('savedAccountSession', () => {
 });
 
 describe('adoptBorrowedSession', () => {
-    it('sends the saved token and marks the session as borrowed', () => {
+    // The boot's account checks read window.user before update_auth_data runs.
+    it('sends the saved token as the saved user and marks the session as borrowed', () => {
         const setAuthToken = vi.fn();
-        const win = { auth_token: 'bob-token', api_origin: API, puter: { setAuthToken } };
+        const win = { auth_token: 'bob-token', user: { uuid: BOB, email: 'bob@puter.test' }, api_origin: API, puter: { setAuthToken } };
         expect(frameSessionIsBorrowed()).toBe(false);
-        adoptBorrowedSession({ token: 'alice-token', user: { uuid: ALICE } }, win);
+        adoptBorrowedSession({ token: 'alice-token', user: { uuid: ALICE, email: 'alice@puter.test' } }, win);
         expect(frameSessionIsBorrowed()).toBe(true);
         expect(win.auth_token).toBe('alice-token');
+        expect(win.user).toEqual({ uuid: ALICE, email: 'alice@puter.test' });
         expect(setAuthToken).toHaveBeenCalledWith('alice-token', API);
     });
 });

@@ -58,7 +58,7 @@ describe('a frame running as a saved account', () => {
         window.icons = { 'profile.svg': '/profile.svg' };
         globalThis.fetch = vi.fn(async () => ({ ok: true }));
         window.close = vi.fn();
-        adoptBorrowedSession({ token: 'alice-token' });
+        adoptBorrowedSession({ token: 'alice-token', user: { ...ALICE } });
     });
 
     it("leaves the active account's stored session and cookie alone", async () => {
