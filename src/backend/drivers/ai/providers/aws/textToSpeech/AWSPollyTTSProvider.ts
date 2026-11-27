@@ -42,10 +42,12 @@ import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
 import {
     characterCostReport,
     meterPerCharacter,
+    TTS_UPSTREAM_TIMEOUT_MS,
 } from '../../../interfaces/textToSpeech/common.js';
 import { AWS_POLLY_COSTS } from './costs.js';
 import { fetchPollyPriceList, type PollyRates } from './pricing.js';
 import { isAwsPriceRegion } from '../priceList.js';
+import { sendWithDeadline } from '../sendWithDeadline.js';
 
 const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 
@@ -122,8 +124,10 @@ export class AWSPollyTTSProvider implements ITTSProvider {
         const cached = this.voicesCache;
         if (cached && Date.now() < cached.expires) return cached.data;
 
-        const data = this.getClient().send(
-            new DescribeVoicesCommand({}),
+        const data = sendWithDeadline(TTS_UPSTREAM_TIMEOUT_MS, (abortSignal) =>
+            this.getClient().send(new DescribeVoicesCommand({}), {
+                abortSignal,
+            }),
         ) as Promise<PollyVoicesResponse>;
         this.voicesCache = { data, expires: Date.now() + 10 * 60 * 1000 };
         try {
@@ -303,7 +307,11 @@ export class AWSPollyTTSProvider implements ITTSProvider {
                 };
 
                 const command = new SynthesizeSpeechCommand(params);
-                const response = await client.send(command);
+                // The deadline ends at the headers; the audio streams on.
+                const response = await sendWithDeadline(
+                    TTS_UPSTREAM_TIMEOUT_MS,
+                    (abortSignal) => client.send(command, { abortSignal }),
+                );
                 if (!response?.AudioStream) {
                     throw malformedUpstreamResponse('aws-polly', 'AWS Polly');
                 }

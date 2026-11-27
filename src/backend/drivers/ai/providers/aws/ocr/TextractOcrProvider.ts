@@ -29,6 +29,7 @@ import type { ResolvedFileInput } from '../../../../util/fileInput.js';
 import {
     badRequest,
     estimateOcrPages,
+    TEXTRACT_UPSTREAM_TIMEOUT_MS,
 } from '../../../interfaces/ocr/common.js';
 import { OCR_COSTS } from '../../../interfaces/ocr/costs.js';
 import type { OcrModel } from '../../../interfaces/ocr/models.js';
@@ -41,6 +42,7 @@ import {
     type AiMeteringService,
     withAiCreditHold,
 } from '../../../../../util/aiCostFactor.js';
+import { sendWithDeadline } from '../sendWithDeadline.js';
 import { textractRates } from './textractPricing.js';
 
 const DEFAULT_TEXTRACT_REGION = 'us-west-2';
@@ -143,8 +145,12 @@ export class TextractOcrProvider implements IOcrProvider {
             const document = s3
                 ? { S3Object: { Bucket: s3.bucket, Name: s3.key } }
                 : { Bytes: (await input.load()).buffer };
-            return client.send(
-                new DetectDocumentTextCommand({ Document: document }),
+            const command = new DetectDocumentTextCommand({
+                Document: document,
+            });
+            return sendWithDeadline(
+                TEXTRACT_UPSTREAM_TIMEOUT_MS,
+                (abortSignal) => client.send(command, { abortSignal }),
             );
         };
 
