@@ -122,16 +122,19 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
         // reject promise
         return reject_func({ status: 401, message: 'Unauthorized' });
     }
-    // error - account verification gate. Inside the desktop the user is walked
-    // through the flow and the request replayed once; everywhere else (and
-    // when they back out, or the replay is refused too) the rejection reaches
-    // the caller unchanged.
+    // error - account verification gate. Inside the desktop, and on a website
+    // for a phone or card gate set on the account, the user is walked through
+    // the flow and the request replayed once; everywhere else (and when they
+    // back out, or the replay is refused too) the rejection reaches the caller
+    // unchanged.
     else if (
         response.status === 403 &&
         isVerificationGateCode(resp?.code) &&
         ! response._puterReq?._replayed
     ) {
-        const gate = await resolveVerificationGate(resp.code, resp.factors);
+        const gate = await resolveVerificationGate(resp.code, resp.factors, {
+            interactive: response._puterReq?.interactiveReauth !== false,
+        });
         if ( gate.verified && replayXhr(response, success_cb, error_cb, resolve_func, reject_func) ) {
             return;
         }

@@ -10,6 +10,8 @@ This will open a popup window with the appropriate authentication method. Puter 
 
 It is important to note that all essential methods in Puter handle authentication automatically. This method is only necessary if you want to handle authentication manually, for example if you want to build your own custom authentication flow.
 
+Puter.js also opens this window when a call is rejected with `phone_verification_required` or `card_verification_required`, which means the user's Puter account has a verification pending. The user completes the verification in the window and Puter.js retries the call. If the user closes the window, the call rejects with that error.
+
 This is a website-only method. An app running on Puter is already signed in as the user who launched it, so calling it there rejects with `not_available_in_app`.
 
 <div class="info">
