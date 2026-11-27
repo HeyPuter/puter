@@ -45,6 +45,7 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
+import { adoptBorrowedSession, savedAccountSession } from './helpers/borrowedFrameSession.js';
 import { overlayGone } from './helpers/overlayGone.js';
 import {
     canShowCustomDomainFrame,
@@ -1917,6 +1918,20 @@ window.initgui = async function (options) {
                     session_user = String(session?.uuid ?? '').toLowerCase();
                 } catch (e) {
                     session_user = null;
+                }
+            }
+            // Switched away from without signing out: the frame runs as that saved account.
+            if (host_user && window.is_auth() && session_user !== host_user) {
+                const saved = await savedAccountSession({
+                    hostUser: host_user,
+                    savedUsers: window.logged_in_users,
+                    hostOrigin: window.openerOrigin,
+                    apiOrigin: window.api_origin,
+                });
+                if (saved) {
+                    adoptBorrowedSession(saved);
+                    session = saved.user;
+                    session_user = host_user;
                 }
             }
             if (

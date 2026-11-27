@@ -34,6 +34,7 @@ import { notifyItemWatchers } from './helpers/watchItems.js';
 import { select_uploaded_items } from './helpers/uploadSelection.js';
 import { templateMenuItem } from './helpers/templateMenuItem.js';
 import { isTokenForAnotherUser } from './helpers/tokenUser.js';
+import { frameSessionIsBorrowed } from './helpers/borrowedFrameSession.js';
 import { uuidv4 } from './helpers/uuidv4.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
@@ -179,6 +180,11 @@ window.local_sign_out_was_recent = () => {
  * holds, so a token the server stopped accepting costs nothing but a reload.
  */
 window.sign_out_locally = () => {
+    // The stored session is the active account's, not this frame's.
+    if ( frameSessionIsBorrowed() ) {
+        window.close();
+        return;
+    }
     try { sessionStorage.setItem(LOCAL_SIGN_OUT_AT_KEY, String(Date.now())); } catch ( e ) { /* ignore */ }
     try { puter._cache.flushall(); } catch ( e ) { /* ignore */ }
     try {
@@ -629,13 +635,16 @@ window.refresh_user_data = async (auth_token) => {
 
 window.update_auth_data = async (auth_token, user) => {
     window.auth_token = auth_token;
+    // A frame running as a saved account keeps the active account's cookie
+    // and stored session, and updates only its own saved copy.
+    const storesActiveSession = !frameSessionIsBorrowed();
 
     // Set http-only session cookie when user is changing.
     // This ensures user-protected endpoints, which only refer to the http-only cookie,
     // act on the intended user.
     // Only the server can set this cookie, so we call the `/session/sync-cookie` endpoint.
     const userChanging = !window.user || window.user.uuid !== user.uuid;
-    if ( userChanging && auth_token && (window.gui_origin || window.location?.origin) ) {
+    if ( storesActiveSession && userChanging && auth_token && (window.gui_origin || window.location?.origin) ) {
         try {
             const origin = window.gui_origin || window.location.origin;
             await fetch(`${origin}/session/sync-cookie`, {
@@ -658,8 +667,10 @@ window.update_auth_data = async (auth_token, user) => {
     // another account's token, and its boot signs in from the cookie.
     // A token adopted from a peer tab during the sync must not outlive it.
     window.auth_token = auth_token;
-    localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
-    localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
+    if ( storesActiveSession ) {
+        localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
+        localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
+    }
 
     // Has username changed?
     if ( window.user?.username !== user.username )
@@ -684,13 +695,13 @@ window.update_auth_data = async (auth_token, user) => {
         return storable_user;
     };
     const store_users = () => {
-        localStorage.setItem('user', JSON.stringify(to_storable_user(window.user)));
+        if ( storesActiveSession ) localStorage.setItem('user', JSON.stringify(to_storable_user(window.user)));
         localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users.map(to_storable_user)));
     };
 
     // update this session's user data
     window.user = user;
-    localStorage.setItem('user', JSON.stringify(to_storable_user(user)));
+    if ( storesActiveSession ) localStorage.setItem('user', JSON.stringify(to_storable_user(user)));
 
     // puter.js doesn't read the user again for the token it already holds, so
     // its copy takes what changed here (a saved account's new username).
@@ -829,6 +840,10 @@ window.sendWindowWillCloseMsg = function (iframe_element) {
 };
 
 window.logout = () => {
+    if ( frameSessionIsBorrowed() ) {
+        window.close();
+        return;
+    }
     // clear cache
     puter._cache.flushall();
     // Clear both old and new token keys. Cookie clear is handled by
@@ -865,6 +880,8 @@ if ( typeof $ !== 'undefined' && $.fn ) {
 if ( typeof window !== 'undefined' && window.addEventListener ) {
     window.addEventListener('storage', (event) => {
         if ( event.key !== window.AUTH_TOKEN_KEY_V2 ) return;
+        // The active account's session, which this frame doesn't run as.
+        if ( frameSessionIsBorrowed() ) return;
         if ( event.newValue ) {
             // A peer tab changed accounts. Reload as that account instead of
             // sending its token from a desktop still showing this one.
