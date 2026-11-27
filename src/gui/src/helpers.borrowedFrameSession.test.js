@@ -82,6 +82,13 @@ describe('a frame running as a saved account', () => {
         expect(window.close).not.toHaveBeenCalled();
     });
 
+    it("closes on a reauth signal instead of dropping the active account's token", async () => {
+        await window.handleReauthRequired({ reason: 'revoked' });
+        expect(window.close).toHaveBeenCalledTimes(1);
+        expect(localStorage.getItem('auth_token_v2')).toBe('bob-token');
+        expect(window._reauthInProgress).toBe(false);
+    });
+
     it("closes instead of signing out the active account", () => {
         window.sign_out_locally();
         window.logout();

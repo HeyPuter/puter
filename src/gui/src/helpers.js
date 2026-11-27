@@ -79,6 +79,12 @@ window.is_auth = () => {
  */
 window._reauthInProgress = false;
 window.handleReauthRequired = async (signal = {}) => {
+    // The stored token is the active account's, and signing in here can't
+    // restore the saved account this frame runs as.
+    if ( frameSessionIsBorrowed() ) {
+        window.close();
+        return;
+    }
     if ( window._reauthInProgress ) return;
     window._reauthInProgress = true;
     try {
