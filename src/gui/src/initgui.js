@@ -45,7 +45,7 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
-import { adoptBorrowedSession, savedAccountSession } from './helpers/borrowedFrameSession.js';
+import { adoptBorrowedSession, frameSessionIsBorrowed, savedAccountSession } from './helpers/borrowedFrameSession.js';
 import { overlayGone } from './helpers/overlayGone.js';
 import {
     canShowCustomDomainFrame,
@@ -2384,6 +2384,12 @@ window.initgui = async function (options) {
      * and without authenticating with the server.
      */
     const bad_session_logout = async () => {
+        // The stored session is the active account's, not the saved one this
+        // frame borrowed, so the page opens the tab instead.
+        if (frameSessionIsBorrowed()) {
+            window.tell_popup_frame('unavailable');
+            return;
+        }
         // The <head> gate hid the anonymous markup on the strength of a stored
         // token that has just turned out to be dead. Put it back, so the alert
         // below isn't sitting on an empty page.
