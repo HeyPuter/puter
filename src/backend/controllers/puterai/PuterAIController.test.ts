@@ -688,6 +688,26 @@ describe('PuterAIController.openaiChatCompletions', () => {
         expect(completeSpy.mock.calls[0]![0].parallel_tool_calls).toBe(true);
     });
 
+    it('treats null settings as left out', async () => {
+        const completeSpy = stubChatComplete({ message: { content: 'ok' } });
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    messages: [],
+                    temperature: null,
+                    max_completion_tokens: null,
+                    parallel_tool_calls: null,
+                },
+                actor: makeUserActor(),
+            }),
+            makeRes().res,
+        );
+        const args = completeSpy.mock.calls[0]![0];
+        expect(args.temperature).toBeUndefined();
+        expect(args.max_tokens).toBeUndefined();
+        expect(args.parallel_tool_calls).toBe(true);
+    });
+
     it('streams incremental tool_call deltas via tool_use_start/tool_input_delta', async () => {
         stubChatComplete({
             dataType: 'stream',
@@ -941,6 +961,20 @@ describe('PuterAIController.openaiCompletions', () => {
         );
     });
 
+    it('treats null settings as left out', async () => {
+        const completeSpy = stubChatComplete({ message: { content: 'ok' } });
+        await controller.openaiCompletions(
+            makeReq({
+                body: { prompt: 'hi', temperature: null, max_tokens: null },
+                actor: makeUserActor(),
+            }),
+            makeRes().res,
+        );
+        const args = completeSpy.mock.calls[0]![0];
+        expect(args.temperature).toBeUndefined();
+        expect(args.max_tokens).toBeUndefined();
+    });
+
     it('still pins OpenAI when the caller names no model', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'response' },
@@ -998,6 +1032,28 @@ describe('PuterAIController.openaiResponses', () => {
                 res,
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('treats null settings as left out', async () => {
+        const completeSpy = stubChatComplete({ message: { content: 'ok' } });
+        await controller.openaiResponses(
+            makeReq({
+                body: {
+                    input: 'hi',
+                    temperature: null,
+                    top_p: null,
+                    max_output_tokens: null,
+                    parallel_tool_calls: null,
+                },
+                actor: makeUserActor(),
+            }),
+            makeRes().res,
+        );
+        const args = completeSpy.mock.calls[0]![0];
+        expect(args.temperature).toBeUndefined();
+        expect(args.top_p).toBeUndefined();
+        expect(args.max_tokens).toBeUndefined();
+        expect(args.parallel_tool_calls).toBe(true);
     });
 
     it('forces store:false regardless of what the caller requested', async () => {

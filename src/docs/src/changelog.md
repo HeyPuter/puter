@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 27, 2026
+
+- Fixed the OpenAI-compatible Chat Completions, Completions, and Responses APIs reading some `null` settings as `0` or `false`. A `null` output token limit could be refused with `insufficient_funds`, and `null` for `temperature`, `top_p`, or `parallel_tool_calls` now works like leaving the setting out.
+
 ## November 26, 2026
 
 - Changed Puter.js on a website to open the [`puter.auth.signIn()`](/Auth/signIn/) window when a call is rejected with `phone_verification_required` or `card_verification_required` because the user's account has a verification pending. The call is retried once the user completes it, and rejects with the same error if the user closes the window.
