@@ -84,25 +84,15 @@ export const addonCreditsRemaining = (allowanceInfo) => {
 };
 
 /**
- * The add-on credit meter: what has been spent of all the add-on credit the
- * account ever bought. Null when it has never had any, as there is no pool
- * to meter.
+ * What is left of the month's plan allowance, never below zero.
  *
- * @param {Object | null | undefined} allowanceInfo
- * @returns {UsageBudget | null}
+ * @param {Object | null | undefined} usage - `usage` from `getMonthlyUsage()`.
+ * @param {Object | null | undefined} allowanceInfo - Its `allowanceInfo` sibling.
+ * @returns {number}
  */
-export const addonCreditsBudget = (allowanceInfo) => {
-    const left = addonCreditsRemaining(allowanceInfo);
-    if ( left === null ) return null;
-    const capacity = nonNegative(allowanceInfo.addons.purchasedCredits);
-    const used = capacity - left;
-    const share = (used / capacity) * 100;
-    return {
-        used,
-        capacity,
-        percent: meterPercent(share),
-        barPercent: Math.max(0, Math.min(100, share)),
-    };
+export const monthlyBalance = (usage, allowanceInfo) => {
+    const { used, capacity } = usageBudget(usage, allowanceInfo);
+    return Math.max(0, capacity - used);
 };
 
 /**

@@ -19,7 +19,7 @@
 
 import { formatCount, formatCredits, formatDollarsFromMicrocents, isByteUsageKey, usageIsCredits } from './credits.js';
 import { isOrgSeat } from './orgSeat.js';
-import { addonCreditsBudget, addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, meterPercent, monthlyBalance, monthlyUsageOrThrow } from './usageBudget.js';
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
@@ -66,32 +66,16 @@ const TabUsage = {
                     <div id="storage-bar-host"></div>
                 </div>
                 <div class="driver-usage-container" style="margin-top: 30px;">
-                    <div class="driver-usage-header">
-                        <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('monthly_credits_title')}</h3>
-                        <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
-                            <span class="usage-progbar-percent">--%</span>
-                            <span> &middot; </span>
-                            ${i18n('used_of', { used: '<span id="total-usage">--</span>', available: '<span id="total-capacity">--</span>' }, false)}
+                    <h3 class="usage-balances-title">${i18n('usage_credits')}</h3>
+                    <div class="usage-balances">
+                        <div class="dashboard-card usage-balance-card">
+                            <div class="usage-balance-label">${i18n('monthly_plan_balance')}</div>
+                            <div class="usage-balance-amount usage-plan-balance">--</div>
                         </div>
-                    </div>
-                    <div class="usage-progbar-wrapper">
-                        <div class="usage-progbar" style="width: 0;"></div>
-                    </div>
-                    <div class="usage-addon" style="display: none;">
-                        <div class="driver-usage-header">
-                            <h3 id="usage-addon-title" style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('addon_credits')}</h3>
-                            <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
-                                <span class="usage-addon-percent">--%</span>
-                                <span> &middot; </span>
-                                ${i18n('used_of', { used: '<span class="usage-addon-used">--</span>', available: '<span class="usage-addon-capacity">--</span>' }, false)}
-                            </div>
+                        <div class="dashboard-card usage-balance-card usage-topup-card" style="display: none;">
+                            <div class="usage-balance-label">${i18n('topup_balance')}</div>
+                            <div class="usage-balance-amount usage-topup-balance">--</div>
                         </div>
-                        <div class="usage-progbar-wrapper" role="progressbar" aria-labelledby="usage-addon-title" aria-valuemin="0" aria-valuemax="100">
-                            <div class="usage-addon-bar" style="width: 0;"></div>
-                        </div>
-                        <p class="usage-addon-credits">
-                            <span class="usage-addon-note">${i18n('addon_credits_note')}</span>
-                        </p>
                     </div>
                     <h3 style="margin:22px 0 10px 0; font-size: 13px; font-weight: 400;">
                         <button type="button" class="usage-details-toggle" aria-expanded="false" aria-controls="usage-details-content">
@@ -333,7 +317,6 @@ function renderUsageTable () {
 
 async function update_usage_details ($el_window) {
     const monthlyUsagePromise = getMonthlyUsage().then(monthlyUsageOrThrow).then(res => {
-        const budget = usageBudget(res.usage, res.allowanceInfo);
         const addonLeft = addonCreditsRemaining(res.allowanceInfo);
         // The server reports credits (already scaled) or raw amounts (no
         // multiplier configured), and says which via the unit flag.
@@ -343,30 +326,11 @@ async function update_usage_details ($el_window) {
             ? formatCredits(v)
             : formatDollarsFromMicrocents(v);
 
-        $('#total-usage').html(amount(budget.used));
-        $('#total-capacity').html(inCredits
-            ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'usage_credits' : 'monthly_credits')}`
-            : amount(budget.capacity));
-        $('.usage-progbar-percent').html(`${budget.percent }%`);
-        $('.usage-progbar').css({
-            width: `${budget.barPercent }%`,
-            'background-color': window.usage_bar_color(budget.barPercent),
-        });
-
-        // Its own meter under the monthly one, for an account that has ever had any.
-        const addon = addonCreditsBudget(res.allowanceInfo);
-        $('.usage-addon').toggle(addon !== null);
-        if ( addon !== null ) {
-            $('.usage-addon-used').html(amount(addon.used));
-            $('.usage-addon-capacity').html(amount(addon.capacity));
-            $('.usage-addon-percent').html(`${addon.percent}%`);
-            $('.usage-addon-bar').css({
-                width: `${addon.barPercent}%`,
-                'background-color': window.usage_bar_color(addon.barPercent),
-            }).parent().attr({
-                'aria-valuenow': addon.percent,
-                'aria-valuetext': `${addon.percent}%`,
-            });
+        $('.usage-plan-balance').html(amount(monthlyBalance(res.usage, res.allowanceInfo)));
+        // Shown for an account that has ever bought top-up credit.
+        $('.usage-topup-card').toggle(addonLeft !== null);
+        if ( addonLeft !== null ) {
+            $('.usage-topup-balance').html(amount(addonLeft));
         }
 
         // Store raw data for sorting
