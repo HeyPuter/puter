@@ -51,8 +51,9 @@ export const adoptBorrowedSession = ({ token }, win = window) => {
 /**
  * The saved account the framing page is signed in as, when it isn't the GUI's
  * active one: its token from `logged_in_users`, still accepted by the API, and
- * an account that has signed in to the framing page. Null otherwise, which
- * leaves the page to open the popup or tab. Never rejects.
+ * an account that has signed in to the framing page and owes no password
+ * change. Null otherwise, which leaves the page to open the popup or tab.
+ * Never rejects.
  *
  * @param {Object} opts
  * @param {string | null} opts.hostUser - the framing page's user uuid, in lower case
@@ -74,6 +75,9 @@ export const savedAccountSession = async ({ hostUser, savedUsers, hostOrigin, ap
         if ( ! whoami.ok ) return null;
         const user = await whoami.json();
         if ( typeof user?.uuid !== 'string' || user.uuid.toLowerCase() !== hostUser ) return null;
+        // Its boot would ask for a password change, which authenticates with
+        // the session cookie, and that cookie is the active account's.
+        if ( user.requires_password_change ) return null;
 
         // The page names its user itself, so the frame serves only an account
         // that signed in to the page, as the active account's frame does.

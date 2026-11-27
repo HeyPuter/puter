@@ -30,7 +30,7 @@ const savedUsers = [
 ];
 
 /** An API that knows each token's user and which of them signed in to PAGE. */
-const fakeApi = ({ users = { 'alice-token': ALICE, 'bob-token': BOB }, signedInToPage = [ALICE], down = false } = {}) =>
+const fakeApi = ({ users = { 'alice-token': ALICE, 'bob-token': BOB }, signedInToPage = [ALICE], down = false, whoami = {} } = {}) =>
     vi.fn(async (url, init = {}) => {
         if ( down ) throw new TypeError('Failed to fetch');
         const token = init.headers?.Authorization?.replace(/^Bearer /, '');
@@ -38,7 +38,7 @@ const fakeApi = ({ users = { 'alice-token': ALICE, 'bob-token': BOB }, signedInT
         if ( ! uuid ) return { ok: false, status: 401, json: async () => ({}) };
         const { pathname } = new URL(url);
         if ( pathname === '/whoami' ) {
-            return { ok: true, status: 200, json: async () => ({ uuid, username: uuid === ALICE ? 'alice' : 'bob' }) };
+            return { ok: true, status: 200, json: async () => ({ uuid, username: uuid === ALICE ? 'alice' : 'bob', ...whoami }) };
         }
         if ( pathname === '/auth/check-app' ) {
             const { origin } = JSON.parse(init.body);
@@ -84,6 +84,11 @@ describe('savedAccountSession', () => {
     it('returns null for an account that never signed in to the page', async () => {
         expect(await lookUp(fakeApi({ signedInToPage: [] }))).toBeNull();
         expect(await lookUp(fakeApi(), { hostOrigin: 'https://sheets.puter.test' })).toBeNull();
+    });
+
+    // The password change authenticates with the session cookie, which is the active account's.
+    it('returns null for an account that has to change its password', async () => {
+        expect(await lookUp(fakeApi({ whoami: { requires_password_change: true } }))).toBeNull();
     });
 
     it('returns null without a host user or origin', async () => {
