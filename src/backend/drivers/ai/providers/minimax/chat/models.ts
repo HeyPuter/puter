@@ -76,6 +76,11 @@ export const MINIMAX_MODELS: MiniMaxChatModel[] = [
             completion_tokens: 120, // $1.20 per 1M
             cached_tokens: 6, // $0.06 per 1M
         },
+        long_context_pricing: {
+            threshold: 512_000,
+            input_multiplier: 2,
+            output_multiplier: 2,
+        },
     },
 
     // -- MiniMax M2.7 -----------------------------------------------
