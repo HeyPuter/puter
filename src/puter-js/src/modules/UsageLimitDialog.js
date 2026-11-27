@@ -3,7 +3,7 @@ import { escapeHtml } from '../lib/html.js';
 /**
  * @typedef {Object} UsageLimitDialogOptions
  * @property {string} [title] Replaces the default heading.
- * @property {string} [method] The SDK call that was refused.
+ * @property {string} [method] The SDK call that was refused, passed to the dashboard's upgrade page.
  * @property {string} [reason] Which upgrade the refusal asks for.
  * @property {string} [appID] The app the refused call ran as.
  * @property {() => boolean} [onUpgrade] Runs when the user clicks Upgrade, instead of
@@ -56,7 +56,6 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
         this.message = message || 'You have reached your usage limit for this account.';
         // Not `this.title`: on an HTMLElement that is the tooltip attribute.
         this.heading = title;
-        this.method = method;
         this.upgradeUrl = upgradeUrl({ reason, appID, method });
         this.onUpgrade = onUpgrade;
         this.onTopUp = onTopUp;
@@ -146,15 +145,6 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
             margin: 0;
         }
 
-        .method {
-            text-align: center;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-            font-size: 12px;
-            color: #8a8a90;
-            margin: 12px 0 0;
-            word-break: break-all;
-        }
-
         .buttons {
             display: flex;
             justify-content: center;
@@ -235,10 +225,6 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
                 color: #b9b9c2;
             }
 
-            .method {
-                color: #7c7c84;
-            }
-
             .close-btn {
                 color: #8a8a90;
             }
@@ -274,7 +260,6 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
                 </div>
                 <h2>${escapeHtml(this.heading)}</h2>
                 <p class="message">${escapeHtml(this.message)}<br>${onTopUp ? 'Add credits to continue.' : 'Please upgrade to continue.'}</p>
-                ${this.method ? `<p class="method">${escapeHtml(this.method)}</p>` : ''}
                 <div class="buttons">
                     ${onTopUp ? `
                     <button class="button button-primary" id="top-up-btn">Add Credits</button>
