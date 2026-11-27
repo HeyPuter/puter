@@ -81,7 +81,9 @@ errors.
 The notification names your app, not the sender, so the title says who wrote
 the message. The `group` makes a new message replace the member's notification
 for the same room instead of adding another, so a busy room doesn't use up the
-daily notification limit.
+member's daily notification limit. Notifications sent through a share also have
+a [limit of their own](/rate-limits-and-quotas/#notifications) for each sender
+and recipient, and every message counts toward it.
 
 ## Say What a Push Shows
 
@@ -208,8 +210,10 @@ explains handlers in more detail:
 
 ```js
 await puter.events.handlers.publish('notifyNewMessage', async ({ event, user, ctx }) => {
-    const message = event.value;
-    if (event.op !== 'set' || !message || message.from === ctx.me) return;
+    if (event.op !== 'set') return;
+    const options = ctx.handle ? { handle: ctx.handle } : undefined;
+    const message = 'value' in event ? event.value : await user.kv.get(event.key, options);
+    if (!message || message.from === ctx.me) return;
 
     await user.notifications.notify({
         title: `${message.from} in ${ctx.roomTitle}`.slice(0, 120),
@@ -244,12 +248,15 @@ async function subscribeToRoom () {
         subject,
         handlerName: 'notifyNewMessage',
         includeValue: true,
-        context: { me: user.username, roomId, roomTitle: title },
+        context: { me: user.username, roomId, roomTitle: title, handle },
     });
     return true;
 }
 ```
 
-The `me` check in the handler skips the member's own messages. When the creator
+The `me` check in the handler skips the member's own messages. An event
+sometimes arrives without its value, for example for a very long message, so
+the handler then reads the message itself, through the member's `handle` from
+the `context`. When the creator
 removes a member, or the member leaves, the member's subscription stops on its
 own.

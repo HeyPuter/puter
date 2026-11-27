@@ -64,8 +64,11 @@ async function addMessage (chatId, text) {
 ```
 
 [`puter.kv.incr()`](/KV/incr/) gives every message its own number, even if two
-tabs send at the same moment, so a shard never gets more than 50 messages. The
-zero padding keeps the shard keys in order when they're listed.
+tabs send at the same moment, so a shard doesn't get more than 50 messages. Two
+calls at nearly the same moment from different places, such as two devices far
+apart, can still get the same number, as
+[`puter.kv.set()`](/KV/set/#writing-only-if-absent) explains for `onlyIfAbsent`.
+The zero padding keeps the shard keys in order when they're listed.
 
 Aim for shards of about 10 to 50 KB, and cap how long a message can be, so 50
 messages can't grow bigger than you planned. The `PER_SHARD` value decides which

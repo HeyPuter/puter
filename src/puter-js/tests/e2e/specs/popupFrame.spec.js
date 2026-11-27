@@ -2,6 +2,7 @@ import { test, expect, devices } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createVisitorAccount, waitForPuterReady } from '../helpers/testApp.js';
 
 const PUTER_ORIGIN = process.env.PUTER_TEST_ORIGIN || 'http://puter.localhost:4100';
 const API_ORIGIN = PUTER_ORIGIN.replace('://', '://api.');
@@ -378,6 +379,11 @@ const signInFirstPartyPage = async (page) => {
     await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
 };
 
+// A second account: what a first-time visitor is given. Created once for the
+// whole file, because sign-ups are rate limited.
+let visitor;
+const visitorAccount = (browser) => (visitor ??= createVisitorAccount(browser));
+
 /** Stands in for the dashboard the upgrade falls back to, so no request leaves the machine. */
 const routeDashboard = (page) => page.context().route('https://puter.com/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>dashboard</title>' }));
@@ -496,6 +502,36 @@ test.describe('the upgrade a first-party page shows framed', () => {
         expect(new URL((await popup).url()).pathname).toBe('/dashboard/');
         expect(await result(page)).toEqual({ ok: true, value: { upgraded: false } });
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
+    test('a page signed in as a saved account the GUI switched away from gets it framed as that account', async ({ browser, page }) => {
+        const other = await visitorAccount(browser);
+        await page.context().addInitScript(STUB_UPGRADE_DIALOG);
+        await signInFirstPartyPage(page);
+        // The GUI switches to another account without signing out of this one.
+        const gui = await page.context().newPage();
+        await gui.goto('/');
+        await waitForPuterReady(gui);
+        const pageUser = await gui.evaluate(() => window.user.uuid);
+        await gui.evaluate(({ token, user }) => window.update_auth_data(token, user), other);
+        const popups = [];
+        page.on('popup', (p) => popups.push(p));
+
+        await runFromClick(page, 'puter.ui.requestUpgrade({ reason: "funds" })');
+        await frameReady(page);
+        const upgradeFrame = page.frames().find((f) => new URL(f.url()).pathname === '/embed/upgrade');
+        expect(await upgradeFrame.evaluate(() => window.user.uuid)).toBe(pageUser);
+        await frame(page).locator('#buy').click();
+        await frame(page).locator('#done').click();
+        expect(await result(page)).toEqual({ ok: true, value: { upgraded: true } });
+        expect(popups).toHaveLength(0);
+
+        // The GUI stays on the account it switched to, with both still saved.
+        expect(await gui.evaluate(() => ({
+            token: localStorage.getItem('auth_token_v2'),
+            user: JSON.parse(localStorage.getItem('user')).uuid,
+            saved: JSON.parse(localStorage.getItem('logged_in_users')).map((user) => user.uuid).sort(),
+        }))).toEqual({ token: other.token, user: other.user.uuid, saved: [pageUser, other.user.uuid].sort() });
     });
 
     test('a page signed in as someone else gets the dashboard upgrade in a tab', async ({ page }) => {

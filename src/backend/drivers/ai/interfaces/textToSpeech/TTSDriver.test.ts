@@ -715,3 +715,81 @@ describe('TTSDriver cost factor', () => {
         expect(held).toEqual([base, Math.round(base! * 2)]);
     });
 });
+
+describe('TTSDriver.synthesize request log', () => {
+    it('logs the text, model, and provider before synthesizing', async () => {
+        openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
+        const emit = vi.spyOn(server.clients.event, 'emit');
+
+        await withActor(() =>
+            driver.synthesize({
+                text: 'hi',
+                provider: 'openai',
+                model: 'tts-1',
+            }),
+        );
+
+        expect(emit).toHaveBeenCalledWith(
+            'ai.log.media',
+            expect.objectContaining({
+                kind: 'tts',
+                actor: SYSTEM_ACTOR,
+                model_used: 'tts-1',
+                service_used: 'openai',
+                parameters: expect.objectContaining({ text: 'hi' }),
+            }),
+            {},
+        );
+    });
+
+    it('logs a Polly engine as the model', async () => {
+        pollyDispatch();
+        const emit = vi.spyOn(server.clients.event, 'emit');
+
+        await withActor(() =>
+            driver.synthesize({ text: 'hi', engine: 'neural' }),
+        );
+
+        expect(emit).toHaveBeenCalledWith(
+            'ai.log.media',
+            expect.objectContaining({
+                model_used: 'neural',
+                service_used: 'aws-polly',
+            }),
+            {},
+        );
+    });
+});
+
+describe('TTSDriver.synthesize request cost', () => {
+    it('reports the charge, once the audio starts, under the logged request', async () => {
+        openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
+        const emit = vi.spyOn(server.clients.event, 'emit');
+        const events = (key: string) =>
+            emit.mock.calls
+                .filter(([k]) => k === key)
+                .map(([, event]) => event as Record<string, unknown>);
+
+        // The response is streamed while the request is still being served.
+        await withActor(async () => {
+            const result = await driver.synthesize({
+                text: 'hello there',
+                provider: 'openai',
+                model: 'tts-1',
+            });
+            expect(events('ai.log.media.cost')).toEqual([]);
+            await readStreamResult(result);
+        });
+
+        const [logged] = events('ai.log.media');
+        await vi.waitFor(() =>
+            expect(events('ai.log.media.cost')).toEqual([
+                {
+                    completionId: logged!.completionId,
+                    ucents: expect.any(Number),
+                },
+            ]),
+        );
+        expect(events('ai.log.media.cost')[0]!.ucents).toBeGreaterThan(0);
+    });
+});

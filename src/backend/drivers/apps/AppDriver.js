@@ -79,6 +79,10 @@ const APP_WRITE_LIMIT = {
 };
 
 const APP_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
+// The app an origin's first sign-in creates is named after its `app-<uuid>`
+// uid, so new names of that shape are refused.
+const RESERVED_APP_NAME_REGEX =
+    /^app-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const APP_NAME_MAX_LEN = 100;
 const APP_TITLE_MAX_LEN = 100;
 const APP_DESCRIPTION_MAX_LEN = 7000;
@@ -598,6 +602,7 @@ export class AppDriver extends PuterDriver {
             maxLen: APP_NAME_MAX_LEN,
             regex: APP_NAME_REGEX,
         });
+        if (RESERVED_APP_NAME_REGEX.test(name)) return false;
         return !(await this.appStore.existsByName(name));
     }
 
@@ -613,6 +618,16 @@ export class AppDriver extends PuterDriver {
                 regex: APP_NAME_REGEX,
                 required: isCreate,
             });
+            if (
+                out.name !== existing?.name &&
+                RESERVED_APP_NAME_REGEX.test(out.name ?? '')
+            ) {
+                throw new HttpError(
+                    400,
+                    '`name` cannot have the form of an app uid',
+                    { legacyCode: 'bad_request' },
+                );
+            }
         }
         if (isCreate || object.title !== undefined) {
             out.title = validateString(object.title, {

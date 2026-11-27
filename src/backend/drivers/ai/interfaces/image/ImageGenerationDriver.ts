@@ -18,7 +18,6 @@
  */
 
 import { assertImagePrompt } from './imageValidation.js';
-import crypto from 'node:crypto';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { Actor } from '../../../../core/actor.js';
@@ -33,6 +32,7 @@ import {
     saveGeneratedMediaToFS,
 } from '../../shared/generatedMedia.js';
 import { readPuterImageInputs } from '../../shared/mediaInput.js';
+import { emitMediaLog } from '../../shared/mediaLog.js';
 import { ModelCatalog } from '../../shared/modelCatalog.js';
 import { CATALOG_TTL_MS } from '../../shared/cachedRemoteCatalog.js';
 import { readProviderKey } from '../../../../util/aiProviderKey.js';
@@ -325,23 +325,15 @@ export class ImageGenerationDriver extends PuterDriver {
         request.model = model.id;
         request.provider = model.provider;
 
-        // Audit log for abuse / billing. Fired before the upstream call
-        // so a failed generate still shows up in the log (prompt_block
-        // uses this to track user-by-user image prompts). Logs the
-        // normalized request so the row records the resolved model and size.
-        const completionId = crypto.randomUUID();
-        this.clients.event.emit(
-            'ai.log.image',
-            {
-                actor,
-                completionId,
-                parameters: request,
-                intended_service: model.id,
-                model_used: model.id,
-                service_used: model.provider!,
-            },
-            {},
-        );
+        // Before the upstream call, so a failed generate is logged too. The
+        // normalized request records the resolved model and size.
+        emitMediaLog(this.clients.event, {
+            kind: 'image',
+            actor,
+            parameters: request,
+            model: model.id,
+            provider: model.provider!,
+        });
 
         // After the audit log, which records the paths rather than the bytes.
         const result = await provider.generate(

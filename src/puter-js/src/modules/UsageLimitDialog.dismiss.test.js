@@ -26,7 +26,8 @@ describe('the usage limit dialog', () => {
         expect(part('h2').textContent).toBe('Out of credit');
         expect(part('.message').textContent).toBe('Not enough <b>credit</b>.Please upgrade to continue.');
         expect(part('.message b')).toBeNull();
-        expect(part('.method').textContent).toBe('puter.ai.chat');
+        expect(part('.method')).toBeNull();
+        expect(shown().shadowRoot.textContent).not.toContain('puter.ai.chat');
     });
 
     it('shows one dialog at a time', () => {

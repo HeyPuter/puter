@@ -626,6 +626,8 @@ Passing `service_tier: "auto"` selects fast service, with the same prices as `se
 
 Models with an equivalent Prime or Fast variant select that variant for fast service. Other models use standard service.
 
+Qwen3-Omni Flash, Qwen3.5-Omni Flash, and Qwen3.5-Omni Plus charge audio input at the audio token rate, including the audio track of a video.
+
 ### OpenRouter models
 
 Faster tiers come from the selected model's endpoint catalog. A tier can fall back upstream. Billing uses the endpoint that serves the request.

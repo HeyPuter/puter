@@ -51,6 +51,15 @@ import { generateDefaultFsentries } from '../../../../../util/userProvisioning.j
 import type { SpeechToTextDriver } from '../../../interfaces/speechToText/SpeechToTextDriver.js';
 import { callerError } from '../../../shared/integrationTestUtil.js';
 
+// URL inputs leave the process through secureFetch; stub that boundary.
+const { secureFetchMock } = vi.hoisted(() => ({ secureFetchMock: vi.fn() }));
+vi.mock('../../../../../util/secureHttp.js', async (importOriginal) => ({
+    ...(await importOriginal<
+        typeof import('../../../../../util/secureHttp.js')
+    >()),
+    secureFetch: secureFetchMock,
+}));
+
 // Mirror the driver's per-second cost so test expectations stay in lockstep
 // with the real value rather than restating an arbitrary literal.
 const UCENTS_PER_SECOND = 2778;
@@ -94,6 +103,7 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.restoreAllMocks();
+    secureFetchMock.mockReset();
 });
 
 const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
@@ -136,6 +146,12 @@ const sttResponse = (body: Record<string, unknown>, status = 200) =>
     new Response(JSON.stringify(body), {
         status,
         headers: { 'content-type': 'application/json' },
+    });
+
+/** A downloaded audio file of `bytes` bytes. */
+const audioResponse = (bytes: number) =>
+    new Response(Buffer.alloc(bytes, 1), {
+        headers: { 'content-type': 'audio/mpeg' },
     });
 
 // ── getReportedCosts ────────────────────────────────────────────────
@@ -288,8 +304,10 @@ describe('XAISpeechToTextProvider credit gate', () => {
         expect(admitSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 2);
     });
 
-    it('estimates 60 seconds for URL inputs (we cannot inspect size locally)', async () => {
+    it('sizes the hold for a URL input from the audio it downloads', async () => {
         const { actor } = await makeUser();
+        // 48000 bytes / 16000 bytes-per-second ⇒ 3s estimated.
+        secureFetchMock.mockResolvedValueOnce(audioResponse(48000));
         fetchSpy.mockResolvedValueOnce(
             sttResponse({ text: 'ok', duration: 1 }),
         );
@@ -298,7 +316,24 @@ describe('XAISpeechToTextProvider credit gate', () => {
             driver.transcribe({ file: 'https://example.com/clip.mp3' }),
         );
 
-        expect(admitSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 60);
+        expect(admitSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 3);
+    });
+
+    it('holds the seconds billed for a URL input to what its bytes can contain', async () => {
+        const { actor } = await makeUser();
+        // 1250 bytes hold at most 10s of audio at 1 kbps.
+        secureFetchMock.mockResolvedValueOnce(audioResponse(1250));
+        fetchSpy.mockResolvedValueOnce(
+            sttResponse({ text: 'ok', duration: 36_000 }),
+        );
+
+        await withActor(actor, () =>
+            driver.transcribe({ file: 'https://example.com/clip.mp3' }),
+        );
+
+        const [, , seconds, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(seconds).toBe(10);
+        expect(cost).toBe(UCENTS_PER_SECOND * 10);
     });
 });
 
@@ -336,8 +371,9 @@ describe('XAISpeechToTextProvider audio input handling', () => {
         expect(sent.equals(audioBytes)).toBe(true);
     });
 
-    it('forwards an HTTP(S) URL as the `url` field and skips local FS read', async () => {
+    it('downloads an HTTP(S) URL and POSTs it as the multipart `file` field', async () => {
         const { actor } = await makeUser();
+        secureFetchMock.mockResolvedValueOnce(audioResponse(2000));
         fetchSpy.mockResolvedValueOnce(
             sttResponse({ text: 'ok', duration: 1 }),
         );
@@ -346,10 +382,16 @@ describe('XAISpeechToTextProvider audio input handling', () => {
             driver.transcribe({ file: 'https://example.com/audio.mp3' }),
         );
 
+        expect(secureFetchMock.mock.calls[0]![0]).toBe(
+            'https://example.com/audio.mp3',
+        );
         const form = (fetchSpy.mock.calls[0]![1] as RequestInit)
             .body as FormData;
-        expect(form.get('url')).toBe('https://example.com/audio.mp3');
-        expect(form.get('file')).toBeNull();
+        expect(form.get('url')).toBeNull();
+        const blob = form.get('file') as File;
+        expect(blob.name).toBe('audio.mp3');
+        expect(blob.type).toBe('audio/mpeg');
+        expect(blob.size).toBe(2000);
     });
 
     it('resolves an FS path through the live FSService and preserves filename/mime', async () => {

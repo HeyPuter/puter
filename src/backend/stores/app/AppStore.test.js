@@ -379,6 +379,31 @@ describe('AppStore batched lookups', () => {
         expect((await appStore.getByUid(a.uid))?.id).toBe(a.id);
     });
 
+    it('uid lookups match no row for a value the column cannot hold', async () => {
+        const a = await createApp('Narrow');
+        const db = server.clients.db;
+        const reads = [
+            vi.spyOn(db, 'read'),
+            vi.spyOn(db, 'pread'),
+            vi.spyOn(db, 'tryHardRead'),
+        ];
+        for (const uid of ['app-\u7528\u6237', 'app-\u0080', 'app-\u{1F600}']) {
+            expect(await appStore.getByUid(uid)).toBeNull();
+            expect(await appStore.uidExistsOnPrimary(uid)).toBe(false);
+            expect((await appStore.getByUids([uid])).size).toBe(0);
+            expect(await appStore.listOwnedDescendantUids(1, uid)).toEqual([]);
+        }
+        for (const spy of reads) {
+            expect(spy).not.toHaveBeenCalled();
+            spy.mockRestore();
+        }
+        // A name is utf8mb4, and a mixed batch keeps its storable uids.
+        expect(await appStore.getByName('\u7528\u6237')).toBeNull();
+        expect([
+            ...(await appStore.getByUids([a.uid, 'app-\u7528\u6237'])).keys(),
+        ]).toEqual([a.uid]);
+    });
+
     it('getByIds still resolves id-keyed lookups off the shared engine', async () => {
         const a = await createApp('Alpha');
 
@@ -1496,6 +1521,29 @@ describe('AppStore CRUD and cache invalidation', () => {
         const uid = `app-recorded-${Date.now()}`;
         await appStore.recordOpen(uid, userId, Math.floor(Date.now() / 1000));
         expect(await appStore.getRecentAppOpens(userId)).toEqual([uid]);
+    });
+
+    it('reads when a user last opened an app', async () => {
+        const userId = 4720;
+        expect(await appStore.getLatestOpenTs(userId)).toBeNull();
+        await appStore.recordOpen('app-latest-a', userId, 1000);
+        await appStore.recordOpen('app-latest-b', userId, 2000);
+        await appStore.recordOpen('app-latest-c', 4721, 3000);
+        expect(await appStore.getLatestOpenTs(userId)).toBe(2000);
+    });
+
+    it('reads when an owner last created an app', async () => {
+        const ownerUserId = 4730;
+        expect(await appStore.getLatestCreatedTs(ownerUserId)).toBeNull();
+        const before = Math.floor(Date.now() / 1000);
+        const name = `latest-${Math.random().toString(36).slice(2, 10)}`;
+        await appStore.create(
+            { name, title: name, index_url: `https://${name}.example.com/` },
+            { ownerUserId },
+        );
+        const latest = await appStore.getLatestCreatedTs(ownerUserId);
+        expect(latest).toBeGreaterThanOrEqual(before - 1);
+        expect(latest).toBeLessThanOrEqual(before + 10);
     });
 
     it('lists the names of approved apps only, up to the limit', async () => {

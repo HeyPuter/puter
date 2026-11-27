@@ -20,7 +20,7 @@ puter.apps.create(options)
 
 #### `name` (required)
 
-The name of the app to create. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected.
+The name of the app to create. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected. Names in the form of an app UID (`app-` followed by a UUID) are reserved and rejected.
 
 #### `indexURL` (required)
 
@@ -43,7 +43,7 @@ An object containing the options for the app to create. The object can contain t
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `name` | `String` | Required. The name of the app to create. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected. |
+| `name` | `String` | Required. The name of the app to create. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected. Names in the form of an app UID (`app-` followed by a UUID) are reserved and rejected. |
 | `indexURL` | `String` | Required. The URL of the app's index page. This URL must be accessible to the user. If it's missing, the promise will be rejected. |
 | `title` | `String` | The human-readable title of the app. If it's missing, the app will be created with `name` as its title. |
 | `description` | `String` | The description of the app aimed at the end user. |

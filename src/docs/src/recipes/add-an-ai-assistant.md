@@ -1,202 +1,494 @@
 ---
 title: Add an AI Assistant
-description: "Learn how to add an AI chat assistant to your app with Puter.js, with its instructions kept in a serverless worker and each user's chats saved to their own account."
+description: "Learn how to add an AI chat assistant with Puter.js, so users can ask about your app and continue their saved conversations."
 tags: [workers, ai, kv, auth]
 order: 63
 ---
 
-An AI assistant in your app is mostly instructions. A system prompt tells the
-model what your app is, what to answer and what to refuse. If that prompt lives
-in the browser, anyone can read it, change it, and use your assistant for
-something else.
+An assistant uses a system prompt to describe your app and guide its answers.
+A [serverless worker](/Workers/) keeps those instructions out of the browser's
+source code. The app sends a message, and the worker adds the instructions and
+saved context before calling AI.
 
-A [serverless worker](/Workers/) keeps the prompt on the server. The browser
-only sends the user's message. The worker adds the instructions and the earlier
-messages, asks the model, and saves the conversation.
+The worker calls AI through [`user.puter`](/Workers/router/#integration-with-puter-js),
+the signed-in caller's Puter.js instance. Each user pays for their own messages
+under the [User-Pays model](/user-pays-model/), and their saved context belongs
+to them.
+For public instructions, call [`puter.ai.chat()`](/AI/chat/) directly from the
+browser as in [Keep a Long AI Conversation](/recipes/keep-a-long-ai-conversation/).
 
-The model call goes through `user.puter`, the Puter account of the user who is
-chatting, so each user pays for their own messages under the
-[User-Pays model](/user-pays-model/). Their chats are saved in their own
-[key-value store](/KV/), not yours.
+## Ask With Private Instructions
 
-## Keep the Instructions in the Worker
-
-Put the system prompt and the model settings at the top of the worker file. None
-of it is sent to the browser:
-
-```js
-// assistant.js
-const SYSTEM = `You are the help assistant for Acme Notes, a note-taking app.
-Only answer questions about using Acme Notes. Keep answers under 120 words.`;
-
-const MODEL = 'gpt-5.5';
-const MAX_MESSAGES = 20;     // how much earlier conversation the model sees
-const MAX_LENGTH = 2000;     // longest message a user may send
-
-function error(status, message) {
-    return new Response(JSON.stringify({ error: message }), {
-        status,
-        headers: { 'Content-Type': 'application/json' },
-    });
-}
-```
-
-To change how the assistant behaves, edit this file. Every user gets the new
-instructions on their next message, with no app update.
-
-## Read the Message
-
-The route needs a signed-in user, because the model call is billed to them. Your
-app calls it with [`puter.workers.exec()`](/Workers/exec/), which sends the
-user's session along as `user`:
+Start with a signed-in worker route that adds your system prompt:
 
 ```js
 router.post('/chat', async ({ request, user }) => {
-    if (!user) {
-        return error(401, 'sign in required');
-    }
+    if (!user) return new Response('Sign in to Puter.', { status: 401 });
+    const { message } = await request.json();
+    const response = await user.puter.ai.chat([
+        { role: 'system', content: 'Help users of Acme Notes. Keep replies brief.' },
+        { role: 'user', content: message },
+    ], { model: 'claude-sonnet-4-6', normalize: true, compaction: true });
+    return { reply: response.message.content };
+});
+```
 
+A worker hides the source of instructions. Keep credentials out of prompts,
+since a model can repeat instructions in its reply. The route gets input checks
+and a caller check in [Check the Request](#check-the-request).
+
+## Keep Context With Compaction
+
+Enable [compaction](/AI/chat/#compaction) on every call. When a response
+includes `compaction`, replace the earlier model context with that artifact as
+the first content block of its assistant turn, followed by the reply from the
+same turn. Send the artifact back unchanged to the same model on the next
+request.
+
+This version of the route keeps each chat's context in one entry of the caller's
+[key-value store](/KV/). A request without a `chatId` starts a new chat:
+
+```js
+const SYSTEM = `You are the help assistant for Acme Notes, a note-taking app.
+Answer questions about Acme Notes. Keep answers under 120 words.`;
+const MODEL = 'claude-sonnet-4-6';
+
+router.post('/chat', async ({ request, user }) => {
+    if (!user) return new Response('Sign in to Puter.', { status: 401 });
+    const body = await request.json();
+    const message = body.message;
+    const chatId = body.chatId ?? crypto.randomUUID();
+    const kv = user.puter.kv;
+    const key = `assistant:${chatId}`;
+    const chat = (await kv.get(key)) ?? { title: message.slice(0, 60), context: [] };
+    const messages = [...chat.context, { role: 'user', content: message }];
+    const response = await user.puter.ai.chat([
+        { role: 'system', content: SYSTEM }, ...messages,
+    ], { model: MODEL, normalize: true, compaction: true, max_tokens: 1024 });
+    const reply = response.message.content;
+    chat.context = response.compaction
+        ? [{ ...response.message, content: [
+            response.compaction, ...(reply ? [{ type: 'text', text: reply }] : []),
+        ] }]
+        : [...messages, response.message];
+    await kv.set(key, chat);
+    return { chatId, reply };
+});
+```
+
+The text block is left out when the reply has no text.
+
+The worker uses a model with native compaction. Claude models on the
+[Anthropic availability list](https://platform.claude.com/docs/en/build-with-claude/compaction-threshold#availability)
+and OpenAI Responses models support it. The model catalog doesn't say which
+models support compaction. For other models, such as Gemini, use the manual
+summary in [Keep a Long AI Conversation](/recipes/keep-a-long-ai-conversation/#summarize-for-another-model).
+That recipe also includes a transcript search tool.
+
+Keep the system prompt byte-identical and first on each request, with changing
+messages last. Compaction starts only when context reaches the model's
+threshold.
+
+## Save the Context in Small Keys
+
+Store active model context in small parts with [`puter.kv.set()`](/KV/set/).
+The `saveChat()` function writes the new parts, publishes their keys in one
+metadata entry, then deletes the old parts. The split keeps each entry under the
+[value size limit](/rate-limits-and-quotas/#key-value-store) and lets the app
+list only the small metadata entries.
+[Split a Large Value Across Keys](/recipes/split-a-large-value/) explains this
+storage pattern.
+
+The function stores a chat's context in at most 100 parts, an application
+choice. A larger context fails with the `chat_full` code, and the app then
+starts a new chat:
+
+```js
+const MAX_PARTS = 100;
+
+async function saveChat(kv, key, chat, oldKeys) {
+    const json = JSON.stringify(chat);
+    const version = crypto.randomUUID();
+    const parts = [];
+    for (let start = 0; start < json.length; start += 8000) {
+        parts.push(json.slice(start, start + 8000));
+    }
+    if (parts.length > MAX_PARTS) {
+        throw Object.assign(new Error('Chat storage is full. Start a new chat.'), { code: 'chat_full' });
+    }
+    const items = parts.map((value, index) => ({
+        key: `assistant-data:${version}:${index}`, value,
+    }));
+    await kv.set(items);
+    await kv.set(key, {
+        title: chat.title, updatedAt: Date.now(), partKeys: items.map(item => item.key),
+    });
+    try {
+        for (const oldKey of oldKeys) await kv.del(oldKey);
+    } catch {
+        console.error('Old chat parts were not deleted');
+    }
+}
+```
+
+The function deletes the old parts one key at a time, since
+[`puter.kv.del()`](/KV/del/) removes one key per call. By then the reply is paid
+for and saved, so a failed delete is logged and the request still succeeds. It
+only leaves unused parts behind.
+
+The route reads the metadata entry, loads the parts it names with
+[`puter.kv.get()`](/KV/get/), and saves through `saveChat()`. An entry without
+`partKeys` holds a whole chat in one value, with its context under `context` as
+in the previous section, or under `messages`. The route continues that chat and
+saves it in parts:
+
+```js
+router.post('/chat', async ({ request, user }) => {
+    if (!user) return new Response('Sign in to Puter.', { status: 401 });
+    const body = await request.json();
+    const message = body.message;
+    const chatId = body.chatId ?? crypto.randomUUID();
+    const kv = user.puter.kv;
+    const key = `assistant:${chatId}`;
+    const stored = await kv.get(key);
+    const oldKeys = stored?.partKeys ?? [];
+    let chat = { title: message.slice(0, 60), context: [] };
+    if (stored?.partKeys) {
+        chat = JSON.parse((await kv.get(oldKeys)).join(''));
+    } else if (stored) {
+        chat = { title: stored.title, context: stored.context ?? stored.messages ?? [] };
+    }
+    const messages = [...chat.context, { role: 'user', content: message }];
+    const response = await user.puter.ai.chat([
+        { role: 'system', content: SYSTEM }, ...messages,
+    ], { model: MODEL, normalize: true, compaction: true, max_tokens: 1024 });
+    const reply = response.message.content;
+    chat.context = response.compaction
+        ? [{ ...response.message, content: [
+            response.compaction, ...(reply ? [{ type: 'text', text: reply }] : []),
+        ] }]
+        : [...messages, response.message];
+    await saveChat(kv, key, chat, oldKeys);
+    return { chatId, reply };
+});
+```
+
+This building block saves the active context. For a full transcript that stays
+available after compaction, use the archive in
+[Keep a Long AI Conversation](/recipes/keep-a-long-ai-conversation/). A compacted
+context is a model continuation, not a transcript for the user to read.
+
+Send one request at a time per chat. The `send()` function in
+[Chat From the App](#chat-from-the-app) prevents overlapping sends in that page.
+Independent tabs should create separate chats. The metadata update isn't a
+distributed lock, so concurrent writers can replace each other's context.
+
+## Check the Request
+
+The route calls a paid service for the caller, so check the request before the
+AI call. Look up the caller with [`user.puter.getUser()`](/Auth/getUser/), which
+rejects when the session has expired.
+[Handle Errors in a Worker](/recipes/handle-worker-errors/#check-who-is-calling)
+explains that check. Limit the message length and the format of `chatId`, and
+treat a reply that didn't finish as a failure.
+
+Failures return JSON with a `code` and a `message` through the `error()` helper.
+The codes in `actionable` tell the user what to do, so the route passes them to
+the app. Any other failure is logged and returned as `assistant_failed`:
+
+```js
+const MAX_LENGTH = 2000;
+
+function error(status, code, message) {
+    return new Response(JSON.stringify({ code, message }), {
+        status, headers: { 'Content-Type': 'application/json' },
+    });
+}
+
+router.post('/chat', async ({ request, user }) => {
+    if (!user) return error(401, 'auth_required', 'Sign in to Puter.');
+    let caller;
+    try {
+        caller = await user.puter.getUser();
+    } catch {
+        return error(401, 'auth_required', 'Sign in to Puter.');
+    }
+    if (!caller) return error(401, 'auth_required', 'Sign in to Puter.');
     let body;
     try {
         body = await request.json();
     } catch {
-        return error(400, 'body must be JSON');
+        return error(400, 'invalid_input', 'Body must be JSON.');
     }
-
-    const { message } = body;
-    if (typeof message !== 'string' || message.trim().length === 0) {
-        return error(400, 'message is required');
+    const message = body?.message;
+    if (typeof message !== 'string' || !message.trim() || message.length > MAX_LENGTH) {
+        return error(400, 'invalid_input', `Enter 1 to ${MAX_LENGTH} characters.`);
     }
-    if (message.length > MAX_LENGTH) {
-        return error(400, `message must be at most ${MAX_LENGTH} characters`);
+    const chatId = body.chatId ?? crypto.randomUUID();
+    if (typeof chatId !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(chatId)) {
+        return error(400, 'invalid_input', 'Invalid chat ID.');
     }
-    const chatId = typeof body.chatId === 'string' ? body.chatId : crypto.randomUUID();
-
-    // ...load the chat and ask the model, shown in the next sections
+    try {
+        const kv = user.puter.kv;
+        const key = `assistant:${chatId}`;
+        const stored = await kv.get(key);
+        const oldKeys = stored?.partKeys ?? [];
+        let chat = { title: message.slice(0, 60), context: [] };
+        if (stored?.partKeys) {
+            chat = JSON.parse((await kv.get(oldKeys)).join(''));
+        } else if (stored) {
+            chat = { title: stored.title, context: stored.context ?? stored.messages ?? [] };
+        }
+        const messages = [...chat.context, { role: 'user', content: message }];
+        const response = await user.puter.ai.chat([
+            { role: 'system', content: SYSTEM }, ...messages,
+        ], { model: MODEL, normalize: true, compaction: true, max_tokens: 1024 });
+        const reply = response.message.content;
+        if (response.finish_reason !== 'stop' || typeof reply !== 'string') {
+            throw new Error(`Reply incomplete: ${response.finish_reason}`);
+        }
+        chat.context = response.compaction
+            ? [{ ...response.message, content: [
+                response.compaction, ...(reply ? [{ type: 'text', text: reply }] : []),
+            ] }]
+            : [...messages, response.message];
+        await saveChat(kv, key, chat, oldKeys);
+        return { chatId, reply };
+    } catch (failure) {
+        console.error('Assistant request failed', failure.code ?? 'assistant_failed');
+        const actionable = ['auth_required', 'insufficient_funds', 'subscription_required', 'chat_full'];
+        if (actionable.includes(failure.code)) {
+            return error(400, failure.code, failure.message);
+        }
+        return error(502, 'assistant_failed', 'The assistant could not complete the request.');
+    }
 });
 ```
 
-A request without a `chatId` starts a new chat. See
-[Handle errors in a worker](/recipes/handle-worker-errors/) for the `error()`
-helper and the checks.
+## Chat From the App
 
-## Load the Earlier Messages
+Save the worker as `assistant.js` and deploy it once to get its URL. The
+[Workers deployment guide](/Workers/#deployment) covers the deployment steps.
 
-Each chat is one entry in the user's key-value store, under `assistant:` and the
-chat's ID. Read it with `user.puter.kv`:
-
-```js
-const key = `assistant:${chatId}`;
-const chat = (await user.puter.kv.get(key)) ?? { title: message.slice(0, 60), messages: [] };
-```
-
-Because it is `user.puter`, the key is in that user's account. One user can
-never load another user's chat, even with the right `chatId`.
-
-## Ask the Model
-
-Send the system prompt first, then the last few messages, then the new one, with
-[`puter.ai.chat()`](/AI/chat/):
-
-```js
-chat.messages.push({ role: 'user', content: message });
-
-let reply;
-try {
-    const response = await user.puter.ai.chat(
-        [
-            { role: 'system', content: SYSTEM },
-            ...chat.messages.slice(-MAX_MESSAGES),
-        ],
-        { model: MODEL, normalize: true },
-    );
-    reply = response.message.content;
-} catch {
-    return error(502, 'the assistant could not answer right now, try again');
-}
-```
-
-`normalize: true` makes `message.content` a plain string whichever model you
-pick, so changing `MODEL` later doesn't change this code.
-
-Only the last `MAX_MESSAGES` are sent, so a long chat doesn't make every new
-message slower and more expensive. The system prompt is always added on top,
-which is why it never falls out of the conversation.
-
-## Save the Chat
-
-Add the reply and write the chat back, then return the reply and the chat's ID:
-
-```js
-chat.messages.push({ role: 'assistant', content: reply });
-chat.updatedAt = Date.now();
-await user.puter.kv.set(key, chat);
-
-return { chatId, reply };
-```
-
-Put these last three sections together, in order, inside the `/chat` route.
-
-A key-value entry has a size limit, and a chat grows with every message. For
-chats that run to hundreds of messages, see
-[Split a large value across keys](/recipes/split-a-large-value/).
-
-## Deploy the Worker
-
-Save `assistant.js` to your Puter account and create the worker once, which
-gives it an address such as `https://acme-assistant.puter.work`. See
-[deployment](/Workers/#deployment) for the steps.
-
-## Chat From Your App
-
-Call the worker with [`puter.workers.exec()`](/Workers/exec/). It takes the same
-arguments as `fetch()`, and asks the user to sign in first if they haven't:
+Call the worker with [`puter.workers.exec()`](/Workers/exec/). On a website, it
+opens the Puter sign-in window if needed and sends the caller's session to the
+worker. Keep `chatId` to continue the saved conversation:
 
 ```js
 const API = 'https://acme-assistant.puter.work';
 let chatId = null;
+let sending = false;
 
 async function send(message) {
-    const res = await puter.workers.exec(`${API}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, message }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-        throw new Error(data.error);
+    if (sending) throw new Error('Wait for the current reply.');
+    sending = true;
+    try {
+        const response = await puter.workers.exec(`${API}/chat`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId, message }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            const actions = {
+                auth_required: 'Sign in to Puter to continue.',
+                insufficient_funds: 'Add funds to your Puter account.',
+                subscription_required: 'Choose a paid Puter plan.',
+                chat_full: 'This chat is full. Your next message starts a new chat.',
+            };
+            if (data.code === 'chat_full') chatId = null;
+            throw Object.assign(new Error(actions[data.code] ?? data.message), { code: data.code });
+        }
+        chatId = data.chatId;
+        return data.reply;
+    } catch (failure) {
+        if (typeof failure === 'string') throw new Error(failure);
+        throw failure;
+    } finally {
+        sending = false;
     }
-
-    chatId = data.chatId;   // keep talking in the same chat
-    return data.reply;
 }
 
-await send('How do I share a note?');
-await send('And can I undo that?');   // the model sees the first question too
+console.log(await send('How do I share a note?'));
+console.log(await send('And can I undo that?'));
 ```
 
-## List Past Chats
+Show a rejected `send()` call's message in your UI. Sign-in, funds, and
+subscription failures tell the user what to do. Other failures stay visible,
+and another billed call requires an explicit user action. A dismissed sign-in
+window rejects [`puter.workers.exec()`](/Workers/exec/) with a string, which
+`send()` turns into an `Error`.
 
-When a worker is called from your app, `user.puter.kv` is the same key-value
-store your app reads with [`puter.kv`](/KV/). So the app can list the user's
-chats directly, without a worker route:
+## List Saved Chats
+
+The app reads the same user-owned store with [`puter.kv.list()`](/KV/list/).
+List metadata a page at a time and use a row's chat ID when sending again:
 
 ```js
-const chats = await puter.kv.list('assistant:', true);
-
-const sidebar = chats
-    .map(row => ({ chatId: row.key.slice('assistant:'.length), ...row.value }))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+for await (const page of puter.kv.list({
+    pattern: 'assistant:', returnValues: true, stream: true, limit: 50,
+})) {
+    const chats = page.items.map(({ key, value }) => ({
+        chatId: key.slice('assistant:'.length),
+        title: value.title, updatedAt: value.updatedAt,
+    }));
+    console.log(chats);
+}
 ```
 
-Set `chatId` to one of these to carry on that chat, and delete one with
-[`puter.kv.del()`](/KV/del/).
+Users can edit their own saved context. Treat it as conversation data and add
+the system prompt in the worker on every call. To pay for calls yourself, use
+[`me.puter`](/Workers/router/#integration-with-puter-js) only with a per-user
+[`puter.kv.incr()`](/KV/incr/) limit in the owner's store.
+[Keep an API Key Secret](/recipes/keep-api-key-secret/#limit-how-often-the-key-is-used)
+shows the counter and expiry pattern.
 
-## Notes
+## Full Code
 
-- Saved chats belong to the user, and they can edit them, for example to change
-  what the assistant "said" earlier. That only changes their own chat. The system
-  prompt is always added by the worker, so they can't remove it.
-- To pay for the model yourself instead, call `me.puter.ai.chat()`. Every
-  message is then billed to you, so add a per-user limit like the one in
-  [Keep an API key secret](/recipes/keep-api-key-secret/).
+The recipe has two programs. The worker, saved as `assistant.js`:
+
+```js
+const SYSTEM = `You are the help assistant for Acme Notes, a note-taking app.
+Answer questions about Acme Notes. Keep answers under 120 words.`;
+const MODEL = 'claude-sonnet-4-6';
+const MAX_LENGTH = 2000;
+const MAX_PARTS = 100;
+
+function error(status, code, message) {
+    return new Response(JSON.stringify({ code, message }), {
+        status, headers: { 'Content-Type': 'application/json' },
+    });
+}
+
+async function saveChat(kv, key, chat, oldKeys) {
+    const json = JSON.stringify(chat);
+    const version = crypto.randomUUID();
+    const parts = [];
+    for (let start = 0; start < json.length; start += 8000) {
+        parts.push(json.slice(start, start + 8000));
+    }
+    if (parts.length > MAX_PARTS) {
+        throw Object.assign(new Error('Chat storage is full. Start a new chat.'), { code: 'chat_full' });
+    }
+    const items = parts.map((value, index) => ({
+        key: `assistant-data:${version}:${index}`, value,
+    }));
+    await kv.set(items);
+    await kv.set(key, {
+        title: chat.title, updatedAt: Date.now(), partKeys: items.map(item => item.key),
+    });
+    try {
+        for (const oldKey of oldKeys) await kv.del(oldKey);
+    } catch {
+        console.error('Old chat parts were not deleted');
+    }
+}
+
+router.post('/chat', async ({ request, user }) => {
+    if (!user) return error(401, 'auth_required', 'Sign in to Puter.');
+    let caller;
+    try {
+        caller = await user.puter.getUser();
+    } catch {
+        return error(401, 'auth_required', 'Sign in to Puter.');
+    }
+    if (!caller) return error(401, 'auth_required', 'Sign in to Puter.');
+    let body;
+    try {
+        body = await request.json();
+    } catch {
+        return error(400, 'invalid_input', 'Body must be JSON.');
+    }
+    const message = body?.message;
+    if (typeof message !== 'string' || !message.trim() || message.length > MAX_LENGTH) {
+        return error(400, 'invalid_input', `Enter 1 to ${MAX_LENGTH} characters.`);
+    }
+    const chatId = body.chatId ?? crypto.randomUUID();
+    if (typeof chatId !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(chatId)) {
+        return error(400, 'invalid_input', 'Invalid chat ID.');
+    }
+    try {
+        const kv = user.puter.kv;
+        const key = `assistant:${chatId}`;
+        const stored = await kv.get(key);
+        const oldKeys = stored?.partKeys ?? [];
+        let chat = { title: message.slice(0, 60), context: [] };
+        if (stored?.partKeys) {
+            chat = JSON.parse((await kv.get(oldKeys)).join(''));
+        } else if (stored) {
+            chat = { title: stored.title, context: stored.context ?? stored.messages ?? [] };
+        }
+        const messages = [...chat.context, { role: 'user', content: message }];
+        const response = await user.puter.ai.chat([
+            { role: 'system', content: SYSTEM }, ...messages,
+        ], { model: MODEL, normalize: true, compaction: true, max_tokens: 1024 });
+        const reply = response.message.content;
+        if (response.finish_reason !== 'stop' || typeof reply !== 'string') {
+            throw new Error(`Reply incomplete: ${response.finish_reason}`);
+        }
+        chat.context = response.compaction
+            ? [{ ...response.message, content: [
+                response.compaction, ...(reply ? [{ type: 'text', text: reply }] : []),
+            ] }]
+            : [...messages, response.message];
+        await saveChat(kv, key, chat, oldKeys);
+        return { chatId, reply };
+    } catch (failure) {
+        console.error('Assistant request failed', failure.code ?? 'assistant_failed');
+        const actionable = ['auth_required', 'insufficient_funds', 'subscription_required', 'chat_full'];
+        if (actionable.includes(failure.code)) {
+            return error(400, failure.code, failure.message);
+        }
+        return error(502, 'assistant_failed', 'The assistant could not complete the request.');
+    }
+});
+```
+
+The app code calls the worker and lists the saved chats:
+
+```js
+const API = 'https://acme-assistant.puter.work';
+let chatId = null;
+let sending = false;
+
+async function send(message) {
+    if (sending) throw new Error('Wait for the current reply.');
+    sending = true;
+    try {
+        const response = await puter.workers.exec(`${API}/chat`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId, message }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            const actions = {
+                auth_required: 'Sign in to Puter to continue.',
+                insufficient_funds: 'Add funds to your Puter account.',
+                subscription_required: 'Choose a paid Puter plan.',
+                chat_full: 'This chat is full. Your next message starts a new chat.',
+            };
+            if (data.code === 'chat_full') chatId = null;
+            throw Object.assign(new Error(actions[data.code] ?? data.message), { code: data.code });
+        }
+        chatId = data.chatId;
+        return data.reply;
+    } catch (failure) {
+        if (typeof failure === 'string') throw new Error(failure);
+        throw failure;
+    } finally {
+        sending = false;
+    }
+}
+
+console.log(await send('How do I share a note?'));
+console.log(await send('And can I undo that?'));
+
+for await (const page of puter.kv.list({
+    pattern: 'assistant:', returnValues: true, stream: true, limit: 50,
+})) {
+    const chats = page.items.map(({ key, value }) => ({
+        chatId: key.slice('assistant:'.length),
+        title: value.title, updatedAt: value.updatedAt,
+    }));
+    console.log(chats);
+}
+```

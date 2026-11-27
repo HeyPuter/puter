@@ -83,7 +83,14 @@ export type KvOp = 'set' | 'del' | 'expire';
 export type KvMutation = KvOp | 'flush';
 
 /** How an interactive sign-in proved the account. */
-export type SignInMethod = 'password' | 'otp' | 'recovery_code' | 'oidc';
+export type SignInMethod =
+    'password' | 'otp' | 'recovery_code' | 'oidc' | 'webdav';
+
+/** The AI requests checked through `ai.prompt.validate`. */
+export type AiPromptKind = 'chat' | 'realtime';
+
+/** The AI requests logged through `ai.log.media`. */
+export type AiMediaKind = 'image' | 'video' | 'tts' | 'stt' | 'sts' | 'ocr';
 
 export type EventMap = {
     // ---- Server lifecycle ----
@@ -103,6 +110,7 @@ export type EventMap = {
     // ---- AI ----
     'ai.prompt.validate': {
         username: string;
+        kind?: AiPromptKind;
         intended_service: string;
         parameters: unknown;
         allow?: boolean;
@@ -141,13 +149,26 @@ export type EventMap = {
             costs_currency: string;
         };
     };
-    'ai.log.image': {
+    /**
+     * A media request, emitted before its upstream call. File bytes in
+     * `parameters` arrive summarized.
+     */
+    'ai.log.media': {
+        kind: AiMediaKind;
         actor: unknown;
         completionId: string;
         parameters: unknown;
-        intended_service: string;
-        model_used: string;
+        /** Null when the provider picks its own default model. */
+        model_used: string | null;
         service_used: string;
+    };
+    /**
+     * One AI charge recorded while serving a logged media request, in µ¢ before
+     * any cost factor. A request can record several.
+     */
+    'ai.log.media.cost': {
+        completionId: string;
+        ucents: number;
     };
 
     // ---- Apps ----
@@ -394,7 +415,8 @@ export type EventMap = {
         dormant_days: number | null;
         is_dormant: boolean;
         known_device: boolean;
-        session_uuid: string;
+        /** Null for a client that signs in on every request, such as WebDAV. */
+        session_uuid: string | null;
     };
     /** A sign-in's password is known to be exposed, once per source. */
     'puter.signin.credential_exposed': {

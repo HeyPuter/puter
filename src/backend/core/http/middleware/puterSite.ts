@@ -23,6 +23,10 @@ import { posix as pathPosix } from 'node:path';
 import type { puterClients } from '../../../clients';
 import type { puterServices } from '../../../services';
 import { HOSTED_ASSET_COOKIES } from '../../../services/auth/AuthService';
+import {
+    appDataOwnerOf,
+    appDataSharingAllowed,
+} from '../../../services/permission/appDataScopes';
 import { MANAGE_PERM_PREFIX } from '../../../services/permission/consts';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
@@ -147,6 +151,7 @@ interface SubdomainRow {
     user_id: number | null;
     root_dir_id: number | null;
     associated_app_id: number | null;
+    app_owner?: number | null;
     domain?: string | null;
     protected?: number | null;
 }
@@ -157,6 +162,7 @@ interface AppRow {
     name?: string;
     is_private?: number | null;
     owner_user_id?: number;
+    metadata?: unknown;
 }
 
 interface UserRow {
@@ -723,6 +729,27 @@ export const createPuterSiteMiddleware = (
                 .type('text/html; charset=UTF-8')
                 .send('<h1>404</h1><p>Not Found</p>');
             return;
+        }
+
+        // A site an app published serves no other app's closed AppData, even
+        // AppData written after publishing. Only a path inside an app's AppData
+        // folder costs a lookup, and that one is answered from the app cache.
+        const appDataUid =
+            site.app_owner == null ? null : appDataOwnerOf(entry.path);
+        if (appDataUid) {
+            const dataApp = (await layers.stores.app.getByUid(
+                appDataUid,
+            )) as AppRow | null;
+            if (
+                dataApp &&
+                dataApp.id !== site.app_owner &&
+                !appDataSharingAllowed(dataApp)
+            ) {
+                res.status(404)
+                    .type('text/html; charset=UTF-8')
+                    .send('<h1>404</h1><p>Not Found</p>');
+                return;
+            }
         }
 
         // A listener owning the site may withhold this entry (a system site

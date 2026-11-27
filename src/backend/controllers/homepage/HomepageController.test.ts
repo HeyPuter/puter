@@ -27,7 +27,8 @@ import type { Actor } from '../../core/actor.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
-import { embedFrameAncestors, embedHostOrigin } from './HomepageController.js';
+import { embedHostOrigin } from '../../util/embedHost.js';
+import { embedFrameAncestors } from './HomepageController.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //

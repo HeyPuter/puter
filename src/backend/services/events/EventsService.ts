@@ -239,6 +239,7 @@ import {
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
 import {
+    APP_UID_SHAPE,
     kvShareAccessOf,
     kvShareGrantCovers,
     kvSharePermission,
@@ -1572,6 +1573,8 @@ const parseAppUid = (value: unknown): string | null => {
     if (value === undefined || value === null || value === '') return null;
     if (typeof value !== 'string')
         throw badRequest('appUid must be a string', 'bad_request');
+    if (!APP_UID_SHAPE.test(value))
+        throw badRequest('appUid is not an app uid', 'bad_request');
     return value;
 };
 
@@ -7055,8 +7058,8 @@ export class EventsService extends PuterService {
     }
 
     #eagerDeploy:
-        | ((scope: HandlerScope, script: string) => Promise<unknown>)
-        | null = null;
+        ((scope: HandlerScope, script: string) => Promise<unknown>) | null =
+        null;
 
     /** Fire and forget: the publish has answered, and a miss deploys anyway. */
     #deployEagerly(

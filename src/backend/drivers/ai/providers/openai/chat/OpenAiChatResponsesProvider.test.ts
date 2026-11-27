@@ -57,6 +57,7 @@ import {
     withTestActor,
 } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
+import { estimatePromptTokens } from '../../../interfaces/chat/utils/usageEstimate.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
 import { modelLookupNames } from '../../../interfaces/chat/utils/modelRouting.js';
@@ -1029,6 +1030,62 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
         },
     );
 
+    it.each([
+        [200_000, 0, 10_000, 30, 180, 780_000_000],
+        [272_000, 0, 10_000, 30, 180, 996_000_000],
+        [272_001, 0, 10_000, 60, 270, 1_902_006_000],
+        [300_000, 0, 10_000, 60, 270, 2_070_000_000],
+        [300_000, 100_000, 10_000, 60, 270, 2_070_000_000],
+        [900_000, 0, 50_000, 60, 270, 6_750_000_000],
+    ] as const)(
+        'bills gpt-5.5-pro for %i input tokens (%i cached) and %i output tokens at %i/%i USD per 1M',
+        async (
+            inputTokens,
+            cachedTokens,
+            outputTokens,
+            inputUsd,
+            outputUsd,
+            total,
+        ) => {
+            const { provider } = makeProvider();
+            responsesCreateMock.mockResolvedValueOnce({
+                service_tier: 'default',
+                output: [{ role: 'assistant' }],
+                output_text: 'hi',
+                usage: {
+                    input_tokens: inputTokens,
+                    input_tokens_details: { cached_tokens: cachedTokens },
+                    output_tokens: outputTokens,
+                    output_tokens_details: {
+                        reasoning_tokens: outputTokens - 200,
+                    },
+                    total_tokens: inputTokens + outputTokens,
+                },
+            });
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-5.5-pro',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe('openai:gpt-5.5-pro-2026-04-23');
+            expect(overrides).toEqual({
+                prompt_tokens: (inputTokens - cachedTokens) * inputUsd * 100,
+                cached_tokens: cachedTokens * inputUsd * 100,
+                completion_tokens: outputTokens * outputUsd * 100,
+            });
+            expect(
+                Object.values(overrides as Record<string, number>).reduce(
+                    (a, b) => a + b,
+                    0,
+                ),
+            ).toBe(total);
+        },
+    );
+
     it('bills cached tokens at the input rate when the model prices no cache read', async () => {
         // gpt-5.4-pro is responses-API-only and its catalogue entry has no
         // cached_tokens rate. Cached tokens are subtracted out of the input
@@ -1694,5 +1751,99 @@ describe('ChatCompletionDriver OpenAI billing', () => {
         expect(charges[0]).toBeGreaterThan(0);
         expect(charges[1]).toBe(charges[2]);
         expect(charges[2]).toBe(charges[0] * 2);
+    });
+    it.each([
+        [330_000, 60, 270],
+        [200_000, 30, 180],
+    ] as const)(
+        'holds credit for a gpt-5.5-pro prompt of %i words at %i/%i USD per 1M tokens',
+        async (words, inputUsd, outputUsd) => {
+            const actor = await makeBillingUser();
+            const driver = await makeBillingDriver();
+            const messages = [{ role: 'user', content: 'x '.repeat(words) }];
+            const promptTokens = estimatePromptTokens(messages);
+            expect(promptTokens > 272_000).toBe(inputUsd === 60);
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: Number.MAX_SAFE_INTEGER, held: 0 });
+            const reserve = vi.spyOn(
+                server.services.metering,
+                'reserveCredits',
+            );
+            responsesCreateMock.mockResolvedValueOnce({
+                service_tier: 'default',
+                output: [{ role: 'assistant' }],
+                output_text: 'hi',
+                usage: {
+                    input_tokens: promptTokens,
+                    input_tokens_details: { cached_tokens: 0 },
+                    output_tokens: 10,
+                    output_tokens_details: { reasoning_tokens: 0 },
+                    total_tokens: promptTokens + 10,
+                },
+            });
+
+            await withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'gpt-5.5-pro',
+                        provider: 'openai-responses',
+                        messages,
+                        max_tokens: 10_000,
+                        fallback: false,
+                    }),
+                actor,
+            );
+            await Promise.all(
+                recordSpy.mock.results.map((result) => result.value),
+            );
+
+            const [, held] = reserve.mock.calls[0]!;
+            expect(held).toBe(
+                promptTokens * inputUsd * 100 + 10_000 * outputUsd * 100,
+            );
+        },
+    );
+    it('refuses a gpt-5.5-pro prompt past 272K tokens when the balance covers it only at the short-context rate', async () => {
+        const actor = await makeBillingUser();
+        const driver = await makeBillingDriver();
+        const messages = [{ role: 'user', content: 'x '.repeat(330_000) }];
+        const promptTokens = estimatePromptTokens(messages);
+        expect(promptTokens).toBeGreaterThan(272_000);
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: promptTokens * 45 * 100, held: 0 });
+        responsesCreateMock.mockResolvedValueOnce({
+            service_tier: 'default',
+            output: [{ role: 'assistant' }],
+            output_text: 'hi',
+            usage: {
+                input_tokens: promptTokens,
+                input_tokens_details: { cached_tokens: 0 },
+                output_tokens: 10,
+                output_tokens_details: { reasoning_tokens: 0 },
+                total_tokens: promptTokens + 10,
+            },
+        });
+
+        await expect(
+            withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'gpt-5.5-pro',
+                        provider: 'openai-responses',
+                        messages,
+                        max_tokens: 10_000,
+                        fallback: false,
+                    }),
+                actor,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 402,
+            legacyCode: 'insufficient_funds',
+        });
+        expect(responsesCreateMock).not.toHaveBeenCalled();
     });
 });

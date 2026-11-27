@@ -170,6 +170,12 @@ const examples = [
                 source: '/playground/examples/ai-img2txt-annotation.html',
             },
             {
+                title: 'Read a Receipt',
+                description: 'Read the merchant, date, currency, and total from a receipt image you pick using Puter.js AI API. Run and modify this example in the playground.',
+                slug: 'build-an-expense-report-from-receipts',
+                source: '/playground/examples/build-an-expense-report-from-receipts.html',
+            },
+            {
                 title: 'Text to Image',
                 description: 'Generate images from text with Puter.js AI API. Run and experiment with this text-to-image example in the playground.',
                 slug: 'ai-txt2img',
@@ -336,6 +342,12 @@ const examples = [
                 description: 'Retrieve the available AI providers that Puter currently exposes. Try out this example directly in the playground.',
                 slug: 'ai-list-model-providers',
                 source: '/playground/examples/ai-list-model-providers.html',
+            },
+            {
+                title: 'Suggest categories for imported labels',
+                description: 'Ask AI to map messy spreadsheet category labels to a fixed list of categories with Puter.js. Run and experiment with this example in the playground.',
+                slug: 'clean-up-imported-categories',
+                source: '/playground/examples/clean-up-imported-categories.html',
             },
         ],
     },

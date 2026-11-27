@@ -1357,9 +1357,10 @@ export default suite('events', {
         await asApp(t, appUid, async () => {
             // An app token names its own app; a second app's token would be
             // this account's own to make, so a foreign uid is what stands in
-            // for "not owned" here.
+            // for "not owned" here. It has an app uid's shape, which the server
+            // checks before ownership.
             const error = await t.assert.rejects(() =>
-                t.puter.events.workers.destroy(unique('not-owned')),
+                t.puter.events.workers.destroy(unique('app-not-owned')),
             );
             t.assert.equal(codeOf(error), 'events_handler_forbidden');
         });

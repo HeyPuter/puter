@@ -22,8 +22,22 @@ import {
     formatCount,
     formatCredits,
     formatDollarsFromMicrocents,
+    isByteUsageKey,
     usageIsCredits,
 } from './credits.js';
+
+describe('isByteUsageKey', () => {
+    it('matches keys metered in bytes', () => {
+        expect(isByteUsageKey('egress:bytes')).toBe(true);
+        expect(isByteUsageKey('turn:egress-bytes')).toBe(true);
+    });
+
+    it('leaves other keys as counts', () => {
+        expect(isByteUsageKey('openai:gpt-5:input-tokens')).toBe(false);
+        expect(isByteUsageKey('kv:read')).toBe(false);
+        expect(isByteUsageKey('turn:bytes-sent')).toBe(false);
+    });
+});
 
 describe('usageIsCredits', () => {
     it('trusts only the explicit unit flag', () => {

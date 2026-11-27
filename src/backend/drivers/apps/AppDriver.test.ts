@@ -134,6 +134,32 @@ describe('AppDriver.create', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it("refuses an origin's derived uid as a name, so that origin's app can still be created", async () => {
+        const { actor } = await makeUser();
+        const origin = new URL(uniqueIndexUrl()).origin;
+        const uid = await server.services.auth.appUidFromOrigin(origin);
+
+        for (const name of [uid, uid.toUpperCase(), `app-${uuidv4()}`]) {
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name,
+                            title: 't',
+                            index_url: uniqueIndexUrl(),
+                        },
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+        }
+
+        const app = await server.services.app.ensureOriginApp(uid, origin);
+        expect(app).toMatchObject({ uid, name: uid });
+    });
+
     it('rejects a missing index_url with 400', async () => {
         const { actor } = await makeUser();
         await expect(
@@ -837,6 +863,41 @@ describe('AppDriver.update', () => {
         expect(updated.description).toBe('now with desc');
     });
 
+    it('refuses a rename to an app-uid-shaped name', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('rename'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                },
+            }),
+        );
+        await expect(
+            withActor(actor, () =>
+                driver.update({
+                    uid: created.uid,
+                    object: { name: `app-${uuidv4()}` },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    });
+
+    it('keeps updating an app whose existing name has the form of an app uid', async () => {
+        const { actor, userId } = await makeUser();
+        const origin = new URL(uniqueIndexUrl()).origin;
+        const uid = await server.services.auth.appUidFromOrigin(origin);
+        await server.stores.app.createFromOrigin(uid, origin, {
+            ownerUserId: userId,
+        });
+
+        const updated = await withActor(actor, () =>
+            driver.update({ uid, object: { name: uid, title: 'Renamed' } }),
+        );
+        expect(updated).toMatchObject({ uid, name: uid, title: 'Renamed' });
+    });
+
     it("rejects updating another user's app with 403", async () => {
         const a = await makeUser();
         const b = await makeUser();
@@ -998,6 +1059,10 @@ describe('AppDriver.isNameAvailable', () => {
         );
         const result = await driver.isNameAvailable(name);
         expect(result).toBe(false);
+    });
+
+    it('reports an app-uid-shaped name as unavailable', async () => {
+        expect(await driver.isNameAvailable(`app-${uuidv4()}`)).toBe(false);
     });
 
     it('rejects an invalid name format with 400', async () => {

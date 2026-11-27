@@ -24,7 +24,7 @@ An object containing the attributes to update. The object can contain the follow
 | `indexURL` | `String` | The new URL of the app's index page. This URL must be accessible to the user. |
 | `description` | `String` | The new description of the app aimed at the end user. |
 | `icon` | `String` | The new icon of the app. |
-| `name` | `String` | The new name of the app. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected. |
+| `name` | `String` | The new name of the app. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected. Names in the form of an app UID (`app-` followed by a UUID) are reserved and rejected. |
 | `filetypeAssociations` | `Array<String>` | An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extensions and MIME types are supported. For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files. At most 200 entries, each at most 60 characters. |
 | `maximizeOnStart` | `Boolean` | Whether the app should be maximized when it is started. Defaults to `false`. |
 | `background` | `Boolean` | Whether the app should run in the background. Defaults to `false`. |

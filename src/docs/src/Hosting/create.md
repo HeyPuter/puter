@@ -42,7 +42,7 @@ A `Promise` that will resolve to a [`Subdomain`](/Objects/subdomain/) object whe
 
 ## Errors
 
-If a subdomain with the given name already exists, the promise will be rejected with an error. If the path does not exist, the promise will be rejected with an error.
+If a subdomain with the given name already exists, the promise will be rejected with an error. If the path does not exist, the promise will be rejected with an error. If your app publishes a folder that holds the AppData of another app that sets [`share_app_data`](/Perms/appData/#keeping-your-own-data-private) to `false`, the promise is rejected with a `forbidden` error.
 
 ## Cached and uncached URLs
 

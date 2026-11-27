@@ -19,6 +19,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    isCharsetMismatch,
     isMissingParentViolation,
     isMissingTable,
     isUniqueViolation,
@@ -121,5 +122,54 @@ describe('isMissingTable', () => {
         );
         expect(isMissingTable(null)).toBe(false);
         expect(isMissingTable(undefined)).toBe(false);
+    });
+});
+
+describe('isCharsetMismatch', () => {
+    const mix = (code: string, sqlMessage: string) => ({ code, sqlMessage });
+
+    it('matches a literal MySQL could not convert to the column charset', () => {
+        expect(
+            isCharsetMismatch(
+                mix(
+                    'ER_CANT_AGGREGATE_2COLLATIONS',
+                    "Illegal mix of collations (ascii_general_ci,IMPLICIT) and (utf8mb4_unicode_ci,COERCIBLE) for operation '='",
+                ),
+            ),
+        ).toBe(true);
+        // `IN` with two values.
+        expect(
+            isCharsetMismatch(
+                mix(
+                    'ER_CANT_AGGREGATE_3COLLATIONS',
+                    "Illegal mix of collations (latin1_swedish_ci,IMPLICIT), (utf8mb4_unicode_ci,COERCIBLE), (utf8mb4_unicode_ci,COERCIBLE) for operation ' IN '",
+                ),
+            ),
+        ).toBe(true);
+    });
+
+    it('leaves the n-operand form alone, which names no operands', () => {
+        expect(
+            isCharsetMismatch(
+                mix(
+                    'ER_CANT_AGGREGATE_NCOLLATIONS',
+                    "Illegal mix of collations for operation ' IN '",
+                ),
+            ),
+        ).toBe(false);
+    });
+
+    it('leaves a mismatch between two columns, and other errors, alone', () => {
+        expect(
+            isCharsetMismatch(
+                mix(
+                    'ER_CANT_AGGREGATE_2COLLATIONS',
+                    "Illegal mix of collations (latin1_swedish_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='",
+                ),
+            ),
+        ).toBe(false);
+        expect(isCharsetMismatch({ code: 'ER_DUP_ENTRY' })).toBe(false);
+        expect(isCharsetMismatch(new Error('COERCIBLE'))).toBe(false);
+        expect(isCharsetMismatch(null)).toBe(false);
     });
 });

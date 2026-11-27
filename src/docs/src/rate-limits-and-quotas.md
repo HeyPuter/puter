@@ -78,7 +78,7 @@ A chat completion counts as a concurrent request until the model finishes it, ev
 
 An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. A chat request to a Gemini model can include up to 4 video URLs. A video URL over a limit, or one that doesn't finish downloading within 30 seconds, isn't sent to the model, and the model is told the video couldn't be loaded. OCR input limits are under [OCR](#ocr).
 
-A URL given as the audio for [`speech2txt()`](/AI/speech2txt/) (OpenAI and Gemini models) or [`speech2speech()`](/AI/speech2speech/), or as the input for [`img2txt()`](/AI/img2txt/), has 60 seconds to finish downloading. A slower one fails with `400 bad_request`.
+A URL given as the audio for [`speech2txt()`](/AI/speech2txt/) or [`speech2speech()`](/AI/speech2speech/), or as the input for [`img2txt()`](/AI/img2txt/), has 60 seconds to finish downloading. A slower one fails with `400 bad_request`.
 
 With `puter_output_path` set on [`txt2img()`](/AI/txt2img/) or [`txt2vid()`](/AI/txt2vid/), a result the model returns as a URL is downloaded into the file within 5 minutes and up to 256 MiB. A slower download fails with `504 upstream_timeout` and a larger one with `502 internal_error`. The generation is still charged.
 
@@ -498,6 +498,10 @@ The last two apply to an `fs:` permission request for a path that doesn't exist 
 | Lock timeout | Up to 1 hour | Per lock |
 
 Successful sign-ins don't count. Over either sign-in limit, `dav` answers `429` until the window passes, even for the right password, so a client retrying a stale password keeps itself locked out: fix the password, then wait. This only affects `dav`; the desktop, the API and `puter.auth` keep working.
+
+A wrong password on `dav` also counts toward the account's [wrong-password limit](#sign-in) for signing in to Puter. While that limit is spent, a password sign-in on `dav` answers `429` too, unless the same IP address signed in to the account on `dav` in the last day.
+
+A password sign-in on `dav` runs the same checks as the sign-in screen, at most once a day per account and IP address. If a check asks for a verification step, such as confirming a phone number, `dav` answers `403` until the step is done in the Puter desktop.
 
 A `LOCK` gets the `Timeout` the client asks for, up to 1 hour, and the response states the timeout granted. Refresh the lock before it runs out to keep it.
 

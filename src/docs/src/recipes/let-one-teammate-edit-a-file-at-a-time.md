@@ -166,10 +166,18 @@ async function update() {
     render(people);
 }
 
-await puter.events.onLocal(`fs:${root}/.presence`, async () => {
+const presence = await puter.fs.mkdir(`${root}/.presence`, { createMissingParents: true });
+
+await puter.events.onLocal(`fs:${presence.uid}`, async () => {
     if (currentFileId) await update();
 });
 ```
+
+The subject names the `.presence` folder by its `uid`. A subject can't use the
+path that [`puter.fs.listShared()`](/FS/listShared/) gives for a shared folder,
+and that subscription is rejected with `subject_does_not_exist`. The
+[`puter.fs.mkdir()`](/FS/mkdir/) call returns the folder when it already
+exists, and creates it otherwise.
 
 The handler runs for this tab's own writes and for the person's other tabs too,
 since those change the list as well. It reads the whole folder instead of using
@@ -361,7 +369,9 @@ async function closeFile() {
     currentFileId = null;
 }
 
-await puter.events.onLocal(`fs:${root}/.presence`, async () => {
+const presence = await puter.fs.mkdir(`${root}/.presence`, { createMissingParents: true });
+
+await puter.events.onLocal(`fs:${presence.uid}`, async () => {
     if (currentFileId) await update();
 });
 ```

@@ -29,6 +29,7 @@ import {
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import { assertScalarOptions } from '../../shared/scalarOptions.js';
+import { emitMediaLog } from '../../shared/mediaLog.js';
 import {
     type ProviderCatalog,
     ProviderRegistry,
@@ -115,11 +116,9 @@ export class VoiceChangerDriver extends PuterDriver {
                     apiKey,
                     apiBaseUrl: elevenlabs?.apiBaseUrl as string | undefined,
                     defaultVoiceId: elevenlabs?.defaultVoiceId as
-                        | string
-                        | undefined,
+                        string | undefined,
                     defaultModelId: elevenlabs?.speechToSpeechModelId as
-                        | string
-                        | undefined,
+                        string | undefined,
                 },
             ),
         );
@@ -149,6 +148,15 @@ export class VoiceChangerDriver extends PuterDriver {
             throw new HttpError(401, 'Authentication required', {
                 legacyCode: 'unauthorized',
             });
+
+        const model = args.model ?? args.model_id;
+        emitMediaLog(this.clients.event, {
+            kind: 'sts',
+            actor,
+            parameters: args,
+            model: typeof model === 'string' ? model : null,
+            provider: providerName,
+        });
 
         return elevenlabs.convert(args, actor);
     }

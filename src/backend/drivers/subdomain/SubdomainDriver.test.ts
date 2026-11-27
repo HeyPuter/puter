@@ -712,6 +712,98 @@ describe('SubdomainDriver root_dir publishing rights', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
+    describe("with another app's closed AppData in the home", () => {
+        const setup = async () => {
+            const user = await makeUser();
+            const username = user.actor.user!.username;
+            const [publisher, closed] = await Promise.all(
+                [{}, { share_app_data: false }].map(
+                    async (metadata) =>
+                        (await server.stores.app.create(
+                            {
+                                name: uniqueSubdomain('sd-app'),
+                                title: 'App',
+                                index_url: `https://${uniqueSubdomain('sd-app')}.example.test/`,
+                                metadata: JSON.stringify(metadata),
+                            },
+                            { ownerUserId: user.userId },
+                        )) as { uid: string; id: number },
+                ),
+            );
+            await server.services.fs.mkdir(user.userId, {
+                path: `/${username}/AppData/${closed!.uid}`,
+                createMissingParents: true,
+            });
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+            await withActor(user.actor, () =>
+                server.services.permission.grantUserAppPermission(
+                    user.actor,
+                    publisher!.uid,
+                    `fs:${home.uuid}:write`,
+                ),
+            );
+            const asPublisher = makeActor({
+                ...user.actor,
+                app: { uid: publisher!.uid, id: publisher!.id },
+            } as never);
+            return { user, username, asPublisher };
+        };
+
+        it.each(['', '/AppData'])(
+            'refuses an app publishing the home%s',
+            async (suffix) => {
+                const { username, asPublisher } = await setup();
+                await expect(
+                    withActor(asPublisher, () =>
+                        driver.create({
+                            object: {
+                                subdomain: uniqueSubdomain('closed'),
+                                root_dir: `/${username}${suffix}`,
+                            },
+                        }),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 403,
+                    legacyCode: 'forbidden',
+                });
+            },
+        );
+
+        it('refuses an app repointing a site at the home', async () => {
+            const { username, asPublisher } = await setup();
+            const created = (await withActor(asPublisher, () =>
+                driver.create({
+                    object: {
+                        subdomain: uniqueSubdomain('repoint-home'),
+                        root_dir: `/${username}/Public`,
+                    },
+                }),
+            )) as Record<string, unknown>;
+
+            await expect(
+                withActor(asPublisher, () =>
+                    driver.update({
+                        uid: created.uid,
+                        object: { root_dir: `/${username}` },
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('lets the user publish the home themselves', async () => {
+            const { user, username } = await setup();
+            const sub = uniqueSubdomain('own-home');
+            const created = (await withActor(user.actor, () =>
+                driver.create({
+                    object: { subdomain: sub, root_dir: `/${username}` },
+                }),
+            )) as Record<string, unknown> | null;
+            expect(created?.subdomain).toBe(sub);
+        });
+    });
+
     // The owner's own path still only needs write, so an app hosting a
     // directory its user gave it keeps working.
     it("still accepts the actor's own directory", async () => {

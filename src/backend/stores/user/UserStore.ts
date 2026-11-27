@@ -20,6 +20,7 @@
 import { chunk } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { cleanEmail, isSameAddress } from '../../util/email.js';
+import { fitsCharset, type NarrowCharset } from '../../util/narrowCharset.js';
 import { normalizeReferralCode } from '../../util/referralCode.js';
 import { PuterStore } from '../types';
 
@@ -137,28 +138,21 @@ export const isOwnedEmailConflict = (e: unknown): boolean => {
 // backends without splitting the cap by driver.
 const BULK_QUERY_CHUNK_SIZE = 200;
 
-// The `email`, `clean_email`, and `username` columns are latin1_swedish_ci.
-// MySQL throws ER_CANT_AGGREGATE_2COLLATIONS on `=` when a utf8mb4 param
-// contains any character > U+00FF, since the implicit conversion to latin1
-// would lose data. No stored row can match such a value anyway, so we
-// short-circuit these lookups at the boundary instead of letting the driver
-// surface the collation error.
-const isStorableAsLatin1 = (value: string): boolean => {
-    for (let i = 0; i < value.length; i++) {
-        if (value.charCodeAt(i) > 0xff) return false;
-    }
-    return true;
-};
-
-// Columns on the `user` table that are stored as latin1_swedish_ci. Used by
-// both the read path (skip the DB on un-storable lookups) and the write path
-// (reject inserts/updates before MySQL throws on conversion).
-const LATIN1_USER_COLUMNS: ReadonlySet<string> = new Set([
-    'email',
-    'username',
-    'clean_email',
-    'phone',
+// `user` columns narrower than the utf8mb4 connection. Reads skip the DB for a
+// value that cannot be stored there (no row can match, and MySQL would fail
+// the statement); writes are refused before MySQL throws on conversion.
+// `clean_email` and `phone` hold only what `email` and a dialled number can.
+const NARROW_USER_COLUMNS: ReadonlyMap<string, NarrowCharset> = new Map([
+    ['username', 'ascii'],
+    ['uuid', 'latin1'],
+    ['email', 'latin1'],
+    ['clean_email', 'latin1'],
+    ['phone', 'latin1'],
 ]);
+const fitsUserColumn = (column: string, value: string): boolean => {
+    const charset = NARROW_USER_COLUMNS.get(column);
+    return charset === undefined || fitsCharset(value, charset);
+};
 const USER_BOOLEAN_COLUMNS: ReadonlySet<string> = new Set([
     'requires_email_confirmation',
     'email_confirmed',
@@ -173,11 +167,10 @@ const USER_BOOLEAN_COLUMNS: ReadonlySet<string> = new Set([
 
 const assertLatin1Writable = (fields: Record<string, unknown>): void => {
     for (const [key, value] of Object.entries(fields)) {
-        if (!LATIN1_USER_COLUMNS.has(key)) continue;
         if (typeof value !== 'string') continue;
-        if (isStorableAsLatin1(value)) continue;
+        if (fitsUserColumn(key, value)) continue;
         const err = new Error(
-            `User field '${key}' contains characters outside latin1`,
+            `User field '${key}' contains characters outside ${NARROW_USER_COLUMNS.get(key)}`,
         );
         (err as { code?: string }).code = 'userFieldNotLatin1';
         throw err;
@@ -349,7 +342,7 @@ export class UserStore extends PuterStore {
     ): Promise<UserRow | null> {
         if (!cleanEmailValue || typeof cleanEmailValue !== 'string')
             return null;
-        if (!isStorableAsLatin1(cleanEmailValue)) return null;
+        if (!fitsUserColumn('clean_email', cleanEmailValue)) return null;
         const sql = `SELECT \`id\`, \`clean_email\` FROM \`user\` WHERE \`clean_email\` = ? ${EMAIL_OWNER_ORDER} LIMIT 1`;
         const rows = (await (opts.force
             ? this.clients.db.pread(sql, [cleanEmailValue])
@@ -427,7 +420,7 @@ export class UserStore extends PuterStore {
         excludeUserId: number,
     ): Promise<number> {
         if (!phone || typeof phone !== 'string') return 0;
-        if (!isStorableAsLatin1(phone)) return 0;
+        if (!fitsUserColumn('phone', phone)) return 0;
         const rows = (await this.clients.db.tryHardRead(
             'SELECT COUNT(*) AS n FROM `user` WHERE `phone` = ? AND `id` != ?',
             [phone, excludeUserId],
@@ -458,15 +451,10 @@ export class UserStore extends PuterStore {
         )
             return null;
 
-        // Reject lookup values that can't exist in a latin1 column before
-        // the driver turns them into a collation-mix error at MySQL.
-        if (
-            LATIN1_USER_COLUMNS.has(prop) &&
-            typeof value === 'string' &&
-            !isStorableAsLatin1(value)
-        ) {
+        // A value the column cannot hold matches no row, and would fail the
+        // statement at MySQL.
+        if (typeof value === 'string' && !fitsUserColumn(prop, value))
             return null;
-        }
 
         // Replication-aware read: on `force` (or a tombstoned key), go
         // straight to the primary (`pread`) to bypass replica lag for hot

@@ -356,6 +356,18 @@ describe('UIWindowEmailConfirmationRequired replacing the address', () => {
         expect(await settled(result)).toBe(PENDING);
     });
 
+    // The change authenticates with the session cookie, which is the active account's.
+    it('offers no address change in a frame running as a saved account', async () => {
+        vi.resetModules();
+        const { adoptBorrowedSession } = await import('../helpers/borrowedFrameSession.js');
+        adoptBorrowedSession({ token: 'token-2' }, {});
+        const { default: borrowedWindow } = await import('./UIWindowEmailConfirmationRequired.js');
+        borrowedWindow();
+        await vi.waitFor(() => expect(win()).toHaveLength(1));
+        expect(win().find('.change-conf-email')).toHaveLength(0);
+        expect(win().find('.send-conf-email')).toHaveLength(1);
+    });
+
     it('refuses the address already on the account without asking the server', async () => {
         await open();
         await submitChange('A@B.test');

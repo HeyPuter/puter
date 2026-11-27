@@ -45,6 +45,7 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
+import { adoptBorrowedSession, frameSessionIsBorrowed, savedAccountSession } from './helpers/borrowedFrameSession.js';
 import { overlayGone } from './helpers/overlayGone.js';
 import {
     canShowCustomDomainFrame,
@@ -74,7 +75,7 @@ import {
     forwardedDestination,
     fullTokenAllowed,
     isDeliverableRedirect,
-    isGuiRedirect,
+    isDeploymentRedirect,
     shouldUseRemoteAuthme,
     urlTokenParam,
     wantsFullToken,
@@ -210,7 +211,11 @@ const postAuthActions = async (action) => {
             await UIAlert({ message: i18n('authme_bad_redirect_url') });
             return;
         }
-        if ( redirectURL && isGuiRedirect(redirectURL, [window.location.origin, window.gui_origin]) ) {
+        if ( redirectURL && isDeploymentRedirect(redirectURL, {
+            domain: window.gui_params?.domain,
+            guiOrigins: [window.location.origin, window.gui_origin],
+            relayOrigins: window.gui_params?.authmeRelayOrigins,
+        }) ) {
             await UIAlert({ message: i18n('authme_gui_redirect_url') });
             return;
         }
@@ -1593,6 +1598,8 @@ window.initgui = async function (options) {
     let showed_account_picker = false;
     // The `/whoami` a sign-in popup read before its account picker.
     let popup_whoami = null;
+    // The opener's `/auth/check-app` for a saved account a framed popup runs as.
+    let borrowed_relationship = null;
 
     // update SDK if auth_token is different from the one in the SDK
     if (window.auth_token && puter.authToken !== window.auth_token) {
@@ -1908,11 +1915,36 @@ window.initgui = async function (options) {
             let session = null;
             let session_user = null;
             if (host_user && window.is_auth()) {
+                const look_up_saved = () => savedAccountSession({
+                    hostUser: host_user,
+                    savedUsers: window.logged_in_users,
+                    hostOrigin: window.openerOrigin,
+                    apiOrigin: window.api_origin,
+                });
+                // The stored user is the active account, so a page signed in
+                // as another one has its lookup sent with the session's.
+                const early_lookup =
+                    String(window.user?.uuid ?? '').toLowerCase() !== host_user
+                        ? look_up_saved()
+                        : null;
                 try {
                     session = await puter.os.user();
                     session_user = String(session?.uuid ?? '').toLowerCase();
                 } catch (e) {
                     session_user = null;
+                }
+                // Switched away from without signing out: the frame runs as that saved account.
+                const saved =
+                    session_user === host_user
+                        ? null
+                        : await (early_lookup ?? look_up_saved());
+                if (saved) {
+                    adoptBorrowedSession(saved);
+                    session = saved.user;
+                    session_user = host_user;
+                    // The lookup just read these with this token.
+                    whoami = saved.user;
+                    borrowed_relationship = saved.relationship;
                 }
             }
             if (
@@ -2142,9 +2174,9 @@ window.initgui = async function (options) {
         // An account picked above already answers both questions below, the
         // picker and the consent. Signup in the popup is not a pick.
         if (!picked_a_user_for_sdk_login) {
-            let response = await window.checkUserSiteRelationship(
-                window.openerOrigin,
-            );
+            let response =
+                borrowed_relationship ??
+                (await window.checkUserSiteRelationship(window.openerOrigin));
             window.userAppToken = response?.token;
         }
 
@@ -2365,6 +2397,12 @@ window.initgui = async function (options) {
      * and without authenticating with the server.
      */
     const bad_session_logout = async () => {
+        // The stored session is the active account's, not the saved one this
+        // frame borrowed, so the page opens the tab instead.
+        if (frameSessionIsBorrowed()) {
+            window.tell_popup_frame('unavailable');
+            return;
+        }
         // The <head> gate hid the anonymous markup on the strength of a stored
         // token that has just turned out to be dead. Put it back, so the alert
         // below isn't sitting on an empty page.

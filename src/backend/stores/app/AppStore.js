@@ -28,6 +28,7 @@ import {
 import { HttpError } from '../../core/http/HttpError.js';
 import { chunk, runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { fitsCharset } from '../../util/narrowCharset.js';
 import { escapeLike } from '../../util/sqlLike.js';
 import {
     validateUrl,
@@ -184,6 +185,12 @@ const ADMIN_FLAG_COLUMNS = new Set([
 const COLUMN_NAME = /^[a-z_][a-z0-9_]*$/;
 // Unique-key columns `#getManyByProperty` may build an IN-list against.
 const BATCH_LOOKUP_COLUMNS = new Set(['id', 'uid', 'name']);
+
+// `uid` is a latin1 column: a value it cannot hold matches no app, and would
+// fail the statement at MySQL.
+const isStorableUid = (uid) =>
+    typeof uid === 'string' && fitsCharset(uid, 'latin1');
+
 const APP_BOOLEAN_COLUMNS = new Set([
     'godmode',
     'maximize_on_start',
@@ -298,7 +305,7 @@ export class AppStore extends PuterStore {
      * extensions.
      */
     async uidExistsOnPrimary(uid) {
-        if (!uid || typeof uid !== 'string') return false;
+        if (!uid || !isStorableUid(uid)) return false;
         const rows = await this.clients.db.pread(
             'SELECT `id` FROM `apps` WHERE `uid` = ? LIMIT 1',
             [uid],
@@ -350,7 +357,8 @@ export class AppStore extends PuterStore {
         // Same rule as `#getByProperty`: only `id` takes a number.
         const present = (Array.isArray(values) ? values : []).filter(
             (value) =>
-                typeof value === 'string' ||
+                (typeof value === 'string' &&
+                    (prop !== 'uid' || isStorableUid(value))) ||
                 (prop === 'id' && typeof value === 'number'),
         );
         return this.#cache.getMany(prop, present, async (missing, primary) => {
@@ -792,6 +800,7 @@ export class AppStore extends PuterStore {
 
     /** App bindings owned by this user beneath an app, including the root. */
     async listOwnedDescendantUids(userId, appUid) {
+        if (!isStorableUid(appUid)) return [];
         const rows = await this.clients.db.pread(
             'WITH RECURSIVE appTree AS (' +
                 'SELECT `id`, `uid` FROM `apps` WHERE `uid` = ? ' +
@@ -1261,6 +1270,39 @@ export class AppStore extends PuterStore {
     }
 
     /**
+     * When `userId` last opened an app, in unix seconds. `primary` skips the
+     * replica, for a caller that must see an open recorded a moment ago.
+     *
+     * @param {number} userId
+     * @param {{ primary?: boolean }} [options]
+     * @returns {Promise<number | null>}
+     */
+    async getLatestOpenTs(userId, { primary = false } = {}) {
+        const sql =
+            'SELECT `ts` FROM `app_opens` WHERE `user_id` = ? ORDER BY `_id` DESC LIMIT 1';
+        const rows = primary
+            ? await this.clients.db.pread(sql, [userId])
+            : await this.clients.db.read(sql, [userId]);
+        return rows[0]?.ts == null ? null : Number(rows[0].ts);
+    }
+
+    /**
+     * When `ownerUserId` last created an app, in unix seconds. `primary` as in
+     * `getLatestOpenTs`.
+     *
+     * @param {number} ownerUserId
+     * @param {{ primary?: boolean }} [options]
+     * @returns {Promise<number | null>}
+     */
+    async getLatestCreatedTs(ownerUserId, { primary = false } = {}) {
+        const sql = `SELECT ${this.clients.db.unixSecondsSql('MAX(`timestamp`)')} AS \`latest\` FROM \`apps\` WHERE \`owner_user_id\` = ?`;
+        const rows = primary
+            ? await this.clients.db.pread(sql, [ownerUserId])
+            : await this.clients.db.read(sql, [ownerUserId]);
+        return rows[0]?.latest == null ? null : Number(rows[0].latest);
+    }
+
+    /**
      * Names of apps approved for listing, oldest first.
      *
      * @param {{ limit: number }} options
@@ -1400,6 +1442,7 @@ export class AppStore extends PuterStore {
             !(prop === 'id' && typeof value === 'number')
         )
             return null;
+        if (prop === 'uid' && !isStorableUid(value)) return null;
         return this.#cache.get(
             this.#cache.key(prop, value),
             async (primary) => {

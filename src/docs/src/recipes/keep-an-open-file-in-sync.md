@@ -15,7 +15,8 @@ Trash. Desktop code editors handle this with a
 the file changes while it's open.
 
 It builds on [Watch for Changes](/recipes/watch-for-changes/), which covers
-gaps and reconnects. The examples use a few functions you'd write yourself:
+gaps and reconnects. For a record in the key-value store instead of a file, see
+[Merge Edits From Several Devices](/recipes/merge-edits-from-several-devices/). The examples use a few functions you'd write yourself:
 `editor.getValue()` and `editor.setValue()` for the text area, `setTitle()` for
 the window title, and `showBanner()` to show a message with optional buttons.
 

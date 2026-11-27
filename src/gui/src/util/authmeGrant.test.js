@@ -27,7 +27,7 @@ import {
     forwardedDestination,
     fullTokenAllowed,
     isDeliverableRedirect,
-    isGuiRedirect,
+    isDeploymentRedirect,
     isLoopbackTarget,
     isRemoteBackendGui,
     shouldUseRemoteAuthme,
@@ -240,26 +240,63 @@ describe('forwardedDestination', () => {
     });
 });
 
-describe('isGuiRedirect', () => {
-    const GUI = ['https://puter.com', 'https://www.puter.com'];
+describe('isDeploymentRedirect', () => {
+    const PROD = {
+        domain: 'puter.com',
+        guiOrigins: ['https://puter.com', 'https://puter.com'],
+        relayOrigins: ['https://mcp.puter.com'],
+    };
 
     it('is true for any page on the GUI origin', () => {
-        expect(isGuiRedirect('https://puter.com/app/some-app?forwards_to=client.example', GUI)).toBe(true);
-        expect(isGuiRedirect('https://www.puter.com/app/some-app', GUI)).toBe(true);
-        expect(isGuiRedirect('https://puter.com/desktop/app/some-app', GUI)).toBe(true);
-        expect(isGuiRedirect('https://PUTER.com/', GUI)).toBe(true);
+        expect(isDeploymentRedirect('https://puter.com/app/some-app?forwards_to=client.example', PROD)).toBe(true);
+        expect(isDeploymentRedirect('https://puter.com/desktop/app/some-app', PROD)).toBe(true);
+        expect(isDeploymentRedirect('https://PUTER.com/', PROD)).toBe(true);
     });
 
-    it('is false for any other origin, including a local GUI and a relay', () => {
-        expect(isGuiRedirect('https://mcp.puter.com/oauth/callback', GUI)).toBe(false);
-        expect(isGuiRedirect('http://localhost:4100/', GUI)).toBe(false);
-        expect(isGuiRedirect('http://puter.com/app/x', GUI)).toBe(false);
-        expect(isGuiRedirect('https://app.example/cb', GUI)).toBe(false);
+    it('ignores scheme, port and a trailing dot on the GUI host', () => {
+        expect(isDeploymentRedirect('http://puter.com/app/x', PROD)).toBe(true);
+        expect(isDeploymentRedirect('https://puter.com:8443/app/x', PROD)).toBe(true);
+        expect(isDeploymentRedirect('https://puter.com./app/x', PROD)).toBe(true);
     });
 
-    it('is false for an unparseable redirect or a missing origin', () => {
-        expect(isGuiRedirect('not a url', GUI)).toBe(false);
-        expect(isGuiRedirect('https://puter.com/', [undefined])).toBe(false);
+    it('is true for other hosts under the deployment domain', () => {
+        expect(isDeploymentRedirect('https://api.puter.com/token-read?uid=x&token=y', PROD)).toBe(true);
+        expect(isDeploymentRedirect('https://dav.puter.com/someone/page.html?auth_token=x', PROD)).toBe(true);
+        expect(isDeploymentRedirect('https://www.puter.com/app/x', PROD)).toBe(true);
+        expect(isDeploymentRedirect('https://desktop.puter.com/', PROD)).toBe(true);
+    });
+
+    it('is false for a configured relay, on its exact origin only', () => {
+        expect(isDeploymentRedirect('https://mcp.puter.com/oauth/callback', PROD)).toBe(false);
+        expect(isDeploymentRedirect('http://mcp.puter.com/oauth/callback', PROD)).toBe(true);
+        expect(isDeploymentRedirect('https://mcp.puter.com./oauth/callback', PROD)).toBe(true);
+        expect(isDeploymentRedirect('https://mcp.puter.com/oauth/callback', { ...PROD, relayOrigins: [] })).toBe(true);
+    });
+
+    it('is false for loopback and for other sites', () => {
+        expect(isDeploymentRedirect('http://localhost:4100/', PROD)).toBe(false);
+        expect(isDeploymentRedirect('http://127.0.0.1:33418/callback', PROD)).toBe(false);
+        expect(isDeploymentRedirect('https://app.example/cb', PROD)).toBe(false);
+        expect(isDeploymentRedirect('https://someone.puter.site/cb', PROD)).toBe(false);
+        expect(isDeploymentRedirect('https://notputer.com/cb', PROD)).toBe(false);
+    });
+
+    it('still refuses a loopback GUI on its own origin', () => {
+        const local = { domain: 'puter.localhost', guiOrigins: ['http://puter.localhost:4100'] };
+        expect(isDeploymentRedirect('http://puter.localhost:4100/app/x', local)).toBe(true);
+        expect(isDeploymentRedirect('http://localhost:4000/', local)).toBe(false);
+    });
+
+    it('falls back to the GUI hosts when no domain is configured', () => {
+        const noDomain = { guiOrigins: ['https://puter.com'] };
+        expect(isDeploymentRedirect('http://puter.com/app/x', noDomain)).toBe(true);
+        expect(isDeploymentRedirect('https://api.puter.com/token-read', noDomain)).toBe(false);
+    });
+
+    it('is false for an unparseable redirect or missing settings', () => {
+        expect(isDeploymentRedirect('not a url', PROD)).toBe(false);
+        expect(isDeploymentRedirect('https://puter.com/', { guiOrigins: [undefined] })).toBe(false);
+        expect(isDeploymentRedirect('https://puter.com/')).toBe(false);
     });
 });
 

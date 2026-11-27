@@ -130,13 +130,6 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
         return this.#handleTranscription(args);
     }
 
-    #isHttpUrl(value: unknown): value is string {
-        return (
-            typeof value === 'string' &&
-            (value.startsWith('https://') || value.startsWith('http://'))
-        );
-    }
-
     async #handleTranscription(args: ITranscribeArgs) {
         const pinnedModel =
             args.model && PINNED_MODELS.includes(args.model)
@@ -172,20 +165,12 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
         if (args.sample_rate)
             formData.append('sample_rate', String(args.sample_rate));
 
-        // A URL goes to xAI as-is and is downloaded there; its duration can't
-        // be known upfront, so the hold covers a conservative 60 seconds.
-        // Actual usage is metered from the duration xAI reports.
-        let estimatedSeconds = 60;
-        let audioBytes = MAX_AUDIO_FILE_SIZE;
-        if (this.#isHttpUrl(args.file)) {
-            formData.append('url', args.file);
-        } else {
-            // The file must be the last field, per xAI's docs.
-            const { blob, filename } = await this.#loadAudio(args.file, actor);
-            estimatedSeconds = Math.max(1, Math.ceil(blob.size / 16000));
-            audioBytes = blob.size;
-            formData.append('file', blob, filename);
-        }
+        // The hold estimates seconds from bytes at 128 kbps; usage is metered
+        // from the duration xAI reports.
+        const { blob, filename } = await this.#loadAudio(args.file, actor);
+        const estimatedSeconds = Math.max(1, Math.ceil(blob.size / 16000));
+        // The file must be the last field, per xAI's docs.
+        formData.append('file', blob, filename);
 
         const metering = this.deps.metering;
         return withAiCreditHold(
@@ -216,7 +201,7 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
                 const actualSeconds = billableAudioSeconds(
                     result.duration,
                     estimatedSeconds,
-                    audioBytes,
+                    blob.size,
                 );
                 metering.incrementUsage(
                     actor,
@@ -230,8 +215,9 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
     }
 
     /**
-     * The audio as the Blob the upload sends. The loaded buffer stays local, so
-     * only the Blob's copy is held for the upload.
+     * The audio as the Blob the upload sends. A URL is downloaded here rather
+     * than by xAI, so the hold is sized from its bytes. The loaded buffer stays
+     * local, so only the Blob's copy is held for the upload.
      */
     async #loadAudio(
         file: unknown,
@@ -242,7 +228,7 @@ export class XAISpeechToTextProvider extends SpeechToTextProvider {
             this.deps.fs,
             actor,
             file,
-            { maxBytes: MAX_AUDIO_FILE_SIZE },
+            { maxBytes: MAX_AUDIO_FILE_SIZE, acceptWebInput: true },
         );
         return {
             blob: new Blob([loaded.buffer as BlobPart], {
