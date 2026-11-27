@@ -1270,6 +1270,39 @@ export class AppStore extends PuterStore {
     }
 
     /**
+     * When `userId` last opened an app, in unix seconds. `primary` skips the
+     * replica, for a caller that must see an open recorded a moment ago.
+     *
+     * @param {number} userId
+     * @param {{ primary?: boolean }} [options]
+     * @returns {Promise<number | null>}
+     */
+    async getLatestOpenTs(userId, { primary = false } = {}) {
+        const sql =
+            'SELECT `ts` FROM `app_opens` WHERE `user_id` = ? ORDER BY `_id` DESC LIMIT 1';
+        const rows = primary
+            ? await this.clients.db.pread(sql, [userId])
+            : await this.clients.db.read(sql, [userId]);
+        return rows[0]?.ts == null ? null : Number(rows[0].ts);
+    }
+
+    /**
+     * When `ownerUserId` last created an app, in unix seconds. `primary` as in
+     * `getLatestOpenTs`.
+     *
+     * @param {number} ownerUserId
+     * @param {{ primary?: boolean }} [options]
+     * @returns {Promise<number | null>}
+     */
+    async getLatestCreatedTs(ownerUserId, { primary = false } = {}) {
+        const sql = `SELECT ${this.clients.db.unixSecondsSql('MAX(`timestamp`)')} AS \`latest\` FROM \`apps\` WHERE \`owner_user_id\` = ?`;
+        const rows = primary
+            ? await this.clients.db.pread(sql, [ownerUserId])
+            : await this.clients.db.read(sql, [ownerUserId]);
+        return rows[0]?.latest == null ? null : Number(rows[0].latest);
+    }
+
+    /**
      * Names of apps approved for listing, oldest first.
      *
      * @param {{ limit: number }} options

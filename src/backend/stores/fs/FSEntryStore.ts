@@ -4219,6 +4219,25 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
+     * When any of the account's entries was last written, in unix seconds.
+     * Reads every entry the account owns, like `getHeldBytes`. `primary` skips
+     * the replica, for a caller that must see a write made a moment ago.
+     */
+    async getLatestModifiedTs(
+        userId: number,
+        { primary = false }: { primary?: boolean } = {},
+    ): Promise<number | null> {
+        const sql =
+            'SELECT MAX(modified) AS latest FROM fsentries WHERE user_id = ?';
+        const rows = (
+            primary
+                ? await this.clients.db.pread(sql, [userId])
+                : await this.clients.db.read(sql, [userId])
+        ) as { latest: number | string | null }[];
+        return rows[0]?.latest == null ? null : Number(rows[0].latest);
+    }
+
+    /**
      * Held bytes for several accounts in one grouped read, as `getHeldBytes`
      * does for one.
      */

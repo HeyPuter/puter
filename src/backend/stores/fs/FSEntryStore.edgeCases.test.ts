@@ -103,6 +103,31 @@ const caught = async (run: () => Promise<unknown>): Promise<HttpError> => {
     return error as HttpError;
 };
 
+describe('FSEntryStore latest write', () => {
+    it('reads the newest modified time among one account entries', async () => {
+        const user = await makeUser();
+        // The default directories date from the signup, a year back.
+        await server.clients.db.write(
+            'UPDATE fsentries SET modified = ? WHERE user_id = ?',
+            [1_700_000_000, user.userId],
+        );
+        expect(await store.getLatestModifiedTs(user.userId)).toBe(
+            1_700_000_000,
+        );
+
+        const before = Math.floor(Date.now() / 1000);
+        await createFile(user, `${user.home}/Documents/a.bin`, { size: 1 });
+
+        const latest = await store.getLatestModifiedTs(user.userId);
+        expect(latest).toBeGreaterThanOrEqual(before - 1);
+        expect(latest).toBeLessThanOrEqual(before + 10);
+        expect(
+            await store.getLatestModifiedTs(user.userId, { primary: true }),
+        ).toBe(latest);
+        expect(await store.getLatestModifiedTs(2_000_000_000)).toBeNull();
+    });
+});
+
 describe('FSEntryStore held bytes', () => {
     it('sums the sizes of everything one account holds', async () => {
         const user = await makeUser();
