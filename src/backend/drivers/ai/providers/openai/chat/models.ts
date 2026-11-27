@@ -353,6 +353,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             cached_tokens: 3000, // there is no cache actually. This is here for safety
             completion_tokens: 18000,
         },
+        long_context_pricing: GPT_LONG_CONTEXT_PRICING,
         context: 1_050_000,
         max_tokens: 128_000,
         responses_api_only: true,
