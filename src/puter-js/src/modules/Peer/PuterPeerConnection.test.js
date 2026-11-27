@@ -56,7 +56,9 @@ describe('renegotiation across a signalling outage', () => {
         conn.publish('camera', stream);
         await flush();
         const before = offersSent(channel);
-        expect(pc.signalingState).toBe('have-local-offer'); // never answered
+        // Out and never answered; the polite side holds it unapplied.
+        expect(channel.delivered.at(-1).offer).toBeDefined();
+        expect(pc.signalingState).toBe('stable');
 
         channel.onpeerback();
         await flush();

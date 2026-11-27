@@ -54,6 +54,28 @@ export class FakePeerConnection {
     failLocalDescription = false;
     /** Set to make the next setRemoteDescription reject. */
     failRemoteDescription = false;
+    /**
+     * Set to refuse a remote offer once a local one has been applied, until
+     * that offer is answered: what an engine does with another engine's offer.
+     */
+    strictRemoteOffer = false;
+    #localOfferApplied = false;
+    /**
+     * Set to keep a browser's bookkeeping where a test depends on it. A
+     * section has no mid until a description is applied, and each offer made
+     * before then numbers it anew. The negotiation flag is raised once per
+     * need, and again on each return to `stable` with the need still there.
+     * PerfectNegotiator.browser.test.js holds Chromium to both.
+     */
+    browserLike = false;
+    #mids = 0;
+    /** Changes made, and how many of them the last settled exchange covered. */
+    #changes = 0;
+    #settled = 0;
+    #covers = new WeakMap();
+    #flagged = false;
+    /** The mids of the sections in the peer's last offer. */
+    #remoteMids = [];
 
     constructor (config) {
         this.config = config;
@@ -79,11 +101,46 @@ export class FakePeerConnection {
         return this.transceivers;
     }
 
+    /**
+     * Something changed that an offer has to carry. A browser says so once,
+     * and again each time it is back at `stable` with the need still there.
+     */
+    needsNegotiation () {
+        this.#changes++;
+        if ( ! this.browserLike ) return this.fire('negotiationneeded');
+        this.#raiseFlag();
+    }
+
+    #raiseFlag () {
+        if ( this.signalingState !== 'stable' || this.#flagged || this.#changes === this.#settled ) return;
+        this.#flagged = true;
+        queueMicrotask(() => this.fire('negotiationneeded'));
+    }
+
+    #backAtStable () {
+        this.#flagged = false;
+        if ( this.browserLike ) this.#raiseFlag();
+    }
+
     addTrack (track, stream) {
         const sender = new FakeSender(track);
-        this.transceivers.push(new FakeTransceiver(this, sender, String(this.transceivers.length)));
-        this.fire('negotiationneeded');
+        sender.streamId = stream?.id;
+        const mid = this.browserLike ? null : String(this.transceivers.length);
+        this.transceivers.push(new FakeTransceiver(this, sender, mid));
+        this.needsNegotiation();
         return sender;
+    }
+
+    /**
+     * Applying a description is what gives a new section its mid: the one the
+     * description names, or the next free one where it was made on the spot.
+     */
+    #assignMids (description) {
+        const named = sectionMids(description?.sdp);
+        this.transceivers.forEach((transceiver, index) => {
+            if ( transceiver.mid !== null ) return;
+            transceiver.mid = description ? named[index] ?? null : String(this.#mids++);
+        });
     }
 
     /** As the spec has it: a sender with no track is left alone. */
@@ -94,7 +151,7 @@ export class FakePeerConnection {
         if ( transceiver ) {
             transceiver.setDirectionQuietly(transceiver.direction === 'sendrecv' ? 'recvonly' : 'inactive');
         }
-        this.fire('negotiationneeded');
+        this.needsNegotiation();
     }
 
     /** Test hook: deliver a remote track the way a negotiation would. */
@@ -110,12 +167,26 @@ export class FakePeerConnection {
         return channel;
     }
 
+    /** An offer the caller may apply later; making one changes nothing. */
+    async createOffer () {
+        const sections = this.transceivers.map((transceiver) => {
+            const { mid, kind, sender } = transceiver;
+            if ( mid === null ) transceiver.offered = String(this.#mids++);
+            return `\r\nm=${kind} 9 UDP/TLS/RTP/SAVPF 0\r\na=mid:${mid ?? transceiver.offered}`
+                + ( sender.track ? `\r\na=msid:${sender.streamId} ${sender.track.id}` : '' );
+        });
+        const offer = { type: 'offer', sdp: `sdp-offer-${++sdpSeq}${sections.join('')}` };
+        this.#covers.set(offer, this.#changes);
+        return offer;
+    }
+
     async setLocalDescription (description) {
         if ( this.signalingState === 'closed' ) throw new Error('InvalidStateError: closed');
         if ( description?.type === 'rollback' ) {
             this.localDescription = null;
             this.signalingState = 'stable';
             this.fire('signalingstatechange');
+            this.#backAtStable();
             return;
         }
         if ( this.failLocalDescription ) {
@@ -125,8 +196,14 @@ export class FakePeerConnection {
         const type = description?.type
             ?? ( this.signalingState === 'have-remote-offer' ? 'answer' : 'offer' );
         this.localDescription = description ?? { type, sdp: `sdp-${type}-${++sdpSeq}` };
+        this.#assignMids(description);
+        if ( type === 'offer' ) {
+            this.#localOfferApplied = true;
+            if ( ! description ) this.#covers.set(this.localDescription, this.#changes);
+        }
         this.signalingState = type === 'offer' ? 'have-local-offer' : 'stable';
         this.fire('signalingstatechange');
+        if ( type === 'answer' ) this.#backAtStable();
     }
 
     async setRemoteDescription (description) {
@@ -141,6 +218,18 @@ export class FakePeerConnection {
             if ( this.signalingState !== 'stable' && this.signalingState !== 'have-local-offer' ) {
                 throw new Error(`InvalidStateError: ${this.signalingState}`);
             }
+            if ( this.strictRemoteOffer && this.#localOfferApplied ) {
+                throw new Error('remote offer refused after a local offer');
+            }
+            // A section keeps the number the peer first offered it under.
+            const mids = sectionMids(description.sdp);
+            if ( this.#remoteMids.some((mid, index) => index < mids.length && mids[index] !== mid) ) {
+                throw new Error('remote offer renumbers a section already applied');
+            }
+            if ( mids.length > 0 ) this.#remoteMids = mids;
+            // A peer that applied our offer lists its sections in its own, and
+            // a track added here takes the section the peer already has for it.
+            for ( const transceiver of this.transceivers ) transceiver.mid ??= transceiver.offered ?? null;
             this.remoteDescription = description;
             this.signalingState = 'have-remote-offer';
             this.fire('signalingstatechange');
@@ -149,9 +238,12 @@ export class FakePeerConnection {
         if ( this.signalingState !== 'have-local-offer' ) {
             throw new Error(`InvalidStateError: ${this.signalingState}`);
         }
+        this.#localOfferApplied = false;
         this.remoteDescription = description;
+        this.#settled = this.#covers.get(this.localDescription) ?? this.#settled;
         this.signalingState = 'stable';
         this.fire('signalingstatechange');
+        this.#backAtStable();
     }
 
     async addIceCandidate (candidate) {
@@ -178,6 +270,8 @@ export class FakePeerConnection {
     }
 }
 
+const sectionMids = (sdp) => [...(sdp ?? '').matchAll(/^a=mid:(.+)$/gm)].map((match) => match[1]);
+
 /** A transceiver whose direction raises the negotiation flag when changed. */
 export class FakeTransceiver {
     #pc;
@@ -186,6 +280,7 @@ export class FakeTransceiver {
     constructor (pc, sender, mid) {
         this.#pc = pc;
         this.sender = sender;
+        this.kind = sender.track?.kind;
         this.mid = mid;
     }
 
@@ -196,7 +291,7 @@ export class FakeTransceiver {
     set direction (value) {
         if ( value === this.#direction ) return;
         this.#direction = value;
-        this.#pc.fire('negotiationneeded');
+        this.#pc.needsNegotiation();
     }
 
     setDirectionQuietly (value) {

@@ -5,8 +5,11 @@ import { FakePeerConnection, LoopbackChannel, flush } from './testFakes.js';
 const origRTCPeerConnection = globalThis.RTCPeerConnection;
 const origMediaStream = globalThis.MediaStream;
 
+let streamSeq = 0;
+
 class FakeMediaStream {
     #tracks;
+    id = `stream-${++streamSeq}`;
     constructor (tracks = []) {
         this.#tracks = [...tracks];
     }
@@ -39,9 +42,19 @@ const makeConnection = async () => {
     const conn = new PuterPeerConnection({ iceServers: [] }, { polite: true, channel });
     const pc = FakePeerConnection.instances.at(-1);
     conn.acceptNegotiation();
+    // The data channel raises the negotiation flag before the peer's opening
+    // offer can arrive, while this side may not offer yet.
+    await flush();
     channel.onoffer({ type: 'offer', sdp: 'opening' }, {});
     await flush();
     return { conn, pc, channel };
+};
+
+/** The peer answers the offer this side sent last. */
+const answerLastOffer = async (channel) => {
+    const { gen } = channel.delivered.filter((p) => p.offer).at(-1).offer;
+    channel.onanswer({ type: 'answer', sdp: 'answer' }, {}, gen);
+    await flush();
 };
 
 /** The names map carried by the most recent description this side sent. */
@@ -51,6 +64,107 @@ const sentNames = (channel) => {
 };
 
 describe('publishing', () => {
+    it('names the sections of an offer that has not been applied yet', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        pc.browserLike = true;
+
+        conn.publish('camera', new FakeMediaStream([track('audio')]));
+        await flush();
+
+        expect(sentNames(channel)).toEqual({ 0: 'camera' });
+    });
+
+    it('keeps two names apart when their senders share a stream id', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        pc.browserLike = true;
+        const shared = new FakeMediaStream([track('audio', 'a1')]);
+
+        conn.publish('first', shared);
+        shared.removeTrack(shared.getTracks()[0]);
+        shared.addTrack(track('audio', 'a2'));
+        conn.publish('second', shared);
+        await flush();
+
+        expect(sentNames(channel)).toEqual({ 0: 'first', 1: 'second' });
+    });
+
+    it('keeps a placed name when a later one shares its stream id', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        pc.browserLike = true;
+        const shared = new FakeMediaStream([track('audio', 'a1')]);
+        conn.publish('first', shared);
+        await flush();
+        await answerLastOffer(channel);
+
+        shared.removeTrack(shared.getTracks()[0]);
+        shared.addTrack(track('audio', 'a2'));
+        conn.publish('second', shared);
+        await flush();
+
+        expect(sentNames(channel)).toEqual({ 0: 'first', 1: 'second' });
+    });
+
+    it('does not give a new name the section of one that was unpublished', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        pc.browserLike = true;
+        conn.publish('first', new FakeMediaStream([track('audio', 'a1')]));
+        await flush();
+        await answerLastOffer(channel);
+        conn.unpublish('first');
+        await flush();
+        await answerLastOffer(channel);
+
+        conn.publish('second', new FakeMediaStream([track('audio', 'a2')]));
+        await flush();
+
+        expect(sentNames(channel)).toEqual({ 1: 'second' });
+    });
+
+    it('reads an offer as a browser writes it: a data section first, bare line feeds, a section with no stream', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        pc.browserLike = true;
+        const stream = new FakeMediaStream([track('audio', 'mic')]);
+        pc.createOffer = async () => ({
+            type: 'offer',
+            sdp: [
+                'v=0',
+                'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+                'a=mid:0',
+                'm=video 9 UDP/TLS/RTP/SAVPF 96',
+                'a=mid:1',
+                'a=recvonly',
+                'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+                'a=mid:2',
+                `a=msid:${stream.id} mic`,
+                '',
+            ].join('\n'),
+        });
+
+        conn.publish('camera', stream);
+        await flush();
+
+        expect(sentNames(channel)).toEqual({ 2: 'camera' });
+    });
+
+    it('names sections in the order their senders were made, not the order of the names', async () => {
+        const { conn, pc, channel } = await makeConnection();
+        pc.browserLike = true;
+        const shared = new FakeMediaStream([track('audio', 'a1')]);
+
+        conn.publish('first', shared);
+        shared.removeTrack(shared.getTracks()[0]);
+        shared.addTrack(track('video', 'v2'));
+        conn.publish('second', shared);
+        // The first name gains a video sender after the second name's.
+        shared.removeTrack(shared.getTracks()[0]);
+        shared.addTrack(track('audio', 'a1'));
+        shared.addTrack(track('video', 'v1'));
+        conn.publish('first', shared);
+        await flush();
+
+        expect(sentNames(channel)).toEqual({ 0: 'first', 1: 'second', 2: 'first' });
+    });
+
     it('keeps sending when a pause is undone before it lands', async () => {
         // replaceTrack lands a turn later, so the resume comes while the
         // sender still shows the old track and the pause is in flight.

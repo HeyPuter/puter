@@ -138,7 +138,7 @@ export class PuterPeerConnection extends EventTarget {
         this.#negotiator = new PerfectNegotiator(this.peerconnection, this.#channel, {
             polite,
             onerror: (error) => this.dispatchEvent(new PuterPeerConnectionErrorEvent(error)),
-            localNames: () => this.#tracks.localNames(),
+            localNames: (description) => this.#tracks.localNames(description),
             onRemoteNames: (names) => this.#tracks.stageRemoteNames(names),
         });
 

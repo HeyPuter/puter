@@ -2,6 +2,10 @@
 
 New features, changes, and fixes in Puter.js and the Puter APIs, grouped by day, newest first.
 
+## November 27, 2026
+
+- Fixed audio and video published on a [`PuterPeerConnection`](/Objects/puterpeerconnection/) never arriving on either side when the [`puter.peer.serve()`](/Peer/serve/) host and the [`puter.peer.connect()`](/Peer/connect/) guest published at the same moment from different browsers, such as a Chrome host and a Firefox guest. The connection still opened and messages still arrived.
+
 ## November 24, 2026
 
 - Fixed missing `usageDetails.iterations` and incomplete cache-write counts in streamed responses from Claude models through [`puter.ai.chat()`](/AI/chat/). See [ChatResponseChunk](/Objects/chatresponsechunk/#usagedetails).
