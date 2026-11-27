@@ -63,9 +63,16 @@ An extension whose signals are all one tier and channel can fix both in its
 own local alarm helper instead of repeating them at every call site.
 
 A call can pass a plain-language `summary` in its options. Slack shows it instead
-of the diagnostic field grid and keeps only the short reference and region in
-the footer. The alarm record and other transports retain the diagnostic fields
-and full alarm id.
+of the diagnostic field grid and stack trace, and keeps only the short reference
+and region in the footer. The alarm record and other transports retain the
+diagnostic fields and full alarm id.
+
+The HTTP alarm gate supplies a compact summary for known AI provider credit,
+rate-limit, authentication, timeout, and availability errors. It includes up to
+three provider/model attempts and their upstream HTTP statuses. This changes
+only the Slack display. Alarm severity, routing, repeat throttling, and which
+failures raise an alarm follow the same rules above. Unexpected failures keep
+their diagnostic fields and stack trace in Slack.
 
 ## Channel keys
 

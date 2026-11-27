@@ -43,6 +43,7 @@ import {
 } from './core/http/middleware/largeJsonBody';
 import { actorUid, type Actor } from './core/actor';
 import { isHttpError } from './core/http/HttpError';
+import { upstreamAlarmSummary } from './core/http/upstreamAlarmSummary';
 import {
     adminOnlyGate,
     allowedAppIdsGate,
@@ -1007,7 +1008,13 @@ export class PuterServer {
                         forcedSeverity ?? 'critical',
                         // The id pins route + error signature, so repeats are
                         // the same fault and belong on one incident.
-                        { dedup: true, ...(channel ? { channel } : {}) },
+                        {
+                            dedup: true,
+                            ...(channel ? { channel } : {}),
+                            ...(isHttp
+                                ? { summary: upstreamAlarmSummary(err) }
+                                : {}),
+                        },
                     );
                 },
             }),

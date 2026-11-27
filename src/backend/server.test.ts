@@ -34,6 +34,8 @@ import {
 } from 'vitest';
 import { Controller, Get } from './core/http/decorators.ts';
 import { HttpError } from './core/http/HttpError.ts';
+import { buildSlackMessage } from './clients/alarm/slack';
+import type { AlertPayload } from './clients/alarm/types';
 import { extension, extensionStore } from './extensions.ts';
 import { PuterServer } from './server.ts';
 import {
@@ -1549,6 +1551,46 @@ describe('PuterServer HTTP alarm gate', () => {
                     });
                 }) as unknown as RequestHandler,
             },
+            ...[
+                {
+                    path: '/auth-failed',
+                    status: 500,
+                    upstreamStatus: 403,
+                    legacyCode: 'upstream_auth_failed',
+                },
+                {
+                    path: '/rate-limited',
+                    status: 429,
+                    upstreamStatus: 429,
+                    legacyCode: 'upstream_rate_limited',
+                },
+                {
+                    path: '/rate-limited-free',
+                    status: 429,
+                    upstreamStatus: 429,
+                    legacyCode: 'upstream_rate_limited',
+                    noAlarm: true,
+                },
+            ].map(({ path, status, upstreamStatus, legacyCode, noAlarm }) => ({
+                method: 'get',
+                path,
+                options: {},
+                handler: (() => {
+                    throw new HttpError(status, 'provider failure', {
+                        legacyCode,
+                        noAlarm,
+                        fields: {
+                            attempts: [
+                                {
+                                    provider: 'infron',
+                                    model: 'infron:stepfun/step-3.5-flash',
+                                    status: upstreamStatus,
+                                },
+                            ],
+                        },
+                    });
+                }) as unknown as RequestHandler,
+            })),
             {
                 method: 'get',
                 path: '/model-unavailable',
@@ -1696,7 +1738,11 @@ describe('PuterServer HTTP alarm gate', () => {
             'http_503:GET:/credits-exhausted:upstream_credits_exhausted:AI provider out of credits',
         );
         expect(severity).toBe('info');
-        expect(opts).toEqual({ dedup: true, channel: 'ai_providers' });
+        expect(opts).toEqual({
+            dedup: true,
+            channel: 'ai_providers',
+            summary: 'AI provider out of credits: a / m (HTTP 402)',
+        });
         expect(fields.details).toEqual({
             attempts: [
                 {
@@ -1719,6 +1765,58 @@ describe('PuterServer HTTP alarm gate', () => {
         );
         expect(severity).toBe('info');
         expect(opts).toEqual({ dedup: true, channel: 'ai_providers' });
+    });
+
+    it.each([
+        ['/auth-failed', 500, 'AI provider authentication failed', 403],
+        ['/rate-limited', 429, 'AI provider rate limit exceeded', 429],
+    ] as const)(
+        'summarizes %s without changing its severity or channel',
+        async (path, status, reason, upstreamStatus) => {
+            const { severity, opts } = await raisedFor(path, status);
+            expect(severity).toBe('info');
+            expect(opts).toEqual({
+                dedup: true,
+                channel: 'ai_providers',
+                summary: `${reason}: infron / infron:stepfun/step-3.5-flash (HTTP ${upstreamStatus})`,
+            });
+        },
+    );
+
+    it('keeps upstream throttling on a free model silent', async () => {
+        const alarm = vi.spyOn(server.clients.alarm, 'create');
+        const response = await rawRequest(port, '/rate-limited-free', {
+            host: 'puter.localhost',
+        });
+        expect(response.status).toBe(429);
+        expect(alarm).not.toHaveBeenCalled();
+    });
+
+    it('renders a provider failure compactly through the real HTTP alarm pipeline', async () => {
+        const seen: AlertPayload[] = [];
+        server.clients.alarm.addAlertHandler(async (alert) => {
+            seen.push(alert);
+        });
+        const response = await rawRequest(port, '/credits-exhausted', {
+            host: 'puter.localhost',
+        });
+        expect(response.status).toBe(503);
+        const alert = seen.find((entry) =>
+            entry.id.includes('/credits-exhausted:'),
+        )!;
+        expect(alert).toBeDefined();
+        expect(alert.trace).toContain('HttpError: AI provider out of credits');
+        expect(alert.fields.details).toContain('Insufficient credits.');
+        const message = buildSlackMessage(alert, { serverId: 'test-region' });
+        expect(message.text).toBe(
+            ':information_source: AI provider out of credits: a / m (HTTP 402)',
+        );
+        expect(message.attachments[0].text).toBeUndefined();
+        expect(message.attachments[0].fields).toEqual([]);
+        expect(message.attachments[0].footer).toBe(
+            `${alert.shortId} • test-region`,
+        );
+        expect(JSON.parse(response.body)).not.toHaveProperty('summary');
     });
 
     it('raises an unhandled error with no channel', async () => {

@@ -115,7 +115,7 @@ export function buildSlackMessage(
                 fields,
                 footer: footerParts.join(' • '),
                 mrkdwn_in: ['text'],
-                ...(alert.trace
+                ...(alert.trace && !summary
                     ? { text: '```' + truncate(alert.trace, MAX_TRACE) + '```' }
                     : {}),
             },

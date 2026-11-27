@@ -122,6 +122,28 @@ describe('AlarmClient severity routing', () => {
 });
 
 describe('AlarmClient alert payload', () => {
+    it('refreshes the summary with the latest occurrence and retains diagnostics', () => {
+        const client = makeClient();
+        const seen = capture(client);
+        const error = new Error('provider failed');
+        client.create('provider', 'failure', { error }, 'info', {
+            summary: 'First model failed',
+        });
+        client.create('provider', 'failure', { error }, 'info', {
+            summary: 'Second model failed',
+        });
+        client.create('provider', 'failure', { error }, 'info');
+
+        expect(seen.map((alert) => alert.summary)).toEqual([
+            'First model failed',
+            'Second model failed',
+            undefined,
+        ]);
+        expect(seen[1].trace).toBe(error.stack);
+        expect(seen[1].fields.error).toContain('provider failed');
+        expect(seen[1].repeatCount).toBe(2);
+    });
+
     beforeEach(() => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         vi.spyOn(console, 'warn').mockImplementation(() => {});
