@@ -90,7 +90,7 @@ Gemini 4 Carbon, Gemini 4 Hydrogen and Gemini 4 Neon accept text and images with
 
 A `gemini-4-argon` or `gemini-4-carbon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
-Text-to-speech calls to OpenAI, ElevenLabs, xAI, Speechify and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
+Text-to-speech calls to AWS Polly, OpenAI, ElevenLabs, xAI, Speechify and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included. When no `voice` is given, AWS Polly looks one up first, and that lookup has its own 2-minute timeout. An AWS Polly call that times out isn't charged.
 
 A Speechify text-to-speech reply is capped at 64 MiB, an xAI speech-to-text reply at 32 MiB, and an ElevenLabs voice listing at 32 MiB. A larger reply fails with `502 upstream_failed` and isn't charged.
 
@@ -271,6 +271,8 @@ as soon as the byte cap is exceeded. Oversized AI file inputs return
 | Mistral | 50 MB per input. PDFs up to 1,000 pages. |
 
 `File`, `Blob` and data URI inputs are checked by the SDK before upload: 10 MB for Textract, and 36 MB when a Mistral model or provider is named, since the base64 upload must fit the 50 MB request body. URLs and Puter paths are read up to the provider's limit and rejected with `413 input_too_large` beyond it. See [`img2txt()`](/AI/img2txt) for models and options.
+
+A request to AWS Textract times out after 2 minutes, upload and reply included. A call that times out fails with `504 upstream_timeout` and isn't charged. A Puter file that Textract can't read from storage is sent again as an upload, which has its own 2 minutes.
 
 Before the provider runs, the balance must cover every page the call can be billed for, or it fails with `402 insufficient_funds`. A PDF counts its own pages, or only the `pages` selected when that is fewer. A document whose pages can't be counted, such as a DOCX or an encrypted PDF, counts 1,000 pages, or only the `pages` selected. When the balance can't cover that, only as many of its first pages as the balance covers are read, and only those count. An image, and any Textract input, counts as one page. That amount is reserved while the call runs; the charge is for the pages actually processed.
 

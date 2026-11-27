@@ -26,6 +26,9 @@ import { countPdfPages } from './pdfPages.js';
 export const badRequest = (message: string) =>
     new HttpError(400, message, { legacyCode: 'bad_request' });
 
+/** Bounds one Textract request, upload and reply included. */
+export const TEXTRACT_UPSTREAM_TIMEOUT_MS = 120_000;
+
 export const inputMimeType = (loaded: LoadedFile): string =>
     loaded.mimeType ??
     mimeFromName(loaded.filename) ??
