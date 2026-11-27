@@ -1932,6 +1932,8 @@ window.initgui = async function (options) {
                     adoptBorrowedSession(saved);
                     session = saved.user;
                     session_user = host_user;
+                    // The lookup just read it with this token.
+                    whoami = saved.user;
                 }
             }
             if (
