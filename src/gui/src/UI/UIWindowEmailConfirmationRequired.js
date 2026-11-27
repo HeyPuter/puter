@@ -22,6 +22,7 @@ import UIAlert from './UIAlert.js';
 import UIWindowCardVerificationRequired from './UIWindowCardVerificationRequired.js';
 import UIWindowPhoneVerificationRequired from './UIWindowPhoneVerificationRequired.js';
 import postUserProtected from '../helpers/postUserProtected.js';
+import { frameSessionIsBorrowed } from '../helpers/borrowedFrameSession.js';
 
 /**
  * Asks for the code sent to the user's email.
@@ -94,8 +95,9 @@ function UIWindowEmailConfirmationRequired (options) {
         h += '<div style="text-align:center; padding:10px; font-size:14px; margin-top:10px;">';
         h += `<span class="send-conf-email">${i18n('resend_confirmation_code')}</span>`;
         // Off where the window opens before this browser's session cookie is
-        // the gated account's: the change authenticates with that cookie.
-        if ( options.change_address !== false ) {
+        // the gated account's, or in a frame borrowing a saved account: the
+        // change authenticates with that cookie.
+        if ( options.change_address !== false && ! frameSessionIsBorrowed() ) {
             h += '<span class="send-conf-email-sep"> &bull; </span>';
             h += `<span class="change-conf-email">${i18n('email_confirm_change_address')}</span>`;
         }
