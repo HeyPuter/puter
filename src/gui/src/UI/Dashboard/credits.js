@@ -46,6 +46,16 @@ const numberFormat = (options) => {
 export const formatCount = (count) =>
     numberFormat({ maximumFractionDigits: 0 }).format(Number.isFinite(count) ? count : 0);
 
+/**
+ * Whether a usage key meters bytes, so its units render as a size ("1.50 GB")
+ * rather than a count: `egress:bytes`, `turn:egress-bytes`.
+ *
+ * @param {string} key
+ * @returns {boolean}
+ */
+export const isByteUsageKey = (key) =>
+    key.endsWith(':bytes') || key.endsWith(':egress-bytes');
+
 /** Whether a `getMonthlyUsage()` response reports credits. */
 export const usageIsCredits = (allowanceInfo) =>
     allowanceInfo?.unit === 'credits';
