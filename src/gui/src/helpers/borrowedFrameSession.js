@@ -71,23 +71,23 @@ export const savedAccountSession = async ({ hostUser, savedUsers, hostOrigin, ap
     if ( typeof token !== 'string' || !token ) return null;
     const headers = { Authorization: `Bearer ${token}` };
     try {
-        const whoami = await fetchImpl(new URL('/whoami', apiOrigin), { headers });
-        if ( ! whoami.ok ) return null;
-        const user = await whoami.json();
+        // The page names its user itself, so the frame serves only an account
+        // that signed in to the page, as the active account's frame does.
+        const [whoami, relationship] = await Promise.all([
+            fetchImpl(new URL('/whoami', apiOrigin), { headers }),
+            fetchImpl(new URL('/auth/check-app', apiOrigin), {
+                method: 'POST',
+                headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ origin: hostOrigin }),
+            }),
+        ]);
+        if ( !whoami.ok || !relationship.ok ) return null;
+        const [user, app] = await Promise.all([whoami.json(), relationship.json()]);
         if ( typeof user?.uuid !== 'string' || user.uuid.toLowerCase() !== hostUser ) return null;
         // Its boot would ask for a password change, which authenticates with
         // the session cookie, and that cookie is the active account's.
         if ( user.requires_password_change ) return null;
-
-        // The page names its user itself, so the frame serves only an account
-        // that signed in to the page, as the active account's frame does.
-        const relationship = await fetchImpl(new URL('/auth/check-app', apiOrigin), {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ origin: hostOrigin }),
-        });
-        if ( ! relationship.ok ) return null;
-        if ( (await relationship.json())?.authenticated !== true ) return null;
+        if ( app?.authenticated !== true ) return null;
         return { token, user };
     } catch {
         return null;

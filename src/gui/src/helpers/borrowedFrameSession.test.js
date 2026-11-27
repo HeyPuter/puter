@@ -66,6 +66,16 @@ describe('savedAccountSession', () => {
         expect(JSON.parse(checkApp.body)).toEqual({ origin: PAGE });
     });
 
+    it('sends both checks at once', async () => {
+        const answer = fakeApi();
+        const pending = [];
+        const fetchImpl = vi.fn((...args) => new Promise(resolve => pending.push(() => resolve(answer(...args)))));
+        const session = lookUp(fetchImpl);
+        await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+        pending.forEach(release => release());
+        expect(await session).toMatchObject({ token: 'alice-token' });
+    });
+
     it('returns null for an account that is not saved in this browser', async () => {
         const fetchImpl = fakeApi();
         expect(await lookUp(fetchImpl, { savedUsers: [savedUsers[0]] })).toBeNull();
