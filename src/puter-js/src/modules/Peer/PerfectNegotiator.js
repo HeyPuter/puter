@@ -6,11 +6,11 @@ export const DEFAULT_ANSWER_TIMEOUT = 8000;
  * so either side may renegotiate at any time - to restart ICE, or to add a
  * track - without the two colliding.
  *
- * Exactly one side is polite. On a collision the polite side rolls its own
- * offer back and answers; the impolite side ignores the incoming offer and
- * lets its own stand. Everything is applied through a single queue, because
- * an ICE candidate that overtakes the description it belongs to has nowhere
- * to land.
+ * Exactly one side is polite. It sends its offer without applying it, so on
+ * a collision it has nothing to roll back: it drops the offer and answers.
+ * The impolite side ignores the incoming offer and lets its own stand.
+ * Everything is applied through a single queue, because an ICE candidate
+ * that overtakes the description it belongs to has nowhere to land.
  */
 export class PerfectNegotiator {
     #pc;
@@ -42,6 +42,13 @@ export class PerfectNegotiator {
      * else's ICE restart as having been answered.
      */
     #offerGeneration = 0;
+    /**
+     * The polite side's offer, sent and not yet applied. An engine can refuse
+     * a peer's offer once its own has been applied, even after a rollback.
+     *
+     * @type {{ description: RTCSessionDescriptionInit, generation: number } | null}
+     */
+    #heldOffer = null;
 
     /**
      * @param {RTCPeerConnection} peerconnection
@@ -49,7 +56,7 @@ export class PerfectNegotiator {
      * @param {{
      *   polite: boolean,
      *   onerror: (error: Error) => void,
-     *   localNames?: () => Record<string, string>,
+     *   localNames?: (description?: RTCSessionDescriptionInit) => Record<string, string>,
      *   onRemoteNames?: (names: Record<string, string>) => import('./tracks.js').StagedNames | null,
      * }} options
      */
@@ -155,7 +162,7 @@ export class PerfectNegotiator {
      * @returns {void}
      */
     signallingRestored () {
-        if ( this.#pc.signalingState === 'have-local-offer' ) this.#offerPending = true;
+        if ( this.#pc.signalingState === 'have-local-offer' || this.#heldOffer ) this.#offerPending = true;
         this.#offerIfPending();
     }
 
@@ -173,7 +180,7 @@ export class PerfectNegotiator {
      * Makes a remembered offer, once it can both reach the peer and not
      * collide with an ICE restart from it: while the transport is down the
      * impolite side may be restarting, and a polite offer crossing that
-     * restart is rolled back at the worst moment (see PuterPeerConnection's
+     * restart gives way at the worst moment (see PuterPeerConnection's
      * recovery). Any offer carries the whole of the current state, so a
      * restart offer that goes out meanwhile settles it too.
      */
@@ -194,6 +201,7 @@ export class PerfectNegotiator {
         this.#pc.onnegotiationneeded = null;
         this.#pc.onicecandidate = null;
         this.#pendingCandidates = [];
+        this.#heldOffer = null;
         this.#failWaiters(new Error('The connection closed while negotiating'));
     }
 
@@ -205,7 +213,7 @@ export class PerfectNegotiator {
 
     /**
      * Queues one offer. Several things ask for the same one - the
-     * negotiation flag, an ICE restart, a rolled-back offer that has to be
+     * negotiation flag, an ICE restart, an offer that gave way and has to be
      * made again - and each extra offer is one the peer has to answer before
      * the exchange settles, so they collapse into the one already waiting.
      */
@@ -237,22 +245,41 @@ export class PerfectNegotiator {
         // be carried by it: an ICE restart asked for during `createOffer`
         // belongs to the next offer, not this one.
         const carried = [...this.#waiters];
+        // A held offer sent again carries nothing asked for since it was made.
+        const fresh = ! this.#heldOffer;
         try {
             this.#makingOffer = true;
-            await this.#pc.setLocalDescription();
+            const description = await this.#describeOffer();
             const generation = ++this.#offerGeneration;
-            if ( ! this.#channel.sendOffer(this.#pc.localDescription, this.#localNames(), generation) ) {
+            if ( ! this.#channel.sendOffer(description, this.#localNames(description), generation) ) {
                 this.#offerPending = true;
                 await this.#abandonOffer();
                 return;
             }
+            if ( this.#polite ) this.#heldOffer = { description, generation };
             this.#offerPending = false;
-            this.#bindWaiters(generation, carried);
+            if ( fresh ) this.#bindWaiters(generation, carried);
         } catch ( e ) {
             this.#onerror(e);
         } finally {
             this.#makingOffer = false;
         }
+    }
+
+    /**
+     * The impolite side applies its offer as it makes it. The polite side
+     * only creates one, and sends the one it holds again as it is: every
+     * unapplied offer renumbers its new sections, and a peer that applied
+     * the held one refuses them under another number.
+     *
+     * @returns {Promise<RTCSessionDescriptionInit>}
+     */
+    async #describeOffer () {
+        if ( ! this.#polite ) {
+            await this.#pc.setLocalDescription();
+            return this.#pc.localDescription;
+        }
+        return this.#heldOffer?.description ?? this.#pc.createOffer();
     }
 
     /**
@@ -276,15 +303,16 @@ export class PerfectNegotiator {
         const pc = this.#pc;
         if ( pc.signalingState === 'closed' ) return;
 
-        const collision = this.#makingOffer || pc.signalingState !== 'stable';
-        // Only the impolite side may ignore an offer. The polite side rolls
-        // its own back inside setRemoteDescription and answers instead.
+        const collision = this.#makingOffer || pc.signalingState !== 'stable' || this.#heldOffer !== null;
+        // Only the impolite side may ignore an offer. The polite side drops
+        // the one it holds and answers instead.
         this.#ignoreOffer = ! this.#polite && collision;
         if ( this.#ignoreOffer ) return;
 
-        // Our own offer is about to be rolled back, so whatever was waiting on
-        // it has to wait for the offer that replaces it.
+        // Our own offer is about to be dropped, so whatever was waiting on it
+        // has to wait for the offer that replaces it.
         const rebound = collision && this.#rebindWaiters();
+        this.#heldOffer = null;
 
         try {
             await this.#adopt(description, names);
@@ -297,8 +325,8 @@ export class PerfectNegotiator {
                 // additions need.
                 this.#mayOffer = true;
                 // Nothing raises the negotiation flag again for an offer that
-                // was rolled back, so the replacement has to be asked for -
-                // once there is a signalling path to carry it.
+                // gave way, so the replacement has to be asked for - once
+                // there is a signalling path to carry it.
                 if ( rebound && delivered ) this.#requestOffer();
             }
             if ( ! delivered ) {
@@ -309,8 +337,29 @@ export class PerfectNegotiator {
         }
     }
 
+    /**
+     * The peer answered the offer being held: the offer is applied now, then
+     * the answer. An answer that names another offer settles nothing here.
+     * A failure is reported and nothing is offered in its place: the peer
+     * has applied this offer, and a new one would renumber its sections.
+     */
+    async #applyHeldOffer ( description, names, re ) {
+        const { description: offer, generation } = this.#heldOffer;
+        if ( Number.isInteger(re) && re !== generation ) return;
+        this.#heldOffer = null;
+        try {
+            await this.#pc.setLocalDescription(offer);
+            await this.#adopt(description, names);
+            this.#mayOffer = true;
+            this.#settleNegotiation(generation);
+        } catch ( e ) {
+            this.#onerror(e);
+        }
+    }
+
     async #applyAnswer ( description, names, re ) {
         const pc = this.#pc;
+        if ( this.#heldOffer ) return this.#applyHeldOffer(description, names, re);
         // An answer with no offer of ours outstanding replies to one that has
         // since been rolled back or replaced - several restart offers held up
         // by a stalled socket arrive at once, and so do their answers. There

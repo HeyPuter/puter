@@ -27,10 +27,12 @@ export class TrackPublisher {
     #pc;
     #target;
     /**
-     * name -> { stream, senders: Map<kind, RTCRtpSender>, tracks: Map<kind, track|null>, options, request }
+     * name -> { stream, senders: Map<kind, RTCRtpSender>, tracks: Map<kind, track|null>,
+     * streamIds: Map<kind, string>, options, request }
      * `tracks` is what was last asked of each sender; `request` counts the
      * publish() calls, so a replacement that fails can tell whether a later
-     * call has made it moot.
+     * call has made it moot. `streamIds` is the stream each sender was added
+     * with, which is what its m-section carries before it has a mid.
      */
     #published = new Map();
     #remoteNames = new Map();
@@ -92,7 +94,7 @@ export class TrackPublisher {
 
         let slot = this.#published.get(name);
         if ( ! slot ) {
-            slot = { stream: null, senders: new Map(), tracks: new Map(), options: {}, request: 0 };
+            slot = { stream: null, senders: new Map(), tracks: new Map(), streamIds: new Map(), options: {}, request: 0 };
             this.#published.set(name, slot);
         }
         this.#merge(slot, options);
@@ -119,12 +121,18 @@ export class TrackPublisher {
                     });
                 }
             } else if ( track ) {
-                slot.senders.set(kind, this.#pc.addTrack(track, slot.stream));
+                this.#send(slot, kind, track, slot.stream);
                 slot.tracks.set(kind, track);
             }
         }
 
         this.#applyEncodings(slot);
+    }
+
+    /** Adds a sender for `track`, noting the stream its m-section will name. */
+    #send ( slot, kind, track, stream ) {
+        slot.senders.set(kind, this.#pc.addTrack(track, stream));
+        slot.streamIds.set(kind, stream.id);
     }
 
     /**
@@ -140,7 +148,7 @@ export class TrackPublisher {
         if ( this.#closed || this.#published.get(name) !== slot || slot.tracks.get(kind) !== track ) return;
         if ( error?.name === 'InvalidModificationError' && track ) {
             this.#withdraw(sender);
-            slot.senders.set(kind, this.#pc.addTrack(track, slot.stream ?? new MediaStream([track])));
+            this.#send(slot, kind, track, slot.stream ?? new MediaStream([track]));
             return;
         }
         slot.tracks.set(kind, sender.track);
@@ -200,19 +208,34 @@ export class TrackPublisher {
 
     /**
      * The name of every slot currently going out, keyed by the m-section it
-     * occupies, to travel alongside a local description.
+     * occupies, to travel alongside a local description. A section has no mid
+     * until a description is applied, so one that has not been is passed in
+     * and its new sections are read from its text.
      *
+     * @param {RTCSessionDescriptionInit} [description]
      * @returns {Record<string, string>}
      */
-    localNames () {
+    localNames ( description ) {
         /** @type {Record<string, string>} */
         const names = {};
+        /** Senders with no m-section yet. */
+        const unplaced = new Map();
         const transceivers = this.#pc.getTransceivers?.() ?? [];
         for ( const [name, slot] of this.#published ) {
-            for ( const sender of slot.senders.values() ) {
+            for ( const [kind, sender] of slot.senders ) {
                 const mid = transceivers.find((t) => t.sender === sender)?.mid;
                 if ( mid !== null && mid !== undefined ) names[mid] = name;
+                else unplaced.set(sender, { name, kind, streamId: slot.streamIds.get(kind) });
             }
+        }
+        if ( unplaced.size === 0 ) return names;
+
+        // An offer lists its new sections in the order their senders were made.
+        const waiting = transceivers.flatMap((t) => unplaced.get(t.sender) ?? []);
+        for ( const section of mediaSections(description?.sdp) ) {
+            if ( section.mid in names ) continue;
+            const at = waiting.findIndex((s) => s.kind === section.kind && s.streamId === section.streamId);
+            if ( at !== -1 ) names[section.mid] = waiting.splice(at, 1)[0].name;
         }
         return names;
     }
@@ -343,6 +366,25 @@ export class TrackPublisher {
             // settle rather than reported
         }
     }
+}
+
+/**
+ * The media sections of an SDP, in order: each one's kind, mid, and the id
+ * of the stream its sender was added with.
+ *
+ * @param {string} [sdp]
+ * @returns {{ kind: string, mid: string, streamId: string | undefined }[]}
+ */
+function mediaSections ( sdp ) {
+    return (sdp ?? '').split(/\r?\nm=/).slice(1).flatMap((section) => {
+        const mid = section.match(/^a=mid:(.+)$/m)?.[1];
+        if ( mid === undefined ) return [];
+        return [{
+            kind: section.slice(0, section.indexOf(' ')),
+            mid,
+            streamId: section.match(/^a=msid:(\S+)/m)?.[1],
+        }];
+    });
 }
 
 /** A bare track counts as a stream of one. */
