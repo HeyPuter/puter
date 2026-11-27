@@ -1598,6 +1598,8 @@ window.initgui = async function (options) {
     let showed_account_picker = false;
     // The `/whoami` a sign-in popup read before its account picker.
     let popup_whoami = null;
+    // The opener's `/auth/check-app` for a saved account a framed popup runs as.
+    let borrowed_relationship = null;
 
     // update SDK if auth_token is different from the one in the SDK
     if (window.auth_token && puter.authToken !== window.auth_token) {
@@ -1932,8 +1934,9 @@ window.initgui = async function (options) {
                     adoptBorrowedSession(saved);
                     session = saved.user;
                     session_user = host_user;
-                    // The lookup just read it with this token.
+                    // The lookup just read these with this token.
                     whoami = saved.user;
+                    borrowed_relationship = saved.relationship;
                 }
             }
             if (
@@ -2163,9 +2166,9 @@ window.initgui = async function (options) {
         // An account picked above already answers both questions below, the
         // picker and the consent. Signup in the popup is not a pick.
         if (!picked_a_user_for_sdk_login) {
-            let response = await window.checkUserSiteRelationship(
-                window.openerOrigin,
-            );
+            let response =
+                borrowed_relationship ??
+                (await window.checkUserSiteRelationship(window.openerOrigin));
             window.userAppToken = response?.token;
         }
 

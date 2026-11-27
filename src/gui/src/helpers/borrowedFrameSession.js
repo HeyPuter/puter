@@ -75,8 +75,8 @@ export const storeBorrowedAccount = (user, storage = localStorage) => {
  * The saved account the framing page is signed in as, when it isn't the GUI's
  * active one: its token from `logged_in_users`, still accepted by the API, and
  * an account that has signed in to the framing page and owes no password
- * change. Null otherwise, which leaves the page to open the popup or tab.
- * Never rejects.
+ * change, with its `/auth/check-app` answer for the page. Null otherwise,
+ * which leaves the page to open the popup or tab. Never rejects.
  *
  * @param {Object} opts
  * @param {string | null} opts.hostUser - the framing page's user uuid, in lower case
@@ -84,7 +84,7 @@ export const storeBorrowedAccount = (user, storage = localStorage) => {
  * @param {string} opts.hostOrigin - the framing page's origin
  * @param {string} opts.apiOrigin
  * @param {typeof fetch} [opts.fetchImpl]
- * @returns {Promise<{ token: string, user: Record<string, unknown> } | null>}
+ * @returns {Promise<{ token: string, user: Record<string, unknown>, relationship: Record<string, unknown> } | null>}
  */
 export const savedAccountSession = async ({ hostUser, savedUsers, hostOrigin, apiOrigin, fetchImpl = fetch }) => {
     if ( !hostUser || !hostOrigin || !Array.isArray(savedUsers) ) return null;
@@ -96,7 +96,7 @@ export const savedAccountSession = async ({ hostUser, savedUsers, hostOrigin, ap
     try {
         // The page names its user itself, so the frame serves only an account
         // that signed in to the page, as the active account's frame does.
-        const [whoami, relationship] = await Promise.all([
+        const [whoami, appCheck] = await Promise.all([
             fetchImpl(new URL('/whoami', apiOrigin), { headers }),
             fetchImpl(new URL('/auth/check-app', apiOrigin), {
                 method: 'POST',
@@ -104,14 +104,14 @@ export const savedAccountSession = async ({ hostUser, savedUsers, hostOrigin, ap
                 body: JSON.stringify({ origin: hostOrigin }),
             }),
         ]);
-        if ( !whoami.ok || !relationship.ok ) return null;
-        const [user, app] = await Promise.all([whoami.json(), relationship.json()]);
+        if ( !whoami.ok || !appCheck.ok ) return null;
+        const [user, relationship] = await Promise.all([whoami.json(), appCheck.json()]);
         if ( typeof user?.uuid !== 'string' || user.uuid.toLowerCase() !== hostUser ) return null;
         // Its boot would ask for a password change, which authenticates with
         // the session cookie, and that cookie is the active account's.
         if ( user.requires_password_change ) return null;
-        if ( app?.authenticated !== true ) return null;
-        return { token, user };
+        if ( relationship?.authenticated !== true ) return null;
+        return { token, user, relationship };
     } catch {
         return null;
     }

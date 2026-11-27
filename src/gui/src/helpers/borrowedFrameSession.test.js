@@ -60,7 +60,11 @@ describe('savedAccountSession', () => {
     it('returns the saved token and user of the account the page is signed in as', async () => {
         const fetchImpl = fakeApi();
         const session = await lookUp(fetchImpl);
-        expect(session).toEqual({ token: 'alice-token', user: { uuid: ALICE, username: 'alice' } });
+        expect(session).toEqual({
+            token: 'alice-token',
+            user: { uuid: ALICE, username: 'alice' },
+            relationship: { authenticated: true },
+        });
         const [, checkApp] = fetchImpl.mock.calls[1];
         expect(checkApp.headers.Authorization).toBe('Bearer alice-token');
         expect(JSON.parse(checkApp.body)).toEqual({ origin: PAGE });
