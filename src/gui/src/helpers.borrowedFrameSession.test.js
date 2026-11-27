@@ -54,6 +54,7 @@ describe('a frame running as a saved account', () => {
         localStorage.setItem('user', JSON.stringify(BOB));
         window.user = { ...BOB };
         window.logged_in_users = [{ ...BOB, auth_token: 'bob-token' }, { ...ALICE, auth_token: 'alice-token' }];
+        localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users));
         window.gui_origin = 'https://puter.test';
         window.icons = { 'profile.svg': '/profile.svg' };
         globalThis.fetch = vi.fn(async () => ({ ok: true }));
@@ -74,6 +75,21 @@ describe('a frame running as a saved account', () => {
         const saved = JSON.parse(localStorage.getItem('logged_in_users'));
         expect(saved.find(user => user.uuid === 'alice')).toMatchObject({ subscribed: true, auth_token: 'alice-token' });
         expect(saved.find(user => user.uuid === 'bob')).toMatchObject({ auth_token: 'bob-token' });
+    });
+
+    it('keeps the saved accounts other tabs changed since it loaded', async () => {
+        const CAROL = { uuid: 'carol', username: 'carol', auth_token: 'carol-token' };
+        localStorage.setItem('logged_in_users', JSON.stringify([{ ...BOB, auth_token: 'bob-token' }, { ...ALICE, auth_token: 'alice-token' }, CAROL]));
+        await window.update_auth_data('alice-token', { ...ALICE, subscribed: true });
+        const saved = JSON.parse(localStorage.getItem('logged_in_users'));
+        expect(saved.map(user => user.uuid)).toEqual(['bob', 'alice', 'carol']);
+        expect(saved[1]).toMatchObject({ subscribed: true, auth_token: 'alice-token' });
+    });
+
+    it('leaves out its account once another tab signed it out', async () => {
+        localStorage.setItem('logged_in_users', JSON.stringify([{ ...BOB, auth_token: 'bob-token' }]));
+        await window.update_auth_data('alice-token', { ...ALICE, subscribed: true });
+        expect(JSON.parse(localStorage.getItem('logged_in_users'))).toEqual([{ ...BOB, auth_token: 'bob-token' }]);
     });
 
     it("ignores the active account's session changing in another tab", () => {

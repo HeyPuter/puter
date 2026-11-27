@@ -51,6 +51,27 @@ export const adoptBorrowedSession = ({ token, user }, win = window) => {
 };
 
 /**
+ * Writes `user`, the saved account this page runs as, over its own entry in
+ * the stored `logged_in_users`. The other entries are the GUI's other tabs' to
+ * change, and an account one of them signed out of since stays out.
+ *
+ * @param {Record<string, unknown>} user - a storable copy, with its `auth_token`
+ * @param {Storage} [storage]
+ */
+export const storeBorrowedAccount = (user, storage = localStorage) => {
+    let saved;
+    try {
+        saved = JSON.parse(storage.getItem('logged_in_users'));
+    } catch {
+        return;
+    }
+    const index = Array.isArray(saved) ? saved.findIndex(entry => entry?.uuid === user.uuid) : -1;
+    if ( index === -1 ) return;
+    saved[index] = user;
+    storage.setItem('logged_in_users', JSON.stringify(saved));
+};
+
+/**
  * The saved account the framing page is signed in as, when it isn't the GUI's
  * active one: its token from `logged_in_users`, still accepted by the API, and
  * an account that has signed in to the framing page and owes no password

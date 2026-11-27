@@ -34,7 +34,7 @@ import { notifyItemWatchers } from './helpers/watchItems.js';
 import { select_uploaded_items } from './helpers/uploadSelection.js';
 import { templateMenuItem } from './helpers/templateMenuItem.js';
 import { isTokenForAnotherUser } from './helpers/tokenUser.js';
-import { frameSessionIsBorrowed } from './helpers/borrowedFrameSession.js';
+import { frameSessionIsBorrowed, storeBorrowedAccount } from './helpers/borrowedFrameSession.js';
 import { uuidv4 } from './helpers/uuidv4.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
@@ -701,7 +701,11 @@ window.update_auth_data = async (auth_token, user) => {
         return storable_user;
     };
     const store_users = () => {
-        if ( storesActiveSession ) localStorage.setItem('user', JSON.stringify(to_storable_user(window.user)));
+        if ( ! storesActiveSession ) {
+            storeBorrowedAccount(to_storable_user(window.user));
+            return;
+        }
+        localStorage.setItem('user', JSON.stringify(to_storable_user(window.user)));
         localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users.map(to_storable_user)));
     };
 

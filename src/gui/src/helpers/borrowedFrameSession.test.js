@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { adoptBorrowedSession, frameSessionIsBorrowed, savedAccountSession } from './borrowedFrameSession.js';
+import { adoptBorrowedSession, frameSessionIsBorrowed, savedAccountSession, storeBorrowedAccount } from './borrowedFrameSession.js';
 
 const API = 'https://api.puter.test';
 const PAGE = 'https://docs.puter.test';
@@ -110,6 +110,30 @@ describe('savedAccountSession', () => {
 
     it('returns null rather than rejecting when the API is unreachable', async () => {
         expect(await lookUp(fakeApi({ down: true }))).toBeNull();
+    });
+});
+
+describe('storeBorrowedAccount', () => {
+    const storage = (value) => {
+        const items = new Map([['logged_in_users', value]]);
+        return { getItem: key => items.get(key) ?? null, setItem: vi.fn((key, v) => items.set(key, v)) };
+    };
+
+    it('replaces only its own entry', () => {
+        const store = storage(JSON.stringify(savedUsers));
+        storeBorrowedAccount({ uuid: BOB, username: 'bob', auth_token: 'bob-token-2' }, store);
+        expect(JSON.parse(store.getItem('logged_in_users'))).toEqual([
+            { uuid: BOB, username: 'bob', auth_token: 'bob-token-2' },
+            savedUsers[1],
+        ]);
+    });
+
+    it('writes nothing when the list is missing, unreadable or lacks the account', () => {
+        for ( const value of [null, '{not json', JSON.stringify({}), JSON.stringify([savedUsers[1]])] ) {
+            const store = storage(value);
+            storeBorrowedAccount({ uuid: BOB, auth_token: 'bob-token' }, store);
+            expect(store.setItem).not.toHaveBeenCalled();
+        }
     });
 });
 
