@@ -371,6 +371,61 @@ describe('MiniMaxProvider.complete output and metering', () => {
         });
     });
 
+    it.each([
+        [511_999, 0, 20_000, 1, 17_759_970],
+        [512_000, 0, 20_000, 1, 17_760_000],
+        [512_001, 0, 20_000, 2, 35_520_060],
+        [800_000, 0, 20_000, 2, 52_800_000],
+        [800_000, 300_000, 20_000, 2, 38_400_000],
+    ] as const)(
+        'bills minimax-m3 for %i input tokens (%i cached) and %i output tokens at %ix the base rates',
+        async (inputTokens, cachedTokens, outputTokens, multiplier, total) => {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce({
+                id: '066a33a7d290378f8a9e57a055812afa',
+                choices: [
+                    {
+                        index: 0,
+                        message: { content: 'hi', role: 'assistant' },
+                        finish_reason: 'stop',
+                    },
+                ],
+                created: 1780220779,
+                model: 'MiniMax-M3',
+                object: 'chat.completion',
+                usage: {
+                    total_tokens: inputTokens + outputTokens,
+                    total_characters: 0,
+                    prompt_tokens: inputTokens,
+                    completion_tokens: outputTokens,
+                    prompt_tokens_details: { cached_tokens: cachedTokens },
+                },
+                base_resp: { status_code: 0, status_msg: '' },
+            });
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'minimax-m3',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe('minimax:minimax-m3');
+            expect(overrides).toEqual({
+                prompt_tokens: (inputTokens - cachedTokens) * 30 * multiplier,
+                completion_tokens: outputTokens * 120 * multiplier,
+                cached_tokens: cachedTokens * 6 * multiplier,
+            });
+            expect(
+                Object.values(overrides as Record<string, number>).reduce(
+                    (a, b) => a + b,
+                    0,
+                ),
+            ).toBe(total);
+        },
+    );
+
     it('rethrows errors raised by the OpenAI client unchanged', async () => {
         const { provider } = makeProvider();
         const apiError = new Error('MiniMax exploded');
