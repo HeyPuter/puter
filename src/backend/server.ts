@@ -73,6 +73,7 @@ import { createUserProtectedGate } from './core/http/middleware/userProtected';
 import { internalAuthGate } from './core/http/middleware/internalAuth';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { cardFallbackDepsFrom } from './util/cardFallback';
+import { normalizeHost } from './util/hosts';
 import { installProcessGuards } from './util/processGuards';
 import { activeSubdomain, subdomainOffsetForDomain } from './util/subdomains';
 import {
@@ -92,7 +93,10 @@ import {
     isMainPipelineClaim,
 } from './core/http/middleware/hostRedirects';
 import { createEgressMeteringMiddleware } from './core/http/middleware/egressMetering';
-import { createLocalWorkerProxyMiddleware } from './core/http/middleware/localWorkerProxy';
+import {
+    createLocalWorkerProxyMiddleware,
+    isLocalWorkerHost,
+} from './core/http/middleware/localWorkerProxy';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
 import {
@@ -540,8 +544,21 @@ export class PuterServer {
         // proceed. Answering it here with a bare 200 tells the client this
         // isn't a WebDAV server at all, so let it fall through to the
         // controller, which builds the real response.
+        //
+        // A local worker is exempt too: it answers its own preflight, as it
+        // does on Cloudflare. The reply here lists only the API's headers, so
+        // the `puter-auth` header `puter.workers.exec()` sends would fail
+        // every call from a page.
+        const localWorkers = Boolean(this.#config.workers?.localServer);
         this.#app.options('/*splat', (req, res, next) => {
             if (activeSubdomain(req) === 'dav') {
+                next();
+                return;
+            }
+            if (
+                localWorkers &&
+                isLocalWorkerHost(normalizeHost(req.hostname) ?? '')
+            ) {
                 next();
                 return;
             }
