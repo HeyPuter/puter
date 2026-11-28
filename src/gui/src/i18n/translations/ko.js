@@ -912,6 +912,8 @@ const ko = {
         signup_bonus_requires_phone: '보너스를 받으려면 가입 후 전화번호를 인증해야 합니다.',
         signup_bonus_requires_card: '보너스를 받으려면 가입 후 카드를 인증해야 합니다.',
         signup_bonus_requires_phone_and_card: '보너스를 받으려면 가입 후 전화번호와 카드를 인증해야 합니다.',
+        welcome: '환영합니다',
+        your_personal_internet_computer: '나만의 개인 인터넷 컴퓨터',
         sign_in_with_google: 'Google로 로그인',
         sign_up_with_google: 'Google로 가입',
         sign_in_with_apple: 'Apple로 로그인',

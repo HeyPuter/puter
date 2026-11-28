@@ -53,6 +53,7 @@
     --dashboard-text-tertiary: #707070;
     --dashboard-text-heading: #333;
     --dashboard-text-card-title: #1a1a1a;
+    --dashboard-text-username: #414b62;
     --dashboard-text-hint: #64748b;
     /* Muted and tertiary text still clear 4.5:1 on the cards and sidebar;
        disabled controls keep the fainter grey. */
@@ -104,6 +105,8 @@
     --dashboard-icon-green-shadow: rgba(16, 185, 129, 0.3);
 
     /* TabHome bento: solid surfaces aligned with header icon accents (no gradients) */
+    --dashboard-bento-welcome-avatar-border: #e8e4df;
+    --dashboard-bento-welcome-avatar-shadow: rgba(41, 37, 36, 0.1);
     /* Amber (a file's warmth, set apart from the cool app and usage cards) */
     --dashboard-bento-files-icon-bg: #d97706;
     --dashboard-bento-files-header-bg: #fef3c7;
@@ -185,6 +188,7 @@ body {
         --dashboard-text-tertiary: #94949c;
         --dashboard-text-heading: #f4f4f5;
         --dashboard-text-card-title: #fafafa;
+        --dashboard-text-username: #c4cad6;
         --dashboard-text-hint: #94a3b8;
         --dashboard-text-muted: #8b95a5;
         --dashboard-text-disabled: #64748b;
@@ -232,6 +236,8 @@ body {
         --dashboard-icon-green-end: #10b981;
         --dashboard-icon-green-shadow: rgba(52, 211, 153, 0.25);
 
+        --dashboard-bento-welcome-avatar-border: #44403c;
+        --dashboard-bento-welcome-avatar-shadow: rgba(0, 0, 0, 0.35);
         --dashboard-bento-files-icon-bg: #f59e0b;
         --dashboard-bento-files-header-bg: #2e2516;
         --dashboard-bento-apps-icon-bg: #3b82f6;
@@ -7213,13 +7219,76 @@ body.myapps-reordering .myapps-tile {
     border: 1px solid var(--dashboard-shadow-light);
 }
 
-/* Save-session banner, above the cards, for a temporary account */
-.dashboard .bento-save-account-warning {
-    grid-column: 1 / -1;
+/* Welcome Card — uses same surface as .bento-card (no separate welcome tint) */
+.dashboard .bento-welcome {
+    position: relative;
+    color: var(--dashboard-text-primary);
+    min-height: 280px;
+}
+
+.dashboard .bento-welcome-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
     display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 24px;
+    box-sizing: border-box;
+}
+
+.dashboard .bento-welcome-pattern {
+    display: none;
+}
+
+.dashboard .bento-welcome-content {
+    position: relative;
+    z-index: 1;
+}
+
+.dashboard .bento-welcome-avatar {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    background-color: var(--dashboard-avatar-background);
+    border: 3px solid var(--dashboard-bento-welcome-avatar-border);
+    margin-bottom: 16px;
+}
+
+.dashboard .bento-greeting {
+    font-size: 14px;
+    color: var(--dashboard-text-hint);
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.dashboard .bento-username {
+    font-size: 25px;
+    font-weight: 700;
+    margin: 0 0 8px 0;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--dashboard-text-username);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard .bento-tagline {
+    font-size: 13px;
+    margin: 0;
+    font-weight: 400;
+}
+
+.dashboard .bento-save-account-warning {
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
     gap: 6px;
+    margin-top: 12px;
     padding: 8px 14px;
     background-color: var(--dashboard-warning-background);
     border: 1px solid var(--dashboard-warning-border);
@@ -7249,163 +7318,6 @@ body.myapps-reordering .myapps-tile {
     .dashboard .bento-save-account-warning:hover svg {
         color: var(--dashboard-warning-hover-border);
     }
-}
-
-/* Recently opened files card (the square beside the apps) */
-.dashboard .bento-files {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    min-height: 280px;
-}
-
-.dashboard .bento-files > .bento-card-fancy-header {
-    background-color: var(--dashboard-bento-files-header-bg);
-    padding-right: 52px;
-}
-
-.dashboard .bento-card-fancy-icon-files {
-    background-color: var(--dashboard-bento-files-icon-bg);
-    color: #fff;
-}
-
-.dashboard .bento-recent-files-menu {
-    position: absolute;
-    top: 30px;
-    right: 14px;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border: none;
-    border-radius: 8px;
-    background: none;
-    color: var(--dashboard-text-hint);
-    cursor: pointer;
-}
-
-.dashboard .bento-recent-files-menu[hidden] {
-    display: none;
-}
-
-.dashboard .bento-recent-files-menu svg {
-    width: 18px;
-    height: 18px;
-}
-
-.dashboard .bento-recent-files-menu:focus-visible {
-    outline: 2px solid var(--select-color);
-    outline-offset: 0;
-}
-
-@media (hover: hover) {
-    .dashboard .bento-recent-files-menu:hover {
-        background-color: var(--dashboard-shadow-light);
-        color: var(--dashboard-text-primary);
-    }
-}
-
-.dashboard .bento-recent-files-menu.has-open-contextmenu {
-    background-color: var(--dashboard-shadow-light);
-    color: var(--dashboard-text-primary);
-}
-
-.dashboard .bento-recent-files-container {
-    flex: 1;
-    padding: 12px 14px 16px;
-}
-
-.dashboard .bento-recent-files-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.dashboard .bento-recent-file {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 6px 10px;
-    border: none;
-    border-radius: 8px;
-    background: none;
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-
-.dashboard .bento-recent-file:focus-visible {
-    outline: 2px solid var(--select-color);
-    outline-offset: -2px;
-}
-
-@media (hover: hover) {
-    .dashboard .bento-recent-file:hover {
-        background-color: var(--dashboard-shadow-subtle);
-    }
-}
-
-.dashboard .bento-recent-file:active {
-    background-color: var(--dashboard-shadow-light);
-}
-
-.dashboard .bento-recent-file-icon {
-    width: 28px;
-    height: 28px;
-    object-fit: contain;
-    flex-shrink: 0;
-}
-
-.dashboard .bento-recent-file-name {
-    flex: 1;
-    min-width: 0;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--dashboard-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.dashboard .bento-recent-file-time {
-    flex-shrink: 0;
-    font-size: 12px;
-    color: var(--dashboard-text-hint);
-}
-
-/* Empty state, matching the apps card's */
-.dashboard .bento-recent-files-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 180px;
-    padding: 0 12px;
-    text-align: center;
-    color: var(--dashboard-icon);
-}
-
-.dashboard .bento-recent-files-empty svg {
-    width: 48px;
-    height: 48px;
-    stroke: var(--dashboard-border);
-    margin-bottom: 16px;
-}
-
-.dashboard .bento-recent-files-empty p {
-    margin: 0 0 4px 0;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--dashboard-text-secondary);
-}
-
-.dashboard .bento-recent-files-empty span {
-    font-size: 13px;
-    color: var(--dashboard-text-tertiary);
 }
 
 /* Recent Apps Card - Rectangle (surface matches blue header icon) */
@@ -7447,8 +7359,113 @@ body.myapps-reordering .myapps-tile {
     outline-offset: -2px;
 }
 
-.dashboard .bento-recent > .bento-card-fancy-header {
+/* The recent card's header: the shown list's name, then the Apps | Files
+   switch and, for files, the menu. */
+.dashboard .bento-recent-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-right: 16px;
     background-color: var(--dashboard-bento-apps-header-bg);
+    border-bottom: 1px solid var(--dashboard-shadow-light);
+}
+
+.dashboard .bento-recent[data-view="files"] .bento-recent-header {
+    background-color: var(--dashboard-bento-files-header-bg);
+}
+
+.dashboard .bento-recent-header > .bento-card-fancy-header {
+    flex: 1;
+    min-width: 0;
+    border-bottom: none;
+}
+
+.dashboard .bento-recent-header .bento-card-fancy-subtitle {
+    white-space: nowrap;
+}
+
+.dashboard .bento-recent-switch {
+    display: inline-flex;
+    flex-shrink: 0;
+    padding: 2px;
+    border-radius: 8px;
+    background-color: var(--dashboard-shadow-light);
+}
+
+.dashboard .bento-recent-switch-btn {
+    padding: 5px 12px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.dashboard .bento-recent-switch-btn[aria-selected="true"] {
+    background-color: var(--dashboard-background);
+    color: var(--dashboard-text-primary);
+    box-shadow: 0 1px 2px var(--dashboard-shadow-medium);
+}
+
+@media (hover: hover) {
+    .dashboard .bento-recent-switch-btn[aria-selected="false"]:hover {
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.dashboard .bento-recent-switch-btn:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: 1px;
+}
+
+.dashboard .bento-card-fancy-icon-files {
+    background-color: var(--dashboard-bento-files-icon-bg);
+    color: #fff;
+}
+
+.dashboard .bento-recent-files-menu {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: var(--dashboard-text-hint);
+    cursor: pointer;
+}
+
+.dashboard .bento-recent-files-menu[hidden] {
+    display: none;
+}
+
+.dashboard .bento-recent-files-menu svg {
+    width: 18px;
+    height: 18px;
+}
+
+.dashboard .bento-recent-files-menu:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: 0;
+}
+
+@media (hover: hover) {
+    .dashboard .bento-recent-files-menu:hover {
+        background-color: var(--dashboard-shadow-light);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.dashboard .bento-recent-files-menu.has-open-contextmenu {
+    background-color: var(--dashboard-shadow-light);
+    color: var(--dashboard-text-primary);
 }
 
 .dashboard .bento-usage > .bento-card-fancy-header {
@@ -7643,6 +7660,102 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard .bento-recent-apps-empty span {
+    font-size: 13px;
+    color: var(--dashboard-text-tertiary);
+}
+
+/* Recently opened files, the recent card's second list */
+.dashboard .bento-recent-files-container {
+    flex: 1;
+    padding: 12px 14px 20px;
+}
+
+.dashboard .bento-recent-files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dashboard .bento-recent-file {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.dashboard .bento-recent-file:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
+@media (hover: hover) {
+    .dashboard .bento-recent-file:hover {
+        background-color: var(--dashboard-shadow-subtle);
+    }
+}
+
+.dashboard .bento-recent-file:active {
+    background-color: var(--dashboard-shadow-light);
+}
+
+.dashboard .bento-recent-file-icon {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+.dashboard .bento-recent-file-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--dashboard-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dashboard .bento-recent-file-time {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--dashboard-text-hint);
+}
+
+/* Empty state, matching the apps' */
+.dashboard .bento-recent-files-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 180px;
+    text-align: center;
+    color: var(--dashboard-icon);
+}
+
+.dashboard .bento-recent-files-empty svg {
+    width: 48px;
+    height: 48px;
+    stroke: var(--dashboard-border);
+    margin-bottom: 16px;
+}
+
+.dashboard .bento-recent-files-empty p {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard .bento-recent-files-empty span {
     font-size: 13px;
     color: var(--dashboard-text-tertiary);
 }
@@ -7922,18 +8035,31 @@ body.myapps-reordering .myapps-tile {
         padding: 0;
     }
 
-    .dashboard .bento-files {
-        min-height: 0;
+    .dashboard .bento-welcome {
+        aspect-ratio: auto;
+        min-height: 180px;
     }
 
-    /* The desktop minimum matches the files card beside it; in one column
-       it only left the card half empty under a few apps. */
+    /* The desktop minimum matches the square welcome card beside it; in one
+       column it only left the card half empty under a few apps. */
     .dashboard .bento-recent {
         min-height: 0;
     }
 
+    .dashboard .bento-welcome-inner {
+        padding: 20px;
+    }
 
+    .dashboard .bento-username {
+        font-size: 24px;
+    }
 
+    .dashboard .bento-welcome-avatar {
+        width: 56px;
+        height: 56px;
+        margin-bottom: 12px;
+        border-width: 2px;
+    }
 
     .dashboard .bento-recent-apps-grid {
         grid-template-columns: 1fr;
@@ -7985,6 +8111,11 @@ body.myapps-reordering .myapps-tile {
     .dashboard .bento-card-fancy-header {
         padding: 16px 20px;
         gap: 12px;
+    }
+
+    .dashboard .bento-recent-header {
+        padding-right: 12px;
+        gap: 4px;
     }
 
     .dashboard .bento-desktop {
@@ -12624,5 +12755,12 @@ span[data-avatar-user] > .avatar-picture {
     .window-filedialog-upload-here:hover {
         background: var(--dashboard-hover);
         color: var(--dashboard-text-primary);
+    }
+}
+
+/* A phone-width recent card keeps the list's name and the switch on one line. */
+@media (max-width: 480px) {
+    .dashboard .bento-recent-header .bento-card-fancy-subtitle {
+        display: none;
     }
 }

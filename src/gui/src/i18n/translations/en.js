@@ -679,6 +679,7 @@ const en = {
         no_recent_apps_hint: 'Apps you use will appear here',
         recently_used: 'Recently used',
         recently_opened: 'Recently opened',
+        recent_items: 'Recent items',
         no_recent_files: 'No recent files yet',
         no_recent_files_hint: 'Files you open will appear here',
         recent_files_load_failed: 'Couldn\'t load your recent files',
@@ -883,6 +884,8 @@ const en = {
         'signup_bonus_requires_phone_and_card': 'To claim it, you\'ll verify your phone number and a card after signing up.',
 
         // Welcome Window
+        'welcome': 'Welcome',
+        'your_personal_internet_computer': 'To your personal internet computer',
 
         // Alert Window
         'alert_error_title': 'Error!',

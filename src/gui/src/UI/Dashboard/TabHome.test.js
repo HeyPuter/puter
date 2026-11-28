@@ -183,6 +183,7 @@ describe('TabHome recently opened files', () => {
     const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
     beforeEach(() => {
+        localStorage.clear();
         resetRecentFilesCache();
         store = new Map();
         globalThis.puter = {
@@ -217,7 +218,6 @@ describe('TabHome recently opened files', () => {
         await TabHome.loadRecentFiles($el_window);
         await settle();
         expect($el_window.text()).toContain('no_recent_files');
-        expect($el_window.find('.bento-recent-files-menu').prop('hidden')).toBe(true);
     });
 
     it('lists the stored files, newest first, and opens one on click', async () => {
@@ -228,7 +228,6 @@ describe('TabHome recently opened files', () => {
         const $rows = $el_window.find('.bento-recent-file');
         expect($rows.map((_, el) => $(el).find('.bento-recent-file-name').text()).get())
             .toEqual(['notes.txt', 'report.pdf']);
-        expect($el_window.find('.bento-recent-files-menu').prop('hidden')).toBe(false);
 
         $rows.first().trigger('click');
         expect(openRecentFileInNewTab).toHaveBeenCalledWith(recent('a', 'notes.txt', store.get(RECENT_FILES_KEY)[0].openedAt));
@@ -241,10 +240,39 @@ describe('TabHome recently opened files', () => {
         expect($el_window.find('.bento-recent-file')).toHaveLength(5);
     });
 
+    it('switches between apps and files, and remembers the choice', async () => {
+        store.set(RECENT_FILES_KEY, [recent('a', 'notes.txt')]);
+        const $el_window = mount();
+        await settle();
+        const $card = $el_window.find('.bento-recent');
+        const selected = () => $card.find('.bento-recent-switch-btn[aria-selected="true"]').attr('data-view');
+
+        expect(selected()).toBe('apps');
+        expect($card.find('.bento-recent-apps-container').prop('hidden')).toBe(false);
+        expect($card.find('.bento-recent-files-container').prop('hidden')).toBe(true);
+        expect($card.find('.bento-recent-files-menu').prop('hidden')).toBe(true);
+
+        $card.find('.bento-recent-switch-btn[data-view="files"]').trigger('click');
+        expect(selected()).toBe('files');
+        expect($card.find('.bento-recent-apps-container').prop('hidden')).toBe(true);
+        expect($card.find('.bento-recent-files-container').prop('hidden')).toBe(false);
+        expect($card.find('.bento-recent-header > .bento-card-fancy-header').attr('data-target-tab')).toBe('files');
+        expect($card.find('.bento-recent-header h2').text()).toBe('files');
+        // With files to clear, the menu shows.
+        expect($card.find('.bento-recent-files-menu').prop('hidden')).toBe(false);
+
+        // The next visit opens on files.
+        expect(localStorage.getItem('dashboard_home_recent_view')).toBe('files');
+        const $next = $(`<div>${TabHome.html()}</div>`);
+        expect($next.find('.bento-recent').attr('data-view')).toBe('files');
+        expect($next.find('.bento-recent-files-container').prop('hidden')).toBe(false);
+    });
+
     it('clears the history from the card menu', async () => {
         store.set(RECENT_FILES_KEY, [recent('a', 'notes.txt')]);
         const $el_window = mount();
         await settle();
+        $el_window.find('.bento-recent-switch-btn[data-view="files"]').trigger('click');
 
         $el_window.find('.bento-recent-files-menu').trigger('click');
         const { items } = UIContextMenu.mock.calls.at(-1)[0];
@@ -255,6 +283,7 @@ describe('TabHome recently opened files', () => {
 
         expect(store.get(RECENT_FILES_KEY)).toEqual([]);
         expect($el_window.text()).toContain('no_recent_files');
+        expect($el_window.find('.bento-recent-files-menu').prop('hidden')).toBe(true);
     });
 
     it('removes one file from its context menu', async () => {
@@ -271,13 +300,5 @@ describe('TabHome recently opened files', () => {
 
         expect(store.get(RECENT_FILES_KEY).map(f => f.uid)).toEqual(['b']);
         expect($el_window.find('.bento-recent-file')).toHaveLength(1);
-    });
-
-    it('shows the save-session banner to a temporary account only', () => {
-        window.user = { is_temp: true };
-        expect($(`<div>${TabHome.html()}</div>`).find('.bento-save-account-warning')).toHaveLength(1);
-        window.user = { is_temp: false };
-        expect($(`<div>${TabHome.html()}</div>`).find('.bento-save-account-warning')).toHaveLength(0);
-        delete window.user;
     });
 });

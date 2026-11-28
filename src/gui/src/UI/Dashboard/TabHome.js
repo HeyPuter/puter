@@ -115,6 +115,46 @@ const RECENT_FILES_SHOWN = 5;
 // Whether "Recently opened" has its list, as recentAppsState for apps.
 let recentFilesState = 'loading';
 
+// Which list the recent card shows, remembered in this browser.
+const RECENT_VIEW_KEY = 'dashboard_home_recent_view';
+const RECENT_VIEWS = ['apps', 'files'];
+
+/** The list the recent card last showed in this browser. */
+export function storedRecentView() {
+    try {
+        return localStorage.getItem(RECENT_VIEW_KEY) === 'files' ? 'files' : 'apps';
+    } catch {
+        return 'apps';
+    }
+}
+
+/**
+ * The recent card's header for one of its lists: the area's icon and name,
+ * linking to its tab.
+ *
+ * @param {'apps' | 'files'} view
+ * @returns {string} HTML
+ */
+function recentHeaderHTML(view) {
+    let h = `<a href="#${view}" class="bento-card-fancy-header" data-target-tab="${view}">`;
+    h += `<div class="bento-card-fancy-icon bento-card-fancy-icon-${view}">`;
+    h +=
+        view === 'files'
+            ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" opacity="0.9"/><path d="M14 2v6h6" fill="none" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" opacity="0.6"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
+    h += '</div>';
+    h += '<div class="bento-card-fancy-text">';
+    h += `<h2>${i18n(view)}</h2>`;
+    h += '<span class="bento-card-fancy-subtitle">';
+    h +=
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+    h += i18n(view === 'files' ? 'recently_opened' : 'recently_used');
+    h += '</span>';
+    h += '</div>';
+    h += '</a>';
+    return h;
+}
+
 /**
  * The rows of "Recently opened", or its empty state.
  *
@@ -128,7 +168,8 @@ export async function buildRecentFilesHTML(files) {
             return '<div class="bento-recent-files-empty" aria-busy="true"></div>';
         }
         let h = '<div class="bento-recent-files-empty">';
-        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+        h +=
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
         if (recentFilesState === 'failed') {
             h += `<p>${i18n('recent_files_load_failed')}</p>`;
         } else {
@@ -283,10 +324,23 @@ const TabHome = {
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
 
     html() {
+        const username = window.user?.username || i18n('user', [], false);
+        const profilePicture =
+            window.user?.profile?.picture || window.icons['profile.svg'];
+
         let h = '';
         h += '<div class="bento-container">';
 
-        // A temporary account can be lost; saving it keeps its files.
+        // Welcome card (square)
+        h += '<div class="bento-card bento-welcome">';
+        h += '<div class="bento-welcome-inner">';
+        h += '<div class="bento-welcome-pattern"></div>';
+        h += '<div class="bento-welcome-content">';
+        h += `<div class="bento-welcome-avatar profile-pic" style="background-image: url(${html_encode(profilePicture)})"></div>`;
+        h += `<span class="bento-greeting">${i18n('welcome')},</span>`;
+        h += `<h1 class="bento-username username">${html_encode(username)}</h1>`;
+        h += `<p class="bento-tagline">${i18n('your_personal_internet_computer')}</p>`;
+        // Show warning if account is temporary/unsaved
         if (window.user?.is_temp) {
             h += '<button class="bento-save-account-warning">';
             h +=
@@ -294,51 +348,29 @@ const TabHome = {
             h += `<span>${i18n('save_session')}</span>`;
             h += '</button>';
         }
+        h += '</div>';
+        h += '</div>';
+        h += '</div>';
 
-        // Recently opened files card (square)
-        h += '<div class="bento-card bento-files">';
-        h +=
-            '<a href="#files" class="bento-card-fancy-header" data-target-tab="files">';
-        h += '<div class="bento-card-fancy-icon bento-card-fancy-icon-files">';
-        h +=
-            '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" opacity="0.9"/><path d="M14 2v6h6" fill="none" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" opacity="0.6"/></svg>';
+        // Recent card (rectangle): recently used apps or recently opened files
+        const recentView = storedRecentView();
+        h += `<div class="bento-card bento-recent" data-view="${recentView}">`;
+        h += '<div class="bento-recent-header">';
+        h += recentHeaderHTML(recentView);
+        h += `<div class="bento-recent-switch" role="tablist" aria-label="${i18n('recent_items')}">`;
+        for (const view of RECENT_VIEWS) {
+            h += `<button type="button" role="tab" class="bento-recent-switch-btn" data-view="${view}" aria-selected="${view === recentView}">${i18n(view)}</button>`;
+        }
         h += '</div>';
-        h += '<div class="bento-card-fancy-text">';
-        h += `<h2>${i18n('files')}</h2>`;
-        h += '<span class="bento-card-fancy-subtitle">';
-        h +=
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
-        h += i18n('recently_opened');
-        h += '</span>';
-        h += '</div>';
-        h += '</a>';
         h += `<button type="button" class="bento-recent-files-menu" aria-label="${i18n('recent_files_options')}" aria-haspopup="menu" hidden>`;
         h +=
             '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
         h += '</button>';
-        h += '<div class="bento-recent-files-container"></div>';
         h += '</div>';
-
-        // Recent apps card (rectangle)
-        h += '<div class="bento-card bento-recent">';
-        h +=
-            '<a href="#apps" class="bento-card-fancy-header" data-target-tab="apps">';
-        h += '<div class="bento-card-fancy-icon bento-card-fancy-icon-apps">';
-        h +=
-            '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
-        h += '</div>';
-        h += '<div class="bento-card-fancy-text">';
-        h += `<h2>${i18n('apps')}</h2>`;
-        h += '<span class="bento-card-fancy-subtitle">';
-        h +=
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
-        h += i18n('recently_used');
-        h += '</span>';
-        h += '</div>';
-        h += '</a>';
-        h += '<div class="bento-recent-apps-container">';
+        h += `<div class="bento-recent-apps-container" role="tabpanel"${recentView === 'apps' ? '' : ' hidden'}>`;
         h += buildRecentAppsHTML();
         h += '</div>';
+        h += `<div class="bento-recent-files-container" role="tabpanel"${recentView === 'files' ? '' : ' hidden'}></div>`;
         h += '</div>';
 
         // Usage card (spans full width on second row)
@@ -391,7 +423,7 @@ const TabHome = {
         this.loadRecentFiles($el_window);
         this.loadUsageData($el_window);
         // Opens in this session (and fs events that move or remove a file)
-        // update the card as they happen.
+        // update the list as they happen.
         onRecentFilesChange((files) => {
             recentFilesState = 'loaded';
             this.renderRecentFiles($el_window, files);
@@ -474,6 +506,16 @@ const TabHome = {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if (appName) {
                 openAppInNewTab(appName);
+            }
+        });
+
+        $el_window.on('click', '.bento-recent-switch-btn', (e) => {
+            const view = $(e.currentTarget).attr('data-view');
+            this.showRecentView($el_window, view);
+            try {
+                localStorage.setItem(RECENT_VIEW_KEY, view);
+            } catch {
+                // Not remembered; the card still switches.
             }
         });
 
@@ -609,6 +651,33 @@ const TabHome = {
             .html(buildRecentAppsHTML());
     },
 
+    /**
+     * Switches the recent card between its apps and its files.
+     *
+     * @param {JQuery} $el_window
+     * @param {'apps' | 'files'} view
+     */
+    showRecentView($el_window, view) {
+        if (!RECENT_VIEWS.includes(view)) return;
+        const $card = $el_window.find('.bento-recent');
+        $card.attr('data-view', view);
+        $card.find('.bento-recent-header > .bento-card-fancy-header').replaceWith(recentHeaderHTML(view));
+        $card.find('.bento-recent-switch-btn').each(function () {
+            $(this).attr('aria-selected', String($(this).attr('data-view') === view));
+        });
+        $card.find('.bento-recent-apps-container').prop('hidden', view !== 'apps');
+        $card.find('.bento-recent-files-container').prop('hidden', view !== 'files');
+        this.updateRecentFilesMenu($el_window);
+    },
+
+    // The menu clears the files, so it shows with files to clear.
+    updateRecentFilesMenu($el_window) {
+        const $card = $el_window.find('.bento-recent');
+        $card
+            .find('.bento-recent-files-menu')
+            .prop('hidden', $card.attr('data-view') !== 'files' || !(this._recentFilesCount > 0));
+    },
+
     async loadRecentFiles($el_window) {
         try {
             // Answers through the onRecentFilesChange listener set in init().
@@ -628,7 +697,8 @@ const TabHome = {
         const html = await buildRecentFilesHTML(files);
         if (seq !== this._recentFilesSeq) return;
         $el_window.find('.bento-recent-files-container').html(html);
-        $el_window.find('.bento-recent-files-menu').prop('hidden', files.length === 0);
+        this._recentFilesCount = files.length;
+        this.updateRecentFilesMenu($el_window);
     },
 
     // `init()` runs for every tab and `onActivate()` fires again for the
