@@ -28,6 +28,12 @@ import path from '../../lib/path.js';
 import UIAlert from '../UIAlert.js';
 import FilePicker from './FilePicker.js';
 import { folderAcceptsNewItems } from '../Dashboard/fileListing.js';
+import { recordOpenedFiles } from '../../helpers/recentFiles.js';
+import { get_app_by_uid } from '../../helpers/getAppByUid.js';
+
+// How long a popup picker stays open to save the picked files to the recently
+// opened files after answering.
+const RECORD_BEFORE_CLOSE_MS = 3000;
 
 /** @typedef {import('./FilePicker.js').FilePickerMode} FilePickerMode */
 
@@ -170,6 +176,26 @@ export function initFilePickerDialog (el_window, options) {
     let answered = false;
     let cancelled = false;
 
+    // A popup picker knows its opener only by app uid; the name is looked up
+    // now so recording the picked files doesn't hold the popup open longer.
+    const openerAppName = mode === 'open' && options.return_to_parent_window && options.initiating_app_uuid
+        ? get_app_by_uid(options.initiating_app_uuid).then(app => app?.name)
+        : null;
+
+    /**
+     * Adds files picked to open to the recently opened files.
+     *
+     * @param {Array<{ uid?: string, path?: string, fsentry_name?: string }>} signedItems
+     * @param {string | undefined} appName
+     * @returns {Promise<void>}
+     */
+    const recordPicked = (signedItems, appName) => recordOpenedFiles(signedItems.map(item => ({
+        uid: item.uid,
+        path: item.path,
+        name: item.fsentry_name,
+        appName,
+    })));
+
     // A save goes to the folder the user asked for, even before its listing arrives.
     const saveFolder = () => picker.pendingPath ?? picker.currentPath;
     const updateSaveButton = () => {
@@ -227,14 +253,14 @@ export function initFilePickerDialog (el_window, options) {
         if ( answering || ! entries.length ) return;
         answering = true;
         $mask().show();
-        let items;
+        let items, signedItems;
         try {
             const signed = await window.puter.fs.sign(options.initiating_app_uuid, entries.map(entry => ({
                 ...(entry.uid ? { uid: entry.uid } : {}),
                 action: 'write',
                 path: entry.path,
             })));
-            const signedItems = Array.isArray(signed.items) ? signed.items : [signed.items];
+            signedItems = Array.isArray(signed.items) ? signed.items : [signed.items];
             // An item removed or put out of reach since it was listed comes back unsigned.
             if ( signedItems.some(item => typeof item?.path !== 'string') ) {
                 picker.refresh();
@@ -258,6 +284,13 @@ export function initFilePickerDialog (el_window, options) {
             // Before the answer: a popup's token rides out with it.
             window.deliverPopupTokenToOpener?.();
             window.opener.postMessage(withLegacyItem, window.openerOrigin);
+            // Closing would cut the write off, so it goes first, for a while at most.
+            if ( openerAppName && msg === 'fileOpenPicked' ) {
+                await Promise.race([
+                    openerAppName.then(appName => recordPicked(signedItems, appName)),
+                    new Promise(resolve => setTimeout(resolve, RECORD_BEFORE_CLOSE_MS)),
+                ]);
+            }
             window.close();
             window.open('', '_self').close();
             return;
@@ -269,6 +302,7 @@ export function initFilePickerDialog (el_window, options) {
             target_iframe?.focus({ preventScroll: true });
             if ( msg === 'fileOpenPicked' ) {
                 $parent.get(0)?.dispatchEvent(new CustomEvent('file_opened', { detail: [...items] }));
+                void recordPicked(signedItems, $parent.attr('data-app'));
             }
             $win.close();
             return;

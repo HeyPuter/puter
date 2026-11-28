@@ -26,10 +26,21 @@ import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import {
     DESKTOP_URL,
     openAppInNewTab,
+    openRecentFileInNewTab,
     openSiteInNewTab,
 } from '../../helpers/dashboardAppLaunch.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 import { intlLocale } from '../../i18n/intlLocale.js';
+import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
+import item_icon from '../../helpers/itemIcon.js';
+import {
+    clearRecentFiles,
+    forgetRecentFile,
+    getRecentFiles,
+    knownRecentFiles,
+    onRecentFilesChange,
+} from '../../helpers/recentFiles.js';
+import UIContextMenu from '../UIContextMenu.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
 // enough to absorb the init/onActivate/routing burst on a single dashboard
@@ -95,6 +106,56 @@ function buildRecentAppsHTML() {
         h += '</div>';
     }
 
+    return h;
+}
+
+// How many recently opened files the card lists; the stored list keeps more.
+const RECENT_FILES_SHOWN = 5;
+
+// Whether "Recently opened" has its list, as recentAppsState for apps.
+let recentFilesState = 'loading';
+
+/**
+ * The rows of "Recently opened", or its empty state.
+ *
+ * @param {import('../../helpers/recentFiles.js').RecentFile[]} files
+ * @returns {Promise<string>} HTML
+ */
+export async function buildRecentFilesHTML(files) {
+    const shown = files.slice(0, RECENT_FILES_SHOWN);
+    if (shown.length === 0) {
+        if (recentFilesState === 'loading') {
+            return '<div class="bento-recent-files-empty" aria-busy="true"></div>';
+        }
+        let h = '<div class="bento-recent-files-empty">';
+        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+        if (recentFilesState === 'failed') {
+            h += `<p>${i18n('recent_files_load_failed')}</p>`;
+        } else {
+            h += `<p>${i18n('no_recent_files')}</p>`;
+            h += `<span>${i18n('no_recent_files_hint')}</span>`;
+        }
+        h += '</div>';
+        return h;
+    }
+
+    const icons = await Promise.all(
+        shown.map((file) =>
+            item_icon({ name: file.name, path: file.path, is_dir: false }, { listRow: true })
+                .then((icon) => icon.image)
+                .catch(() => window.icons['file.svg']),
+        ),
+    );
+    const now = Date.now();
+    let h = '<div class="bento-recent-files-list">';
+    shown.forEach((file, i) => {
+        h += `<button type="button" class="bento-recent-file" data-uid="${html_encode(file.uid)}" title="${html_encode(file.path)}">`;
+        h += `<img class="bento-recent-file-icon" alt="" src="${html_encode(icons[i] ?? '')}">`;
+        h += `<span class="bento-recent-file-name">${html_encode(file.name)}</span>`;
+        h += `<time class="bento-recent-file-time" datetime="${new Date(file.openedAt).toISOString()}" title="${html_encode(formatAbsoluteTime(file.openedAt, window.locale))}">${html_encode(formatRelativeTime(file.openedAt, now, window.locale))}</time>`;
+        h += '</button>';
+    });
+    h += '</div>';
     return h;
 }
 
@@ -222,23 +283,10 @@ const TabHome = {
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
 
     html() {
-        const username = window.user?.username || i18n('user', [], false);
-        const profilePicture =
-            window.user?.profile?.picture || window.icons['profile.svg'];
-
         let h = '';
         h += '<div class="bento-container">';
 
-        // Welcome card (square)
-        h += '<div class="bento-card bento-welcome">';
-        h += '<div class="bento-welcome-inner">';
-        h += '<div class="bento-welcome-pattern"></div>';
-        h += '<div class="bento-welcome-content">';
-        h += `<div class="bento-welcome-avatar profile-pic" style="background-image: url(${html_encode(profilePicture)})"></div>`;
-        h += `<span class="bento-greeting">${i18n('welcome')},</span>`;
-        h += `<h1 class="bento-username username">${html_encode(username)}</h1>`;
-        h += `<p class="bento-tagline">${i18n('your_personal_internet_computer')}</p>`;
-        // Show warning if account is temporary/unsaved
+        // A temporary account can be lost; saving it keeps its files.
         if (window.user?.is_temp) {
             h += '<button class="bento-save-account-warning">';
             h +=
@@ -246,8 +294,29 @@ const TabHome = {
             h += `<span>${i18n('save_session')}</span>`;
             h += '</button>';
         }
+
+        // Recently opened files card (square)
+        h += '<div class="bento-card bento-files">';
+        h +=
+            '<a href="#files" class="bento-card-fancy-header" data-target-tab="files">';
+        h += '<div class="bento-card-fancy-icon bento-card-fancy-icon-files">';
+        h +=
+            '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" opacity="0.9"/><path d="M14 2v6h6" fill="none" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" opacity="0.6"/></svg>';
         h += '</div>';
+        h += '<div class="bento-card-fancy-text">';
+        h += `<h2>${i18n('files')}</h2>`;
+        h += '<span class="bento-card-fancy-subtitle">';
+        h +=
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+        h += i18n('recently_opened');
+        h += '</span>';
         h += '</div>';
+        h += '</a>';
+        h += `<button type="button" class="bento-recent-files-menu" aria-label="${i18n('recent_files_options')}" aria-haspopup="menu" hidden>`;
+        h +=
+            '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+        h += '</button>';
+        h += '<div class="bento-recent-files-container"></div>';
         h += '</div>';
 
         // Recent apps card (rectangle)
@@ -319,7 +388,14 @@ const TabHome = {
 
     init($el_window) {
         this.loadRecentApps($el_window);
+        this.loadRecentFiles($el_window);
         this.loadUsageData($el_window);
+        // Opens in this session (and fs events that move or remove a file)
+        // update the card as they happen.
+        onRecentFilesChange((files) => {
+            recentFilesState = 'loaded';
+            this.renderRecentFiles($el_window, files);
+        });
         // Auto-refresh sources:
         //   1. `puter:subscription:changed` — fired by upgrade dialog
         //      after subscribe / change / cancel / uncancel.
@@ -333,6 +409,7 @@ const TabHome = {
         const refresh = () => {
             this.loadUsageData($el_window, { force: true });
             this.loadRecentApps($el_window);
+            this.loadRecentFiles($el_window);
         };
         const refreshAndBroadcast = async () => {
             // Pull fresh whoami, then broadcast. The dispatched event is handled
@@ -398,6 +475,48 @@ const TabHome = {
             } else if (appName) {
                 openAppInNewTab(appName);
             }
+        });
+
+        $el_window.on('click', '.bento-recent-file', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            // As for an app: the second click of a double-click would open a second tab.
+            if ((e.detail ?? 0) > 1) return;
+            const uid = $(this).attr('data-uid');
+            const file = knownRecentFiles()?.find((f) => f.uid === uid);
+            if (file) openRecentFileInNewTab(file);
+        });
+
+        $el_window.on('contextmenu', '.bento-recent-file', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const uid = $(this).attr('data-uid');
+            UIContextMenu({
+                position: { left: e.pageX, top: e.pageY },
+                items: [
+                    {
+                        html: i18n('remove_from_list'),
+                        onClick: () => void forgetRecentFile(uid),
+                    },
+                ],
+            });
+        });
+
+        $el_window.on('click', '.bento-recent-files-menu', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if ($(this).hasClass('has-open-contextmenu')) return;
+            const rect = this.getBoundingClientRect();
+            UIContextMenu({
+                parent_element: this,
+                position: { top: rect.bottom + 4, left: rect.left },
+                items: [
+                    {
+                        html: i18n('clear_history'),
+                        onClick: () => void clearRecentFiles(),
+                    },
+                ],
+            });
         });
 
         // The desktop opens signed in, like an app's tab. A modified click
@@ -488,6 +607,28 @@ const TabHome = {
         $el_window
             .find('.bento-recent-apps-container')
             .html(buildRecentAppsHTML());
+    },
+
+    async loadRecentFiles($el_window) {
+        try {
+            // Answers through the onRecentFilesChange listener set in init().
+            await getRecentFiles();
+        } catch (e) {
+            console.error('Failed to load recent files:', e);
+            // A list already read stays; it is only out of date.
+            const known = knownRecentFiles();
+            if (!known) recentFilesState = 'failed';
+            await this.renderRecentFiles($el_window, known ?? []);
+        }
+    },
+
+    async renderRecentFiles($el_window, files) {
+        // Only the newest render may write: icons resolve at their own pace.
+        const seq = (this._recentFilesSeq = (this._recentFilesSeq ?? 0) + 1);
+        const html = await buildRecentFilesHTML(files);
+        if (seq !== this._recentFilesSeq) return;
+        $el_window.find('.bento-recent-files-container').html(html);
+        $el_window.find('.bento-recent-files-menu').prop('hidden', files.length === 0);
     },
 
     // `init()` runs for every tab and `onActivate()` fires again for the
@@ -739,6 +880,7 @@ const TabHome = {
 
     onActivate($el_window) {
         this.loadRecentApps($el_window);
+        this.loadRecentFiles($el_window);
         this.loadUsageData($el_window);
     },
 };

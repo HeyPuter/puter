@@ -60,6 +60,7 @@ import TabAccount from './TabAccount.js';
 import TabSecurity from './TabSecurity.js';
 import TabNotifications, { notificationsTabEnabled } from './TabNotifications.js';
 import teamBadgeHtml from './teamBadge.js';
+import { applyItemChange } from '../../helpers/recentFiles.js';
 
 // Registry of built-in tabs
 const builtinTabs = () => [
@@ -387,6 +388,8 @@ async function UIDashboard (options) {
     window.socket.on('item.moved', async (resp) => {
         // This tab's own moves included: they can change a worker's source path.
         forgetWorkersAfterMove(resp.path);
+        // This tab's own moves included, like the line above.
+        void applyItemChange('moved', resp);
         if ( resp.original_client_socket_id === window.socket.id ) return;
 
         // Fade out the stale row at the item's OLD location only. A moved item
@@ -424,6 +427,7 @@ async function UIDashboard (options) {
     });
 
     window.socket.on('item.removed', async (item) => {
+        void applyItemChange('removed', item);
         if ( item.original_client_socket_id === window.socket.id ) return;
         if ( item.descendants_only ) return;
         if ( item.is_dir && item.path ) window.dashboard_object?.folderMoved?.(item.path, null);
@@ -444,6 +448,7 @@ async function UIDashboard (options) {
     window.socket.on('item.renamed', async (item) => {
         // A rename can change a worker's source path.
         forgetWorkers();
+        void applyItemChange('renamed', item);
         if ( item.original_client_socket_id === window.socket.id ) return;
 
         const $el = $(`.item[data-uid='${item.uid}']`);
@@ -467,6 +472,7 @@ async function UIDashboard (options) {
     window.socket.on('item.updated', async (item) => {
         // The owner hears of a rename as an update.
         forgetWorkers();
+        void applyItemChange('renamed', item);
         if ( item.original_client_socket_id === window.socket.id ) return;
 
         // A file picker lists its folder again itself; re-sorted here, its

@@ -182,6 +182,44 @@ describe('launch_app with a new tab', () => {
         }));
     });
 
+    it.each(['file_open', 'open_with', 'file_drop'])('adds a file the user opened (%s) to the recently opened files', async (trigger) => {
+        const store = new Map();
+        vi.stubGlobal('puter', { kv: {
+            get: vi.fn(async key => store.get(key) ?? null),
+            set: vi.fn(async (key, value) => store.set(key, value)),
+        } });
+        window.home_path = '/u';
+        window.privacy_aware_path = p => p;
+        await launch_app({
+            name: 'notes',
+            app_obj: { ...app },
+            newTab: { location: { href: '' }, close: vi.fn() },
+            file_path: '~/notes.txt',
+            file_signature: { uid: 'file-1', fsentry_name: 'notes.txt' },
+            trigger,
+        });
+
+        await vi.waitFor(() => expect(store.get('recent_files')).toEqual([
+            expect.objectContaining({ uid: 'file-1', path: '/u/notes.txt', name: 'notes.txt', appName: 'notes' }),
+        ]));
+    });
+
+    it('leaves a file an app or a URL opened off the recently opened files', async () => {
+        const kv = { get: vi.fn(async () => null), set: vi.fn() };
+        vi.stubGlobal('puter', { kv });
+        window.privacy_aware_path = p => p;
+        await launch_app({
+            name: 'notes',
+            app_obj: { ...app },
+            newTab: { location: { href: '' }, close: vi.fn() },
+            file_path: '/u/notes.txt',
+            file_signature: { uid: 'file-1', fsentry_name: 'notes.txt' },
+        });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(kv.get).not.toHaveBeenCalled();
+        expect(kv.set).not.toHaveBeenCalled();
+    });
+
     it('closes the tab when the app token is unavailable', async () => {
         fetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
         const tab = { location: { href: '' }, close: vi.fn() };

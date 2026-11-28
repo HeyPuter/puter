@@ -93,6 +93,17 @@ test.describe('file pickers (env=app)', () => {
         await expect(picker).toHaveCount(0);
     });
 
+    test('a picked file is added to the recently opened files', async ({ page }) => {
+        const { picker, appFrame } = await openPicker(page, appName);
+        await page.evaluate(() => window.puter.kv.del('recent_files').catch(() => {}));
+
+        await row(picker, TEXT_FILE).dblclick();
+
+        await expect(logged(appFrame).last()).toHaveText(`file:~/Desktop/${TEXT_FILE}`);
+        await expect.poll(() => page.evaluate(async () => (await window.puter.kv.get('recent_files'))?.[0] ?? null))
+            .toMatchObject({ name: TEXT_FILE, appName });
+    });
+
     test('Open is enabled once a file is selected, and picks it', async ({ page }) => {
         const { picker, appFrame } = await openPicker(page, appName);
         const open = picker.locator('.openfiledialog-open-btn');
