@@ -478,7 +478,7 @@ export class MeteringService extends PuterService {
             'outer.pubsub.metering.credits-changed',
             (_key, data) => {
                 if (!data?.userUuid) return;
-                this.#dropCachedCredits(data.userUuid);
+                this.#dropCachedCredits(data.userUuid, data.rearm !== false);
                 this.#rememberForceExact(data.userUuid);
             },
         );
@@ -816,16 +816,14 @@ export class MeteringService extends PuterService {
                     userId,
                     settled.allowanceUsed,
                     actorSubscription,
-                    actorAddons &&
-                        (forcingExact
-                            ? actorAddons
-                            : {
-                                  ...actorAddons,
-                                  consumedPurchaseCredits:
-                                      (actorAddons.consumedPurchaseCredits ||
-                                          0) + settled.drawn,
-                                  overdrawn: settled.overdrawn,
-                              }),
+                    actorAddons && {
+                        ...actorAddons,
+                        consumedPurchaseCredits:
+                            (actorAddons.consumedPurchaseCredits || 0) +
+                            (forcingExact ? 0 : settled.drawn),
+                        // Moves with `allowanceUsed`, which a payoff raised.
+                        overdrawn: settled.overdrawn,
+                    },
                     provisionalUntil,
                 );
             }
@@ -1872,26 +1870,31 @@ export class MeteringService extends PuterService {
         ttlMs: number = DEFAULT_HOLD_TTL_MS,
     ): CreditHold {
         const id = Symbol();
-        const backing =
-            this.#overdraftBacked.get(userId) ??
-            new Map<symbol, { limit: number; expiresAt: number }>();
-        backing.set(id, { limit, expiresAt: Date.now() + ttlMs });
-        this.#overdraftBacked.set(userId, backing);
+        // Also puts back an entry that lapsed and was pruned.
+        const mark = () => {
+            const backing =
+                this.#overdraftBacked.get(userId) ??
+                new Map<symbol, { limit: number; expiresAt: number }>();
+            backing.set(id, { limit, expiresAt: Date.now() + ttlMs });
+            this.#overdraftBacked.set(userId, backing);
+        };
+        mark();
+        let released = false;
         return {
             release: async () => {
-                backing.delete(id);
-                if (
-                    backing.size === 0 &&
-                    this.#overdraftBacked.get(userId) === backing
-                ) {
-                    this.#overdraftBacked.delete(userId);
+                if (!released) {
+                    released = true;
+                    const backing = this.#overdraftBacked.get(userId);
+                    backing?.delete(id);
+                    if (backing?.size === 0) {
+                        this.#overdraftBacked.delete(userId);
+                    }
                 }
                 await hold.release();
             },
             extend: async () => {
-                const own = backing.get(id);
-                if (!own) return;
-                own.expiresAt = Date.now() + ttlMs;
+                if (released) return;
+                mark();
                 await hold.extend?.();
             },
         };
@@ -2141,22 +2144,28 @@ export class MeteringService extends PuterService {
      * anything that adds to what they may spend — a credit purchase, an admin
      * grant — so it applies now rather than at the end of the cache window.
      */
-    invalidateActorCredits(userUuid: string): void {
-        this.#dropCachedCredits(userUuid);
+    invalidateActorCredits(
+        userUuid: string,
+        { rearm = true }: { rearm?: boolean } = {},
+    ): void {
+        this.#dropCachedCredits(userUuid, rearm);
         this.clients.event.emit(
             'outer.pubsub.metering.credits-changed',
-            { userUuid },
+            { userUuid, ...(rearm ? {} : { rearm }) },
             {},
         );
     }
 
-    /** Local-only drop. The announcement path is `invalidateActorCredits`. */
-    #dropCachedCredits(userUuid: string): void {
+    /**
+     * Local-only drop. The announcement path is `invalidateActorCredits`.
+     * `rearm` is false for a change that added nothing to spend.
+     */
+    #dropCachedCredits(userUuid: string, rearm = true): void {
         this.creditCache.delete(userUuid);
         this.#spentAddons.delete(userUuid);
         this.#spentAddonsDrops++;
         // Added capacity re-arms the alert: the next exhaustion is news again.
-        if (this.creditAlertState.has(userUuid))
+        if (rearm && this.creditAlertState.has(userUuid))
             this.creditAlertState.set(userUuid, 'rearmed');
     }
 
@@ -3382,8 +3391,11 @@ export class MeteringService extends PuterService {
 
         const overdrawn = overdrawnBefore + overdrawnChange;
         if (overdrawnChange !== 0) {
-            // Other nodes hold this record as one that never changes.
-            this.invalidateActorCredits(userId);
+            // Other nodes hold this record as one that never changes. Owing
+            // more adds nothing to spend, so it re-arms no alert.
+            this.invalidateActorCredits(userId, {
+                rearm: overdrawnChange < 0,
+            });
         }
         if (newlyOwed > 0) {
             try {

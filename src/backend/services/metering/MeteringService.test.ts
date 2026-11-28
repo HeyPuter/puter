@@ -5095,6 +5095,71 @@ describe('MeteringService', () => {
             }
         });
 
+        it('keeps backing a hold that is renewed after it lapsed', async () => {
+            await withBalance(0);
+            const headroom = await target.getUsageHeadroom(actor, {
+                versioned: true,
+            });
+            const hold = await target.reserveCredits(actor, 1000, {
+                within: { ...headroom, overdraft: OVERDRAFT },
+                ttlMs: 200,
+            });
+            await new Promise((r) => setTimeout(r, 260));
+            // Nothing backs this one, and it clears the lapsed entry.
+            await target.incrementUsage(actor, 'kv:read', 1, 100);
+            expect((await exactAddons()).overdrawn).toBeUndefined();
+
+            await (hold as CreditHold).extend?.();
+            expect(await target.getOutstandingHolds(actor)).toBe(1000);
+            await target.incrementUsage(actor, 'kv:read', 1, 300);
+            await (hold as CreditHold).release();
+            expect((await exactAddons()).overdrawn).toBe(300);
+        });
+
+        it('announces running out once, however far below zero it goes', async () => {
+            const seen = vi.fn();
+            server.clients.event.on('metering.credit-state', seen);
+            try {
+                await withBalance(0);
+                const hold = await backedHold(OVERDRAFT);
+                await target.incrementUsage(actor, 'kv:read', 1, 1000);
+                await target.incrementUsage(actor, 'kv:read', 1, 1000);
+                await (hold as CreditHold).release();
+
+                expect((await exactAddons()).overdrawn).toBe(2000);
+                expect(
+                    seen.mock.calls.filter(
+                        ([, event]) => event.state === 'exhausted',
+                    ),
+                ).toHaveLength(1);
+            } finally {
+                server.clients.event.off('metering.credit-state', seen);
+            }
+        });
+
+        it('caches the balance a payoff left, right after a credits change', async () => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                const { monthUsageAllowance: allowance } =
+                    await target.getActorSubscription(actor);
+                await owing(3000);
+
+                vi.setSystemTime(OCTOBER_MONTH_ISO);
+                target.invalidateActorCredits(actor.user.uuid!);
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    allowance - 3500,
+                );
+                expect(await target.hasAnyUsageCached(actor)).toBe(true);
+                expect(await exactBalance()).toBe(500);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
         it("pays what is owed out of the next month's allowance, once", async () => {
             vi.useFakeTimers({ toFake: ['Date'] });
             try {

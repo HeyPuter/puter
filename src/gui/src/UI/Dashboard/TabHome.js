@@ -727,7 +727,7 @@ const TabHome = {
             $el_window
                 .find('.bento-monthly-balance')
                 .text(amount(monthlyBalance(res.usage, res.allowanceInfo)));
-            // Shown for an account that has ever bought top-up credit.
+            // Shown for an account that has ever bought top-up credit, or owes.
             $el_window.find('.bento-topup').toggle(addonLeft !== null);
             if (addonLeft !== null) {
                 $el_window.find('.bento-topup-balance').text(amount(addonLeft));

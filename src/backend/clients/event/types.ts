@@ -1219,7 +1219,11 @@ export type EventMap = {
      * an account has budget left, so a top-up only lifts enforcement once they
      * have all dropped that answer.
      */
-    'outer.pubsub.metering.credits-changed': { userUuid: string };
+    'outer.pubsub.metering.credits-changed': {
+        userUuid: string;
+        /** False for a change that added nothing to spend. */
+        rearm?: boolean;
+    };
 } & IExtensionEventMap;
 
 /** A union of `Names`, each of which has to be an email template. */

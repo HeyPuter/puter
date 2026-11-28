@@ -54,12 +54,14 @@ export const usageBudget = (usage, allowanceInfo) => {
     // Allowance-charged spend is a subset of spend, so a reported value past
     // the total is corrupt (a raced or repeated server write) — same clamp
     // the server applies when it computes `remaining`.
+    // `overdraftSettled` is overdrawn spend the allowance paid off. It is
+    // charged to the allowance beside `allowanceUsed`, outside that clamp.
     const used = Math.min(
         Number.isFinite(usage?.allowanceUsed)
             ? Math.max(0, usage.allowanceUsed)
             : Math.min(total, capacity),
         total,
-    );
+    ) + nonNegative(usage?.overdraftSettled);
     const share = capacity ? (used / capacity) * 100 : 0;
     return {
         used,
@@ -71,7 +73,9 @@ export const usageBudget = (usage, allowanceInfo) => {
 
 /**
  * Unspent add-on credit, which only pays for usage once the monthly allowance
- * is spent and carries across months. Null when the account has never had any.
+ * is spent and carries across months. Negative for an account that spent more
+ * than it had: it owes the difference (`addons.overdrawn`), which its next
+ * credits pay first. Null when the account has never had any and owes nothing.
  *
  * @param {Object | null | undefined} allowanceInfo
  * @returns {number | null}
@@ -79,8 +83,10 @@ export const usageBudget = (usage, allowanceInfo) => {
 export const addonCreditsRemaining = (allowanceInfo) => {
     const addons = allowanceInfo?.addons ?? {};
     const purchased = nonNegative(addons.purchasedCredits);
-    if ( ! (purchased > 0) ) return null;
-    return Math.max(0, purchased - nonNegative(addons.consumedPurchaseCredits));
+    // Below zero is credit the account is owed back, and spendable.
+    const owed = Number.isFinite(addons.overdrawn) ? addons.overdrawn : 0;
+    if ( ! (purchased > 0) && owed === 0 ) return null;
+    return Math.max(0, purchased - nonNegative(addons.consumedPurchaseCredits)) - owed;
 };
 
 /**

@@ -1949,13 +1949,18 @@ export class ChatCompletionDriver extends PuterDriver {
         );
         // The prompt plus output run to `limit`. A balance short of it would
         // cut the reply off, which the caller is told the same way as a refusal.
+        // The least that runs at all: the prompt and one token of reply.
+        const runnable = Math.max(
+            needed,
+            approximateInputCost + extras + outputTokenCost,
+        );
         const fullCost =
             outputTokenCost > 0 && Number.isFinite(limit)
                 ? Math.max(
-                      needed,
+                      runnable,
                       approximateInputCost + extras + limit * outputTokenCost,
                   )
-                : needed;
+                : runnable;
 
         // One read of the balance and its holds serves the whole gate: the
         // affordability check here and the output cap below, net of holds,
@@ -1971,14 +1976,7 @@ export class ChatCompletionDriver extends PuterDriver {
             const { refilled, overdraft } = await creditRelief(
                 this.clients.event,
                 actor,
-                {
-                    balance: headroom.balance,
-                    // The prompt and one token of reply.
-                    required: Math.max(
-                        needed,
-                        approximateInputCost + extras + outputTokenCost,
-                    ),
-                },
+                { balance: headroom.balance, required: runnable },
             );
             if (refilled) {
                 headroom = await metering.getUsageHeadroom(actor, {
