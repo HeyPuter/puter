@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
+import { get, type IncomingMessage } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { PassThrough, Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../../types';
@@ -80,11 +82,7 @@ const makeWorkerResponse = (
     body: string | null,
 ) => ({
     status,
-    headers: {
-        forEach(cb: (value: string, key: string) => void) {
-            for (const [k, v] of Object.entries(headers)) cb(v, k);
-        },
-    },
+    headers: new Headers(headers),
     body:
         body === null
             ? null
@@ -307,6 +305,51 @@ describe('createLocalWorkerProxyMiddleware', () => {
         expect(next).not.toHaveBeenCalled();
     });
 
+    it('delivers every Set-Cookie header the worker returns', async () => {
+        const app = express();
+        app.use(
+            createLocalWorkerProxyMiddleware(
+                ENABLED,
+                makeLayers(
+                    () =>
+                        new globalThis.Response('ok', {
+                            headers: [
+                                ['set-cookie', 'a=1; Path=/'],
+                                ['set-cookie', 'b=2; HttpOnly'],
+                                ['x-custom', 'v'],
+                            ],
+                        }),
+                ),
+            ),
+        );
+        const server = app.listen(0, '127.0.0.1');
+        await new Promise((r) => server.once('listening', r));
+        try {
+            const { port } = server.address() as AddressInfo;
+            // node:http rather than fetch, which overrides the Host header.
+            const response = await new Promise<IncomingMessage>((resolve) =>
+                get(
+                    {
+                        port,
+                        host: '127.0.0.1',
+                        headers: { host: 'demo.workers.puter.localhost' },
+                    },
+                    resolve,
+                ),
+            );
+
+            expect(response.statusCode).toBe(200);
+            expect(response.headers['set-cookie']).toEqual([
+                'a=1; Path=/',
+                'b=2; HttpOnly',
+            ]);
+            expect(response.headers['x-custom']).toBe('v');
+            response.resume();
+        } finally {
+            server.close();
+        }
+    });
+
     it('ends the response immediately when the worker returns no body', async () => {
         const res = new FakeRes();
         const middleware = createLocalWorkerProxyMiddleware(
@@ -336,7 +379,7 @@ describe('createLocalWorkerProxyMiddleware', () => {
             ENABLED,
             makeLayers(() => ({
                 status: 200,
-                headers: { forEach: () => undefined },
+                headers: new Headers(),
                 body: failing,
             })),
         );
