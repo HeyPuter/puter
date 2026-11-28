@@ -1138,6 +1138,52 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
             }
         });
 
+        it('buys a top-up for a request another one holds the overdraft against', async () => {
+            const d = await capme();
+            const OVERDRAFT = 5_000_000;
+            // The first request runs on the overdraft and holds all of it.
+            const held = 100_000 + OVERDRAFT;
+            const headroom = vi
+                .spyOn(server.services.metering, 'getUsageHeadroom')
+                .mockResolvedValueOnce({ balance: 100_000, held })
+                .mockResolvedValue({ balance: 100_000_000, held });
+            // Grants an overdraft only while the balance left covers some.
+            const relief = vi.fn(
+                (
+                    _key: string,
+                    refusal: {
+                        balance: number;
+                        required: number;
+                        refilled: boolean;
+                        overdraft?: number;
+                    },
+                ) => {
+                    if (
+                        refusal.balance > 0 &&
+                        refusal.balance + OVERDRAFT >= refusal.required
+                    ) {
+                        refusal.overdraft = OVERDRAFT;
+                    } else {
+                        refusal.refilled = true;
+                    }
+                },
+            );
+            server.clients.event.on('metering.out-of-credits', relief as never);
+            try {
+                expect(await completeCapme(d)).toBe(8192);
+                expect(relief.mock.calls[0]![1]).toMatchObject({
+                    balance: -OVERDRAFT,
+                    refilled: true,
+                });
+                expect(headroom).toHaveBeenCalledTimes(2);
+            } finally {
+                server.clients.event.off(
+                    'metering.out-of-credits',
+                    relief as never,
+                );
+            }
+        });
+
         describe('on an overdraft a listener grants', () => {
             const OVERDRAFT = 5_000_000;
             const grant = vi.fn(
@@ -1183,6 +1229,19 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
                 expect(headroom).toHaveBeenCalledTimes(1);
                 expect(reserve.mock.calls[0]![2]).toMatchObject({
                     within: { balance: 15_000_000, overdraft: OVERDRAFT },
+                });
+            });
+
+            it('tells the listener what running requests leave of the balance', async () => {
+                const d = await capme();
+                vi.spyOn(
+                    server.services.metering,
+                    'getUsageHeadroom',
+                ).mockResolvedValue({ balance: 15_000_000, held: 12_000_000 });
+
+                await completeCapme(d);
+                expect(grant.mock.calls[0]![1]).toMatchObject({
+                    balance: 3_000_000,
                 });
             });
 

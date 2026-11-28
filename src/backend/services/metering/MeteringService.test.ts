@@ -5095,6 +5095,43 @@ describe('MeteringService', () => {
             }
         });
 
+        it('tells the listener what running requests leave of the balance', async () => {
+            await withBalance(5000);
+            const headroom = await target.getUsageHeadroom(actor, {
+                versioned: true,
+            });
+            const running = await target.reserveCredits(actor, 4000, {
+                within: headroom,
+            });
+            const grant = vi.fn(
+                (
+                    _key: string,
+                    refusal: { balance?: number; overdraft?: number },
+                ) => {
+                    refusal.overdraft = OVERDRAFT;
+                },
+            );
+            server.clients.event.on('metering.out-of-credits', grant as never);
+            try {
+                const hold = await target.reserveCreditsIfAffordable(
+                    actor,
+                    3000,
+                );
+                expect(hold).not.toBeNull();
+                expect(grant.mock.calls[0]![1]).toMatchObject({
+                    balance: 1000,
+                    required: 3000,
+                });
+                await hold?.release();
+            } finally {
+                server.clients.event.off(
+                    'metering.out-of-credits',
+                    grant as never,
+                );
+                await (running as CreditHold).release();
+            }
+        });
+
         it('keeps backing a hold that is renewed after it lapsed', async () => {
             await withBalance(0);
             const headroom = await target.getUsageHeadroom(actor, {

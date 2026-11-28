@@ -1752,9 +1752,9 @@ export class MeteringService extends PuterService {
         const { refilled, overdraft } = await creditRelief(
             this.clients.event,
             actor,
-            first.balance === undefined
+            first.free === undefined
                 ? undefined
-                : { balance: first.balance, required: amount },
+                : { balance: first.free, required: amount },
         );
         if (!refilled && !overdraft) return null;
         const second = await this.#reserveIfAffordable(actor, amount, {
@@ -1764,12 +1764,15 @@ export class MeteringService extends PuterService {
         return second.hold;
     }
 
-    /** `balance` is what a refused reservation read, where it read one. */
+    /**
+     * `free` is what a refused reservation found left of the balance beside the
+     * actor's running holds, where it read one.
+     */
     async #reserveIfAffordable(
         actor: Actor,
         amount: number,
         opts: { ttlMs?: number; overdraft?: number },
-    ): Promise<{ hold: CreditHold | null; balance?: number }> {
+    ): Promise<{ hold: CreditHold | null; free?: number }> {
         const userId = actor?.user?.uuid;
         if (
             !userId ||
@@ -1816,11 +1819,11 @@ export class MeteringService extends PuterService {
                         ),
                     };
                 case 'insufficient':
-                    return { hold: null, balance };
+                    return { hold: null, free: balance - (result.held ?? 0) };
                 case 'unavailable':
                     return budget >= amount
                         ? { hold: backed(NO_CREDIT_HOLD) }
-                        : { hold: null, balance };
+                        : { hold: null, free: balance };
                 case 'stale':
                     break;
             }
