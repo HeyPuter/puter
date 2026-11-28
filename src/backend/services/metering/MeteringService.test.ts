@@ -32,7 +32,7 @@ import {
 } from './consts.ts';
 import { subscriptionSatisfies } from './enforcement.ts';
 import type { MeteringService } from './MeteringService.ts';
-import type { UsageInput } from './types.ts';
+import type { CreditHold, UsageInput } from './types.ts';
 import { detailShardOf } from './usageDetail.ts';
 import { toMicroCents } from './utils.ts';
 
@@ -4597,6 +4597,22 @@ describe('MeteringService', () => {
         });
     });
 
+    /** Spends the fresh actor's allowance down to exactly `balance`. */
+    const withBalance = async (balance: number) => {
+        const { remaining } = await target.getAllowedUsage(actor);
+        if (remaining > balance) {
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                remaining - balance,
+            );
+        }
+        expect((await target.getAllowedUsage(actor)).remaining).toBe(
+            balance,
+        );
+    };
+
     describe('reserveCreditsIfAffordable', () => {
         const BUDGET = 20_000_000;
         const HOLD = 16_200_000;
@@ -4604,22 +4620,6 @@ describe('MeteringService', () => {
         afterEach(() => {
             vi.restoreAllMocks();
         });
-
-        /** Spends the fresh actor's allowance down to exactly `balance`. */
-        const withBalance = async (balance: number) => {
-            const { remaining } = await target.getAllowedUsage(actor);
-            if (remaining > balance) {
-                await target.incrementUsage(
-                    actor,
-                    'kv:read',
-                    1,
-                    remaining - balance,
-                );
-            }
-            expect((await target.getAllowedUsage(actor)).remaining).toBe(
-                balance,
-            );
-        };
 
         it('admits exactly one of two concurrent holds that only fit alone', async () => {
             await withBalance(BUDGET);
@@ -4888,6 +4888,241 @@ describe('MeteringService', () => {
             expect(await target.getOutstandingHolds(actor)).toBe(750);
             await hold?.release();
             expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+    });
+
+    describe('overdraft', () => {
+        const OVERDRAFT = 5000;
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        const exactAddons = () =>
+            target.getActorAddons(actor, { consistentRead: true });
+        const exactBalance = async () =>
+            (await target.getAllowedUsage(actor, { exact: true })).remaining;
+
+        /** A hold of `amount` admitted on `OVERDRAFT`, from a fresh read. */
+        const backedHold = async (amount: number) => {
+            const headroom = await target.getUsageHeadroom(actor, {
+                versioned: true,
+            });
+            return target.reserveCredits(actor, amount, {
+                within: { ...headroom, overdraft: OVERDRAFT },
+            });
+        };
+
+        /** Leaves the actor owing `owed`, with nothing else to spend. */
+        const owing = async (owed: number) => {
+            await withBalance(0);
+            const hold = await backedHold(owed);
+            await target.incrementUsage(actor, 'kv:read', 1, owed);
+            await (hold as CreditHold).release();
+            expect((await exactAddons()).overdrawn).toBe(owed);
+        };
+
+        it('drops spend past the balance that nothing backs', async () => {
+            await withBalance(1000);
+            await target.incrementUsage(actor, 'kv:read', 1, 3000);
+
+            expect(await exactBalance()).toBe(0);
+            expect((await exactAddons()).overdrawn).toBeUndefined();
+        });
+
+        it('records spend past the balance as owed while a backed hold runs', async () => {
+            await withBalance(1000);
+            const overdrawn = vi.fn();
+            server.clients.event.on('metering.overdrawn', overdrawn);
+            try {
+                const hold = await backedHold(3000);
+                expect(await target.getOutstandingHolds(actor)).toBe(3000);
+                await target.incrementUsage(actor, 'kv:read', 1, 3000);
+                await (hold as CreditHold).release();
+
+                expect(await exactBalance()).toBe(-2000);
+                expect((await exactAddons()).overdrawn).toBe(2000);
+                expect(overdrawn).toHaveBeenCalledTimes(1);
+                expect(overdrawn.mock.calls[0]![1]).toEqual({
+                    userUuid: actor.user.uuid,
+                    overdrawn: 2000,
+                });
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
+
+                // The hold is gone, so nothing more is owed.
+                await target.incrementUsage(actor, 'kv:read', 1, 700);
+                expect(await exactBalance()).toBe(-2000);
+                expect(overdrawn).toHaveBeenCalledTimes(1);
+            } finally {
+                server.clients.event.off('metering.overdrawn', overdrawn);
+            }
+        });
+
+        it('never owes more than the overdraft', async () => {
+            await withBalance(0);
+            const hold = await backedHold(OVERDRAFT);
+            await target.incrementUsage(actor, 'kv:read', 1, OVERDRAFT + 4000);
+            await target.incrementUsage(actor, 'kv:read', 1, 1000);
+            await (hold as CreditHold).release();
+
+            expect((await exactAddons()).overdrawn).toBe(OVERDRAFT);
+        });
+
+        it('draws purchased credit before anything is owed', async () => {
+            await withBalance(0);
+            await target.updateAddonCredit(actor.user.uuid!, 1000);
+            const hold = await backedHold(2500);
+            await target.incrementUsage(actor, 'kv:read', 1, 2500);
+            await (hold as CreditHold).release();
+
+            const addons = await exactAddons();
+            expect(addons.consumedPurchaseCredits).toBe(1000);
+            expect(addons.overdrawn).toBe(1500);
+        });
+
+        it('refuses a backed hold that reaches past the overdraft', async () => {
+            await withBalance(1000);
+
+            expect(await backedHold(1000 + OVERDRAFT + 1)).toBeNull();
+            const fits = await backedHold(1000 + OVERDRAFT);
+            expect(fits).not.toBeNull();
+            // Concurrent requests share the one overdraft.
+            expect(await backedHold(1)).toBeNull();
+            await (fits as CreditHold).release();
+        });
+
+        it('nets a top-up against what is owed', async () => {
+            await owing(2000);
+            await target.updateAddonCredit(actor.user.uuid!, 10_000);
+
+            expect(await exactBalance()).toBe(8000);
+        });
+
+        it('pays what is owed out of a top-up before spending it, and announces going below zero again', async () => {
+            await owing(2000);
+            await target.updateAddonCredit(actor.user.uuid!, 10_000);
+            const overdrawn = vi.fn();
+            server.clients.event.on('metering.overdrawn', overdrawn);
+            try {
+                const hold = await backedHold(9000);
+                expect(hold).not.toBeNull();
+                await target.incrementUsage(actor, 'kv:read', 1, 9000);
+                await (hold as CreditHold).release();
+
+                const addons = await exactAddons();
+                expect(addons.consumedPurchaseCredits).toBe(10_000);
+                expect(addons.overdrawn).toBe(1000);
+                expect(await exactBalance()).toBe(-1000);
+                expect(overdrawn).toHaveBeenCalledTimes(1);
+                expect(overdrawn.mock.calls[0]![1]).toEqual({
+                    userUuid: actor.user.uuid,
+                    overdrawn: 1000,
+                });
+            } finally {
+                server.clients.event.off('metering.overdrawn', overdrawn);
+            }
+        });
+
+        it('spends a counter that a repeated payoff left below zero', async () => {
+            await withBalance(0);
+            await server.stores.kv.incr({
+                key: `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`,
+                pathAndAmountMap: { overdrawn: -500 },
+            });
+            target.invalidateActorCredits(actor.user.uuid!);
+            expect(await exactBalance()).toBe(500);
+
+            await target.incrementUsage(actor, 'kv:read', 1, 300);
+            expect(await exactBalance()).toBe(200);
+            await target.incrementUsage(actor, 'kv:read', 1, 700);
+            expect(await exactBalance()).toBe(0);
+            expect((await exactAddons()).overdrawn).toBe(0);
+        });
+
+        it("keeps a hold's backing when an earlier hold is released after it lapsed", async () => {
+            await withBalance(0);
+            const headroom = await target.getUsageHeadroom(actor, {
+                versioned: true,
+            });
+            const lapsed = await target.reserveCredits(actor, 1000, {
+                within: { ...headroom, overdraft: OVERDRAFT },
+                ttlMs: 200,
+            });
+            await new Promise((r) => setTimeout(r, 260));
+            const hold = await backedHold(1000);
+            await (lapsed as CreditHold).release();
+
+            await target.incrementUsage(actor, 'kv:read', 1, 800);
+            await (hold as CreditHold).release();
+            expect((await exactAddons()).overdrawn).toBe(800);
+        });
+
+        it('holds a fixed price on an overdraft a listener grants', async () => {
+            await withBalance(1000);
+            const grant = vi.fn(
+                (
+                    _key: string,
+                    refusal: { balance?: number; overdraft?: number },
+                ) => {
+                    refusal.overdraft = OVERDRAFT;
+                },
+            );
+            server.clients.event.on('metering.out-of-credits', grant as never);
+            try {
+                const hold = await target.reserveCreditsIfAffordable(
+                    actor,
+                    4000,
+                );
+                expect(hold).not.toBeNull();
+                expect(grant).toHaveBeenCalledTimes(1);
+                expect(grant.mock.calls[0]![1]).toMatchObject({
+                    balance: 1000,
+                    required: 4000,
+                });
+                await target.incrementUsage(actor, 'kv:read', 1, 4000);
+                await hold?.release();
+                expect((await exactAddons()).overdrawn).toBe(3000);
+
+                // Past the overdraft, even when one is granted.
+                expect(
+                    await target.reserveCreditsIfAffordable(actor, 3000),
+                ).toBeNull();
+            } finally {
+                server.clients.event.off(
+                    'metering.out-of-credits',
+                    grant as never,
+                );
+            }
+        });
+
+        it("pays what is owed out of the next month's allowance, once", async () => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                const { monthUsageAllowance: allowance } =
+                    await target.getActorSubscription(actor);
+                await owing(2000);
+
+                vi.setSystemTime(OCTOBER_MONTH_ISO);
+                expect(await exactBalance()).toBe(allowance - 2000);
+                await Promise.all([
+                    target.incrementUsage(actor, 'kv:read', 1, 100),
+                    target.incrementUsage(actor, 'kv:read', 1, 100),
+                ]);
+                expect((await exactAddons()).overdrawn).toBe(0);
+                expect(await exactBalance()).toBe(allowance - 2200);
+
+                // Setting the month's total leaves the payoff charged.
+                await target.setActorCurrentMonthUsageTotal(actor, 200);
+                expect(await exactBalance()).toBe(allowance - 2200);
+                await target.setActorCurrentMonthUsageTotal(actor, 500);
+                expect(await exactBalance()).toBe(allowance - 2500);
+
+                vi.setSystemTime('2026-11-15T12:00:00Z');
+                expect(await exactBalance()).toBe(allowance);
+            } finally {
+                vi.useRealTimers();
+            }
         });
     });
 

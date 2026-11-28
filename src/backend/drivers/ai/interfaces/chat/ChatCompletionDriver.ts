@@ -24,7 +24,7 @@ import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError, isHttpError } from '../../../../core/http/HttpError.js';
 import {
-    creditsRefilled,
+    creditRelief,
     insufficientCreditsError,
 } from '../../../../services/metering/enforcement.js';
 import { isFreeSubscription } from '../../../../services/metering/consts.js';
@@ -1965,16 +1965,31 @@ export class ChatCompletionDriver extends PuterDriver {
             versioned: true,
         });
         // Short of funds rather than of what running requests hold: a top-up
-        // made at this moment is worth reading the balance once more.
-        if (
-            headroom.balance < fullCost &&
-            (await creditsRefilled(this.clients.event, actor))
-        ) {
-            headroom = await metering.getUsageHeadroom(actor, {
-                versioned: true,
-            });
+        // made at this moment is worth reading the balance once more, and an
+        // overdraft widens what this request may spend.
+        if (headroom.balance < fullCost) {
+            const { refilled, overdraft } = await creditRelief(
+                this.clients.event,
+                actor,
+                {
+                    balance: headroom.balance,
+                    // The prompt and one token of reply.
+                    required: Math.max(
+                        needed,
+                        approximateInputCost + extras + outputTokenCost,
+                    ),
+                },
+            );
+            if (refilled) {
+                headroom = await metering.getUsageHeadroom(actor, {
+                    versioned: true,
+                });
+            } else if (overdraft > 0) {
+                headroom = { ...headroom, overdraft };
+            }
         }
-        const { balance, held } = headroom;
+        const { held } = headroom;
+        const balance = headroom.balance + (headroom.overdraft ?? 0);
         const remainingCredits = Math.max(0, balance - held);
 
         if (remainingCredits < needed) {

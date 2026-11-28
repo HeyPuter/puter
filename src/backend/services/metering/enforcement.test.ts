@@ -32,6 +32,7 @@ import {
     assertActorHasCredits,
     assertActorHasSubscription,
     creditEnforcementExempt,
+    creditRelief,
     enforcementEnabled,
     subscriptionEnforcementEnabled,
     subscriptionSatisfies,
@@ -200,6 +201,88 @@ describe('assertActorHasCredits', () => {
             config(),
             events as never,
         );
+        expect(events.emitAndWait).not.toHaveBeenCalled();
+    });
+
+    it('rejects an account a listener only offered an overdraft', async () => {
+        // This gate reads no balance, so there is nothing to overdraw from.
+        const events = {
+            emitAndWait: vi.fn(
+                async (_key: string, refusal: { overdraft?: number }) => {
+                    refusal.overdraft = 1000;
+                },
+            ),
+        };
+        await expect402(
+            assertActorHasCredits(
+                brokeMetering,
+                userActor(),
+                config(),
+                events as never,
+            ),
+        );
+    });
+});
+
+describe('creditRelief', () => {
+    type Refusal = {
+        refilled: boolean;
+        overdraft?: unknown;
+        balance?: number;
+        required?: number;
+    };
+    const answering = (answer: (refusal: Refusal) => void) => ({
+        emitAndWait: vi.fn(async (_key: string, refusal: Refusal) => {
+            answer(refusal);
+        }),
+    });
+    const user = { user: { uuid: 'u-1' } } as Actor;
+
+    it('passes the shortfall on and reports the overdraft granted', async () => {
+        const events = answering((refusal) => {
+            refusal.overdraft = 1500;
+        });
+        await expect(
+            creditRelief(events as never, user, { balance: 700, required: 900 }),
+        ).resolves.toEqual({ refilled: false, overdraft: 1500 });
+        expect(events.emitAndWait).toHaveBeenCalledWith(
+            'metering.out-of-credits',
+            expect.objectContaining({ balance: 700, required: 900 }),
+            {},
+        );
+    });
+
+    it('reports no overdraft beside a refill', async () => {
+        const events = answering((refusal) => {
+            refusal.refilled = true;
+            refusal.overdraft = 1500;
+        });
+        await expect(creditRelief(events as never, user)).resolves.toEqual({
+            refilled: true,
+            overdraft: 0,
+        });
+    });
+
+    it.each([-5, 0, Number.NaN, Infinity, 'much'])(
+        'reads an overdraft of %s as none',
+        async (overdraft) => {
+            const events = answering((refusal) => {
+                refusal.overdraft = overdraft;
+            });
+            await expect(creditRelief(events as never, user)).resolves.toEqual({
+                refilled: false,
+                overdraft: 0,
+            });
+        },
+    );
+
+    it('asks nobody with no events client or no account', async () => {
+        const none = { refilled: false, overdraft: 0 };
+        await expect(creditRelief(undefined, user)).resolves.toEqual(none);
+        const events = answering(() => {});
+        await expect(
+            creditRelief(events as never, {} as Actor),
+        ).resolves.toEqual(none);
         expect(events.emitAndWait).not.toHaveBeenCalled();
     });
 });

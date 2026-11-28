@@ -19,6 +19,7 @@
 
 import type { Request } from 'express';
 import type { EventClient } from '../../clients/event/EventClient';
+import type { EventMap } from '../../clients/event/types';
 import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -106,7 +107,7 @@ export const assertActorHasCredits = async (
     events?: Pick<EventClient, 'emitAndWait'>,
 ): Promise<void> => {
     if (await actorHasCredits(metering, actor, config)) return;
-    if (await creditsRefilled(events, actor)) return;
+    if ((await creditRelief(events, actor)).refilled) return;
     throw insufficientCreditsError();
 };
 
@@ -118,18 +119,39 @@ export const insufficientCreditsError = (): HttpError =>
         { legacyCode: 'insufficient_funds' },
     );
 
+/** What `metering.out-of-credits` listeners did for an actor short of credit. */
+export interface CreditRelief {
+    /** Credit was added, so the balance is worth reading again. */
+    refilled: boolean;
+    /** How far below zero the actor may run instead; 0 for no overdraft. */
+    overdraft: number;
+}
+
 /**
- * Tells listeners an actor is about to be refused for lack of credit. True when
- * one of them added credit, so the refused work is worth one more try.
+ * Tells listeners an actor is about to be refused for lack of credit.
+ * `shortfall` is the balance the gate read and the least the work needs; a
+ * listener can only grant an overdraft when it is given.
  */
-export const creditsRefilled = async (
+export const creditRelief = async (
     events: Pick<EventClient, 'emitAndWait'> | undefined,
     actor: Actor | undefined,
-): Promise<boolean> => {
-    if (!events || !actor?.user?.uuid) return false;
-    const refusal = { actor, refilled: false };
+    shortfall?: { balance: number; required: number },
+): Promise<CreditRelief> => {
+    if (!events || !actor?.user?.uuid) return { refilled: false, overdraft: 0 };
+    const refusal: EventMap['metering.out-of-credits'] = {
+        actor,
+        refilled: false,
+        ...shortfall,
+    };
     await events.emitAndWait('metering.out-of-credits', refusal, {});
-    return refusal.refilled;
+    const overdraft = Number(refusal.overdraft);
+    return {
+        refilled: refusal.refilled === true,
+        overdraft:
+            !refusal.refilled && Number.isFinite(overdraft) && overdraft > 0
+                ? overdraft
+                : 0,
+    };
 };
 
 /** The part of the metering service the subscription check calls. */

@@ -12,7 +12,7 @@ Object containing user's monthly resource usage information in the Puter ecosyst
 Information about the user's resource allowance and consumption.
 
 - `monthUsageAllowance` (Number) - Total resource allowance for the month.
-- `remaining` (Number) - The remaining allowance that can be used.
+- `remaining` (Number) - The remaining allowance that can be used. This is negative when the account has spent more than it had.
 
 #### `appTotals` (Object)
 

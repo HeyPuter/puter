@@ -54,6 +54,7 @@ import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showPopupFrame } from '../lib
  * @property {number} monthUsageAllowance Total resource allowance for the
  *   month.
  * @property {number} remaining The remaining allowance that can be used.
+ *   Negative when the account has spent more than it had.
  * @property {string} [unit] 'credits' when the server already scaled every
  *   monetary field to display credits; absent for raw amounts.
  */
