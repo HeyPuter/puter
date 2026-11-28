@@ -5095,7 +5095,7 @@ describe('MeteringService', () => {
             }
         });
 
-        it('tells the listener what running requests leave of the balance', async () => {
+        it('tells the listener what running requests hold', async () => {
             await withBalance(5000);
             const headroom = await target.getUsageHeadroom(actor, {
                 versioned: true,
@@ -5119,7 +5119,8 @@ describe('MeteringService', () => {
                 );
                 expect(hold).not.toBeNull();
                 expect(grant.mock.calls[0]![1]).toMatchObject({
-                    balance: 1000,
+                    balance: 5000,
+                    held: 4000,
                     required: 3000,
                 });
                 await hold?.release();
@@ -5129,6 +5130,61 @@ describe('MeteringService', () => {
                     grant as never,
                 );
                 await (running as CreditHold).release();
+            }
+        });
+
+        it('asks again when another request took the overdraft first', async () => {
+            await withBalance(1000);
+            let granted = 0;
+            let bothGranted!: () => void;
+            const answered = new Promise<void>((r) => (bothGranted = r));
+            const relief = vi.fn(
+                async (
+                    _key: string,
+                    refusal: {
+                        balance: number;
+                        held?: number;
+                        required: number;
+                        refilled: boolean;
+                        overdraft?: number;
+                    },
+                ) => {
+                    if (
+                        refusal.balance - (refusal.held ?? 0) + OVERDRAFT >=
+                        refusal.required
+                    ) {
+                        // Both first refusals are answered before either retries.
+                        if (++granted === 2) bothGranted();
+                        await answered;
+                        refusal.overdraft = OVERDRAFT;
+                    } else {
+                        await target.updateAddonCredit(
+                            actor.user.uuid!,
+                            10_000,
+                        );
+                        refusal.refilled = true;
+                    }
+                },
+            );
+            server.clients.event.on('metering.out-of-credits', relief as never);
+            try {
+                const holds = await Promise.all([
+                    target.reserveCreditsIfAffordable(actor, 4000),
+                    target.reserveCreditsIfAffordable(actor, 4000),
+                ]);
+                expect(holds.every((h) => h !== null)).toBe(true);
+                expect(relief).toHaveBeenCalledTimes(3);
+                expect(relief.mock.calls[2]![1]).toMatchObject({
+                    held: 4000,
+                    refilled: true,
+                });
+                expect(await target.getOutstandingHolds(actor)).toBe(8000);
+                await Promise.all(holds.map((h) => h?.release()));
+            } finally {
+                server.clients.event.off(
+                    'metering.out-of-credits',
+                    relief as never,
+                );
             }
         });
 

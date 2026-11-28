@@ -1971,15 +1971,15 @@ export class ChatCompletionDriver extends PuterDriver {
         });
         // Short of funds rather than of what running requests hold: a top-up
         // made at this moment is worth reading the balance once more, and an
-        // overdraft widens what this request may spend. The listener is told
-        // what the running requests leave, since an overdraft they already
-        // hold can't be granted twice.
+        // overdraft widens what this request may spend. `held` tells the
+        // listener how much of an overdraft running requests already hold.
         if (headroom.balance < fullCost) {
             const { refilled, overdraft } = await creditRelief(
                 this.clients.event,
                 actor,
                 {
-                    balance: headroom.balance - headroom.held,
+                    balance: headroom.balance,
+                    held: headroom.held,
                     required: runnable,
                 },
             );

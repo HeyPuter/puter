@@ -1147,20 +1147,21 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
                 .spyOn(server.services.metering, 'getUsageHeadroom')
                 .mockResolvedValueOnce({ balance: 100_000, held })
                 .mockResolvedValue({ balance: 100_000_000, held });
-            // Grants an overdraft only while the balance left covers some.
+            // Grants an overdraft only when what is not held covers the request.
             const relief = vi.fn(
                 (
                     _key: string,
                     refusal: {
                         balance: number;
+                        held?: number;
                         required: number;
                         refilled: boolean;
                         overdraft?: number;
                     },
                 ) => {
                     if (
-                        refusal.balance > 0 &&
-                        refusal.balance + OVERDRAFT >= refusal.required
+                        refusal.balance - (refusal.held ?? 0) + OVERDRAFT >=
+                        refusal.required
                     ) {
                         refusal.overdraft = OVERDRAFT;
                     } else {
@@ -1172,7 +1173,8 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
             try {
                 expect(await completeCapme(d)).toBe(8192);
                 expect(relief.mock.calls[0]![1]).toMatchObject({
-                    balance: -OVERDRAFT,
+                    balance: 100_000,
+                    held,
                     refilled: true,
                 });
                 expect(headroom).toHaveBeenCalledTimes(2);
@@ -1232,7 +1234,7 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
                 });
             });
 
-            it('tells the listener what running requests leave of the balance', async () => {
+            it('tells the listener what running requests hold', async () => {
                 const d = await capme();
                 vi.spyOn(
                     server.services.metering,
@@ -1241,7 +1243,8 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
 
                 await completeCapme(d);
                 expect(grant.mock.calls[0]![1]).toMatchObject({
-                    balance: 3_000_000,
+                    balance: 15_000_000,
+                    held: 12_000_000,
                 });
             });
 

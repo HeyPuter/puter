@@ -679,11 +679,13 @@ export type EventMap = {
     'metering.out-of-credits': {
         actor: Actor;
         refilled: boolean;
-        /**
-         * The balance the gate read less what the actor's running requests
-         * hold, where it read one.
-         */
+        /** The balance the gate read, where it read one. */
         balance?: number;
+        /**
+         * What the actor's running requests hold against `balance`, overdrafts
+         * granted to them included.
+         */
+        held?: number;
         /** The least the work needs to run at all. */
         required?: number;
         overdraft?: number;

@@ -129,13 +129,14 @@ export interface CreditRelief {
 
 /**
  * Tells listeners an actor is about to be refused for lack of credit.
- * `shortfall` is the balance the gate read and the least the work needs; a
- * listener can only grant an overdraft when it is given.
+ * `shortfall` is the balance the gate read, what running requests hold of it,
+ * and the least the work needs; a listener can only grant an overdraft when it
+ * is given.
  */
 export const creditRelief = async (
     events: Pick<EventClient, 'emitAndWait'> | undefined,
     actor: Actor | undefined,
-    shortfall?: { balance: number; required: number },
+    shortfall?: { balance: number; held?: number; required: number },
 ): Promise<CreditRelief> => {
     if (!events || !actor?.user?.uuid) return { refilled: false, overdraft: 0 };
     const refusal: EventMap['metering.out-of-credits'] = {
