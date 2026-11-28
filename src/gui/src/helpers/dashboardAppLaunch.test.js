@@ -31,7 +31,8 @@ globalThis.i18n = key => key;
 
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
-const { openAppInNewTab, openSiteInNewTab, DESKTOP_URL } = await import('./dashboardAppLaunch.js');
+const { openAppInNewTab, openRecentFileInNewTab, openSiteInNewTab, DESKTOP_URL } = await import('./dashboardAppLaunch.js');
+const { RECENT_FILES_KEY, resetRecentFilesCache } = await import('./recentFiles.js');
 
 describe('openAppInNewTab', () => {
     let opened;
@@ -189,5 +190,91 @@ describe('openSiteInNewTab', () => {
         vi.stubGlobal('fetch', vi.fn());
         expect(openSiteInNewTab(DESKTOP_URL)).toBeNull();
         expect(fetch).not.toHaveBeenCalled();
+    });
+});
+
+describe('openRecentFileInNewTab', () => {
+    const file = { uid: 'f1', path: '/u/Documents/notes.txt', name: 'notes.txt', appName: 'editor', openedAt: 1 };
+    let tab;
+    let store;
+    let stat;
+
+    beforeEach(() => {
+        tab = { closed: false, close: vi.fn() };
+        vi.spyOn(window, 'open').mockImplementation(() => tab);
+        launch_app.mockResolvedValue({ launchResult: { launched: true } });
+        window.trash_path = '/u/Trash';
+        store = new Map([[RECENT_FILES_KEY, [file]]]);
+        stat = vi.fn(async () => ({ uid: 'f1', path: '/u/Archive/notes.txt', name: 'notes.txt', is_dir: false }));
+        vi.stubGlobal('puter', {
+            fs: { stat },
+            kv: {
+                get: vi.fn(async key => store.get(key) ?? null),
+                set: vi.fn(async (key, value) => {
+                    store.set(key, value);
+                    return true;
+                }),
+            },
+        });
+        resetRecentFilesCache();
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+        vi.clearAllMocks();
+    });
+
+    it('opens the file where it is now, with the app it was last opened with, in a new tab', async () => {
+        await openRecentFileInNewTab(file);
+        expect(stat).toHaveBeenCalledWith({ uid: 'f1' });
+        expect(launch_app).toHaveBeenCalledWith({
+            name: 'editor',
+            file_uid: 'f1',
+            file_path: '/u/Archive/notes.txt',
+            window_title: 'notes.txt',
+            newTab: tab,
+            trigger: 'file_open',
+        });
+    });
+
+    it('opens the file in this page when the browser refuses the tab', async () => {
+        window.open.mockReturnValue(null);
+        await openRecentFileInNewTab(file);
+        expect(launch_app).toHaveBeenCalledWith(expect.objectContaining({ maximized: true }));
+        expect(launch_app.mock.calls[0][0]).not.toHaveProperty('newTab');
+    });
+
+    it('takes a deleted file off the list and says so', async () => {
+        stat.mockRejectedValueOnce({ code: 'subject_does_not_exist', message: 'not found' });
+        await openRecentFileInNewTab(file);
+        await Promise.resolve();
+        expect(launch_app).not.toHaveBeenCalled();
+        expect(tab.close).toHaveBeenCalled();
+        expect(UIAlert).toHaveBeenCalledWith('recent_file_unavailable');
+        await vi.waitFor(() => expect(store.get(RECENT_FILES_KEY)).toEqual([]));
+    });
+
+    it('takes a trashed file off the list', async () => {
+        stat.mockResolvedValueOnce({ uid: 'f1', path: '/u/Trash/f1', name: 'f1', is_dir: false });
+        await openRecentFileInNewTab(file);
+        expect(launch_app).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(store.get(RECENT_FILES_KEY)).toEqual([]));
+    });
+
+    it('keeps the file on the list when the lookup fails for another reason', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        stat.mockRejectedValueOnce(new Error('offline'));
+        await openRecentFileInNewTab(file);
+        expect(tab.close).toHaveBeenCalled();
+        expect(UIAlert).toHaveBeenCalledWith('something_went_wrong');
+        expect(store.get(RECENT_FILES_KEY)).toEqual([file]);
+    });
+
+    it('ignores a second click while the first is opening', async () => {
+        const first = openRecentFileInNewTab(file);
+        openRecentFileInNewTab(file);
+        await first;
+        expect(window.open).toHaveBeenCalledTimes(1);
     });
 });

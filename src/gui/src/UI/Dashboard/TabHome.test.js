@@ -18,13 +18,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('../UIWindowSaveAccount.js', () => ({ default: vi.fn() }));
+vi.mock('../UIWindow.js', () => ({ default: vi.fn() }));
+vi.mock('../UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('../../helpers/dashboardAppLaunch.js', () => ({
     DESKTOP_URL: 'https://desktop.puter.com/',
     openAppInNewTab: vi.fn(),
+    openRecentFileInNewTab: vi.fn(),
     openSiteInNewTab: vi.fn(),
 }));
 
@@ -32,11 +35,13 @@ globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
 globalThis.html_encode = value => jQuery('<div>').text(value).html();
 globalThis.i18n = key => key;
-window.icons = {};
+window.icons = { 'file.svg': 'file.svg', 'file-text.svg': 'file-text.svg' };
 window.launch_apps = { recent: [] };
 
 const { default: TabHome, formatTrialEnd } = await import('./TabHome.js');
-const { openAppInNewTab, openSiteInNewTab } = await import('../../helpers/dashboardAppLaunch.js');
+const { openAppInNewTab, openRecentFileInNewTab, openSiteInNewTab } = await import('../../helpers/dashboardAppLaunch.js');
+const { default: UIContextMenu } = await import('../UIContextMenu.js');
+const { RECENT_FILES_KEY, resetRecentFilesCache } = await import('../../helpers/recentFiles.js');
 
 describe('TabHome recently used', () => {
     const mount = () => {
@@ -156,5 +161,144 @@ describe('formatTrialEnd', () => {
     it('has nothing to say without an end date', () => {
         expect(formatTrialEnd(undefined)).toBeNull();
         expect(formatTrialEnd(NaN)).toBeNull();
+    });
+});
+
+describe('TabHome recently opened files', () => {
+    const recent = (uid, name, openedAt = Date.now()) => ({
+        uid,
+        path: `/u/Documents/${name}`,
+        name,
+        appName: 'editor',
+        openedAt,
+    });
+    let store;
+
+    const mount = () => {
+        document.body.innerHTML = `<div class="window">${TabHome.html()}</div>`;
+        const $el_window = $('.window');
+        TabHome.init($el_window);
+        return $el_window;
+    };
+    const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    beforeEach(() => {
+        localStorage.clear();
+        resetRecentFilesCache();
+        store = new Map();
+        globalThis.puter = {
+            kv: {
+                get: vi.fn(async key => store.get(key) ?? null),
+                set: vi.fn(async (key, value) => {
+                    store.set(key, value);
+                    return true;
+                }),
+            },
+        };
+        $.ajax = vi.fn(async () => ({ recent: [] }));
+        globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500 }));
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.clearAllMocks();
+        delete globalThis.puter;
+    });
+
+    it('says when there are no files, or when they could not be read', async () => {
+        globalThis.puter.kv.get = vi.fn(async () => {
+            throw new Error('offline');
+        });
+        const $el_window = mount();
+        await settle();
+        expect($el_window.text()).toContain('recent_files_load_failed');
+
+        globalThis.puter.kv.get = vi.fn(async () => null);
+        await TabHome.loadRecentFiles($el_window);
+        await settle();
+        expect($el_window.text()).toContain('no_recent_files');
+    });
+
+    it('lists the stored files, newest first, and opens one on click', async () => {
+        store.set(RECENT_FILES_KEY, [recent('a', 'notes.txt'), recent('b', 'report.pdf')]);
+        const $el_window = mount();
+        await settle();
+
+        const $rows = $el_window.find('.bento-recent-file');
+        expect($rows.map((_, el) => $(el).find('.bento-recent-file-name').text()).get())
+            .toEqual(['notes.txt', 'report.pdf']);
+
+        $rows.first().trigger('click');
+        expect(openRecentFileInNewTab).toHaveBeenCalledWith(recent('a', 'notes.txt', store.get(RECENT_FILES_KEY)[0].openedAt));
+    });
+
+    it('shows at most five files', async () => {
+        store.set(RECENT_FILES_KEY, Array.from({ length: 8 }, (_, i) => recent(`f${i}`, `f${i}.txt`)));
+        const $el_window = mount();
+        await settle();
+        expect($el_window.find('.bento-recent-file')).toHaveLength(5);
+    });
+
+    it('switches between apps and files, and remembers the choice', async () => {
+        store.set(RECENT_FILES_KEY, [recent('a', 'notes.txt')]);
+        const $el_window = mount();
+        await settle();
+        const $card = $el_window.find('.bento-recent');
+        const selected = () => $card.find('.bento-recent-switch-btn[aria-selected="true"]').attr('data-view');
+
+        expect(selected()).toBe('apps');
+        expect($card.find('.bento-recent-apps-container').prop('hidden')).toBe(false);
+        expect($card.find('.bento-recent-files-container').prop('hidden')).toBe(true);
+        expect($card.find('.bento-recent-files-menu').prop('hidden')).toBe(true);
+
+        $card.find('.bento-recent-switch-btn[data-view="files"]').trigger('click');
+        expect(selected()).toBe('files');
+        expect($card.find('.bento-recent-apps-container').prop('hidden')).toBe(true);
+        expect($card.find('.bento-recent-files-container').prop('hidden')).toBe(false);
+        expect($card.find('.bento-recent-header > .bento-card-fancy-header').attr('data-target-tab')).toBe('files');
+        expect($card.find('.bento-recent-header h2').text()).toBe('files');
+        // With files to clear, the menu shows.
+        expect($card.find('.bento-recent-files-menu').prop('hidden')).toBe(false);
+
+        // The next visit opens on files.
+        expect(localStorage.getItem('dashboard_home_recent_view')).toBe('files');
+        const $next = $(`<div>${TabHome.html()}</div>`);
+        expect($next.find('.bento-recent').attr('data-view')).toBe('files');
+        expect($next.find('.bento-recent-files-container').prop('hidden')).toBe(false);
+    });
+
+    it('clears the history from the card menu', async () => {
+        store.set(RECENT_FILES_KEY, [recent('a', 'notes.txt')]);
+        const $el_window = mount();
+        await settle();
+        $el_window.find('.bento-recent-switch-btn[data-view="files"]').trigger('click');
+
+        $el_window.find('.bento-recent-files-menu').trigger('click');
+        const { items } = UIContextMenu.mock.calls.at(-1)[0];
+        expect(items.map(item => item.html)).toEqual(['clear_history']);
+        items[0].onClick();
+        await settle();
+        await settle();
+
+        expect(store.get(RECENT_FILES_KEY)).toEqual([]);
+        expect($el_window.text()).toContain('no_recent_files');
+        expect($el_window.find('.bento-recent-files-menu').prop('hidden')).toBe(true);
+    });
+
+    it('removes one file from its context menu', async () => {
+        store.set(RECENT_FILES_KEY, [recent('a', 'notes.txt'), recent('b', 'report.pdf')]);
+        const $el_window = mount();
+        await settle();
+
+        $el_window.find('.bento-recent-file').first().trigger('contextmenu');
+        const { items } = UIContextMenu.mock.calls.at(-1)[0];
+        expect(items.map(item => item.html)).toEqual(['remove_from_list']);
+        items[0].onClick();
+        await settle();
+        await settle();
+
+        expect(store.get(RECENT_FILES_KEY).map(f => f.uid)).toEqual(['b']);
+        expect($el_window.find('.bento-recent-file')).toHaveLength(1);
     });
 });

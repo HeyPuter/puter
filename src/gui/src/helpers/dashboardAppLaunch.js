@@ -24,6 +24,7 @@ import { offerAppTabLaunch } from './appTabLaunch.js';
 import { appendLaunchContext } from './appLaunchUrl.js';
 import { fetchUserAppTokenForLaunch } from './appLaunchApi.js';
 import { uuidv4 } from './uuidv4.js';
+import { forgetRecentFile } from './recentFiles.js';
 
 /** The desktop interface, served as its own site. */
 export const DESKTOP_URL = 'https://desktop.puter.com/';
@@ -53,6 +54,60 @@ export function openAppInNewTab (appName) {
             UIAlert(i18n('something_went_wrong', [], false));
         })
         .finally(() => launching.delete(appName));
+}
+
+// Recently opened files whose launch is still on its way, by uid.
+const launchingFiles = new Set();
+
+/** Whether a failed `puter.fs.stat` means the file is gone or out of reach. */
+const isUnavailable = e =>
+    e?.code === 'subject_does_not_exist' || e?.status === 404 || e?.status === 403;
+
+/**
+ * Opens a recently opened file from the dashboard in a new browser tab, with
+ * the app it was last opened with. A file that's gone or in the Trash is
+ * taken off the list instead. Call it inside the click, so popup blockers
+ * allow the tab.
+ *
+ * @param {import('./recentFiles.js').RecentFile} file
+ * @returns {Promise<void>}
+ */
+export async function openRecentFileInNewTab (file) {
+    if ( launchingFiles.has(file.uid) ) return;
+    // Without 'noopener': the app's SDK asks this tab for its token.
+    const tab = window.open('', '_blank');
+    launchingFiles.add(file.uid);
+    const gone = () => {
+        tab?.close();
+        void forgetRecentFile(file.uid);
+        // Unencoded: UIAlert encodes its message itself.
+        return UIAlert(i18n('recent_file_unavailable', { name: file.name }, false));
+    };
+    try {
+        let fsentry;
+        try {
+            fsentry = await puter.fs.stat({ uid: file.uid });
+        } catch ( err ) {
+            if ( isUnavailable(err) ) return await gone();
+            throw err;
+        }
+        if ( fsentry.is_dir || fsentry.path?.startsWith(`${window.trash_path}/`) ) return await gone();
+        // The launch owns the tab from here, and closes it on failure.
+        await launch_app({
+            name: file.appName,
+            file_uid: fsentry.uid,
+            file_path: fsentry.path,
+            window_title: fsentry.name,
+            ...(tab ? { newTab: tab } : { maximized: true }),
+            trigger: 'file_open',
+        });
+    } catch ( err ) {
+        console.error(`Failed to open ${file.name}:`, err);
+        tab?.close();
+        UIAlert(i18n('something_went_wrong', [], false));
+    } finally {
+        launchingFiles.delete(file.uid);
+    }
 }
 
 // Sites whose launch is still fetching a token; a second click would open a second tab.

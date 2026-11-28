@@ -31,6 +31,7 @@ import { syncBrowserPush } from './pushSync.js';
 import { offerAppTabLaunch } from './appTabLaunch.js';
 import { BUILTIN_PREFIX, appLaunchUrl, appendLaunchContext } from './appLaunchUrl.js';
 import { fetchUserAppTokenForLaunch, reportAppOpen } from './appLaunchApi.js';
+import { recordOpenedFile } from './recentFiles.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -81,6 +82,21 @@ const record_app_open = (app_info) => {
     window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
 
     reportAppOpen({ appUid: app_info.uid ?? app_info.uuid, socketId: window.socket?.id });
+};
+
+// Launches the user started on a file in the GUI, as opposed to a file an app
+// or a URL asked for.
+const FILE_OPEN_TRIGGERS = new Set(['file_open', 'open_with', 'file_drop']);
+
+/** Adds the file a launch opened to the recently opened files. */
+const record_file_open = (app_info, options, file_signature) => {
+    if ( ! FILE_OPEN_TRIGGERS.has(options.trigger) ) return;
+    void recordOpenedFile({
+        uid: file_signature?.uid ?? options.file_uid,
+        path: options.file_path ? expand_home_path(options.file_path, window.home_path) : file_signature?.path,
+        name: file_signature?.fsentry_name ?? file_signature?.name,
+        appName: app_info.name ?? options.name,
+    });
 };
 
 /** The `puter.item.*` params held back from a tab's URL, or null when none. */
@@ -586,6 +602,7 @@ const runLaunch = async (options) => {
             });
             newTab.location.href = iframe_url.href;
             record_app_open(app_info);
+            record_file_open(app_info, options, file_signature);
             // A tab never signals over IPC, so it has no interactive span to count.
             transaction?.annotate({ 'launch.ipc_tracked': false });
             endLaunchTransaction(transaction, 'opened-in-new-tab');
@@ -750,6 +767,7 @@ const runLaunch = async (options) => {
         if ( options.name !== 'explorer' ) {
             record_app_open(app_info);
         }
+        record_file_open(app_info, options, file_signature);
     }
 
     const el = await el_win;
