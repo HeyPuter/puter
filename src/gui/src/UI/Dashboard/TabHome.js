@@ -19,7 +19,7 @@
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
-import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, meterPercent, monthlyBalance, monthlyUsageOrThrow } from './usageBudget.js';
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
@@ -147,19 +147,13 @@ function buildUsageHTML() {
     h += `<h3>${i18n('your_resources')}</h3>`;
     h += '<span class="bento-usage-card-arrow">›</span>';
     h += '</a>';
-    h += '<div class="bento-usage-card-bar-wrapper">';
-    h += '<div class="bento-usage-card-bar bento-resources-bar"></div>';
-    h += '</div>';
     h += '<div class="bento-usage-card-info">';
-    h +=
-        `<span class="bento-usage-card-used bento-resources-used">${i18n('amount_used', { amount: '--' })}</span>`;
-    h +=
-        `<span class="bento-usage-card-details">${i18n('usage_percent_of_capacity', {
-            percent: '<span class="bento-resources-percent">--%</span>',
-            capacity: '<span class="bento-resources-capacity">--</span>',
-        }, false)}</span>`;
-    h +=
-        '<span class="bento-usage-card-details bento-resources-addon" style="display: none;"></span>';
+    h += '<span class="bento-usage-card-used bento-monthly-balance">--</span>';
+    h += `<span class="bento-usage-card-details">${i18n('monthly_plan_balance')}</span>`;
+    h += '</div>';
+    h += '<div class="bento-usage-card-info bento-topup" style="display: none;">';
+    h += '<span class="bento-usage-card-used bento-topup-balance">--</span>';
+    h += `<span class="bento-usage-card-details">${i18n('topup_balance')}</span>`;
     h += '</div>';
     h += '</div>';
 
@@ -722,7 +716,6 @@ const TabHome = {
     async _renderResourcesCard($el_window) {
         try {
             const res = monthlyUsageOrThrow(await getMonthlyUsage());
-            const budget = usageBudget(res.usage, res.allowanceInfo);
             const addonLeft = addonCreditsRemaining(res.allowanceInfo);
             // The server reports credits (already scaled) or raw amounts
             // (no multiplier configured), and says which via the unit flag.
@@ -732,28 +725,13 @@ const TabHome = {
                 : formatDollarsFromMicrocents(v);
 
             $el_window
-                .find('.bento-resources-used')
-                .text(i18n('amount_used', { amount: amount(budget.used) }, false));
-            $el_window
-                .find('.bento-resources-capacity')
-                .text(
-                    inCredits
-                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'usage_credits' : 'monthly_credits')}`
-                        : amount(budget.capacity),
-                );
-            $el_window
-                .find('.bento-resources-addon')
-                .html(addonLeft === null
-                    ? ''
-                    : i18n('addon_credits_available', { amount: amount(addonLeft) }))
-                .toggle(addonLeft !== null);
-            $el_window
-                .find('.bento-resources-percent')
-                .text(`${budget.percent}%`);
-            $el_window.find('.bento-resources-bar').css({
-                width: `${budget.barPercent}%`,
-                'background-color': window.usage_bar_color(budget.barPercent),
-            });
+                .find('.bento-monthly-balance')
+                .text(amount(monthlyBalance(res.usage, res.allowanceInfo)));
+            // Shown for an account that has ever bought top-up credit.
+            $el_window.find('.bento-topup').toggle(addonLeft !== null);
+            if (addonLeft !== null) {
+                $el_window.find('.bento-topup-balance').text(amount(addonLeft));
+            }
         } catch (e) {
             console.error('Failed to load monthly usage data:', e);
         }

@@ -7800,10 +7800,6 @@ body.myapps-reordering .myapps-tile {
     color: var(--dashboard-text-hint);
 }
 
-.dashboard .bento-resources-addon {
-    color: var(--dashboard-link);
-}
-
 /* Legacy bar styles (kept for compatibility) */
 .dashboard .bento-usage-bar-wrapper {
     width: 100%;

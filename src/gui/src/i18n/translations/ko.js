@@ -378,7 +378,6 @@ const ko = {
 
         // Website Management
         app_browser_unavailable: '앱을 사용할 수 없습니다. 앱에서 이 브라우저를 다시 열어주세요.',
-        addon_credits_available: '+ 추가 크레딧 {{amount}} 남음',
         topup_balance: '충전 잔액',
         add_app: '앱 추가',
         add_app_ai: 'AI로 앱 만들기',
@@ -544,7 +543,6 @@ const ko = {
         account_subtitle: '계정 설정 및 프로필 관리',
         security_subtitle: '보안 설정 및 세션 관리',
         delete_account_description: '계정과 관련된 모든 데이터를 영구적으로 삭제합니다. 이 작업은 취소할 수 없습니다.',
-        monthly_credits: '월간 크레딧',
         monthly_plan_balance: '월간 플랜 잔액',
         new_notification: '새 알림',
         notification: '알림',
