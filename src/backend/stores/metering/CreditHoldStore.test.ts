@@ -259,7 +259,10 @@ describe.each(backends)('CreditHoldStore.reserve on $name', ({ redis }) => {
     it('admits exact headroom and refuses one unit more', async () => {
         const id = user();
         expect((await reserve(a, id, 15_000_000)).outcome).toBe('accepted');
-        expect((await reserve(b, id, 5_000_001)).outcome).toBe('insufficient');
+        expect(await reserve(b, id, 5_000_001)).toEqual({
+            outcome: 'insufficient',
+            held: 15_000_000,
+        });
         expect((await reserve(b, id, 5_000_000)).outcome).toBe('accepted');
         expect(await a.outstanding(id)).toBe(BUDGET);
     });

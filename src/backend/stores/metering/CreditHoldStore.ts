@@ -65,7 +65,8 @@ const VERSION_TTL_MS = 60 * 60 * 1000;
 /** What a conditional reservation came to. */
 export type CreditReservation =
     | { outcome: 'accepted'; member: string }
-    | { outcome: 'insufficient' }
+    // `held`: what the live holds came to.
+    | { outcome: 'insufficient'; held?: number }
     // The balance changed since `version` was read; read it again.
     | { outcome: 'stale' }
     // The cache couldn't answer; nothing was held.
@@ -132,7 +133,7 @@ if ARGV[7] ~= '' and (redis.call('GET', KEYS[2]) or '0') ~= ARGV[7] then
 end
 ${pruneAndSum('ARGV[4]')}
 if total + tonumber(ARGV[5]) > tonumber(ARGV[6]) then
-    return { 'insufficient', dropped }
+    return { 'insufficient', dropped, tostring(total) }
 end
 local ttl = redis.call('PTTL', KEYS[1])
 redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
@@ -167,7 +168,7 @@ const versionSeed = (): string =>
 type ScriptRunner = {
     creditHoldTake(...args: string[]): Promise<number>;
     creditHoldSum(...args: string[]): Promise<[string, number]>;
-    creditHoldReserve(...args: string[]): Promise<[string, number]>;
+    creditHoldReserve(...args: string[]): Promise<[string, number, string?]>;
     zrem(key: string, member: string): Promise<number>;
     creditHoldBump(...args: string[]): Promise<number>;
     get(key: string): Promise<string | null>;
@@ -315,22 +316,26 @@ export class CreditHoldStore extends PuterStore {
         const member = `${randomUUID()}:${units}`;
         const now = Date.now();
         try {
-            const [outcome, dropped] = await this.#redis.creditHoldReserve(
-                holdsKey(userId),
-                versionKey(userId),
-                member,
-                String(now + ttlMs),
-                String(ttlMs + KEY_TTL_SLACK_MS),
-                String(now),
-                String(units),
-                String(Math.floor(Math.min(budget, Number.MAX_SAFE_INTEGER))),
-                version,
-            );
+            const [outcome, dropped, held] =
+                await this.#redis.creditHoldReserve(
+                    holdsKey(userId),
+                    versionKey(userId),
+                    member,
+                    String(now + ttlMs),
+                    String(ttlMs + KEY_TTL_SLACK_MS),
+                    String(now),
+                    String(units),
+                    String(
+                        Math.floor(Math.min(budget, Number.MAX_SAFE_INTEGER)),
+                    ),
+                    version,
+                );
             if (dropped > 0) expiredHoldsCounter.add(dropped);
             if (outcome === 'accepted') return { outcome, member };
-            if (outcome === 'insufficient' || outcome === 'stale') {
-                return { outcome };
+            if (outcome === 'insufficient') {
+                return { outcome, held: Number(held) || 0 };
             }
+            if (outcome === 'stale') return { outcome };
             throw new Error(`unexpected reservation outcome ${outcome}`);
         } catch (e) {
             console.warn(

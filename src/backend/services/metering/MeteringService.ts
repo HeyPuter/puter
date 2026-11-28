@@ -1740,36 +1740,54 @@ export class MeteringService extends PuterService {
      * balance read sends the reservation back to read it again. When the cache
      * can't answer, the balance alone decides and nothing is held. A listener
      * that tops the actor up at the moment of refusal, or lets them run below
-     * zero, gets one more try.
+     * zero, gets one more try. A try on an overdraft that another request took
+     * first asks the listeners once more, from a read that includes its hold.
      */
     async reserveCreditsIfAffordable(
         actor: Actor,
         amount: number,
         opts: { ttlMs?: number } = {},
     ): Promise<CreditHold | null> {
-        const first = await this.#reserveIfAffordable(actor, amount, opts);
-        if (first.hold) return first.hold;
-        const { refilled, overdraft } = await creditRelief(
-            this.clients.event,
-            actor,
-            first.balance === undefined
-                ? undefined
-                : { balance: first.balance, required: amount },
-        );
-        if (!refilled && !overdraft) return null;
-        const second = await this.#reserveIfAffordable(actor, amount, {
-            ...opts,
-            overdraft,
-        });
-        return second.hold;
+        let result = await this.#reserveIfAffordable(actor, amount, opts);
+        for (
+            let ask = 1;
+            ask <= MeteringService.RELIEF_ASKS && !result.hold;
+            ask++
+        ) {
+            const { refilled, overdraft } = await creditRelief(
+                this.clients.event,
+                actor,
+                result.balance === undefined
+                    ? undefined
+                    : {
+                          balance: result.balance,
+                          held: result.held ?? 0,
+                          required: amount,
+                      },
+            );
+            if (!refilled && !overdraft) return null;
+            const next = await this.#reserveIfAffordable(actor, amount, {
+                ...opts,
+                overdraft,
+            });
+            if (next.hold || !overdraft) return next.hold;
+            result = next;
+        }
+        return result.hold;
     }
 
-    /** `balance` is what a refused reservation read, where it read one. */
+    /** Times a fixed-price reservation asks listeners for relief. */
+    private static readonly RELIEF_ASKS = 2;
+
+    /**
+     * `balance` and `held` are what a refused reservation read, where it read
+     * them.
+     */
     async #reserveIfAffordable(
         actor: Actor,
         amount: number,
         opts: { ttlMs?: number; overdraft?: number },
-    ): Promise<{ hold: CreditHold | null; balance?: number }> {
+    ): Promise<{ hold: CreditHold | null; balance?: number; held?: number }> {
         const userId = actor?.user?.uuid;
         if (
             !userId ||
@@ -1816,7 +1834,7 @@ export class MeteringService extends PuterService {
                         ),
                     };
                 case 'insufficient':
-                    return { hold: null, balance };
+                    return { hold: null, balance, held: result.held };
                 case 'unavailable':
                     return budget >= amount
                         ? { hold: backed(NO_CREDIT_HOLD) }
