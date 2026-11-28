@@ -1947,13 +1947,13 @@ export class ChatCompletionDriver extends PuterDriver {
             outputCeiling(model, promptTokenEstimate),
             positiveOrInfinity(pricing.maxTokens),
         );
-        // The prompt plus output run to `limit`. A balance short of it would
-        // cut the reply off, which the caller is told the same way as a refusal.
         // The least that runs at all: the prompt and one token of reply.
         const runnable = Math.max(
             needed,
             approximateInputCost + extras + outputTokenCost,
         );
+        // The prompt plus output run to `limit`. A balance short of it would
+        // cut the reply off, which the caller is told the same way as a refusal.
         const fullCost =
             outputTokenCost > 0 && Number.isFinite(limit)
                 ? Math.max(

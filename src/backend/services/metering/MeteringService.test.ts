@@ -5160,6 +5160,28 @@ describe('MeteringService', () => {
             }
         });
 
+        it('pays what is owed from purchased credit first and the allowance after, in one settle', async () => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                const { monthUsageAllowance: allowance } =
+                    await target.getActorSubscription(actor);
+                await owing(3000);
+
+                vi.setSystemTime(OCTOBER_MONTH_ISO);
+                await target.updateAddonCredit(actor.user.uuid!, 1000);
+                expect(await exactBalance()).toBe(allowance - 2000);
+                await target.incrementUsage(actor, 'kv:read', 1, 100);
+
+                const addons = await exactAddons();
+                expect(addons.consumedPurchaseCredits).toBe(1000);
+                expect(addons.overdrawn).toBe(0);
+                expect(await exactBalance()).toBe(allowance - 2100);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
         it("pays what is owed out of the next month's allowance, once", async () => {
             vi.useFakeTimers({ toFake: ['Date'] });
             try {
