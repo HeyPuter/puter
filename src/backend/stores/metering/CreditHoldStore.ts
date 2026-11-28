@@ -45,7 +45,7 @@ const expiredHoldsCounter = meter.createCounter('metering.holds.expired', {
  * releases are what normally ends a hold, and every path that takes one
  * releases it.
  */
-const DEFAULT_HOLD_TTL_MS = 10 * 60 * 1000;
+export const DEFAULT_HOLD_TTL_MS = 10 * 60 * 1000;
 
 /** Room for the key to outlive its last hold, so reads still prune it. */
 const KEY_TTL_SLACK_MS = 60 * 1000;

@@ -327,7 +327,7 @@ async function update_usage_details ($el_window) {
             : formatDollarsFromMicrocents(v);
 
         $('.usage-plan-balance').html(amount(monthlyBalance(res.usage, res.allowanceInfo)));
-        // Shown for an account that has ever bought top-up credit.
+        // Shown for an account that has ever bought top-up credit, or owes.
         $('.usage-topup-card').toggle(addonLeft !== null);
         if ( addonLeft !== null ) {
             $('.usage-topup-balance').html(amount(addonLeft));

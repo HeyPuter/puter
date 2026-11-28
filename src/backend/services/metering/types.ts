@@ -20,6 +20,12 @@
 export interface UsageAddons {
     purchasedCredits: number;
     consumedPurchaseCredits: number;
+    /**
+     * Spend neither pool covered, run up by requests a backer let go below zero
+     * (see `UsageHeadroom.overdraft`). Owed: it comes off the balance, and
+     * later credit pays it first. Below zero when a payoff ran twice.
+     */
+    overdrawn?: number;
     purchasedStorage: number;
     rateDiscounts: {
         [usageType: string]: number | string;
@@ -52,6 +58,13 @@ export type UsageByType = {
      * for the winner, higher for racers.
      */
     allowanceUsedBaselined?: number;
+    /**
+     * Overdrawn spend this month's allowance paid off. Counts against the
+     * allowance beside `allowanceUsed`.
+     */
+    overdraftSettled?: number;
+    /** Claim counter for that payoff; 1 for the winner, higher for racers. */
+    overdraftSettledClaim?: number;
     /**
      * Claim for the month's recurring charges (`MONTHLY_CHARGE_CLAIM`): the
      * token of the attempt that took it, or a claim count on older records.
@@ -89,9 +102,15 @@ export interface CreditHold {
  * changed since; null when the cache couldn't answer.
  */
 export interface UsageHeadroom {
+    /** Negative for an actor that owes overdrawn spend. */
     balance: number;
     held: number;
     version?: string | null;
+    /**
+     * How far below zero a backer lets the actor run. A hold taken within this
+     * headroom may use it, and the spend past the balance is recorded as owed.
+     */
+    overdraft?: number;
 }
 
 /** For paths that take no hold but still release one. */

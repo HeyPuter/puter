@@ -38,6 +38,8 @@ const RESERVED_SEGMENTS: ReadonlySet<string> = new Set([
     'total',
     'allowanceUsed',
     'allowanceUsedBaselined',
+    'overdraftSettled',
+    'overdraftSettledClaim',
     'monthlyChargesApplied',
     'detailPaths',
     '__proto__',

@@ -73,9 +73,14 @@ const scaleUsageByType = (
 ): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(usage)) {
-        // `allowanceUsed` is the month's allowance-charged spend — monetary,
-        // scalar, scaled like the total.
-        if (key === 'total' || key === 'allowanceUsed') {
+        // `allowanceUsed` is the month's allowance-charged spend, and
+        // `overdraftSettled` what the allowance paid off — monetary, scalar,
+        // scaled like the total.
+        if (
+            key === 'total' ||
+            key === 'allowanceUsed' ||
+            key === 'overdraftSettled'
+        ) {
             out[key] = toCredits(Number(value) || 0, multiplier);
         } else if (
             value &&
@@ -133,7 +138,8 @@ export const handleMeteringUsage = async (
                 Object.entries(allowanceInfo.addons ?? {}).map(([k, v]) => [
                     k,
                     (k === 'purchasedCredits' ||
-                        k === 'consumedPurchaseCredits') &&
+                        k === 'consumedPurchaseCredits' ||
+                        k === 'overdrawn') &&
                     typeof v === 'number'
                         ? toCredits(v, multiplier)
                         : v,

@@ -49,7 +49,7 @@ import type {
     UsageByType,
     UsageInput,
 } from './types';
-import { creditsRefilled } from './enforcement';
+import { creditRelief } from './enforcement';
 import { NO_CREDIT_HOLD, type UsageHeadroom } from './types';
 import {
     addUsageDetail,
@@ -59,6 +59,7 @@ import {
     scalarsOf,
     type FlatUsageDetail,
 } from './usageDetail.js';
+import { DEFAULT_HOLD_TTL_MS } from '../../stores/metering/CreditHoldStore';
 import type { RecursiveRecord } from '../../stores/systemKv/SystemKVStore';
 
 import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserPolicy.js';
@@ -89,7 +90,10 @@ export interface ActorSubscriptionStatus {
 
 /** A `provisional` answer wins but is cached only for the fallback window. */
 export type SubscriptionAnswer =
-    string | { id: string | null; provisional: boolean } | null | undefined;
+    | string
+    | { id: string | null; provisional: boolean }
+    | null
+    | undefined;
 
 export type SubscriptionResolver = (
     actor: Actor,
@@ -373,10 +377,10 @@ export class MeteringService extends PuterService {
 
     /**
      * Uuid → an addons record with no purchased credit left, for the increment
-     * path. Only a grant changes one, since nothing draws on an empty pool, and
-     * every grant announces `credits-changed`, which drops it and holds off
-     * caching for the force-exact window. A record with credit left is always
-     * read fresh: other nodes draw it down unannounced.
+     * path. Only a grant or a change to what is owed alters one, since nothing
+     * draws on an empty pool, and both announce `credits-changed`, which drops
+     * it and holds off caching for the force-exact window. A record with credit
+     * left is always read fresh: other nodes draw it down unannounced.
      */
     #spentAddons = new BoundedTtlMap<
         string,
@@ -384,6 +388,16 @@ export class MeteringService extends PuterService {
     >({ maxEntries: MeteringService.CREDIT_CACHE_LIMIT });
     /** Bumped on every drop, so a read that straddles one isn't cached. */
     #spentAddonsDrops = 0;
+
+    /**
+     * Uuid → the holds this node's running requests took on an overdraft: the
+     * overdraft each was admitted on, and when it lapses if never released.
+     * Spend past the balance is recorded as owed only while one is live.
+     */
+    #overdraftBacked = new BoundedTtlMap<
+        string,
+        Map<symbol, { limit: number; expiresAt: number }>
+    >({ maxEntries: MeteringService.CREDIT_CACHE_LIMIT });
 
     /** Running sum reported by `#alarmSettleReadFailed`. */
     #unchargedSinceStart = 0;
@@ -464,7 +478,7 @@ export class MeteringService extends PuterService {
             'outer.pubsub.metering.credits-changed',
             (_key, data) => {
                 if (!data?.userUuid) return;
-                this.#dropCachedCredits(data.userUuid);
+                this.#dropCachedCredits(data.userUuid, data.rearm !== false);
                 this.#rememberForceExact(data.userUuid);
             },
         );
@@ -767,28 +781,21 @@ export class MeteringService extends PuterService {
             // After a failed read only the allowance share is charged:
             // purchased credit is never drawn against an unread balance.
             const readAddons = settleReadError ? null : actorAddons;
-            const settledAllowanceUsed = await this.settleIncrementCharges(
+            // Read first: a settle that changes what is owed starts the window.
+            const forcingExact = this.#isForcingExactReads(userId);
+            const settled = await this.settleIncrementCharges(
                 userId,
                 actorUsageKey,
                 actorUsages,
                 actorSubscription,
-                readAddons ?? ({} as UsageAddons),
+                readAddons ?? null,
                 totalBatchCost,
             );
             // Before any hold this usage stands for is released.
             await this.stores.creditHold.bump(userId);
 
             // What the allowance did not cover of this batch.
-            const overage = Math.max(
-                0,
-                totalBatchCost -
-                    (settledAllowanceUsed -
-                        MeteringService.allowanceUsedBefore(
-                            actorUsages,
-                            actorSubscription.monthUsageAllowance,
-                            totalBatchCost,
-                        )),
-            );
+            const { overage } = settled;
             if (!readAddons) {
                 this.#alarmSettleReadFailed(actor, settleReadError, overage);
             } else {
@@ -805,21 +812,17 @@ export class MeteringService extends PuterService {
                 // `actorAddons` was read before this batch drew on it. Right
                 // after a credits change it may predate that too, and counting
                 // the draw could report credit that just landed as spent.
-                const consumed = actorAddons?.consumedPurchaseCredits || 0;
-                const unspent = Math.max(
-                    0,
-                    (actorAddons?.purchasedCredits || 0) - consumed,
-                );
-                const drawn = this.#isForcingExactReads(userId)
-                    ? 0
-                    : Math.min(overage, unspent);
                 this.rememberRemainingCredits(
                     userId,
-                    settledAllowanceUsed,
+                    settled.allowanceUsed,
                     actorSubscription,
                     actorAddons && {
                         ...actorAddons,
-                        consumedPurchaseCredits: consumed + drawn,
+                        consumedPurchaseCredits:
+                            (actorAddons.consumedPurchaseCredits || 0) +
+                            (forcingExact ? 0 : settled.drawn),
+                        // Moves with `allowanceUsed`, which a payoff raised.
+                        overdrawn: settled.overdrawn,
                     },
                     provisionalUntil,
                 );
@@ -1462,12 +1465,15 @@ export class MeteringService extends PuterService {
         // clamp. The credit pool is deliberately untouched; admin moves it
         // through `updateAddonCredit`.
         const subscription = await this.getActorSubscription(actor);
+        // A payoff of overdrawn spend is not part of the total, and stays.
+        const usage = current as UsageByType | null;
         const allowanceUsedDelta =
             normalizedTotal -
-            MeteringService.allowanceUsedFrom(
-                current as UsageByType | null,
+            (MeteringService.allowanceUsedFrom(
+                usage,
                 subscription.monthUsageAllowance,
-            );
+            ) -
+                (usage ? MeteringService.overdraftSettledFrom(usage) : 0));
 
         // The record already reads as asked, so there is nothing to write — but
         // an adjustment is also how a cached view that has drifted from the
@@ -1685,23 +1691,31 @@ export class MeteringService extends PuterService {
         }
 
         if (opts.within) {
-            const { balance, version } = opts.within;
+            const { balance, version, overdraft = 0 } = opts.within;
+            const backed = (hold: CreditHold): CreditHold =>
+                overdraft > 0
+                    ? this.#backOverdraft(userId, overdraft, hold, opts.ttlMs)
+                    : hold;
             // The cache couldn't answer the read either; the caller's own
             // check of the balance stands.
-            if (version === null) return NO_CREDIT_HOLD;
+            if (version === null) return backed(NO_CREDIT_HOLD);
             const result = await this.stores.creditHold.reserve(
                 userId,
                 // Rounded down: the amount was sized to fit the headroom, and
                 // rounding up could put it a unit past it.
                 Math.max(1, Math.floor(amount)),
-                balance,
+                balance + overdraft,
                 version ?? '',
                 opts.ttlMs,
             );
             if (result.outcome === 'accepted') {
-                return this.#holdHandle(userId, result.member, opts.ttlMs);
+                return backed(
+                    this.#holdHandle(userId, result.member, opts.ttlMs),
+                );
             }
-            if (result.outcome === 'unavailable') return NO_CREDIT_HOLD;
+            if (result.outcome === 'unavailable') {
+                return backed(NO_CREDIT_HOLD);
+            }
             return result.outcome === 'stale' ? 'stale' : null;
         }
 
@@ -1720,25 +1734,37 @@ export class MeteringService extends PuterService {
      * step in the cache, and a usage write or release that lands after the
      * balance read sends the reservation back to read it again. When the cache
      * can't answer, the balance alone decides and nothing is held. A listener
-     * that tops the actor up at the moment of refusal gets one more try.
+     * that tops the actor up at the moment of refusal, or lets them run below
+     * zero, gets one more try.
      */
     async reserveCreditsIfAffordable(
         actor: Actor,
         amount: number,
         opts: { ttlMs?: number } = {},
     ): Promise<CreditHold | null> {
-        const hold = await this.#reserveIfAffordable(actor, amount, opts);
-        if (hold || !(await creditsRefilled(this.clients.event, actor))) {
-            return hold;
-        }
-        return this.#reserveIfAffordable(actor, amount, opts);
+        const first = await this.#reserveIfAffordable(actor, amount, opts);
+        if (first.hold) return first.hold;
+        const { refilled, overdraft } = await creditRelief(
+            this.clients.event,
+            actor,
+            first.balance === undefined
+                ? undefined
+                : { balance: first.balance, required: amount },
+        );
+        if (!refilled && !overdraft) return null;
+        const second = await this.#reserveIfAffordable(actor, amount, {
+            ...opts,
+            overdraft,
+        });
+        return second.hold;
     }
 
+    /** `balance` is what a refused reservation read, where it read one. */
     async #reserveIfAffordable(
         actor: Actor,
         amount: number,
-        opts: { ttlMs?: number },
-    ): Promise<CreditHold | null> {
+        opts: { ttlMs?: number; overdraft?: number },
+    ): Promise<{ hold: CreditHold | null; balance?: number }> {
         const userId = actor?.user?.uuid;
         if (
             !userId ||
@@ -1747,18 +1773,26 @@ export class MeteringService extends PuterService {
             !(amount > 0)
         ) {
             // Nothing to hold; the plain check decides, as it always has.
-            return (await this.hasEnoughCredits(actor, amount))
-                ? NO_CREDIT_HOLD
-                : null;
+            return {
+                hold: (await this.hasEnoughCredits(actor, amount))
+                    ? NO_CREDIT_HOLD
+                    : null,
+            };
         }
 
+        const overdraft = opts.overdraft ?? 0;
+        const backed = (hold: CreditHold): CreditHold =>
+            overdraft > 0
+                ? this.#backOverdraft(userId, overdraft, hold, opts.ttlMs)
+                : hold;
         for (let attempt = 1; ; attempt++) {
             const version = await this.stores.creditHold.version(userId);
             // Read after the version, so a write it misses bumps the version.
             const { remaining } = await this.getAllowedUsage(actor, {
                 exact: true,
             });
-            const budget = remaining || 0;
+            const balance = remaining || 0;
+            const budget = balance + overdraft;
             const result =
                 version === null
                     ? ({ outcome: 'unavailable' } as const)
@@ -1771,11 +1805,17 @@ export class MeteringService extends PuterService {
                       );
             switch (result.outcome) {
                 case 'accepted':
-                    return this.#holdHandle(userId, result.member, opts.ttlMs);
+                    return {
+                        hold: backed(
+                            this.#holdHandle(userId, result.member, opts.ttlMs),
+                        ),
+                    };
                 case 'insufficient':
-                    return null;
+                    return { hold: null, balance };
                 case 'unavailable':
-                    return budget >= amount ? NO_CREDIT_HOLD : null;
+                    return budget >= amount
+                        ? { hold: backed(NO_CREDIT_HOLD) }
+                        : { hold: null, balance };
                 case 'stale':
                     break;
             }
@@ -1785,7 +1825,7 @@ export class MeteringService extends PuterService {
                 console.warn(
                     `[metering] credit reservation refused for ${userId}: balance kept changing`,
                 );
-                return null;
+                return { hold: null };
             }
             await new Promise((resolve) =>
                 setTimeout(
@@ -1816,6 +1856,62 @@ export class MeteringService extends PuterService {
                 await this.stores.creditHold.refresh(userId, member, ttlMs);
             },
         };
+    }
+
+    /**
+     * `hold`, marking the actor as running on an overdraft of `limit` until it
+     * is released. Usage that settles on this node meanwhile may be recorded as
+     * owed; see `settleIncrementCharges`.
+     */
+    #backOverdraft(
+        userId: string,
+        limit: number,
+        hold: CreditHold,
+        ttlMs: number = DEFAULT_HOLD_TTL_MS,
+    ): CreditHold {
+        const id = Symbol();
+        // Also puts back an entry that lapsed and was pruned.
+        const mark = () => {
+            const backing =
+                this.#overdraftBacked.get(userId) ??
+                new Map<symbol, { limit: number; expiresAt: number }>();
+            backing.set(id, { limit, expiresAt: Date.now() + ttlMs });
+            this.#overdraftBacked.set(userId, backing);
+        };
+        mark();
+        let released = false;
+        return {
+            release: async () => {
+                if (!released) {
+                    released = true;
+                    const backing = this.#overdraftBacked.get(userId);
+                    backing?.delete(id);
+                    if (backing?.size === 0) {
+                        this.#overdraftBacked.delete(userId);
+                    }
+                }
+                await hold.release();
+            },
+            extend: async () => {
+                if (released) return;
+                mark();
+                await hold.extend?.();
+            },
+        };
+    }
+
+    /** The largest overdraft a live hold of the actor's was admitted on. */
+    #liveOverdraft(userId: string): number {
+        const backing = this.#overdraftBacked.get(userId);
+        if (!backing) return 0;
+        const now = Date.now();
+        let limit = 0;
+        for (const [id, held] of backing) {
+            if (held.expiresAt <= now) backing.delete(id);
+            else limit = Math.max(limit, held.limit);
+        }
+        if (backing.size === 0) this.#overdraftBacked.delete(userId);
+        return limit;
     }
 
     /** Budget this actor has committed to requests that are still running. */
@@ -1904,11 +2000,21 @@ export class MeteringService extends PuterService {
     ): number {
         if (!usage) return 0;
         const total = usage.total || 0;
-        return Math.min(
-            usage.allowanceUsed ??
-                Math.min(total, Math.max(0, monthUsageAllowance || 0)),
-            total,
+        return (
+            Math.min(
+                usage.allowanceUsed ??
+                    Math.min(total, Math.max(0, monthUsageAllowance || 0)),
+                total,
+            ) + MeteringService.overdraftSettledFrom(usage)
         );
+    }
+
+    /**
+     * Overdrawn spend this month's allowance paid off. Not counted in
+     * `allowanceUsed`, so it sits outside the clamp to the month's total.
+     */
+    private static overdraftSettledFrom(usage: UsageByType): number {
+        return Math.max(0, usage.overdraftSettled || 0);
     }
 
     /**
@@ -1924,10 +2030,15 @@ export class MeteringService extends PuterService {
     ): number {
         if (!usage) return 0;
         const totalBefore = Math.max(0, (usage.total || 0) - incrementCost);
-        return Math.min(
-            usage.allowanceUsed ??
-                Math.min(totalBefore, Math.max(0, monthUsageAllowance || 0)),
-            totalBefore,
+        return (
+            Math.min(
+                usage.allowanceUsed ??
+                    Math.min(
+                        totalBefore,
+                        Math.max(0, monthUsageAllowance || 0),
+                    ),
+                totalBefore,
+            ) + MeteringService.overdraftSettledFrom(usage)
         );
     }
 
@@ -1938,7 +2049,7 @@ export class MeteringService extends PuterService {
 
     /**
      * What's left of an actor's budget: what remains of the monthly allowance
-     * plus what remains of the lifetime credit pool.
+     * plus what remains of the lifetime credit pool, less what they owe.
      *
      * The pools are independent and each spend lands in exactly one of them
      * (allowance first — see `settleIncrementCharges`), so this is a plain sum.
@@ -1946,6 +2057,11 @@ export class MeteringService extends PuterService {
      * netted against: the total also contains credit-charged overage, which
      * must not bill the allowance too — visibly so when a plan change raises
      * the allowance mid-month.
+     *
+     * Negative for an actor whose overdrawn spend outweighs both pools.
+     * `overdrawn` is not clamped: a payoff that raced and ran twice leaves it
+     * below zero by what was charged twice, which the sum gives back and
+     * `settleIncrementCharges` spends.
      */
     private static remainingFrom(
         allowanceUsed: number,
@@ -1961,7 +2077,11 @@ export class MeteringService extends PuterService {
             (addons?.purchasedCredits || 0) -
                 (addons?.consumedPurchaseCredits || 0),
         );
-        return remainingAllowance + remainingPurchasedCredits;
+        return (
+            remainingAllowance +
+            remainingPurchasedCredits -
+            (addons?.overdrawn || 0)
+        );
     }
 
     async hasEnoughCredits(actor: Actor, amount: number): Promise<boolean> {
@@ -2024,22 +2144,28 @@ export class MeteringService extends PuterService {
      * anything that adds to what they may spend — a credit purchase, an admin
      * grant — so it applies now rather than at the end of the cache window.
      */
-    invalidateActorCredits(userUuid: string): void {
-        this.#dropCachedCredits(userUuid);
+    invalidateActorCredits(
+        userUuid: string,
+        { rearm = true }: { rearm?: boolean } = {},
+    ): void {
+        this.#dropCachedCredits(userUuid, rearm);
         this.clients.event.emit(
             'outer.pubsub.metering.credits-changed',
-            { userUuid },
+            { userUuid, ...(rearm ? {} : { rearm }) },
             {},
         );
     }
 
-    /** Local-only drop. The announcement path is `invalidateActorCredits`. */
-    #dropCachedCredits(userUuid: string): void {
+    /**
+     * Local-only drop. The announcement path is `invalidateActorCredits`.
+     * `rearm` is false for a change that added nothing to spend.
+     */
+    #dropCachedCredits(userUuid: string, rearm = true): void {
         this.creditCache.delete(userUuid);
         this.#spentAddons.delete(userUuid);
         this.#spentAddonsDrops++;
         // Added capacity re-arms the alert: the next exhaustion is news again.
-        if (this.creditAlertState.has(userUuid))
+        if (rearm && this.creditAlertState.has(userUuid))
             this.creditAlertState.set(userUuid, 'rearmed');
     }
 
@@ -3105,24 +3231,44 @@ export class MeteringService extends PuterService {
      * one page load meters many responses at once — all see the field absent,
      * and without the claim each would add the baseline again.
      *
-     * Returns the month's allowance-charged spend as of after this settle —
-     * `usageRecord` itself predates the write, so callers deciding on the
-     * balance must use this rather than re-read the record they hold.
+     * Spend neither pool covers is dropped, unless the actor has a request
+     * running on an overdraft: then it is recorded as owed, up to what the
+     * overdraft allows. What is owed is paid off before the increment itself,
+     * by purchased credit first and then by the allowance, the allowance once a
+     * month.
+     *
+     * `allowanceUsed` is the month's allowance-charged spend as of after this
+     * settle — `usageRecord` itself predates the write, so callers deciding on
+     * the balance must use it rather than re-read the record they hold.
+     * `addons` is null when the balance could not be read: only the allowance
+     * is charged then.
      */
     private async settleIncrementCharges(
         userId: string,
         actorUsageKey: string,
         usageRecord: UsageByType,
         subscription: SubscriptionPolicy,
-        addons: UsageAddons,
+        addons: UsageAddons | null,
         incrementCost: number,
-    ): Promise<number> {
+    ): Promise<{
+        allowanceUsed: number;
+        overage: number;
+        /** What came off purchased credit, for spend and for what was owed. */
+        drawn: number;
+        overdrawn: number;
+    }> {
         const { monthUsageAllowance } = subscription;
+        const overdrawnBefore = addons?.overdrawn || 0;
         if (incrementCost <= 0) {
-            return MeteringService.allowanceUsedFrom(
-                usageRecord,
-                monthUsageAllowance,
-            );
+            return {
+                allowanceUsed: MeteringService.allowanceUsedFrom(
+                    usageRecord,
+                    monthUsageAllowance,
+                ),
+                overage: 0,
+                drawn: 0,
+                overdrawn: overdrawnBefore,
+            };
         }
 
         const usedBefore = MeteringService.allowanceUsedBefore(
@@ -3131,8 +3277,11 @@ export class MeteringService extends PuterService {
             incrementCost,
         );
 
+        // A payoff is not spend, and is recorded on its own.
+        const chargedBefore =
+            usedBefore - MeteringService.overdraftSettledFrom(usageRecord);
         let baseline = 0;
-        if (usageRecord.allowanceUsed === undefined && usedBefore > 0) {
+        if (usageRecord.allowanceUsed === undefined && chargedBefore > 0) {
             const { res } = await this.stores.meteringBuffer.incr({
                 key: actorUsageKey,
                 pathAndAmountMap: { allowanceUsedBaselined: 1 },
@@ -3140,11 +3289,29 @@ export class MeteringService extends PuterService {
             const claim = (res as unknown as UsageByType)
                 .allowanceUsedBaselined;
             if (claim === 1) {
-                baseline = usedBefore;
+                baseline = chargedBefore;
             }
         }
 
-        const headroom = Math.max(0, monthUsageAllowance - usedBefore);
+        // Purchased credit pays what is owed first, then the month's allowance.
+        const unspent = Math.max(
+            0,
+            (addons?.purchasedCredits || 0) -
+                (addons?.consumedPurchaseCredits || 0),
+        );
+        const repaid = Math.min(Math.max(0, overdrawnBefore), unspent);
+        const owed = Math.max(0, overdrawnBefore) - repaid;
+        let headroom = Math.max(0, monthUsageAllowance - usedBefore);
+        let paidOff = 0;
+        if (owed > 0 && headroom > 0 && !usageRecord.overdraftSettledClaim) {
+            const { res } = await this.stores.meteringBuffer.incr({
+                key: actorUsageKey,
+                pathAndAmountMap: { overdraftSettledClaim: 1 },
+            });
+            const claim = (res as unknown as UsageByType).overdraftSettledClaim;
+            if (claim === 1) paidOff = Math.min(owed, headroom);
+        }
+        headroom -= paidOff;
         const allowanceCharge = Math.min(incrementCost, headroom);
         const overage = incrementCost - allowanceCharge;
 
@@ -3171,25 +3338,82 @@ export class MeteringService extends PuterService {
                 }),
             );
         }
-
-        const remainingCredits =
-            (addons.purchasedCredits || 0) -
-            (addons.consumedPurchaseCredits || 0);
-        if (overage > 0 && remainingCredits > 0) {
+        if (paidOff > 0) {
             writes.push(
-                this.stores.kv.incr({
-                    key: addonsConsumedKey(userId),
+                this.stores.meteringBuffer.incr({
+                    key: actorUsageKey,
                     pathAndAmountMap: {
-                        consumedPurchaseCredits: Math.min(
-                            overage,
-                            remainingCredits,
-                        ),
+                        overdraftSettled: paidOff,
+                        // So the record stops reading its total as allowance
+                        // spend when the payoff left the increment no room.
+                        ...(usageRecord.allowanceUsed === undefined
+                            ? { allowanceUsed: 0 }
+                            : {}),
                     },
                 }),
             );
         }
+
+        const drawn = Math.min(overage, unspent - repaid);
+        if (drawn + repaid > 0) {
+            writes.push(
+                this.stores.kv.incr({
+                    key: addonsConsumedKey(userId),
+                    pathAndAmountMap: {
+                        consumedPurchaseCredits: drawn + repaid,
+                    },
+                }),
+            );
+        }
+
+        // A counter below zero is credit: a payoff that raced and ran twice.
+        const fromCredit = Math.min(
+            overage - drawn,
+            Math.max(0, -overdrawnBefore),
+        );
+        const unpaid = overage - drawn - fromCredit;
+        const overdraft =
+            addons && unpaid > 0 ? this.#liveOverdraft(userId) : 0;
+        const newlyOwed = Math.max(
+            0,
+            Math.min(unpaid, overdraft - (owed - paidOff)),
+        );
+        const overdrawnChange = newlyOwed + fromCredit - paidOff - repaid;
+        if (overdrawnChange !== 0) {
+            writes.push(
+                this.stores.kv.incr({
+                    key: addonsKey(userId),
+                    pathAndAmountMap: { overdrawn: overdrawnChange },
+                }),
+            );
+        }
         await Promise.all(writes);
-        return usedBefore + allowanceCharge;
+
+        const overdrawn = overdrawnBefore + overdrawnChange;
+        if (overdrawnChange !== 0) {
+            // Other nodes hold this record as one that never changes. Owing
+            // more adds nothing to spend, so it re-arms no alert.
+            this.invalidateActorCredits(userId, {
+                rearm: overdrawnChange < 0,
+            });
+        }
+        if (newlyOwed > 0) {
+            try {
+                this.clients.event.emit(
+                    'metering.overdrawn',
+                    { userUuid: userId, overdrawn },
+                    {},
+                );
+            } catch (e) {
+                console.warn('[metering] overdrawn emit failed:', e);
+            }
+        }
+        return {
+            allowanceUsed: usedBefore + allowanceCharge + paidOff,
+            overage,
+            drawn: drawn + repaid,
+            overdrawn,
+        };
     }
 
     /**

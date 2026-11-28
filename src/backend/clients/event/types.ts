@@ -84,7 +84,11 @@ export type KvMutation = KvOp | 'flush';
 
 /** How an interactive sign-in proved the account. */
 export type SignInMethod =
-    'password' | 'otp' | 'recovery_code' | 'oidc' | 'webdav';
+    | 'password'
+    | 'otp'
+    | 'recovery_code'
+    | 'oidc'
+    | 'webdav';
 
 /** The AI requests checked through `ai.prompt.validate`. */
 export type AiPromptKind = 'chat' | 'realtime';
@@ -665,12 +669,27 @@ export type EventMap = {
         subscriptionId: string;
     };
     /**
-     * An actor is about to be refused for lack of credit. Emitted with
-     * `emitAndWait`: a listener that adds credit sets `refilled`, and the
-     * refused work is tried once more. Per refusal, so a listener returns
-     * before any I/O for an actor it has nothing to do for.
+     * An actor is about to be refused, or have its work cut short, for lack of
+     * credit. Emitted with `emitAndWait`: a listener that adds credit sets
+     * `refilled`, and the refused work is tried once more. A listener that will
+     * pay afterwards sets `overdraft` instead, the amount the actor may run
+     * below zero. Per refusal, so a listener returns before any I/O for an
+     * actor it has nothing to do for.
      */
-    'metering.out-of-credits': { actor: Actor; refilled: boolean };
+    'metering.out-of-credits': {
+        actor: Actor;
+        refilled: boolean;
+        /** The balance the gate read, where it read one. */
+        balance?: number;
+        /** The least the work needs to run at all. */
+        required?: number;
+        overdraft?: number;
+    };
+    /**
+     * Spend past an actor's balance was recorded as owed; `overdrawn` is the
+     * total they owe now. Only requests admitted on an overdraft cause it.
+     */
+    'metering.overdrawn': { userUuid: string; overdrawn: number };
 
     // ---- Filesystem ----
     'fs.copy.node': {
@@ -1200,7 +1219,11 @@ export type EventMap = {
      * an account has budget left, so a top-up only lifts enforcement once they
      * have all dropped that answer.
      */
-    'outer.pubsub.metering.credits-changed': { userUuid: string };
+    'outer.pubsub.metering.credits-changed': {
+        userUuid: string;
+        /** False for a change that added nothing to spend. */
+        rearm?: boolean;
+    };
 } & IExtensionEventMap;
 
 /** A union of `Names`, each of which has to be an email template. */
@@ -1327,10 +1350,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1341,7 +1365,10 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    'received' | 'unreceived' | 'no-socket' | 'remote-only';
+    | 'received'
+    | 'unreceived'
+    | 'no-socket'
+    | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

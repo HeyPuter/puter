@@ -146,6 +146,28 @@ describe('addonCreditsRemaining', () => {
             consumedPurchaseCredits: NaN,
         }))).toBe(1_000);
     });
+
+    it('is below zero by what an account that never bought any owes', () => {
+        expect(addonCreditsRemaining(info(900_000_000, { overdrawn: 400 }))).toBe(-400);
+    });
+
+    it('takes what is owed off the credit that is left', () => {
+        expect(addonCreditsRemaining(info(0, {
+            purchasedCredits: 2_500,
+            consumedPurchaseCredits: 0,
+            overdrawn: 100,
+        }))).toBe(2_400);
+        expect(addonCreditsRemaining(info(0, {
+            purchasedCredits: 1_000,
+            consumedPurchaseCredits: 1_000,
+            overdrawn: 50,
+        }))).toBe(-50);
+    });
+
+    it('counts a counter below zero as credit, and zero as nothing', () => {
+        expect(addonCreditsRemaining(info(0, { overdrawn: 0 }))).toBeNull();
+        expect(addonCreditsRemaining(info(0, { overdrawn: -30 }))).toBe(30);
+    });
 });
 
 describe('monthlyBalance', () => {
@@ -160,6 +182,13 @@ describe('monthlyBalance', () => {
 
     it('never goes below zero', () => {
         expect(monthlyBalance({ total: 12_000, allowanceUsed: 12_000 }, info(10_000))).toBe(0);
+    });
+
+    it('counts overdrawn spend the allowance paid off', () => {
+        expect(monthlyBalance(
+            { total: 1_000, allowanceUsed: 1_000, overdraftSettled: 1_500 },
+            info(10_000),
+        )).toBe(7_500);
     });
 
     it('is zero with no allowance or no report', () => {
