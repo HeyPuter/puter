@@ -781,8 +781,7 @@ export class MeteringService extends PuterService {
             // After a failed read only the allowance share is charged:
             // purchased credit is never drawn against an unread balance.
             const readAddons = settleReadError ? null : actorAddons;
-            // Read first: a settle that changes what is owed starts the window.
-            const forcingExact = this.#isForcingExactReads(userId);
+            const forcingBefore = this.#isForcingExactReads(userId);
             const settled = await this.settleIncrementCharges(
                 userId,
                 actorUsageKey,
@@ -812,6 +811,11 @@ export class MeteringService extends PuterService {
                 // `actorAddons` was read before this batch drew on it. Right
                 // after a credits change it may predate that too, and counting
                 // the draw could report credit that just landed as spent.
+                // A settle that changed what is owed opened the window itself.
+                const forcingExact =
+                    forcingBefore ||
+                    (settled.overdrawn === (actorAddons?.overdrawn || 0) &&
+                        this.#isForcingExactReads(userId));
                 this.rememberRemainingCredits(
                     userId,
                     settled.allowanceUsed,
@@ -820,8 +824,9 @@ export class MeteringService extends PuterService {
                         ...actorAddons,
                         consumedPurchaseCredits:
                             (actorAddons.consumedPurchaseCredits || 0) +
+                            settled.repaid +
                             (forcingExact ? 0 : settled.drawn),
-                        // Moves with `allowanceUsed`, which a payoff raised.
+                        // Moves with `allowanceUsed` and `repaid`.
                         overdrawn: settled.overdrawn,
                     },
                     provisionalUntil,
@@ -2058,10 +2063,8 @@ export class MeteringService extends PuterService {
      * must not bill the allowance too — visibly so when a plan change raises
      * the allowance mid-month.
      *
-     * Negative for an actor whose overdrawn spend outweighs both pools.
-     * `overdrawn` is not clamped: a payoff that raced and ran twice leaves it
-     * below zero by what was charged twice, which the sum gives back and
-     * `settleIncrementCharges` spends.
+     * Negative for an actor who owes more than both pools hold. `overdrawn` is
+     * signed, and not clamped here; see `UsageAddons.overdrawn`.
      */
     private static remainingFrom(
         allowanceUsed: number,
@@ -2983,7 +2986,8 @@ export class MeteringService extends PuterService {
         const approximate = usage.res as UsageByType;
         if (usage.exact || !(monthUsageAllowance > 0)) return approximate;
         if (
-            (approximate.total || 0) <
+            (approximate.total || 0) +
+                MeteringService.overdraftSettledFrom(approximate) <
             monthUsageAllowance * MeteringService.PRECISION_THRESHOLD
         )
             return approximate;
@@ -3231,11 +3235,10 @@ export class MeteringService extends PuterService {
      * one page load meters many responses at once — all see the field absent,
      * and without the claim each would add the baseline again.
      *
-     * Spend neither pool covers is dropped, unless the actor has a request
-     * running on an overdraft: then it is recorded as owed, up to what the
-     * overdraft allows. What is owed is paid off before the increment itself,
-     * by purchased credit first and then by the allowance, the allowance once a
-     * month.
+     * Spend neither pool covers is dropped, unless a hold taken on an overdraft
+     * is live: then it is owed, up to the overdraft. What is owed is paid
+     * before the increment, by purchased credit and then, once a month, the
+     * allowance.
      *
      * `allowanceUsed` is the month's allowance-charged spend as of after this
      * settle — `usageRecord` itself predates the write, so callers deciding on
@@ -3253,8 +3256,9 @@ export class MeteringService extends PuterService {
     ): Promise<{
         allowanceUsed: number;
         overage: number;
-        /** What came off purchased credit, for spend and for what was owed. */
+        /** What purchased credit paid of this spend, and of what was owed. */
         drawn: number;
+        repaid: number;
         overdrawn: number;
     }> {
         const { monthUsageAllowance } = subscription;
@@ -3267,6 +3271,7 @@ export class MeteringService extends PuterService {
                 ),
                 overage: 0,
                 drawn: 0,
+                repaid: 0,
                 overdrawn: overdrawnBefore,
             };
         }
@@ -3411,7 +3416,8 @@ export class MeteringService extends PuterService {
         return {
             allowanceUsed: usedBefore + allowanceCharge + paidOff,
             overage,
-            drawn: drawn + repaid,
+            drawn,
+            repaid,
             overdrawn,
         };
     }

@@ -1171,9 +1171,14 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
 
                 expect(await completeCapme(d)).toBe(8192);
                 expect(grant).toHaveBeenCalledTimes(1);
-                expect(grant.mock.calls[0]![1]).toMatchObject({
-                    balance: 15_000_000,
-                });
+                const refusal = grant.mock.calls[0]![1] as {
+                    balance: number;
+                    required: number;
+                };
+                expect(refusal.balance).toBe(15_000_000);
+                // The prompt and one token of reply, not the full reply.
+                expect(refusal.required).toBeGreaterThanOrEqual(2000);
+                expect(refusal.required).toBeLessThan(1_000_000);
                 // The balance is as it was, so it isn't read again.
                 expect(headroom).toHaveBeenCalledTimes(1);
                 expect(reserve.mock.calls[0]![2]).toMatchObject({
